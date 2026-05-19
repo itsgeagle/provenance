@@ -87,7 +87,7 @@ describe('App routing', () => {
     // After load completes, the app should navigate to /overview.
     await waitFor(
       () => {
-        expect(screen.getByTestId('overview-placeholder')).toBeInTheDocument();
+        expect(screen.getByTestId('overview-view')).toBeInTheDocument();
       },
       { timeout: 5000 },
     );

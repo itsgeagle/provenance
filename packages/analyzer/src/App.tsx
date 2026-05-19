@@ -21,7 +21,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { BundleProvider, useBundle } from './context/BundleContext.js';
 import { LoadView } from './views/load/LoadView.js';
-import { OverviewPlaceholder } from './views/overview/OverviewPlaceholder.js';
+import { OverviewView } from './views/overview/OverviewView.js';
 import { TimelinePlaceholder } from './views/timeline/TimelinePlaceholder.js';
 import { Layout } from './components/Layout.js';
 
@@ -51,7 +51,7 @@ export function App() {
           element={
             <RequireBundle>
               <Layout>
-                <OverviewPlaceholder />
+                <OverviewView />
               </Layout>
             </RequireBundle>
           }
