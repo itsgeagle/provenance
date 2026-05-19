@@ -6,6 +6,7 @@
 set -euo pipefail
 
 FIXTURE_PATH="packages/analyzer/test/fixtures/sample-bundle.zip"
+DEV_PID=""
 
 if [ ! -f "$FIXTURE_PATH" ]; then
   cat >&2 <<'EOF'
@@ -32,17 +33,32 @@ EOF
   exit 1
 fi
 
+# Cleanup function: kill the dev server if script exits or user presses Ctrl+C
+cleanup() {
+  if [ -n "$DEV_PID" ] && kill -0 "$DEV_PID" 2>/dev/null; then
+    echo "Stopping dev server (PID $DEV_PID)..."
+    kill "$DEV_PID" 2>/dev/null || true
+    wait "$DEV_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
 # Start the dev server in the background
 echo "Starting analyzer dev server..."
 npm run dev --workspace=packages/analyzer &
 DEV_PID=$!
 
-# Wait for the dev server to be ready
-sleep 3
+# Wait for the dev server to be ready (poll for port 5173)
+for i in {1..30}; do
+  if nc -z localhost 5173 2>/dev/null; then
+    break
+  fi
+  sleep 0.5
+done
 
 # Print instructions
 cat <<EOF
-✓ Dev server started (PID $DEV_PID)
+[OK] Dev server started (PID $DEV_PID)
 
 To test the analyzer with the fixture:
 
@@ -50,10 +66,9 @@ To test the analyzer with the fixture:
   2. On the Load page, drop or select: $FIXTURE_PATH
   3. Review the Overview dashboard, validation report, and timeline
 
-To stop the server, press Ctrl+C or run:
-  kill $DEV_PID
+Press Ctrl+C to stop the server.
 
 EOF
 
 # Keep the script alive and forward signals
-wait $DEV_PID
+wait "$DEV_PID"
