@@ -26,10 +26,12 @@ export const window = {
     hide: () => undefined,
     dispose: () => undefined,
   }),
-  // Used by heartbeat for focus-change subscription.
-  onDidChangeWindowState: (_handler: () => void) => noopDisposable,
+  // Used by heartbeat and doc-wiring for focus-change subscription.
+  onDidChangeWindowState: (_handler: (_state: { focused: boolean }) => void) => noopDisposable,
   // Used by heartbeat for active-editor-change subscription.
   onDidChangeActiveTextEditor: (_handler: () => void) => noopDisposable,
+  // Used by doc-wiring for selection-change subscription.
+  onDidChangeTextEditorSelection: (_handler: (_event: unknown) => void) => noopDisposable,
   // Mock: active editor is always undefined in unit tests.
   activeTextEditor: undefined as undefined,
   // Window state: always focused in unit tests.
@@ -38,9 +40,13 @@ export const window = {
 
 export const workspace = {
   workspaceFolders: undefined as unknown as unknown[],
-  // Used by heartbeat for text-document-change subscription.
-  onDidChangeTextDocument: (_handler: () => void) => noopDisposable,
-  // Used for building relative paths in activeTextEditor helper.
+  // Used by heartbeat and doc-wiring for text-document-change subscription.
+  onDidChangeTextDocument: (_handler: (_event: unknown) => void) => noopDisposable,
+  // Used by doc-wiring for open/save/close subscriptions.
+  onDidOpenTextDocument: (_handler: (_doc: unknown) => void) => noopDisposable,
+  onDidSaveTextDocument: (_handler: (_doc: unknown) => void) => noopDisposable,
+  onDidCloseTextDocument: (_handler: (_doc: unknown) => void) => noopDisposable,
+  // Used for building relative paths.
   asRelativePath: (uri: { fsPath: string }) => uri.fsPath,
 };
 

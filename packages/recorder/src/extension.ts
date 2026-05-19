@@ -22,6 +22,8 @@ import { createSessionHost } from './session/session-host.js';
 import { SessionWriter } from './io/session-writer.js';
 import { startHeartbeat } from './events/heartbeat.js';
 import { startClockWatcher } from './events/clock-watcher.js';
+import { startDocWiring } from './wiring/doc-wiring.js';
+import { ExpectedContentRegistry } from './state/expected-content-registry.js';
 import type { Cs61aManifest } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
@@ -169,14 +171,26 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   });
   disposables.push(clockWatcher);
 
-  // Step 9: Heartbeat and clock watcher are already in disposables (Steps 7–8).
-  // Deactivation (session.end + writer.dispose) is handled by the module-level deactivate()
-  // function, which VS Code awaits. See deactivate() below.
-  //
+  // Step 9: Start doc-event wiring (PRD §4.2: doc.*, selection.change, focus.change).
+  const expectedContentRegistry = new ExpectedContentRegistry(manifest.files_under_review);
+  const docWiring = startDocWiring({
+    workspace: { asRelativePath: vscode.workspace.asRelativePath.bind(vscode.workspace) },
+    emitDocOpen: (data) => sessionHost.emit('doc.open', data),
+    emitDocChange: (data) => sessionHost.emit('doc.change', data),
+    emitDocSave: (data) => sessionHost.emit('doc.save', data),
+    emitDocClose: (data) => sessionHost.emit('doc.close', data),
+    emitSelectionChange: (data) => sessionHost.emit('selection.change', data),
+    emitFocusChange: (data) => sessionHost.emit('focus.change', data),
+    filesUnderReview: manifest.files_under_review,
+    expectedContent: expectedContentRegistry,
+  });
+  disposables.push(docWiring);
+
   // VS Code disposes context.subscriptions in LIFO order. We pushed the status bar disposable
-  // (Step 2), then heartbeat (Step 7), then clock watcher (Step 8). On teardown: clock watcher
-  // disposes first, then heartbeat, then status bar. After all subscriptions are disposed,
-  // deactivate() runs and is awaited, ensuring session.end is emitted and the writer flushes.
+  // (Step 2), then heartbeat (Step 7), then clock watcher (Step 8), then doc wiring (Step 9).
+  // On teardown: doc wiring disposes first, then clock watcher, heartbeat, status bar.
+  // After all subscriptions are disposed, deactivate() runs and is awaited,
+  // ensuring session.end is emitted and the writer flushes.
 
   // Store the active session so deactivate() can access it.
   activeSession = { slogPath, writer, sessionHost };
