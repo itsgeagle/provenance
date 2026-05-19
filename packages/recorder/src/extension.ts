@@ -20,6 +20,7 @@ import { createRecordingStatusBar } from './activation/status-bar.js';
 import { buildRecorderContext } from './session/recorder-context.js';
 import { createSessionHost } from './session/session-host.js';
 import { SessionWriter } from './io/session-writer.js';
+import { MetaWriter } from './io/meta-writer.js';
 import { startHeartbeat } from './events/heartbeat.js';
 import { startClockWatcher } from './events/clock-watcher.js';
 import { startDocWiring } from './wiring/doc-wiring.js';
@@ -32,6 +33,9 @@ import { startTerminalWiring } from './wiring/terminal-wiring.js';
 import { startExtensionSnapshot } from './wiring/extension-snapshot.js';
 import { startExtensionActivation } from './wiring/extension-activation.js';
 import { startGitWiring } from './wiring/git-wiring.js';
+import { generateSessionKeypair, encryptSessionPrivkey } from './crypto/session-keys.js';
+import { signCheckpoint } from './crypto/checkpoint-signer.js';
+import { recoverPreviousSession } from './startup/chain-recovery.js';
 import type { LargeInsertCounter } from './wiring/doc-wiring.js';
 import type { Cs61aManifest } from '@provenance/log-core';
 
@@ -87,6 +91,7 @@ export type HeartbeatVscodeDeps = {
 type ActiveSession = {
   slogPath: string;
   writer: SessionWriter;
+  metaWriter: MetaWriter;
   sessionHost: ReturnType<typeof createSessionHost>;
 };
 
@@ -131,21 +136,55 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     createRecordingStatusBar(disposables);
   }
 
-  // Step 3: Build recorder context (generates sessionId, machineId, etc.).
+  // Step 3a: Determine .provenance/ dir early (needed by chain recovery + session writer).
+  const provenanceDir =
+    deps.provenanceDirOverride ?? path.join(workspaceFolder.uri.fsPath, '.provenance');
+  await fsPromises.mkdir(provenanceDir, { recursive: true });
+
+  // Step 3b: Chain recovery — inspect the provenanceDir for a previous session.
+  // PRD §4.8: on extension crash → set prev_session_id. On corrupt log → quarantine.
+  const recovery = await recoverPreviousSession({
+    provenanceDir,
+    readSlogFile: async (p) => {
+      try {
+        const text = await fsPromises.readFile(p, 'utf8');
+        return { ok: true, text };
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        return { ok: false, reason: code === 'ENOENT' ? 'not_found' : 'read_error' };
+      }
+    },
+    rename: fsPromises.rename,
+    listSlogFiles: async (dir) => {
+      try {
+        const entries = await fsPromises.readdir(dir);
+        return entries.filter((f) => f.endsWith('.slog'));
+      } catch {
+        return [];
+      }
+    },
+    now: () => new Date(),
+  });
+
+  // Determine prev_session_id from recovery result.
+  // Only set for dangling sessions (crashes) — not for cleanly ended sessions.
+  const prevSessionId: string | null =
+    recovery.kind === 'previous_session_dangling' ? recovery.prevSessionId : null;
+
+  // Step 3c: Generate the session keypair (Phase 9).
+  const keypair = await generateSessionKeypair();
+
+  // Step 3d: Build recorder context (generates sessionId, machineId, etc.).
   const recorderContext = buildRecorderContext({
     manifest,
-    prevSessionId: null, // Phase 9 will populate from previous session meta.
+    prevSessionId,
     extension,
     vscodeVersion,
     platform,
+    sessionPubkeyHex: keypair.publicKeyHex,
   });
 
-  // Step 4: Set up the .provenance/ directory and open a SessionWriter.
-  const provenanceDir =
-    deps.provenanceDirOverride ?? path.join(workspaceFolder.uri.fsPath, '.provenance');
-
-  await fsPromises.mkdir(provenanceDir, { recursive: true });
-
+  // Step 4: Open a SessionWriter (.provenance/ dir already created in Step 3a).
   const slogPath = path.join(provenanceDir, `session-${randomUUID()}.slog`);
   const writer = await SessionWriter.open({
     slogPath,
@@ -153,15 +192,54 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     onError: (e) => console.error('[provenance] writer error:', e),
   });
 
+  // Step 4b: Encrypt the private key and create the MetaWriter.
+  // Encrypt under the manifest sig so it can't be recovered without the course manifest.
+  const encryptedPrivkey = await encryptSessionPrivkey(
+    keypair.privateKey,
+    manifest.sig,
+    recorderContext.session_id,
+  );
+  const metaPath = `${slogPath}.meta`;
+  const metaWriter = await MetaWriter.create({
+    metaPath,
+    sessionId: recorderContext.session_id,
+    sessionPubkeyHex: keypair.publicKeyHex,
+    encryptedPrivkey,
+  });
+
   // Step 5: Create the session host.
+  // Hook checkpoints: every CHECKPOINT_INTERVAL entries, sign + write.
+  // Fire-and-forget — do not block the append path.
+  const CHECKPOINT_INTERVAL = 100;
+  let entryCountSinceLastCheckpoint = 0;
+
   const sessionHost = createSessionHost({
     sessionId: recorderContext.session_id,
     clock,
-    onEntry: (entry: HashedEnvelope) => writer.append(entry),
+    onEntry: (entry: HashedEnvelope) => {
+      writer.append(entry);
+      entryCountSinceLastCheckpoint++;
+      if (entryCountSinceLastCheckpoint >= CHECKPOINT_INTERVAL) {
+        entryCountSinceLastCheckpoint = 0;
+        // Fire-and-forget with error logging. Checkpoint failure is non-fatal.
+        void signCheckpoint(entry.seq, entry.hash, keypair.privateKey)
+          .then((cp) => metaWriter.appendCheckpoint(cp))
+          .catch((e: unknown) => {
+            console.error('[provenance] checkpoint sign/write error:', e);
+          });
+      }
+    },
   });
 
   // Step 6: Emit session.start.
   sessionHost.emit('session.start', recorderContext);
+
+  // Step 6b: If we recovered from corruption, emit the recovery event now (after session.start).
+  if (recovery.kind === 'previous_session_corrupt') {
+    sessionHost.emit('recorder.recovered_from_corruption', {
+      quarantined_path: recovery.quarantinedPath,
+    });
+  }
 
   // Step 7: Start heartbeat (PRD §4.2: session.heartbeat every 30s).
   const hbDeps = deps.heartbeatDeps ?? defaultHeartbeatDeps();
@@ -323,7 +401,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   // ensuring session.end is emitted and the writer flushes.
 
   // Store the active session so deactivate() can access it.
-  activeSession = { slogPath, writer, sessionHost };
+  activeSession = { slogPath, writer, metaWriter, sessionHost };
   return activeSession;
 }
 
@@ -425,6 +503,13 @@ export async function deactivate(): Promise<void> {
   // the writer is fully disposed before VS Code shuts down.
   try {
     await session.writer.dispose();
+  } catch {
+    // Ignore — best effort.
+  }
+
+  // Dispose the meta writer (no-op today; here for symmetry and future proofing).
+  try {
+    await session.metaWriter.dispose();
   } catch {
     // Ignore — best effort.
   }

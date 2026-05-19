@@ -225,7 +225,7 @@ describe('buildRecorderContext', () => {
     expect(ctx.recorder.extension_id).toBe('test.recorder');
   });
 
-  it('sets session_pubkey to empty string (Phase 3 placeholder)', () => {
+  it('sets session_pubkey to empty string when not provided (backwards compat)', () => {
     const ctx = buildRecorderContext({
       manifest: TEST_MANIFEST,
       prevSessionId: null,
@@ -233,8 +233,20 @@ describe('buildRecorderContext', () => {
       vscodeVersion: '1.97.0',
       platform: 'darwin-arm64',
     });
-    // Phase 9 will replace this with a real per-session ed25519 pubkey.
     expect(ctx.session_pubkey).toBe('');
+  });
+
+  it('sets session_pubkey from sessionPubkeyHex when provided', () => {
+    const fakePubkey = 'a'.repeat(64);
+    const ctx = buildRecorderContext({
+      manifest: TEST_MANIFEST,
+      prevSessionId: null,
+      extension: makeExtension({ version: '1.0.0', publisher: 'test', name: 'recorder' }),
+      vscodeVersion: '1.97.0',
+      platform: 'darwin-arm64',
+      sessionPubkeyHex: fakePubkey,
+    });
+    expect(ctx.session_pubkey).toBe(fakePubkey);
   });
 
   it('vscode.commit is a string (may be empty in Phase 3)', () => {

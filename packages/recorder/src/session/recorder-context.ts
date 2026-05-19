@@ -49,12 +49,14 @@ function computeMachineId(sessionId: string): string {
 /**
  * Build a RecorderContext (= SessionStartPayload) from injected dependencies.
  *
- * @param manifest        The verified .cs61a manifest.
- * @param prevSessionId   The previous session's id if continuing after a crash, else null.
- * @param extension       The recorder's own VS Code Extension object (for version/id).
- * @param vscodeVersion   vscode.version string injected for testability.
- * @param platform        Platform string, e.g. "darwin-arm64". Callers should supply
- *                        `process.platform + '-' + process.arch`.
+ * @param manifest          The verified .cs61a manifest.
+ * @param prevSessionId     The previous session's id if continuing after a crash, else null.
+ * @param extension         The recorder's own VS Code Extension object (for version/id).
+ * @param vscodeVersion     vscode.version string injected for testability.
+ * @param platform          Platform string, e.g. "darwin-arm64". Callers should supply
+ *                          `process.platform + '-' + process.arch`.
+ * @param sessionPubkeyHex  Hex-encoded ed25519 public key for this session (Phase 9+).
+ *                          Pass '' for pre-Phase-9 sessions or tests that don't need a real key.
  */
 export function buildRecorderContext(args: {
   manifest: Cs61aManifest;
@@ -62,8 +64,9 @@ export function buildRecorderContext(args: {
   extension: vscode.Extension<unknown>;
   vscodeVersion: string;
   platform: string;
+  sessionPubkeyHex?: string;
 }): RecorderContext {
-  const { manifest, prevSessionId, extension, vscodeVersion, platform } = args;
+  const { manifest, prevSessionId, extension, vscodeVersion, platform, sessionPubkeyHex } = args;
 
   const sessionId = crypto.randomUUID();
   const machineId = computeMachineId(sessionId);
@@ -102,8 +105,8 @@ export function buildRecorderContext(args: {
       extension_id: recorderExtensionId,
       // extension_hash: Phase 10 territory — computed over dist/ at bundle-seal time.
     },
-    // Phase 3 placeholder: a real per-session ed25519 keypair is generated in Phase 9.
-    // The empty string signals to the analyzer that this session predates Phase 9.
-    session_pubkey: '',
+    // Phase 9: populated from a real per-session ed25519 keypair via generateSessionKeypair().
+    // Empty string only for pre-Phase-9 callers or tests that don't need a real key.
+    session_pubkey: sessionPubkeyHex ?? '',
   };
 }
