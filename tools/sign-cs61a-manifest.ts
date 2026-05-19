@@ -22,7 +22,12 @@ import canonicalizeLib from 'canonicalize';
 // ---------------------------------------------------------------------------
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
-const KEYPAIR_PATH = path.join(REPO_ROOT, '.notes', 'dev-keypair.json');
+
+// Default to the dev keypair under .notes/. Course staff signing real assignments
+// should set PROVENANCE_COURSE_KEYPAIR_PATH to point at the offline-generated key
+// (produced by tools/generate-course-keypair.ts).
+const KEYPAIR_PATH =
+  process.env.PROVENANCE_COURSE_KEYPAIR_PATH ?? path.join(REPO_ROOT, '.notes', 'dev-keypair.json');
 
 // Default target manifest; can be overridden by passing a path as argv[2].
 const manifestPath = process.argv[2] ?? path.join(REPO_ROOT, 'test-workspace', '.cs61a');
