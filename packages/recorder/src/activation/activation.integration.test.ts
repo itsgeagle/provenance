@@ -128,7 +128,7 @@ describe('activateImpl — integration', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns null when signature is invalid (silent exit)', async () => {
+  it('returns null when manifest file is missing', async () => {
     const { pubkeyHex } = await generateTestKeypair();
     // Don't write any .cs61a file — simulates missing manifest.
 
@@ -246,19 +246,35 @@ describe('activateImpl — integration', () => {
     expect(chainResult.ok).toBe(true);
   });
 
-  it('does not create .slog when manifest file is missing from workspace', async () => {
-    const { pubkeyHex } = await generateTestKeypair();
-    // workspace dir has no .cs61a file.
+  it('returns null when signature is invalid (signed by different keypair)', async () => {
+    // Arrange: create a manifest signed with keypair A, but pass pubkey B to activateImpl.
+    const { privkeyHex: privkeyA } = await generateTestKeypair();
+    const { pubkeyHex: pubkeyB } = await generateTestKeypair();
+
+    const manifestFields = {
+      assignment_id: 'hw03',
+      semester: 'fa26',
+      issued_at: '2026-09-15T00:00:00Z',
+      files_under_review: ['hw.py'],
+    };
+    const sig = await signManifest(manifestFields, privkeyA);
+
+    // Write the signed manifest to disk with keypair A's signature.
+    const manifestPath = path.join(workspaceDir, '.cs61a');
+    const manifest: Cs61aManifest = { ...manifestFields, sig };
+    await fs.writeFile(manifestPath, JSON.stringify(manifest) + '\n', 'utf8');
+
     const disposables: import('vscode').Disposable[] = [];
 
+    // Act: activateImpl with pubkeyB, which doesn't match the signature.
     const result = await activateImpl({
       workspaceFolder: makeWorkspaceFolder(workspaceDir),
       extension: makeExtension(),
       vscodeVersion: '1.97.0',
       platform: 'darwin-arm64',
-      pubkeyHex,
+      pubkeyHex: pubkeyB, // Different keypair — signature won't verify.
       provenanceDirOverride: provenanceDir,
-      clock: new FixedClock(0),
+      clock: new FixedClock(0, new Date('2026-01-01T00:00:00.000Z')),
       disposables,
       createStatusBar: (d) => {
         const item = makeStatusBarItem();
@@ -267,9 +283,10 @@ describe('activateImpl — integration', () => {
       },
     });
 
+    // Assert: returns null (signature validation failed).
     expect(result).toBeNull();
 
-    // .provenance dir should NOT have been created.
+    // Assert: .provenance dir was NOT created.
     const provExists = await fs
       .access(provenanceDir)
       .then(() => true)

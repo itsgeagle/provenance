@@ -160,7 +160,12 @@ async function main(): Promise<void> {
     sig: sigHex,
   };
 
-  fs.writeFileSync(manifestPath, JSON.stringify(signedManifest) + '\n');
+  const canonicalOutput = canonicalizeLib(signedManifest);
+  if (canonicalOutput === undefined) {
+    console.error('[sign-cs61a-manifest] ERROR: canonicalize returned undefined for output');
+    process.exit(1);
+  }
+  fs.writeFileSync(manifestPath, canonicalOutput + '\n');
   console.log(`[sign-cs61a-manifest] Manifest signed and written to ${manifestPath}`);
   console.log(`[sign-cs61a-manifest] sig (128 hex chars): ${sigHex}`);
   console.log(

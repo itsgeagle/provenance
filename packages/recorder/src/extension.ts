@@ -111,6 +111,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
 
   const slogPath = path.join(provenanceDir, `session-${randomUUID()}.slog`);
   const writeStream = fsSync.createWriteStream(slogPath, { flags: 'a', encoding: 'utf8' });
+  writeStream.on('error', (e) => console.error('[provenance] write stream error:', e));
 
   // Helper: synchronously append a serialized entry to the write stream.
   // Phase 4 will replace this with a buffered SessionWriter class.
