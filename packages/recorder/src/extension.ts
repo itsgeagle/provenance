@@ -101,6 +101,8 @@ type ActiveSession = {
   writer: SessionWriter;
   metaWriter: MetaWriter;
   sessionHost: ReturnType<typeof createSessionHost>;
+  /** Most recent checkpoint write chain. deactivate() awaits this so the final checkpoint isn't lost. */
+  getPendingCheckpoint: () => Promise<void>;
 };
 
 let activeSession: ActiveSession | null = null;
@@ -242,9 +244,11 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
 
   // Step 5: Create the session host.
   // Hook checkpoints: every CHECKPOINT_INTERVAL entries, sign + write.
-  // Fire-and-forget — do not block the append path.
+  // Fire-and-forget on the append path; tracked via pendingCheckpoint so deactivate()
+  // can drain the last in-flight sign before closing the meta file.
   const CHECKPOINT_INTERVAL = 100;
   let entryCountSinceLastCheckpoint = 0;
+  let pendingCheckpoint: Promise<void> = Promise.resolve();
 
   const sessionHost = createSessionHost({
     sessionId: recorderContext.session_id,
@@ -262,8 +266,10 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
       entryCountSinceLastCheckpoint++;
       if (entryCountSinceLastCheckpoint >= CHECKPOINT_INTERVAL) {
         entryCountSinceLastCheckpoint = 0;
-        // Fire-and-forget with error logging. Checkpoint failure is non-fatal.
-        void signCheckpoint(entry.seq, entry.hash, keypair.privateKey)
+        // Chain onto pendingCheckpoint so deactivate() awaits the most recent one,
+        // and so concurrent checkpoint writes are serialized.
+        pendingCheckpoint = pendingCheckpoint
+          .then(() => signCheckpoint(entry.seq, entry.hash, keypair.privateKey))
           .then((cp) => metaWriter.appendCheckpoint(cp))
           .catch((e: unknown) => {
             console.error('[provenance] checkpoint sign/write error:', e);
@@ -484,7 +490,13 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   // ensuring session.end is emitted and the writer flushes.
 
   // Store the active session so deactivate() can access it.
-  activeSession = { slogPath, writer, metaWriter, sessionHost };
+  activeSession = {
+    slogPath,
+    writer,
+    metaWriter,
+    sessionHost,
+    getPendingCheckpoint: () => pendingCheckpoint,
+  };
   return activeSession;
 }
 
@@ -589,6 +601,15 @@ export async function deactivate(): Promise<void> {
   // the writer is fully disposed before VS Code shuts down.
   try {
     await session.writer.dispose();
+  } catch {
+    // Ignore — best effort.
+  }
+
+  // Drain any in-flight checkpoint sign+write before closing the meta file.
+  // Without this, a checkpoint that was kicked off in the last 100 entries can
+  // race and never land in the .meta file.
+  try {
+    await session.getPendingCheckpoint();
   } catch {
     // Ignore — best effort.
   }
