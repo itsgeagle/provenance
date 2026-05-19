@@ -140,10 +140,13 @@ describe('SessionWriter', () => {
     expect(parseResult.ok).toBe(true);
     if (!parseResult.ok) return;
 
-    // We may have written less than all 3 if the buffer was only partially drained
-    // by the auto-flush, but the file must contain at least 1 entry.
-    expect(parseResult.value.length).toBeGreaterThanOrEqual(1);
-    expect(parseResult.value.length).toBeLessThanOrEqual(3);
+    // All 3 entries are appended synchronously before any async flush occurs,
+    // so the final file should contain exactly 3 entries.
+    expect(parseResult.value).toHaveLength(3);
+
+    // Chain must validate end-to-end.
+    const chainResult = validateChain(parseResult.value as Parameters<typeof validateChain>[0]);
+    expect(chainResult.ok).toBe(true);
   });
 
   // -------------------------------------------------------------------------

@@ -189,14 +189,21 @@ describe('activateImpl — integration', () => {
     expect(session!.slogPath).toContain('session-');
     expect(session!.slogPath).toContain('.slog');
 
-    // Trigger dispose to flush session.end and close the writer. The deactivation
-    // disposable returns a Thenable from writer.dispose(); await each.
-    for (const d of disposables) {
+    // Trigger dispose in LIFO order (matching VS Code's contract) to simulate teardown.
+    // VS Code disposes context.subscriptions in LIFO order. After all subscriptions are disposed,
+    // deactivate() is called and awaited. In this test, we manually call session.end and dispose
+    // the writer instead of relying on the module-level deactivate() (which requires the real
+    // VS Code runtime).
+    for (const d of [...disposables].reverse()) {
       const result = d.dispose();
       if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
         await result;
       }
     }
+
+    // Manually trigger the deactivation path: emit session.end and flush the writer.
+    session!.sessionHost.emit('session.end', { reason: 'test' });
+    await session!.writer.dispose();
 
     // Assert: the .slog file exists.
     const slogContents = await fs.readFile(session!.slogPath, 'utf8');

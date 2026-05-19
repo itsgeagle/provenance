@@ -79,6 +79,8 @@ type ActiveSession = {
   sessionHost: ReturnType<typeof createSessionHost>;
 };
 
+let activeSession: ActiveSession | null = null;
+
 // ---------------------------------------------------------------------------
 // activateImpl — testable core
 // ---------------------------------------------------------------------------
@@ -92,6 +94,9 @@ type ActiveSession = {
  */
 export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | null> {
   const { workspaceFolder, extension, vscodeVersion, platform, clock, disposables } = deps;
+
+  // Initialize activeSession to null before we begin (in case we early-return or error).
+  activeSession = null;
 
   // Step 1: Load and verify the .cs61a manifest.
   let manifest: Cs61aManifest;
@@ -164,17 +169,18 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   });
   disposables.push(clockWatcher);
 
-  // Step 9: Register deactivation hook.
-  // Must run BEFORE the status-bar disposable (which was pushed earlier).
-  // Order: (1) stop heartbeat + clock watcher (already pushed); (2) session.end; (3) writer.dispose.
-  disposables.push({
-    dispose(): void | Thenable<void> {
-      sessionHost.emit('session.end', { reason: 'deactivate' });
-      return writer.dispose();
-    },
-  });
+  // Step 9: Heartbeat and clock watcher are already in disposables (Steps 7–8).
+  // Deactivation (session.end + writer.dispose) is handled by the module-level deactivate()
+  // function, which VS Code awaits. See deactivate() below.
+  //
+  // VS Code disposes context.subscriptions in LIFO order. We pushed the status bar disposable
+  // (Step 2), then heartbeat (Step 7), then clock watcher (Step 8). On teardown: clock watcher
+  // disposes first, then heartbeat, then status bar. After all subscriptions are disposed,
+  // deactivate() runs and is awaited, ensuring session.end is emitted and the writer flushes.
 
-  return { slogPath, writer, sessionHost };
+  // Store the active session so deactivate() can access it.
+  activeSession = { slogPath, writer, sessionHost };
+  return activeSession;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +240,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } as vscode.Extension<unknown>);
 
   try {
-    await activateImpl({
+    const session = await activateImpl({
       workspaceFolder,
       extension,
       vscodeVersion: vscode.version,
@@ -242,12 +248,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       clock: new SystemClock(),
       disposables: context.subscriptions,
     });
+    // activateImpl sets activeSession internally, so we don't need to do it here.
+    // But we verify it was set correctly (for code clarity).
+    if (session !== null && activeSession === null) {
+      console.error(
+        '[provenance] WARNING: activateImpl returned a session but activeSession is null',
+      );
+    }
   } catch (e) {
     console.error('[provenance] unexpected error during activation:', e);
   }
 }
 
-export function deactivate(): void {
-  // Dispose hooks registered in context.subscriptions handle cleanup.
-  // VS Code calls these automatically on deactivation.
+export async function deactivate(): Promise<void> {
+  // VS Code awaits a Thenable<void> returned from deactivate().
+  // This guarantees the writer's pending entries are flushed before shutdown.
+  if (activeSession === null) {
+    return;
+  }
+
+  const session = activeSession;
+  activeSession = null;
+
+  // Emit session.end event.
+  try {
+    session.sessionHost.emit('session.end', { reason: 'deactivate' });
+  } catch {
+    // Ignore — best effort.
+  }
+
+  // Flush pending entries and close the file handle. Await this to ensure
+  // the writer is fully disposed before VS Code shuts down.
+  try {
+    await session.writer.dispose();
+  } catch {
+    // Ignore — best effort.
+  }
 }

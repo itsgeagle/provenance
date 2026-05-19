@@ -50,7 +50,6 @@ export type SessionWriterOptions = {
 // ---------------------------------------------------------------------------
 
 export class SessionWriter {
-  private readonly slogPath: string;
   private readonly clock: Clock;
   private readonly bufferPolicy: Partial<BufferPolicyConfig>;
   private readonly onError: (error: Error) => void;
@@ -71,7 +70,6 @@ export class SessionWriter {
     onError: (error: Error) => void,
     fh: fsPromises.FileHandle,
   ) {
-    this.slogPath = slogPath;
     this.clock = clock;
     this.bufferPolicy = bufferPolicy;
     this.onError = onError;
@@ -152,7 +150,6 @@ export class SessionWriter {
     // Snapshot and clear the buffer immediately.
     // If the write fails, lines are DROPPED (see design note at top of file).
     const snapshot = this.buffer;
-    const snapshotBytes = this.bufferedBytes;
     this.buffer = [];
     this.bufferedBytes = 0;
 
@@ -165,8 +162,6 @@ export class SessionWriter {
       const error = e instanceof Error ? e : new Error(String(e));
       // Lines are already dropped from the buffer. Call onError so callers can react.
       this.onError(error);
-      // Restore bytes counter to 0 (already done by the clear above).
-      void snapshotBytes; // suppress unused-variable lint
     }
   }
 
