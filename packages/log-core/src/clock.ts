@@ -27,9 +27,7 @@ export class SystemClock implements Clock {
     if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
       return performance.now();
     }
-    // FFI boundary fallback — any because the global may be typed differently.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (Date as any).now();
+    return Date.now();
   }
 
   wall(): string {

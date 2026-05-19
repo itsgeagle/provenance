@@ -13,7 +13,7 @@ function makeEnvelope(seq: number, overrides: SessionEndOverrides = {}): Envelop
   return {
     seq,
     t: seq * 1000,
-    wall: `2026-01-01T00:00:0${seq}.000Z`,
+    wall: `2026-01-01T00:00:${String(seq).padStart(2, '0')}.000Z`,
     kind: 'session.end',
     data: { reason: 'test' },
     ...overrides,
@@ -105,5 +105,33 @@ describe('chainEntry', () => {
     const result = sha256Hex('hello world');
     expect(result).toHaveLength(64);
     expect(result).toMatch(/^[0-9a-f]+$/);
+  });
+
+  it('sha256Hex("hello world") matches NIST test vector', () => {
+    const result = sha256Hex('hello world');
+    expect(result).toBe('b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9');
+  });
+
+  it('sha256Hex("") matches NIST test vector for empty string', () => {
+    const result = sha256Hex('');
+    expect(result).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+  });
+
+  it('chainEntry produces pinned hash for well-specified envelope', () => {
+    const env: Envelope<'session.end'> = {
+      seq: 0,
+      t: 0,
+      wall: '2026-01-01T00:00:00.000Z',
+      kind: 'session.end',
+      data: { reason: 'test' },
+    };
+    const result = chainEntry(GENESIS_PREV_HASH, env, sha256Hex);
+
+    // Compute the expected hash inline to guard against silent formula changes
+    const expected = sha256Hex(GENESIS_PREV_HASH + canonicalize(env));
+    expect(result.hash).toBe(expected);
+
+    // Pin the hard-coded value derived from running the actual code
+    expect(result.hash).toBe('d33cad1d38b90b26a2f7b1181801805233bf4332eca5bc6d4ff4e1b677683625');
   });
 });

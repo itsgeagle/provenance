@@ -61,8 +61,8 @@ function hasClockSkewInWindow(
  *  - Each entry's prev_hash must equal the previous entry's hash (or GENESIS_PREV_HASH for seq 0).
  *  - Each entry's hash must equal sha256(prev_hash + canonicalize(entry without prev_hash/hash)).
  *  - t must be non-decreasing; regression → t_regression.
- *  - wall must be non-decreasing UNLESS a clock.skew event appears between the prior entry and
- *    the current entry (inclusive of current, exclusive of prior) → wall_regression otherwise.
+ *  - wall must be non-decreasing UNLESS a clock.skew event appears in any entry at seq in
+ *    [prev.seq, entry.seq] (inclusive of both) → wall_regression otherwise.
  *
  * An empty array is { ok: true }.
  */
