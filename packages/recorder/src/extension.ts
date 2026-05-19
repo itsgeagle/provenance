@@ -5,19 +5,23 @@
  *
  * PRD §4.1: Activate only when .cs61a is present and signature-valid.
  * PRD §5.1: Emit session.start with full context; emit session.end on deactivate.
+ * PRD §4.2: session.heartbeat every 30s; clock.skew on wall-clock drift.
+ * PRD §4.7: Buffered, async I/O via SessionWriter (not a raw WriteStream).
  */
 
 import * as vscode from 'vscode';
 import * as fsPromises from 'node:fs/promises';
-import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { SystemClock, serializeEntry } from '@provenance/log-core';
+import { SystemClock } from '@provenance/log-core';
 import type { HashedEnvelope } from '@provenance/log-core';
 import { loadAndVerifyManifest } from './activation/manifest-loader.js';
 import { createRecordingStatusBar } from './activation/status-bar.js';
 import { buildRecorderContext } from './session/recorder-context.js';
 import { createSessionHost } from './session/session-host.js';
+import { SessionWriter } from './io/session-writer.js';
+import { startHeartbeat } from './events/heartbeat.js';
+import { startClockWatcher } from './events/clock-watcher.js';
 import type { Cs61aManifest } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
@@ -30,7 +34,7 @@ export type ActivateDeps = {
   workspaceFolder: vscode.WorkspaceFolder;
   /** The recorder's own Extension object (for package.json metadata). */
   extension: vscode.Extension<unknown>;
-  /** vs Code version string (vscode.version in production). */
+  /** VS Code version string (vscode.version in production). */
   vscodeVersion: string;
   /** Platform string (process.platform + '-' + process.arch in production). */
   platform: string;
@@ -46,15 +50,32 @@ export type ActivateDeps = {
   createStatusBar?: (disposables: vscode.Disposable[]) => vscode.StatusBarItem;
   /** Optional pre-loaded manifest (skips file I/O in tests that construct a manifest directly). */
   preloadedManifest?: Cs61aManifest;
+  /**
+   * Heartbeat + clock-watcher VS Code subscriptions.
+   * Tests inject no-op stubs; production wires to vscode.window / workspace.
+   */
+  heartbeatDeps?: HeartbeatVscodeDeps;
+};
+
+/**
+ * VS Code-specific subscriptions needed by the heartbeat.
+ * Extracted so tests can stub them without touching the real vscode API.
+ */
+export type HeartbeatVscodeDeps = {
+  windowState: { focused: boolean };
+  activeTextEditor: () => string | null;
+  onDidChangeFocus: (handler: () => void) => vscode.Disposable;
+  onDidChangeActiveTextEditor: (handler: () => void) => vscode.Disposable;
+  onDidChangeTextDocument: (handler: () => void) => vscode.Disposable;
 };
 
 // ---------------------------------------------------------------------------
-// Shared write-stream state (scoped to the activation lifetime)
+// Shared session state (scoped to the activation lifetime)
 // ---------------------------------------------------------------------------
 
 type ActiveSession = {
   slogPath: string;
-  writeStream: fsSync.WriteStream;
+  writer: SessionWriter;
   sessionHost: ReturnType<typeof createSessionHost>;
 };
 
@@ -103,44 +124,74 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     platform,
   });
 
-  // Step 4: Set up the .provenance/ directory and .slog write stream.
+  // Step 4: Set up the .provenance/ directory and open a SessionWriter.
   const provenanceDir =
     deps.provenanceDirOverride ?? path.join(workspaceFolder.uri.fsPath, '.provenance');
 
   await fsPromises.mkdir(provenanceDir, { recursive: true });
 
   const slogPath = path.join(provenanceDir, `session-${randomUUID()}.slog`);
-  const writeStream = fsSync.createWriteStream(slogPath, { flags: 'a', encoding: 'utf8' });
-  writeStream.on('error', (e) => console.error('[provenance] write stream error:', e));
-
-  // Helper: synchronously append a serialized entry to the write stream.
-  // Phase 4 will replace this with a buffered SessionWriter class.
-  function appendEntry(entry: HashedEnvelope): void {
-    writeStream.write(serializeEntry(entry));
-  }
+  const writer = await SessionWriter.open({
+    slogPath,
+    clock,
+    onError: (e) => console.error('[provenance] writer error:', e),
+  });
 
   // Step 5: Create the session host.
   const sessionHost = createSessionHost({
     sessionId: recorderContext.session_id,
     clock,
-    onEntry: appendEntry,
+    onEntry: (entry: HashedEnvelope) => writer.append(entry),
   });
 
   // Step 6: Emit session.start.
   sessionHost.emit('session.start', recorderContext);
 
-  // Step 7: Register deactivation hook.
-  // Emits session.end and closes the write stream synchronously (best-effort).
+  // Step 7: Start heartbeat (PRD §4.2: session.heartbeat every 30s).
+  const hbDeps = deps.heartbeatDeps ?? defaultHeartbeatDeps();
+  const heartbeat = startHeartbeat({
+    ...hbDeps,
+    getNow: () => clock.now(),
+    emit: (data) => sessionHost.emit('session.heartbeat', data),
+  });
+  disposables.push(heartbeat);
+
+  // Step 8: Start clock-skew watcher (PRD §4.2: clock.skew on wall drift).
+  const clockWatcher = startClockWatcher({
+    getMonotonicMs: () => clock.now(),
+    getWallMs: () => Date.now(),
+    emit: (data) => sessionHost.emit('clock.skew', data),
+  });
+  disposables.push(clockWatcher);
+
+  // Step 9: Register deactivation hook.
+  // Must run BEFORE the status-bar disposable (which was pushed earlier).
+  // Order: (1) stop heartbeat + clock watcher (already pushed); (2) session.end; (3) writer.dispose.
   disposables.push({
-    dispose(): void {
+    dispose(): void | Thenable<void> {
       sessionHost.emit('session.end', { reason: 'deactivate' });
-      // writeStream.end() is async but we call it synchronously in dispose.
-      // VS Code gives extensions a short window to clean up; a flush is best-effort.
-      writeStream.end();
+      return writer.dispose();
     },
   });
 
-  return { slogPath, writeStream, sessionHost };
+  return { slogPath, writer, sessionHost };
+}
+
+// ---------------------------------------------------------------------------
+// Production heartbeat deps
+// ---------------------------------------------------------------------------
+
+function defaultHeartbeatDeps(): HeartbeatVscodeDeps {
+  return {
+    windowState: vscode.window.state,
+    activeTextEditor: () => {
+      const editor = vscode.window.activeTextEditor;
+      return editor ? vscode.workspace.asRelativePath(editor.document.uri) : null;
+    },
+    onDidChangeFocus: (h) => vscode.window.onDidChangeWindowState(h),
+    onDidChangeActiveTextEditor: (h) => vscode.window.onDidChangeActiveTextEditor(h),
+    onDidChangeTextDocument: (h) => vscode.workspace.onDidChangeTextDocument(h),
+  };
 }
 
 // ---------------------------------------------------------------------------

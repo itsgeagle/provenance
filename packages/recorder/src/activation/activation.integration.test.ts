@@ -189,25 +189,14 @@ describe('activateImpl — integration', () => {
     expect(session!.slogPath).toContain('session-');
     expect(session!.slogPath).toContain('.slog');
 
-    // Trigger dispose to write session.end and close the stream.
+    // Trigger dispose to flush session.end and close the writer. The deactivation
+    // disposable returns a Thenable from writer.dispose(); await each.
     for (const d of disposables) {
-      d.dispose();
+      const result = d.dispose();
+      if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+        await result;
+      }
     }
-
-    // Wait for the write stream to finish closing.
-    await new Promise<void>((resolve, reject) => {
-      const stream = session!.writeStream;
-      if (stream.writableEnded && stream.writableFinished) {
-        resolve();
-        return;
-      }
-      stream.once('finish', resolve);
-      stream.once('error', reject);
-      // If already ended but finish hasn't fired yet, give it a push.
-      if (!stream.writableEnded) {
-        stream.end();
-      }
-    });
 
     // Assert: the .slog file exists.
     const slogContents = await fs.readFile(session!.slogPath, 'utf8');

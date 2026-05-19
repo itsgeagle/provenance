@@ -16,9 +16,7 @@ export enum ExtensionKind {
 
 export const version = '1.97.0';
 
-export const workspace = {
-  workspaceFolders: undefined as unknown as unknown[],
-};
+const noopDisposable = { dispose: () => undefined };
 
 export const window = {
   createStatusBarItem: (_alignment?: StatusBarAlignment, _priority?: number) => ({
@@ -28,6 +26,22 @@ export const window = {
     hide: () => undefined,
     dispose: () => undefined,
   }),
+  // Used by heartbeat for focus-change subscription.
+  onDidChangeWindowState: (_handler: () => void) => noopDisposable,
+  // Used by heartbeat for active-editor-change subscription.
+  onDidChangeActiveTextEditor: (_handler: () => void) => noopDisposable,
+  // Mock: active editor is always undefined in unit tests.
+  activeTextEditor: undefined as undefined,
+  // Window state: always focused in unit tests.
+  state: { focused: true },
+};
+
+export const workspace = {
+  workspaceFolders: undefined as unknown as unknown[],
+  // Used by heartbeat for text-document-change subscription.
+  onDidChangeTextDocument: (_handler: () => void) => noopDisposable,
+  // Used for building relative paths in activeTextEditor helper.
+  asRelativePath: (uri: { fsPath: string }) => uri.fsPath,
 };
 
 export const extensions = {
