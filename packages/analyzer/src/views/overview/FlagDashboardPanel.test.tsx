@@ -46,33 +46,33 @@ describe('FlagDashboardPanel', () => {
 
   it('severity chips show correct text', () => {
     renderPanel();
-    const highChip = screen.getByTestId(`severity-chip-${fixtureFlags[0]!.id}`);
+    const highChip = screen.getByTestId('severity-chip-high');
     expect(highChip.textContent).toBe('HIGH');
 
-    const medChip = screen.getByTestId(`severity-chip-${fixtureFlags[1]!.id}`);
+    const medChip = screen.getByTestId('severity-chip-medium');
     expect(medChip.textContent).toBe('MEDIUM');
 
-    const lowChip = screen.getByTestId(`severity-chip-${fixtureFlags[2]!.id}`);
+    const lowChip = screen.getByTestId('severity-chip-low');
     expect(lowChip.textContent).toBe('LOW');
   });
 
   it('high severity chip has red classes', () => {
     renderPanel();
-    const chip = screen.getByTestId(`severity-chip-${fixtureFlags[0]!.id}`);
+    const chip = screen.getByTestId('severity-chip-high');
     expect(chip.className).toContain('bg-red-100');
     expect(chip.className).toContain('text-red-700');
   });
 
   it('medium severity chip has amber classes', () => {
     renderPanel();
-    const chip = screen.getByTestId(`severity-chip-${fixtureFlags[1]!.id}`);
+    const chip = screen.getByTestId('severity-chip-medium');
     expect(chip.className).toContain('bg-amber-100');
     expect(chip.className).toContain('text-amber-700');
   });
 
   it('low severity chip has blue classes', () => {
     renderPanel();
-    const chip = screen.getByTestId(`severity-chip-${fixtureFlags[2]!.id}`);
+    const chip = screen.getByTestId('severity-chip-low');
     expect(chip.className).toContain('bg-blue-100');
     expect(chip.className).toContain('text-blue-700');
   });

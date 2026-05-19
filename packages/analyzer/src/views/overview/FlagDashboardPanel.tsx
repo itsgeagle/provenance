@@ -10,18 +10,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Progress } from '@/components/ui/progress.js';
 import { HeuristicDetailDrawer } from './HeuristicDetailDrawer.js';
+import { SeverityChip } from './SeverityChip.js';
 import type { Flag } from '../../heuristics/types.js';
-
-// ---------------------------------------------------------------------------
-// Severity color map (info=gray, low=blue, medium=amber, high=red per plan §A)
-// ---------------------------------------------------------------------------
-
-const severityClasses = {
-  info: 'bg-gray-100 text-gray-700 border-gray-200',
-  low: 'bg-blue-100 text-blue-700 border-blue-200',
-  medium: 'bg-amber-100 text-amber-700 border-amber-200',
-  high: 'bg-red-100 text-red-700 border-red-200',
-} as const;
 
 interface FlagDashboardPanelProps {
   flags: Flag[];
@@ -39,12 +29,9 @@ function FlagRow({ flag }: { flag: Flag }) {
       >
         <div className="flex items-center gap-3">
           {/* Severity chip */}
-          <span
-            className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${severityClasses[flag.severity]}`}
-            data-testid={`severity-chip-${flag.id}`}
-          >
-            {flag.severity.toUpperCase()}
-          </span>
+          <div className="shrink-0">
+            <SeverityChip severity={flag.severity} />
+          </div>
 
           {/* Title */}
           <span className="flex-1 text-sm font-medium">{flag.title}</span>

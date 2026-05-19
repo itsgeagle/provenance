@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from './dialog.js';
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DrawerContent,
+  DialogTitle,
+  DialogDescription,
+} from './dialog.js';
 
 describe('Dialog', () => {
   it('renders trigger text', () => {
@@ -14,5 +21,18 @@ describe('Dialog', () => {
       </Dialog>,
     );
     expect(screen.getByText('Open dialog')).toBeInTheDocument();
+  });
+
+  it('renders DrawerContent with title and description', () => {
+    render(
+      <Dialog defaultOpen>
+        <DrawerContent>
+          <DialogTitle>Test drawer</DialogTitle>
+          <DialogDescription>Some description</DialogDescription>
+        </DrawerContent>
+      </Dialog>,
+    );
+    expect(screen.getByText('Test drawer')).toBeInTheDocument();
+    expect(screen.getByText('Some description')).toBeInTheDocument();
   });
 });
