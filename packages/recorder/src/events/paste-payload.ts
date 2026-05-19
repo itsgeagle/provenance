@@ -1,0 +1,55 @@
+/**
+ * Paste payload builder — PRD §4.2 paste row + §4.3.
+ *
+ * Stores full pasted text up to 4 KB inline; for larger pastes stores
+ * a hash + head/tail truncation. Uses Buffer.byteLength for byte-accurate
+ * length (handles multi-byte UTF-8 codepoints correctly).
+ *
+ * @noble/hashes is in the approved dependency list (CLAUDE.md boundary).
+ */
+
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
+
+export type PastePayloadFields = {
+  length: number;
+  sha256: string;
+  /** Full text inline if <= MAX_INLINE_BYTES bytes. */
+  content?: string;
+  /** Head of text if > MAX_INLINE_BYTES. First HEAD_TAIL_BYTES chars. */
+  content_head?: string;
+  /** Tail of text if > MAX_INLINE_BYTES. Last HEAD_TAIL_BYTES chars. */
+  content_tail?: string;
+};
+
+export const MAX_INLINE_BYTES = 4096;
+export const HEAD_TAIL_BYTES = 512;
+
+/**
+ * Build the paste payload fields for a pasted string.
+ *
+ * length: UTF-8 byte length (Buffer.byteLength, not string.length).
+ * sha256: hex sha256 of the text (64-char lowercase hex string).
+ * content: set when length <= MAX_INLINE_BYTES.
+ * content_head / content_tail: set when length > MAX_INLINE_BYTES.
+ *   Uses character slices (not byte slices) to avoid splitting multi-byte codepoints.
+ */
+export function buildPastePayload(text: string): PastePayloadFields {
+  const byteLength = Buffer.byteLength(text, 'utf8');
+  const hashHex = bytesToHex(sha256(new TextEncoder().encode(text)));
+
+  if (byteLength <= MAX_INLINE_BYTES) {
+    return {
+      length: byteLength,
+      sha256: hashHex,
+      content: text,
+    };
+  }
+
+  return {
+    length: byteLength,
+    sha256: hashHex,
+    content_head: text.slice(0, HEAD_TAIL_BYTES),
+    content_tail: text.slice(-HEAD_TAIL_BYTES),
+  };
+}

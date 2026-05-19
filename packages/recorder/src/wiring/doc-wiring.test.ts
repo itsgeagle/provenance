@@ -140,8 +140,53 @@ function makeEmitters() {
     emitDocChange: vi.fn(),
     emitDocSave: vi.fn(),
     emitDocClose: vi.fn(),
+    emitPaste: vi.fn(),
     emitSelectionChange: vi.fn(),
     emitFocusChange: vi.fn(),
+  };
+}
+
+function makeLargeInsertCounter() {
+  let n = 0;
+  return {
+    increment: () => {
+      n++;
+    },
+    count: () => n,
+    _getCount: () => n,
+  };
+}
+
+/** A null-like paste intercept: never confirms a paste. */
+function makeNullIntercept() {
+  return null;
+}
+
+/** A paste intercept that immediately confirms the next consumeIfPasteExpected call. */
+function makeConfirmingIntercept() {
+  let armed = false;
+  return {
+    disposable: { dispose: () => undefined },
+    interceptCount: 0,
+    arm: () => {
+      armed = true;
+    },
+    consumeIfPasteExpected: (_now: number, _within?: number) => {
+      if (armed) {
+        armed = false;
+        return true;
+      }
+      return false;
+    },
+  };
+}
+
+/** Shared paste-detection deps for tests that don't care about paste behavior. */
+function makeDefaultPasteDeps() {
+  return {
+    pasteIntercept: makeNullIntercept(),
+    largeInsertCounter: makeLargeInsertCounter(),
+    getNow: () => 0,
   };
 }
 
@@ -159,6 +204,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     expect(openSub.handler).not.toBeNull();
@@ -187,6 +233,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     const doc = fakeDoc({ path: 'src/foo.py', text: 'content', lineCount: 1 });
@@ -211,6 +258,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     const doc = fakeDoc({ path: 'src/other.py', text: 'other content', lineCount: 2 });
@@ -234,6 +282,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     const event = fakeChangeEvent('src/foo.py', [
@@ -258,6 +307,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     // Open first to populate registry
@@ -285,6 +335,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     const event = fakeChangeEvent('src/other.py', [
@@ -305,6 +356,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     const doc = fakeDoc({ path: 'src/foo.py', text: 'content', lineCount: 1 });
@@ -327,6 +379,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     const doc = fakeDoc({ path: 'src/foo.py', text: 'content', lineCount: 1 });
@@ -352,6 +405,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     const selEvent = {
@@ -385,6 +439,7 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: [],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     // Transition: focused → not focused
@@ -411,10 +466,167 @@ describe('startDocWiring', () => {
       ...emitters,
       filesUnderReview: [],
       expectedContent: registry,
+      ...makeDefaultPasteDeps(),
     });
 
     // Same state: focused → focused (no transition)
     focusSub.handler!({ focused: true });
     expect(emitters.emitFocusChange).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Paste detection tests (Phase 6)
+  // -------------------------------------------------------------------------
+
+  it('paste_likely doc.change: emits paste event (not doc.change)', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    const longText = 'x'.repeat(30);
+    const event = fakeChangeEvent('src/foo.py', [
+      { startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: longText },
+    ]);
+    changeSub.handler!(event);
+
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+  });
+
+  it('paste event has correct path, range, length, sha256', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    const longText = 'a'.repeat(50);
+    const event = fakeChangeEvent('src/foo.py', [
+      { startLine: 2, startChar: 5, endLine: 2, endChar: 5, text: longText },
+    ]);
+    changeSub.handler!(event);
+
+    const payload = emitters.emitPaste.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.path).toBe('src/foo.py');
+    expect((payload.range as { start: { line: number } }).start.line).toBe(2);
+    expect(payload.length).toBe(50);
+    expect(typeof payload.sha256).toBe('string');
+    expect((payload.sha256 as string).length).toBe(64);
+    expect(payload.content).toBe(longText); // 50 bytes <= 4096
+  });
+
+  it('short typed change: emits doc.change (not paste)', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    const event = fakeChangeEvent('src/foo.py', [
+      { startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: 'x' },
+    ]);
+    changeSub.handler!(event);
+
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+  });
+
+  it('large insert with non-empty range: emits doc.change (deletion present → not paste)', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    const longText = 'x'.repeat(30);
+    const event = fakeChangeEvent('src/foo.py', [
+      // non-empty range = deletion present
+      { startLine: 0, startChar: 0, endLine: 0, endChar: 5, text: longText },
+    ]);
+    changeSub.handler!(event);
+
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+  });
+
+  it('large-insert counter increments on paste_likely, not on typed', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    const counter = makeLargeInsertCounter();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: [],
+      expectedContent: registry,
+      pasteIntercept: makeNullIntercept(),
+      largeInsertCounter: counter,
+      getNow: () => 0,
+    });
+
+    // typed change — counter should NOT increment
+    changeSub.handler!(
+      fakeChangeEvent('src/foo.py', [
+        { startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: 'hi' },
+      ]),
+    );
+    expect(counter.count()).toBe(0);
+
+    // paste_likely change — counter SHOULD increment
+    changeSub.handler!(
+      fakeChangeEvent('src/foo.py', [
+        { startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: 'x'.repeat(30) },
+      ]),
+    );
+    expect(counter.count()).toBe(1);
+  });
+
+  it('paste_confirmed (intercept just before doc.change): still emits paste event', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    const confirmingIntercept = makeConfirmingIntercept();
+    confirmingIntercept.arm();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: [],
+      expectedContent: registry,
+      pasteIntercept: confirmingIntercept,
+      largeInsertCounter: makeLargeInsertCounter(),
+      getNow: () => 1000,
+    });
+
+    const event = fakeChangeEvent('src/foo.py', [
+      { startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: 'x'.repeat(30) },
+    ]);
+    changeSub.handler!(event);
+
+    // Whether confirmed or likely, both paths emit a 'paste' event
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
   });
 });

@@ -23,7 +23,10 @@ import { SessionWriter } from './io/session-writer.js';
 import { startHeartbeat } from './events/heartbeat.js';
 import { startClockWatcher } from './events/clock-watcher.js';
 import { startDocWiring } from './wiring/doc-wiring.js';
+import { startPasteIntercept } from './wiring/paste-command-intercept.js';
+import { startPasteReconciler } from './events/paste-reconciler.js';
 import { ExpectedContentRegistry } from './state/expected-content-registry.js';
+import type { LargeInsertCounter } from './wiring/doc-wiring.js';
 import type { Cs61aManifest } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
@@ -171,7 +174,26 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   });
   disposables.push(clockWatcher);
 
-  // Step 9: Start doc-event wiring (PRD §4.2: doc.*, selection.change, focus.change).
+  // Step 9: Start paste intercept command (PRD §4.3 signal 2).
+  const pasteIntercept = startPasteIntercept({
+    registerCommand: (id, handler) => vscode.commands.registerCommand(id, handler),
+    executeCommand: (id, ...args) => vscode.commands.executeCommand(id, ...args),
+    getNow: () => clock.now(),
+  });
+  disposables.push(pasteIntercept.disposable);
+
+  // Step 10: Large-insert counter shared between doc-wiring and the reconciler.
+  let _largeInsertCount = 0;
+  const largeInsertCounter: LargeInsertCounter = {
+    increment() {
+      _largeInsertCount++;
+    },
+    count() {
+      return _largeInsertCount;
+    },
+  };
+
+  // Step 11: Start doc-event wiring (PRD §4.2 + §4.3 paste detection).
   const expectedContentRegistry = new ExpectedContentRegistry(manifest.files_under_review);
   const docWiring = startDocWiring({
     workspace: { asRelativePath: vscode.workspace.asRelativePath.bind(vscode.workspace) },
@@ -179,12 +201,24 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     emitDocChange: (data) => sessionHost.emit('doc.change', data),
     emitDocSave: (data) => sessionHost.emit('doc.save', data),
     emitDocClose: (data) => sessionHost.emit('doc.close', data),
+    emitPaste: (data) => sessionHost.emit('paste', data),
     emitSelectionChange: (data) => sessionHost.emit('selection.change', data),
     emitFocusChange: (data) => sessionHost.emit('focus.change', data),
     filesUnderReview: manifest.files_under_review,
     expectedContent: expectedContentRegistry,
+    pasteIntercept,
+    largeInsertCounter,
+    getNow: () => clock.now(),
   });
   disposables.push(docWiring);
+
+  // Step 12: Start paste reconciler (PRD §4.3 signal 3).
+  const reconciler = startPasteReconciler({
+    emit: (data) => sessionHost.emit('paste.anomaly', data),
+    getInterceptedCount: () => pasteIntercept.interceptCount,
+    getLargeInsertCount: () => largeInsertCounter.count(),
+  });
+  disposables.push(reconciler);
 
   // VS Code disposes context.subscriptions in LIFO order. We pushed the status bar disposable
   // (Step 2), then heartbeat (Step 7), then clock watcher (Step 8), then doc wiring (Step 9).

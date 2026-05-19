@@ -54,6 +54,11 @@ export const extensions = {
   getExtension: (_id: string) => undefined,
 };
 
+export const commands = {
+  registerCommand: (_id: string, _handler: () => unknown) => ({ dispose: () => undefined }),
+  executeCommand: (_id: string, ..._args: unknown[]) => Promise.resolve(undefined),
+};
+
 // Expose the class shape that extension.ts uses; tests replace it via ActivateDeps.
 export class Uri {
   static file(p: string): Uri {

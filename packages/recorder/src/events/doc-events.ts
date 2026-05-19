@@ -13,9 +13,12 @@ import type {
   DocChangePayload,
   DocSavePayload,
   DocClosePayload,
+  PastePayload,
   SelectionChangePayload,
   FocusChangePayload,
+  Range,
 } from '@provenance/log-core';
+import type { PastePayloadFields } from './paste-payload.js';
 
 // ---------------------------------------------------------------------------
 // WorkspaceLike — minimal seam so tests don't need a real vscode.workspace
@@ -122,4 +125,39 @@ export function transformFocusChange(
   return {
     gained: windowState.focused,
   };
+}
+
+/**
+ * Build a paste event payload from a doc-change event that has been classified
+ * as a paste (paste_likely or paste_confirmed).
+ *
+ * PRD §4.2 paste row: relative path, target range, pasted text length,
+ * pasted text sha256, pasted text content if ≤ 4 KB, otherwise truncated
+ * first/last 512 bytes + length.
+ *
+ * @param path     Workspace-relative path of the document.
+ * @param range    The target range where the text was inserted.
+ * @param fields   Pre-computed payload fields from buildPastePayload().
+ */
+export function transformPaste(
+  path: string,
+  range: Range,
+  fields: PastePayloadFields,
+): PastePayload {
+  const payload: PastePayload = {
+    path,
+    range,
+    length: fields.length,
+    sha256: fields.sha256,
+  };
+  if (fields.content !== undefined) {
+    payload.content = fields.content;
+  }
+  if (fields.content_head !== undefined) {
+    payload.content_head = fields.content_head;
+  }
+  if (fields.content_tail !== undefined) {
+    payload.content_tail = fields.content_tail;
+  }
+  return payload;
 }

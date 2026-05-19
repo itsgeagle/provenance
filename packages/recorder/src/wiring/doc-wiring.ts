@@ -3,6 +3,9 @@
  * Logic lives in doc-events.ts (pure); this file is the seam between VS Code and that logic.
  *
  * PRD §4.2: record doc.open/change/save/close for ANY file in the workspace.
+ * PRD §4.3: paste detection (three-signal). Signal 1 (classifier) and signal 2
+ *           (command intercept) are integrated here; signal 3 (reconciler) runs
+ *           in extension.ts independently.
  * PRD §4.5: maintain ExpectedContent ONLY for files in files_under_review.
  */
 
@@ -14,6 +17,7 @@ import type {
   DocChangePayload,
   DocSavePayload,
   DocClosePayload,
+  PastePayload,
   SelectionChangePayload,
   FocusChangePayload,
 } from '@provenance/log-core';
@@ -24,13 +28,23 @@ import {
   transformDocClose,
   transformSelectionChange,
   transformFocusChange,
+  transformPaste,
   type WorkspaceLike,
 } from '../events/doc-events.js';
+import { classifyChange } from '../events/paste-classifier.js';
+import { buildPastePayload } from '../events/paste-payload.js';
 import { ExpectedContentRegistry } from '../state/expected-content-registry.js';
+import type { PasteIntercept } from './paste-command-intercept.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** Minimal counter shared between doc-wiring and the paste reconciler. */
+export type LargeInsertCounter = {
+  increment(): void;
+  count(): number;
+};
 
 export type DocWiringDeps = {
   workspace: WorkspaceLike;
@@ -38,12 +52,19 @@ export type DocWiringDeps = {
   emitDocChange: (data: DocChangePayload) => void;
   emitDocSave: (data: DocSavePayload) => void;
   emitDocClose: (data: DocClosePayload) => void;
+  emitPaste: (data: PastePayload) => void;
   emitSelectionChange: (data: SelectionChangePayload) => void;
   emitFocusChange: (data: FocusChangePayload) => void;
   /** Relative paths from the .cs61a manifest. */
   filesUnderReview: readonly string[];
   /** Registry for expected-content model. */
   expectedContent: ExpectedContentRegistry;
+  /** Signal 2: command-intercept handle. Null if not available (tests can omit). */
+  pasteIntercept: PasteIntercept | null;
+  /** Counter shared with the paste reconciler (signal 3). */
+  largeInsertCounter: LargeInsertCounter;
+  /** Clock.now() for comparing paste-intercept timestamps. */
+  getNow: () => number;
 };
 
 // ---------------------------------------------------------------------------
@@ -68,9 +89,13 @@ export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
     emitDocChange,
     emitDocSave,
     emitDocClose,
+    emitPaste,
     emitSelectionChange,
     emitFocusChange,
     expectedContent,
+    pasteIntercept,
+    largeInsertCounter,
+    getNow,
   } = deps;
 
   // Track previous focus state for transition detection
@@ -95,28 +120,52 @@ export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
   });
 
   // -------------------------------------------------------------------------
-  // doc.change
+  // doc.change — integrates paste detection (PRD §4.3)
   // -------------------------------------------------------------------------
   const changeSub = vscode.workspace.onDidChangeTextDocument((event) => {
     const relativePath = workspace.asRelativePath(event.document.uri);
 
-    // Apply deltas to expected content if watched
+    // Build log-core delta representation
+    const deltas = event.contentChanges.map((c) => ({
+      range: {
+        start: { line: c.range.start.line, character: c.range.start.character },
+        end: { line: c.range.end.line, character: c.range.end.character },
+      },
+      text: c.text,
+    }));
+
+    // Apply deltas to expected content if watched (unchanged from Phase 5)
     if (expectedContent.isWatched(relativePath)) {
       const ec = expectedContent.get(relativePath);
       if (ec !== undefined) {
-        ec.applyDeltas(
-          event.contentChanges.map((c) => ({
-            range: {
-              start: { line: c.range.start.line, character: c.range.start.character },
-              end: { line: c.range.end.line, character: c.range.end.character },
-            },
-            text: c.text,
-          })),
-        );
+        ec.applyDeltas(deltas);
       }
     }
 
-    emitDocChange(transformDocChange(event, workspace));
+    // --- Signal 1: size-based classification ---
+    const classification = classifyChange(deltas);
+
+    if (classification === 'paste_likely') {
+      // Increment large-insert counter for signal 3 (reconciler)
+      largeInsertCounter.increment();
+
+      // --- Signal 2: check if a paste command was intercepted just before this ---
+      const now = getNow();
+      const isConfirmed = pasteIntercept !== null && pasteIntercept.consumeIfPasteExpected(now);
+      // Note: isConfirmed vs paste_likely distinction is not in the PRD paste payload;
+      // both produce a 'paste' event. The reconciler (signal 3) handles discrepancy tracking.
+      void isConfirmed; // intentionally unused in v1 per PRD analysis in task spec
+
+      // Build paste payload from the single delta's text
+      const delta = deltas[0]!;
+      const fields = buildPastePayload(delta.text);
+      const pastePayload = transformPaste(relativePath, delta.range, fields);
+
+      emitPaste(pastePayload);
+    } else {
+      // typed path — emit doc.change as before
+      emitDocChange(transformDocChange(event, workspace));
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -128,7 +177,7 @@ export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
 
     if (expectedContent.isWatched(relativePath)) {
       const ec = expectedContent.get(relativePath);
-      // For Phase 5, we trust expected content == on-disk content.
+      // For Phase 5/6, we trust expected content == on-disk content.
       // Phase 7 will compare against disk for fs.external_change.
       hash = ec !== undefined ? ec.hash : computeHash(document.getText());
     } else {
