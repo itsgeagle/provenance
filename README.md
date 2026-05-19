@@ -15,7 +15,7 @@ The full design lives in [`docs/prd.md`](docs/prd.md). Code conventions for work
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests.                                                                                            |
 | `packages/recorder` | **v1 complete** — all PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode. 286 unit tests + 3 integration tests against real VS Code. |
-| `packages/analyzer` | **Not started.** Scaffold only. v2 work.                                                                                                                                                                                                                             |
+| `packages/analyzer` | **v1 complete** — bundle load + validation, raw timeline (virtualized + filterable), four high-value heuristics (`large_paste`, `external_edits`, `low_typing_high_output`, `chain_broken`), markdown findings export. 408+ unit tests. Static hosting ready. |                                                                                                                                                                                                                             |
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the phase-by-phase build history.
 
@@ -33,6 +33,14 @@ npm run build && npm run typecheck && npm run lint && npm run test
 To run the recorder against the bundled test workspace, open this repo in VS Code and press F5 (or pick **"Run Recorder Extension"** in the Run & Debug panel). A second VS Code window opens with `test-workspace/` loaded; the status bar shows "CS 61A: recording".
 
 For richer instructions — including how to read the live log, run the integration tests against a real VS Code, and exercise the bundle-seal flow — see [`packages/recorder/README.md`](packages/recorder/README.md).
+
+To run the analyzer in development, start the dev server:
+
+```sh
+npm run dev --workspace=packages/analyzer
+```
+
+Then drop a `.slog` bundle in the load view. For a static build ready to host, see [`packages/analyzer/README.md`](packages/analyzer/README.md).
 
 ## Repo layout
 
