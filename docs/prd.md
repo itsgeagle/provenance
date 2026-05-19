@@ -292,6 +292,10 @@ When a bundle is loaded, the Analyzer runs these checks in order and produces a 
 
 Any failure produces a hard flag on the submission. The flag is informational, not punitive: tampering, a crashed Recorder, and a corrupted disk all look similar from the outside, and a human decides what to do.
 
+**Notes on optional / best-effort fields:**
+
+- `session.start.vscode.commit` may be the empty string. The VS Code public API doesn't expose the build commit, and the v1 recorder doesn't read the unofficial `product.json` path. Validators must accept `''` here without treating it as a structural failure.
+
 ---
 
 ## 6. Tamper resistance: what works, what doesn't, what we're honest about

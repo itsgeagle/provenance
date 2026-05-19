@@ -28,7 +28,16 @@ export type SessionStartPayload = {
   assignment: { id: string; semester: string };
   manifest_sig: string;
   machine_id: string;
-  vscode: { version: string; commit: string; platform: string };
+  vscode: {
+    version: string;
+    /**
+     * VS Code build commit hash (40-char hex, shown in Help → About).
+     * The vscode public API does not expose this, so the recorder emits the
+     * empty string. Analyzers must accept `''` as valid here.
+     */
+    commit: string;
+    platform: string;
+  };
   recorder: { version: string; extension_id: string };
   session_pubkey: string;
 };
