@@ -103,11 +103,18 @@ export function parseManifest(text: string): Result<Cs61aManifest, ManifestError
   }
 
   // sig: 128 hex chars (64-byte ed25519 signature)
-  if (!HEX_128_RE.test(obj['sig'] as string)) {
+  if (obj['sig'] === undefined) {
     return err({
       kind: 'invalid_shape',
       field: 'sig',
-      reason: 'must be 128 lowercase hex chars (64-byte ed25519 signature)',
+      reason: 'missing',
+    });
+  }
+  if (typeof obj['sig'] !== 'string' || !HEX_128_RE.test(obj['sig'])) {
+    return err({
+      kind: 'invalid_shape',
+      field: 'sig',
+      reason: 'must be a 128-char hex string',
     });
   }
 
@@ -143,6 +150,9 @@ export async function verifyManifest(
 
   let valid: boolean;
   try {
+    // `@noble/ed25519` v3 defaults to ZIP215 verification semantics (more permissive than RFC8032
+    // about non-canonical point encodings). Safe here since the course public key is hardcoded;
+    // reconsider if the key ever becomes user-supplied.
     valid = await ed.verifyAsync(sigBytes, payloadBytes, pubkeyBytes);
   } catch {
     return err({ kind: 'invalid_signature' });

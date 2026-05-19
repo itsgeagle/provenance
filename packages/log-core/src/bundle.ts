@@ -108,7 +108,7 @@ export function validateBundleManifestShape(
   }
 
   // extension_hash: 64 hex chars
-  if (!HEX_64_RE.test(obj['extension_hash'] as string)) {
+  if (typeof obj['extension_hash'] !== 'string' || !HEX_64_RE.test(obj['extension_hash'])) {
     if (obj['extension_hash'] === undefined) {
       return err({ kind: 'missing_field', field: 'extension_hash' });
     }
@@ -157,7 +157,7 @@ export function validateBundleManifestShape(
       });
     }
 
-    if (!HEX_64_RE.test(sObj['slog_sha256'] as string)) {
+    if (typeof sObj['slog_sha256'] !== 'string' || !HEX_64_RE.test(sObj['slog_sha256'])) {
       if (sObj['slog_sha256'] === undefined) {
         return err({ kind: 'missing_field', field: `sessions[${i}].slog_sha256` });
       }
@@ -168,7 +168,7 @@ export function validateBundleManifestShape(
       });
     }
 
-    if (!HEX_64_RE.test(sObj['meta_sha256'] as string)) {
+    if (typeof sObj['meta_sha256'] !== 'string' || !HEX_64_RE.test(sObj['meta_sha256'])) {
       if (sObj['meta_sha256'] === undefined) {
         return err({ kind: 'missing_field', field: `sessions[${i}].meta_sha256` });
       }

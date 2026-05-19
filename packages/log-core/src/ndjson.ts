@@ -104,6 +104,8 @@ export function parseEntries(text: string): Result<readonly HashedEnvelope[], Pa
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Skip empty lines (trailing newline produces one)
+    // `lines[i]` is typed as `string | undefined` due to `noUncheckedIndexedAccess`;
+    // at runtime `split('\n')` never produces undefined, but the check is required to satisfy the type.
     if (line === '' || line === undefined) {
       continue;
     }

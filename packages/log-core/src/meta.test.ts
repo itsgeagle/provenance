@@ -77,6 +77,32 @@ describe('validateMetaShape', () => {
     }
   });
 
+  it('rejects session_id with wrong type (present but not a string)', () => {
+    const meta = { ...validMeta(), session_id: 42 };
+    const result = validateMetaShape(meta);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe('invalid_field');
+      if (result.error.kind === 'invalid_field') {
+        expect(result.error.field).toBe('session_id');
+        expect(result.error.reason).toBe('must be a non-empty string');
+      }
+    }
+  });
+
+  it('rejects session_id with empty string', () => {
+    const meta = { ...validMeta(), session_id: '' };
+    const result = validateMetaShape(meta);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe('invalid_field');
+      if (result.error.kind === 'invalid_field') {
+        expect(result.error.field).toBe('session_id');
+        expect(result.error.reason).toBe('must be a non-empty string');
+      }
+    }
+  });
+
   it('rejects missing session_pubkey', () => {
     const meta = validMeta();
     delete meta['session_pubkey'];

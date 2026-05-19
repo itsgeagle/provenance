@@ -131,6 +131,25 @@ describe('parseManifest', () => {
       expect(result.error.kind).toBe('invalid_shape');
       if (result.error.kind === 'invalid_shape') {
         expect(result.error.field).toBe('sig');
+        expect(result.error.reason).toBe('must be a 128-char hex string');
+      }
+    }
+  });
+
+  it('rejects missing sig field', () => {
+    const obj = {
+      assignment_id: 'hw03',
+      semester: 'fa26',
+      issued_at: '2026-09-15T00:00:00Z',
+      files_under_review: ['hw03.py'],
+    };
+    const result = parseManifest(JSON.stringify(obj));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe('invalid_shape');
+      if (result.error.kind === 'invalid_shape') {
+        expect(result.error.field).toBe('sig');
+        expect(result.error.reason).toBe('missing');
       }
     }
   });

@@ -80,12 +80,19 @@ export function validateMetaShape(value: unknown): Result<SlogMeta, MetaShapeErr
   }
 
   // session_id
-  if (typeof obj['session_id'] !== 'string' || obj['session_id'].length === 0) {
+  if (obj['session_id'] === undefined) {
     return err({ kind: 'missing_field', field: 'session_id' });
+  }
+  if (typeof obj['session_id'] !== 'string' || obj['session_id'].length === 0) {
+    return err({
+      kind: 'invalid_field',
+      field: 'session_id',
+      reason: 'must be a non-empty string',
+    });
   }
 
   // session_pubkey: 64 hex chars (32 bytes)
-  if (!HEX_64_RE.test(obj['session_pubkey'] as string)) {
+  if (typeof obj['session_pubkey'] !== 'string' || !HEX_64_RE.test(obj['session_pubkey'])) {
     if (obj['session_pubkey'] === undefined) {
       return err({ kind: 'missing_field', field: 'session_pubkey' });
     }
@@ -172,14 +179,14 @@ export function validateMetaShape(value: unknown): Result<SlogMeta, MetaShapeErr
         reason: 'must be a number',
       });
     }
-    if (!HEX_64_RE.test(cpObj['hash'] as string)) {
+    if (typeof cpObj['hash'] !== 'string' || !HEX_64_RE.test(cpObj['hash'])) {
       return err({
         kind: 'invalid_field',
         field: `checkpoints[${i}].hash`,
         reason: 'must be 64 hex chars',
       });
     }
-    if (!HEX_128_RE.test(cpObj['sig'] as string)) {
+    if (typeof cpObj['sig'] !== 'string' || !HEX_128_RE.test(cpObj['sig'])) {
       return err({
         kind: 'invalid_field',
         field: `checkpoints[${i}].sig`,
