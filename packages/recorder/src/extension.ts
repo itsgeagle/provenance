@@ -28,6 +28,10 @@ import { startPasteReconciler } from './events/paste-reconciler.js';
 import { startFsWatcher } from './wiring/fs-watcher.js';
 import { ExplanationTagger } from './events/explanation-tags.js';
 import { ExpectedContentRegistry } from './state/expected-content-registry.js';
+import { startTerminalWiring } from './wiring/terminal-wiring.js';
+import { startExtensionSnapshot } from './wiring/extension-snapshot.js';
+import { startExtensionActivation } from './wiring/extension-activation.js';
+import { startGitWiring } from './wiring/git-wiring.js';
 import type { LargeInsertCounter } from './wiring/doc-wiring.js';
 import type { Cs61aManifest } from '@provenance/log-core';
 
@@ -248,6 +252,69 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     getLargeInsertCount: () => largeInsertCounter.count(),
   });
   disposables.push(reconciler);
+
+  // Step 13: Terminal wiring (PRD §4.2 + §4.4).
+  // The onDidStartTerminalShellExecution / onDidEndTerminalShellExecution APIs are
+  // VS Code 1.93+ additions. We cast window to check for their presence at runtime,
+  // and only pass them if they exist. exactOptionalPropertyTypes requires we not pass
+  // `undefined` for optional properties — so we build the object conditionally.
+  type VscodeWindowExt = typeof vscode.window & {
+    onDidStartTerminalShellExecution?: (
+      h: (e: import('vscode').TerminalShellExecutionStartEvent) => void,
+    ) => import('vscode').Disposable;
+    onDidEndTerminalShellExecution?: (
+      h: (e: import('vscode').TerminalShellExecutionEndEvent) => void,
+    ) => import('vscode').Disposable;
+  };
+  const windowExt = vscode.window as VscodeWindowExt;
+  const terminalWiringDeps = {
+    emitTerminalOpen: (d: { terminal_id: string; shell: string; shell_integration: boolean }) =>
+      sessionHost.emit('terminal.open', d),
+    emitTerminalCommand: (d: { terminal_id: string; command: string; exit_code?: number }) =>
+      sessionHost.emit('terminal.command', d),
+    onDidOpenTerminal: (h: (t: import('vscode').Terminal) => void) =>
+      vscode.window.onDidOpenTerminal(h),
+    onDidCloseTerminal: (h: (t: import('vscode').Terminal) => void) =>
+      vscode.window.onDidCloseTerminal(h),
+    ...(windowExt.onDidStartTerminalShellExecution !== undefined
+      ? {
+          onDidStartTerminalShellExecution: (
+            h: (e: import('vscode').TerminalShellExecutionStartEvent) => void,
+          ) => windowExt.onDidStartTerminalShellExecution!(h),
+        }
+      : {}),
+    ...(windowExt.onDidEndTerminalShellExecution !== undefined
+      ? {
+          onDidEndTerminalShellExecution: (
+            h: (e: import('vscode').TerminalShellExecutionEndEvent) => void,
+          ) => windowExt.onDidEndTerminalShellExecution!(h),
+        }
+      : {}),
+  };
+  const terminalWiring = startTerminalWiring(terminalWiringDeps);
+  disposables.push(terminalWiring);
+
+  // Step 14: Extension snapshot (PRD §4.2 — ext.snapshot every 5 min + at start).
+  const snap = startExtensionSnapshot({
+    emit: (d) => sessionHost.emit('ext.snapshot', d),
+    getExtensions: () => vscode.extensions.all,
+  });
+  disposables.push(snap);
+
+  // Step 15: Extension activation poller (PRD §4.2 — ext.activate).
+  const extAct = startExtensionActivation({
+    emit: (d) => sessionHost.emit('ext.activate', d),
+    getExtensions: () => vscode.extensions.all,
+  });
+  disposables.push(extAct);
+
+  // Step 16: Git wiring (PRD §4.2 — git.event; also feeds explanationTagger for §4.5).
+  const gitW = startGitWiring({
+    emit: (d) => sessionHost.emit('git.event', d),
+    getGitExtension: () => vscode.extensions.getExtension('vscode.git'),
+    explanationTagger,
+  });
+  disposables.push(gitW);
 
   // VS Code disposes context.subscriptions in LIFO order. We pushed the status bar disposable
   // (Step 2), then heartbeat (Step 7), then clock watcher (Step 8), then doc wiring (Step 9).

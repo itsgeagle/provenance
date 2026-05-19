@@ -32,6 +32,12 @@ export const window = {
   onDidChangeActiveTextEditor: (_handler: () => void) => noopDisposable,
   // Used by doc-wiring for selection-change subscription.
   onDidChangeTextEditorSelection: (_handler: (_event: unknown) => void) => noopDisposable,
+  // Used by terminal-wiring.ts (Phase 8).
+  onDidOpenTerminal: (_handler: (_terminal: unknown) => void) => noopDisposable,
+  onDidCloseTerminal: (_handler: (_terminal: unknown) => void) => noopDisposable,
+  // VS Code 1.93+ API — omitted by default; tests that need it can add it via vi.mock.
+  onDidStartTerminalShellExecution: undefined as undefined,
+  onDidEndTerminalShellExecution: undefined as undefined,
   // Mock: active editor is always undefined in unit tests.
   activeTextEditor: undefined as undefined,
   // Window state: always focused in unit tests.
@@ -53,7 +59,12 @@ export const workspace = {
 };
 
 export const extensions = {
-  getExtension: (_id: string) => undefined,
+  // Returns undefined by default. Tests that need a specific extension can
+  // override via vi.spyOn(extensions, 'getExtension').mockReturnValue(...).
+  getExtension: (_id: string): undefined => undefined,
+  // Empty array by default. Tests can replace this via vi.spyOn or pass
+  // getExtensions as a dep injection (preferred — avoids global mutation).
+  all: [] as readonly import('vscode').Extension<unknown>[],
 };
 
 export const commands = {
