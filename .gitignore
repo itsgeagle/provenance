@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.vsix
+.DS_Store
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json

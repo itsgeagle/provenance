@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-recorder",
+      "type": "npm",
+      "script": "build",
+      "path": "packages/recorder",
+      "problemMatcher": "$tsc"
+    }
+  ]
+}

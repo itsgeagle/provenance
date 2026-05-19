@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Recorder Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/packages/recorder",
+        "${workspaceFolder}/test-workspace"
+      ],
+      "outFiles": ["${workspaceFolder}/packages/recorder/dist/**/*.js"],
+      "preLaunchTask": "build-recorder"
+    }
+  ]
+}
