@@ -1,0 +1,327 @@
+/**
+ * EventList — virtualized event list for the raw timeline view.
+ *
+ * PRD §7.2 ("Raw timeline"), §7.3 (perf budget).
+ *
+ * Uses @tanstack/react-virtual for windowed rendering. With 10k+ events, only
+ * ~30–50 rows are in the DOM at any time (the overscan window).
+ *
+ * Row format:
+ *   [seq#42] [12:34:56.789] [kind-chip] /path/to/file.py · payload summary    [session-chip]
+ */
+
+import { useRef, useEffect, useCallback } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { cn } from '@/lib/utils';
+import type { IndexedEvent } from '../../index/event-index.js';
+import type { EventKind } from '@provenance/log-core';
+
+// ---------------------------------------------------------------------------
+// Payload summary
+// ---------------------------------------------------------------------------
+
+/**
+ * One-line human-readable summary of an event's payload.
+ * Exported for unit testing.
+ */
+export function payloadSummary(event: IndexedEvent): string {
+  const p = event.payload as Record<string, unknown>;
+  switch (event.kind) {
+    case 'doc.change': {
+      // Count inserts and deletes across deltas
+      type Delta = { text: string; range: { start: unknown; end: unknown } };
+      const deltas = (p['deltas'] as Delta[] | undefined) ?? [];
+      let inserts = 0;
+      let deletes = 0;
+      for (const d of deltas) {
+        if (d.text && d.text.length > 0) inserts++;
+        if (d.range && typeof d.range === 'object' && d.range.start !== d.range.end) {
+          // If there's a non-empty range and no text, it's a delete
+          if (!d.text || d.text.length === 0) deletes++;
+        }
+      }
+      const parts: string[] = [];
+      if (inserts > 0) parts.push(`${inserts} insert${inserts !== 1 ? 's' : ''}`);
+      if (deletes > 0) parts.push(`${deletes} delete${deletes !== 1 ? 's' : ''}`);
+      if (parts.length === 0 && deltas.length > 0)
+        parts.push(`${deltas.length} delta${deltas.length !== 1 ? 's' : ''}`);
+      return parts.join(', ');
+    }
+    case 'paste': {
+      const length = typeof p['length'] === 'number' ? p['length'] : 0;
+      const head =
+        typeof p['content_head'] === 'string'
+          ? p['content_head']
+          : typeof p['content'] === 'string'
+            ? p['content']
+            : '';
+      const truncated = head.length > 40 ? head.slice(0, 40) + '…' : head;
+      return `${length} chars${truncated ? ': ' + truncated : ''}`;
+    }
+    case 'doc.save': {
+      const path = typeof p['path'] === 'string' ? p['path'] : '';
+      return path;
+    }
+    case 'fs.external_change': {
+      const oldHash = typeof p['old_hash'] === 'string' ? p['old_hash'].slice(0, 8) : '?';
+      const newHash = typeof p['new_hash'] === 'string' ? p['new_hash'].slice(0, 8) : '?';
+      const diffSize = typeof p['diff_size'] === 'number' ? p['diff_size'] : 0;
+      return `${oldHash}… → ${newHash}… (diff_size ${diffSize})`;
+    }
+    case 'terminal.command': {
+      const cmd = typeof p['command'] === 'string' ? p['command'] : '';
+      return cmd.length > 60 ? cmd.slice(0, 60) + '…' : cmd;
+    }
+    case 'session.start': {
+      const sid = typeof p['session_id'] === 'string' ? p['session_id'].slice(0, 8) : '';
+      return sid ? `session ${sid}…` : '';
+    }
+    case 'session.end': {
+      const reason = typeof p['reason'] === 'string' ? p['reason'] : '';
+      return reason;
+    }
+    case 'doc.open': {
+      const path = typeof p['path'] === 'string' ? p['path'] : '';
+      return path;
+    }
+    case 'terminal.open': {
+      const shell = typeof p['shell'] === 'string' ? p['shell'] : '';
+      return shell;
+    }
+    case 'paste.anomaly': {
+      const count = typeof p['intercepted_count'] === 'number' ? p['intercepted_count'] : 0;
+      return `${count} intercepted`;
+    }
+    case 'git.event': {
+      const op = typeof p['operation'] === 'string' ? p['operation'] : '';
+      return op;
+    }
+    default:
+      return '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Kind chip color table
+// ---------------------------------------------------------------------------
+
+const KIND_CHIP_CLASSES: Partial<Record<EventKind, string>> = {
+  paste: 'bg-orange-100 text-orange-700 border-orange-200',
+  'paste.anomaly': 'bg-orange-100 text-orange-700 border-orange-200',
+  'fs.external_change': 'bg-red-100 text-red-700 border-red-200',
+  'chain.broken': 'bg-red-100 text-red-700 border-red-200',
+  'recorder.degraded': 'bg-red-100 text-red-700 border-red-200',
+  'session.start': 'bg-blue-100 text-blue-700 border-blue-200',
+  'session.end': 'bg-blue-100 text-blue-700 border-blue-200',
+  'session.heartbeat': 'bg-blue-100 text-blue-700 border-blue-200',
+  'terminal.command': 'bg-purple-100 text-purple-700 border-purple-200',
+  'terminal.open': 'bg-purple-100 text-purple-700 border-purple-200',
+};
+
+const DEFAULT_KIND_CHIP = 'bg-gray-100 text-gray-700 border-gray-200';
+
+function KindChip({ kind }: { kind: EventKind }) {
+  const cls = KIND_CHIP_CLASSES[kind] ?? DEFAULT_KIND_CHIP;
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium',
+        cls,
+      )}
+      data-testid={`kind-chip-${kind}`}
+    >
+      {kind}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Wall time formatter
+// ---------------------------------------------------------------------------
+
+function formatWall(wall: string): string {
+  try {
+    const d = new Date(wall);
+    // HH:MM:SS.mmm local time
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    return `${hh}:${mm}:${ss}.${ms}`;
+  } catch {
+    return wall.slice(0, 12);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Row
+// ---------------------------------------------------------------------------
+
+interface EventRowProps {
+  event: IndexedEvent;
+  isSelected: boolean;
+  onClick: () => void;
+  style: React.CSSProperties;
+}
+
+function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
+  const summary = payloadSummary(event);
+  const filePart = event.file
+    ? event.file.length > 35
+      ? '…' + event.file.slice(-34)
+      : event.file
+    : '';
+
+  return (
+    <div
+      style={style}
+      role="button"
+      tabIndex={0}
+      className={cn(
+        'absolute left-0 right-0 flex cursor-pointer items-center gap-2 border-b px-3 py-1.5 text-xs transition-colors hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring',
+        isSelected && 'bg-accent',
+      )}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      data-testid={`event-row-${event.globalIdx}`}
+      data-global-idx={event.globalIdx}
+    >
+      {/* seq */}
+      <span className="w-12 shrink-0 font-mono text-muted-foreground">#{event.seq}</span>
+
+      {/* wall time */}
+      <span className="w-28 shrink-0 font-mono text-muted-foreground">
+        {formatWall(event.wall)}
+      </span>
+
+      {/* kind chip */}
+      <KindChip kind={event.kind} />
+
+      {/* file path */}
+      {filePart && (
+        <span
+          className="shrink-0 max-w-[160px] truncate font-mono text-muted-foreground"
+          title={event.file}
+        >
+          {filePart}
+        </span>
+      )}
+
+      {/* summary */}
+      {summary && <span className="min-w-0 flex-1 truncate text-foreground/80">{summary}</span>}
+      {!summary && <span className="flex-1" />}
+
+      {/* session chip */}
+      <span
+        className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+        data-testid={`session-chip-${event.globalIdx}`}
+      >
+        {event.sessionId.slice(0, 6)}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EventList
+// ---------------------------------------------------------------------------
+
+const ROW_HEIGHT = 36; // px
+
+interface EventListProps {
+  events: IndexedEvent[];
+  onSelect: (event: IndexedEvent) => void;
+  /** Key of the currently selected event: `${sessionId}:${seq}` */
+  selectedKey: string | null;
+  /**
+   * If set, the list scrolls to and selects the event with this key.
+   * Format: `${sessionId}:${seq}` (same as URL param format).
+   */
+  scrollToKey: string | null;
+  onScrollToKeyConsumed?: () => void;
+}
+
+export function EventList({ events, onSelect, selectedKey, scrollToKey }: EventListProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: events.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  });
+
+  // Handle scrollToKey: find the row and scroll to it.
+  useEffect(() => {
+    if (!scrollToKey) return;
+    const colonIdx = scrollToKey.lastIndexOf(':');
+    if (colonIdx === -1) return;
+    const sessionId = scrollToKey.slice(0, colonIdx);
+    const seq = parseInt(scrollToKey.slice(colonIdx + 1), 10);
+    if (isNaN(seq)) return;
+
+    const idx = events.findIndex((e) => e.sessionId === sessionId && e.seq === seq);
+    if (idx === -1) return;
+
+    virtualizer.scrollToIndex(idx, { align: 'center' });
+  }, [scrollToKey, events, virtualizer]);
+
+  const handleSelect = useCallback(
+    (event: IndexedEvent) => {
+      onSelect(event);
+    },
+    [onSelect],
+  );
+
+  const totalSize = virtualizer.getTotalSize();
+  const virtualItems = virtualizer.getVirtualItems();
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-md border">
+      {/* Header row */}
+      <div className="flex shrink-0 items-center gap-2 border-b bg-muted/50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="w-12 shrink-0">Seq</span>
+        <span className="w-28 shrink-0">Wall time</span>
+        <span className="shrink-0">Kind</span>
+        <span className="flex-1">File / Summary</span>
+        <span className="ml-auto shrink-0">Session</span>
+      </div>
+
+      {/* Empty state */}
+      {events.length === 0 && (
+        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          No events match the current filters.
+        </div>
+      )}
+
+      {/* Virtualized list */}
+      {events.length > 0 && (
+        <div ref={parentRef} className="flex-1 overflow-auto" data-testid="virtual-list-container">
+          <div style={{ height: totalSize, width: '100%', position: 'relative' }}>
+            {virtualItems.map((virtualItem) => {
+              const event = events[virtualItem.index]!;
+              const key = `${event.sessionId}:${event.seq}`;
+              return (
+                <EventRow
+                  key={virtualItem.key}
+                  event={event}
+                  isSelected={selectedKey === key}
+                  onClick={() => handleSelect(event)}
+                  style={{
+                    height: virtualItem.size,
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -4,8 +4,8 @@
  * Route structure:
  *   /          → redirect to /load
  *   /load      → LoadView (drop zone; not guarded)
- *   /overview  → OverviewPlaceholder (guarded by RequireBundle)
- *   /timeline  → TimelinePlaceholder (guarded by RequireBundle)
+ *   /overview  → OverviewView (guarded by RequireBundle)
+ *   /timeline  → TimelineView (guarded by RequireBundle)
  *
  * <BundleProvider> wraps <Routes> so all routes can read the context.
  * <BundleProvider> itself sits inside <BrowserRouter> (set up in main.tsx).
@@ -22,7 +22,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { BundleProvider, useBundle } from './context/BundleContext.js';
 import { LoadView } from './views/load/LoadView.js';
 import { OverviewView } from './views/overview/OverviewView.js';
-import { TimelinePlaceholder } from './views/timeline/TimelinePlaceholder.js';
+import { TimelineView } from './views/timeline/TimelineView.js';
 import { Layout } from './components/Layout.js';
 
 // ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ export function App() {
           element={
             <RequireBundle>
               <Layout>
-                <TimelinePlaceholder />
+                <TimelineView />
               </Layout>
             </RequireBundle>
           }
