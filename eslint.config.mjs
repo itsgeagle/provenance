@@ -11,4 +11,25 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
+  {
+    files: ['packages/log-core/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            'vscode',
+            'node:fs',
+            'node:path',
+            'node:worker_threads',
+            'node:crypto',
+            'fs',
+            'path',
+            'worker_threads',
+            'crypto',
+          ],
+        },
+      ],
+    },
+  },
 );

@@ -22,11 +22,14 @@
     "package": "vsce package --no-dependencies"
   },
   "dependencies": {
-    "@provenance/log-core": "*"
+    "@noble/ciphers": "^2.2.0",
+    "@provenance/log-core": "*",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
-    "@types/vscode": "^1.93.0",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.93.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.0.0"
   }
 }
