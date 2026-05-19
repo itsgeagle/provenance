@@ -3,4 +3,5 @@ dist/
 dist-integration/
 dist-perf/
 .notes/
+.vscode-test/
 package-lock.json

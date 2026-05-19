@@ -20,6 +20,7 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
+import { statSync } from 'node:fs';
 
 const EXTENSION_ID = 'berkeley-cs61a.provenance-recorder';
 const POLL_INTERVAL_MS = 500;
@@ -82,21 +83,27 @@ suite('Provenance Recorder integration smoke test', () => {
   });
 
   test('.provenance/ directory is created in workspace root', async () => {
-    const wsRoot = workspaceRoot();
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
+      throw new Error(
+        'No workspace folder open in Extension Host — the test workspace was not opened as a workspace folder. Check runTest.ts launchArgs.',
+      );
+    }
+    const wsRoot = folders[0]!.uri.fsPath;
     const provenanceDir = path.join(wsRoot, '.provenance');
 
     await waitUntil(
       () => {
         try {
           // Sync check — ok for polling in tests.
-          require('node:fs').statSync(provenanceDir).isDirectory();
+          statSync(provenanceDir).isDirectory();
           return true;
         } catch {
           return false;
         }
       },
       ACTIVATION_TIMEOUT_MS,
-      '.provenance/ directory to exist',
+      `.provenance/ directory to exist at ${provenanceDir}`,
     );
   });
 

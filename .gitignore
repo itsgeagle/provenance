@@ -6,3 +6,7 @@ dist/
 !.vscode/launch.json
 !.vscode/tasks.json
 !.vscode/extensions.json
+.vscode-test/
+dist-integration/
+dist-perf/
+test-workspace/.provenance/

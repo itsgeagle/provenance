@@ -9,41 +9,37 @@
  */
 
 import * as path from 'node:path';
-import * as Mocha from 'mocha';
-import * as glob from 'glob';
+import { fileURLToPath } from 'node:url';
+import Mocha from 'mocha';
+import { glob } from 'glob';
 
-export function run(): Promise<void> {
+export async function run(): Promise<void> {
   const mocha = new Mocha({
     ui: 'tdd',
     color: true,
     timeout: 30_000, // 30s per test — VS Code startup can be slow.
   });
 
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const testsRoot = path.resolve(__dirname, '.');
 
-  return new Promise((resolve, reject) => {
-    // Discover compiled test files.
-    glob('**/**.test.js', { cwd: testsRoot }, (err, files) => {
-      if (err) {
-        reject(err);
-        return;
-      }
+  // glob@13 returns a Promise<string[]>; no callback API.
+  const files = await glob('**/**.test.js', { cwd: testsRoot });
+  for (const f of files) {
+    mocha.addFile(path.resolve(testsRoot, f));
+  }
 
-      for (const f of files) {
-        mocha.addFile(path.resolve(testsRoot, f));
-      }
-
-      try {
-        mocha.run((failures) => {
-          if (failures > 0) {
-            reject(new Error(`${failures} test(s) failed.`));
-          } else {
-            resolve();
-          }
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
+  await new Promise<void>((resolve, reject) => {
+    try {
+      mocha.run((failures) => {
+        if (failures > 0) {
+          reject(new Error(`${failures} test(s) failed.`));
+        } else {
+          resolve();
+        }
+      });
+    } catch (e) {
+      reject(e);
+    }
   });
 }

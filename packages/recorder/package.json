@@ -5,13 +5,14 @@
   "version": "0.1.0",
   "private": true,
   "publisher": "berkeley-cs61a",
+  "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/berkeley-cs61a/provenance"
   },
   "license": "MIT",
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.94.0"
   },
   "main": "./dist/extension.js",
   "activationEvents": [
@@ -40,9 +41,12 @@
     "jszip": "^3.10.1"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.93.0",
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.0.0"
+    "@vscode/vsce": "^3.0.0",
+    "glob": "^13.0.6",
+    "mocha": "^11.7.5"
   }
 }

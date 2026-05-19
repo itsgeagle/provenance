@@ -18,19 +18,21 @@
  */
 
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runTests } from '@vscode/test-electron';
 
 async function main(): Promise<void> {
-  // Root of the recorder package — this is where package.json lives.
-  const extensionDevelopmentPath = path.resolve(__dirname, '../..');
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  // At runtime, __dirname is packages/recorder/dist-integration/test/integration/.
+  // Go up four levels to the recorder package root (where package.json lives).
+  const extensionDevelopmentPath = path.resolve(__dirname, '../../../..');
 
-  // The compiled suite index (after `tsc -p tsconfig.integration.json`).
-  // @vscode/test-electron will look for dist-integration/test/integration/suite/index.js
-  // and call its exported `run()` function.
-  const extensionTestsPath = path.resolve(__dirname, '../suite/index');
+  // The compiled suite index sits next to this file in dist-integration/test/integration/suite/.
+  // Use a file:// URL so @vscode/test-electron's extension host can dynamic-import the ESM entry.
+  const extensionTestsPath = path.resolve(__dirname, './suite/index.js');
 
-  // The test-workspace that contains a valid .cs61a marker file.
-  const testWorkspacePath = path.resolve(__dirname, '../../../../test-workspace');
+  // The test-workspace at the repo root.
+  const testWorkspacePath = path.resolve(__dirname, '../../../../../test-workspace');
 
   try {
     await runTests({

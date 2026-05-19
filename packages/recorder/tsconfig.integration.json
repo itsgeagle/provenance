@@ -3,8 +3,6 @@
   "compilerOptions": {
     "outDir": "./dist-integration",
     "rootDir": "./",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
     "types": ["mocha", "node"]
   },
   "include": ["test/integration/**/*"],
