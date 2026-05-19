@@ -187,7 +187,7 @@ describe.skipIf(!fixtureExists)('integration: real recorder fixture', () => {
 
 if (!fixtureExists) {
   describe('integration: real recorder fixture [SKIPPED — fixture absent]', () => {
-    it('fixture not found — see test/integration/regenerate-fixture.md', () => {
+    it.skip('fixture not found — see test/integration/regenerate-fixture.md', () => {
       console.log(
         `[integration] Real fixture not found at: ${FIXTURE_PATH}\n` +
           `  To enable this test:\n` +
@@ -196,7 +196,6 @@ if (!fixtureExists) {
           `  3. Copy the output ZIP to packages/analyzer/test/fixtures/sample-bundle.zip.\n` +
           `  4. Commit the ZIP and re-run tests.`,
       );
-      // Skip explicitly rather than fail.
     });
   });
 }

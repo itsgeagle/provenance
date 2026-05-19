@@ -10,9 +10,10 @@
  *    5% doc.save
  *   10% other (session.heartbeat, terminal.command, doc.open, etc.)
  *
- * This mix keeps reconstructed file content small (O(N) reconstruction)
- * so the benchmark measures actual parse/index throughput rather than
- * string-manipulation pathologies.
+ * Reconstruction complexity: O(N × avg_line_len) because reconstructFile calls
+ * content.split('\n') per delta; multi-line content would be O(N × total_chars).
+ * The bench's single-line content keeps line_len small enough to be acceptable.
+ * This is a known v2 watch item.
  *
  * Strategy:
  *   - Build the synthetic bundle ONCE in beforeAll and reuse the same ZIP
@@ -38,10 +39,10 @@ const BUDGET_MS = 5_000;
 /**
  * Generate a realistic mix of events for one session.
  *
- * Realistic mix ensures content reconstruction stays O(N) (not O(N²)):
+ * Realistic mix keeps reconstruction acceptable: reconstruction is O(N × avg_line_len),
+ * and the single-line content in this bench keeps line_len bounded:
  *   - doc.change events insert 1–3 chars at the end of line 0, so the file
- *     grows slowly to ~40 KB — large enough to be meaningful, small enough
- *     that positionToOffset() runs in constant time per event.
+ *     grows slowly to ~40 KB.
  *   - doc.save every ~200 events (matches real save cadence).
  *   - paste every ~20 events (small inline paste, 10–30 chars).
  *   - session.heartbeat, terminal.command sprinkled in.

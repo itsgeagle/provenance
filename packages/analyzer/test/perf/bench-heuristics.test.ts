@@ -230,6 +230,9 @@ describe('bench: heuristics suite', () => {
         `budget=${BUDGET_MS}ms`,
     );
 
+    // The 500ms budget per Phase 9 spec applies to runHeuristics only.
+    // runValidation for 100k events costs ~500ms (cryptographic chain check)
+    // and is measured separately in the beforeAll setup log.
     expect(max).toBeLessThan(BUDGET_MS);
   });
 });
