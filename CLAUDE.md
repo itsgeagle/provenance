@@ -5,6 +5,7 @@ Project conventions and standing instructions for Claude Code working in this re
 ## What this is
 
 Provenance: a CS 61A academic-integrity telemetry system. Two products in one repo:
+
 - `packages/recorder/` — VS Code extension that logs editing activity to a tamper-evident file.
 - `packages/analyzer/` — web app that reads those files (not built yet).
 - `packages/log-core/` — shared log format, hash chain, event types. Used by both.

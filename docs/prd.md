@@ -1,6 +1,6 @@
 # PRD: CS 61A Academic Integrity Telemetry & Analysis System
 
-**Working name:** *Provenance*
+**Working name:** _Provenance_
 **Status:** Draft v0.1
 **Audience:** Engineering (you + Claude Code), CS 61A course staff (review)
 **Last updated:** May 2026
@@ -9,7 +9,7 @@
 
 ## 1. Background and motivation
 
-CS 61A has seen a sharp rise in AI-assisted cheating on homeworks, projects, and labs. Existing controls (MOSS, manual review, in-person exams) catch some of it after the fact but don't scale to thousands of students and don't surface the *process* by which a submission was produced — only the final artifact.
+CS 61A has seen a sharp rise in AI-assisted cheating on homeworks, projects, and labs. Existing controls (MOSS, manual review, in-person exams) catch some of it after the fact but don't scale to thousands of students and don't surface the _process_ by which a submission was produced — only the final artifact.
 
 This document specifies a two-part system:
 
@@ -22,7 +22,7 @@ The system is bundled with the assignment submission; the log file is uploaded a
 
 **It is** an evidence-collection and triage system. The Recorder produces evidence; the Analyzer surfaces patterns. A flag is not a verdict — every escalation goes to a human reviewer who uses the replay UI to make a judgment call.
 
-**It is not** an AI-detection system in the "classifier outputs a probability" sense. We do not train a model to predict "this was written by Claude." We instead detect *process* signals (paste of a 200-line block, edits to files when VS Code wasn't focused, etc.) that are inconsistent with a student writing code themselves. Process evidence is more defensible in an academic integrity hearing than statistical AI-detection scores, which are known to be unreliable.
+**It is not** an AI-detection system in the "classifier outputs a probability" sense. We do not train a model to predict "this was written by Claude." We instead detect _process_ signals (paste of a 200-line block, edits to files when VS Code wasn't focused, etc.) that are inconsistent with a student writing code themselves. Process evidence is more defensible in an academic integrity hearing than statistical AI-detection scores, which are known to be unreliable.
 
 **Threat model.** We are not building NSA-grade tamper resistance. The goal is to raise the cost of evading detection above the cost of just doing the homework. A motivated attacker who reads the extension's source can defeat any single mechanism we build; what we want is for the easy paths (edit the JSON log, replay an old session, run Claude Code in another terminal) to leave detectable artifacts. We are explicit about this throughout, especially in §6.
 
@@ -44,7 +44,7 @@ The system is bundled with the assignment submission; the log file is uploaded a
 - **NG2.** Real-time streaming or network calls during the assignment. The Recorder is offline; the log is sealed and uploaded at submission. (Per product decision.)
 - **NG3.** A general-purpose IDE telemetry product. This is scoped to CS 61A assignment folders, detected by a marker file the course provides.
 - **NG4.** Building the submission/upload integration. We define the artifact format; course staff decides how it rides along with Gradescope submissions.
-- **NG5.** **Classifier-style "is this AI-generated?" scoring.** We do not train or use a model that outputs a probability that the code itself was AI-written. The v3 LLM review feature (§7.6) is different: it reasons over the *process log* — pastes, external edits, timing — not over the code. Process evidence is defensible in an integrity hearing; "this code looks AI-written" is not.
+- **NG5.** **Classifier-style "is this AI-generated?" scoring.** We do not train or use a model that outputs a probability that the code itself was AI-written. The v3 LLM review feature (§7.6) is different: it reasons over the _process log_ — pastes, external edits, timing — not over the code. Process evidence is defensible in an integrity hearing; "this code looks AI-written" is not.
 - **NG6.** Supporting editors other than VS Code in v1. Future versions might add JetBrains or a CLI shim for terminal users.
 - **NG7.** Automatic LLM review of every submission. LLM review (§7.6) is staff-initiated per-submission, not run automatically as part of ingestion.
 
@@ -121,25 +121,25 @@ The hash chain is what makes mid-session tampering detectable: removing or modif
 
 Event types in v1:
 
-| `kind` | Trigger | Payload (summary) |
-|---|---|---|
-| `session.start` | Extension activates on a valid assignment | assignment_id, machine_id, extension_version, VS Code version, OS, list of all currently installed extensions with versions |
-| `session.heartbeat` | Every 30s while VS Code is open | window focused (bool), active file, idle since (ms) |
-| `session.end` | VS Code closes or workspace switches | reason |
-| `doc.open` | A workspace file is opened | relative path, sha256 of full content, line count |
-| `doc.change` | A `TextDocument` change event fires | relative path, list of `{range, text}` deltas, source classification (see below) |
-| `doc.save` | File saved | relative path, sha256 of full content |
-| `doc.close` | Editor closed | relative path |
-| `paste` | A paste is detected (see §4.3) | relative path, target range, pasted text length, pasted text sha256, pasted text *content if ≤ 4 KB, otherwise truncated to first/last 512 bytes + length* |
-| `selection.change` | Cursor or selection moves | relative path, range, was_selection (bool) |
-| `focus.change` | VS Code window focus changes | gained or lost, reason if available |
-| `terminal.open` | Integrated terminal opens | terminal id, shell |
-| `terminal.command` | A command is run in the integrated terminal | terminal id, command text (best-effort — see §4.4) |
-| `ext.snapshot` | At session start and every 5 min | list of `{id, version, enabled}` for all installed extensions |
-| `ext.activate` | Another extension activates while we're recording | extension id, version |
-| `fs.external_change` | A file in the workspace changed *without* a corresponding `doc.change` (see §4.5) | relative path, old_hash, new_hash, detected_at |
-| `git.event` | Git operation observed via the Git extension API | operation (commit/checkout/etc), commit sha if applicable |
-| `clock.skew` | Wall clock jumps non-monotonically | delta_ms |
+| `kind`               | Trigger                                                                           | Payload (summary)                                                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.start`      | Extension activates on a valid assignment                                         | assignment_id, machine_id, extension_version, VS Code version, OS, list of all currently installed extensions with versions                                |
+| `session.heartbeat`  | Every 30s while VS Code is open                                                   | window focused (bool), active file, idle since (ms)                                                                                                        |
+| `session.end`        | VS Code closes or workspace switches                                              | reason                                                                                                                                                     |
+| `doc.open`           | A workspace file is opened                                                        | relative path, sha256 of full content, line count                                                                                                          |
+| `doc.change`         | A `TextDocument` change event fires                                               | relative path, list of `{range, text}` deltas, source classification (see below)                                                                           |
+| `doc.save`           | File saved                                                                        | relative path, sha256 of full content                                                                                                                      |
+| `doc.close`          | Editor closed                                                                     | relative path                                                                                                                                              |
+| `paste`              | A paste is detected (see §4.3)                                                    | relative path, target range, pasted text length, pasted text sha256, pasted text _content if ≤ 4 KB, otherwise truncated to first/last 512 bytes + length_ |
+| `selection.change`   | Cursor or selection moves                                                         | relative path, range, was_selection (bool)                                                                                                                 |
+| `focus.change`       | VS Code window focus changes                                                      | gained or lost, reason if available                                                                                                                        |
+| `terminal.open`      | Integrated terminal opens                                                         | terminal id, shell                                                                                                                                         |
+| `terminal.command`   | A command is run in the integrated terminal                                       | terminal id, command text (best-effort — see §4.4)                                                                                                         |
+| `ext.snapshot`       | At session start and every 5 min                                                  | list of `{id, version, enabled}` for all installed extensions                                                                                              |
+| `ext.activate`       | Another extension activates while we're recording                                 | extension id, version                                                                                                                                      |
+| `fs.external_change` | A file in the workspace changed _without_ a corresponding `doc.change` (see §4.5) | relative path, old_hash, new_hash, detected_at                                                                                                             |
+| `git.event`          | Git operation observed via the Git extension API                                  | operation (commit/checkout/etc), commit sha if applicable                                                                                                  |
+| `clock.skew`         | Wall clock jumps non-monotonically                                                | delta_ms                                                                                                                                                   |
 
 **What we deliberately do not record:**
 
@@ -166,7 +166,7 @@ Our approach:
 
 - If shell integration is active, we get command text and exit codes — good.
 - If not, we record `terminal.open` and `terminal.close` events and the fact that a terminal was active during a given window of time, but not what was typed.
-- We record this gap explicitly: every `terminal.open` event includes a `shell_integration: true|false` field, so the Analyzer can reason about *what we could and couldn't see*.
+- We record this gap explicitly: every `terminal.open` event includes a `shell_integration: true|false` field, so the Analyzer can reason about _what we could and couldn't see_.
 
 This matters because students who use Claude Code or Codex from a terminal are a major detection target. Even when we can't see the commands, we can see (a) that a terminal was open, (b) that files changed while it was open, and (c) that those changes didn't correspond to `doc.change` events in our log — the `fs.external_change` signal in §4.5.
 
@@ -174,7 +174,7 @@ This matters because students who use Claude Code or Codex from a terminal are a
 
 This is one of the most important detection capabilities and worth describing in detail.
 
-For each file in the assignment's `files_under_review` list, the extension keeps an in-memory model of what the file's content *should* be, based on the sum of `doc.change` events we've recorded since the last save. When a `doc.save` fires, we compute the on-disk sha256 and compare it to our expected hash:
+For each file in the assignment's `files_under_review` list, the extension keeps an in-memory model of what the file's content _should_ be, based on the sum of `doc.change` events we've recorded since the last save. When a `doc.save` fires, we compute the on-disk sha256 and compare it to our expected hash:
 
 - **Match:** normal save. Record `doc.save` with the hash.
 - **Mismatch:** something edited the file between our last observed change and the save. Record `fs.external_change` with both hashes and the diff size.
@@ -220,12 +220,12 @@ Constraints:
 
 ### 4.8 Failure modes
 
-| Failure | Behavior |
-|---|---|
-| Disk full | Surface a notification; switch to a tiny in-memory ring buffer for critical events only; emit `recorder.degraded` event |
-| Log file corrupted on startup | Quarantine (rename to `.corrupt`), start a new session, emit `recorder.recovered_from_corruption` event in the new session referencing the quarantined one |
-| Extension crashes | VS Code will reload it; on reload, we open a new session, link it to the previous via the `prev_session_id` field, and continue |
-| Course public key signature fails | Don't activate; log nothing |
+| Failure                                      | Behavior                                                                                                                                                   |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Disk full                                    | Surface a notification; switch to a tiny in-memory ring buffer for critical events only; emit `recorder.degraded` event                                    |
+| Log file corrupted on startup                | Quarantine (rename to `.corrupt`), start a new session, emit `recorder.recovered_from_corruption` event in the new session referencing the quarantined one |
+| Extension crashes                            | VS Code will reload it; on reload, we open a new session, link it to the previous via the `prev_session_id` field, and continue                            |
+| Course public key signature fails            | Don't activate; log nothing                                                                                                                                |
 | User uninstalls the extension mid-assignment | We can't prevent this. The submission bundle will be missing or incomplete; the Analyzer flags this at upload time. Course policy decides the consequence. |
 
 ---
@@ -332,12 +332,14 @@ A future v3 might add a server-side bulk-review mode for staff (load all submiss
 ### 7.2 Views
 
 **Submission overview.** The landing view after loading a bundle. Shows:
+
 - Validation report (§5.4).
 - Summary stats: session count, total active time, total idle time, file list, lines of code added/removed.
 - Heuristic flag dashboard (§7.4).
 - Buttons: "Open replay," "Open raw timeline," "Export findings."
 
 **Replay view.** The core manual-review tool. Renders the assignment files in a Monaco editor (same engine VS Code uses, so the visual fidelity is high) and steps through `doc.change` events, applying them in order. Controls:
+
 - Play / pause / step / scrub.
 - Variable speed (0.25× to 32×).
 - Jump to: next paste, next external change, next flag, next file-switch.
@@ -356,6 +358,7 @@ Bundles up to ~50 MB load in < 5s on a mid-tier laptop. The event log is indexed
 ### 7.4 Heuristics suite
 
 Heuristics are deterministic rules over the event stream. Each produces a flag with:
+
 - A name and short description.
 - A severity (info / low / medium / high).
 - A confidence score (heuristic-specific; not probabilistic, just "how loud is this signal").
@@ -366,36 +369,36 @@ The v1 heuristic suite below is a starting set. We expect to add and tune.
 
 **Process-shape heuristics:**
 
-| Name | Detects | Logic |
-|---|---|---|
-| `large_paste` | Paste of substantial code | Single paste with text length ≥ 200 chars or ≥ 10 lines |
-| `paste_is_solution` | Paste that closely matches the final submitted file | Pasted content has > 80% line overlap with the file's final state |
-| `external_edits` | Edits outside VS Code | Any `fs.external_change` event not preceded by a known formatter |
-| `mass_external_replacement` | Whole-file replacement outside VS Code | `fs.external_change` where new content shares < 20% lines with old |
-| `low_typing_high_output` | Output far exceeds typed input | (chars saved in final file) / (chars typed via `doc.change` inserts) > 3 |
-| `time_to_first_save_anomaly` | File appeared faster than plausibly typed | < 30s from doc.open to a save containing > 500 chars of new code |
-| `idle_then_complete` | Long idle followed by completed solution | Idle > 10min, then a single save brings the file from skeleton to complete |
-| `no_intermediate_errors` | Code arrives without the usual failed-run pattern | File goes from empty to passing-tests with zero terminal commands that exit non-zero |
-| `paste_matches_known_source` | Paste text matches a known source (course solution leak, common Stack Overflow answer) | Hash or fuzzy match against a course-maintained corpus (v2) |
+| Name                         | Detects                                                                                | Logic                                                                                |
+| ---------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `large_paste`                | Paste of substantial code                                                              | Single paste with text length ≥ 200 chars or ≥ 10 lines                              |
+| `paste_is_solution`          | Paste that closely matches the final submitted file                                    | Pasted content has > 80% line overlap with the file's final state                    |
+| `external_edits`             | Edits outside VS Code                                                                  | Any `fs.external_change` event not preceded by a known formatter                     |
+| `mass_external_replacement`  | Whole-file replacement outside VS Code                                                 | `fs.external_change` where new content shares < 20% lines with old                   |
+| `low_typing_high_output`     | Output far exceeds typed input                                                         | (chars saved in final file) / (chars typed via `doc.change` inserts) > 3             |
+| `time_to_first_save_anomaly` | File appeared faster than plausibly typed                                              | < 30s from doc.open to a save containing > 500 chars of new code                     |
+| `idle_then_complete`         | Long idle followed by completed solution                                               | Idle > 10min, then a single save brings the file from skeleton to complete           |
+| `no_intermediate_errors`     | Code arrives without the usual failed-run pattern                                      | File goes from empty to passing-tests with zero terminal commands that exit non-zero |
+| `paste_matches_known_source` | Paste text matches a known source (course solution leak, common Stack Overflow answer) | Hash or fuzzy match against a course-maintained corpus (v2)                          |
 
 **Environment heuristics:**
 
-| Name | Detects | Logic |
-|---|---|---|
-| `ai_extension_active` | A known AI-assistant extension was active | Any extension in a course-maintained list (Copilot, Codeium, Continue, etc.) was enabled during the session — informational, not by itself an integrity flag |
-| `terminal_active_during_external_change` | A terminal was open when files changed outside VS Code | Suggests CLI tool use; informational |
-| `extension_set_changed_mid_assignment` | Extensions were installed/enabled while the assignment was in progress | An `ext.activate` for a new AI tool mid-session is interesting |
-| `shell_integration_disabled` | We couldn't see terminal commands | Informational; raises the prior on terminal-related flags |
+| Name                                     | Detects                                                                | Logic                                                                                                                                                        |
+| ---------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ai_extension_active`                    | A known AI-assistant extension was active                              | Any extension in a course-maintained list (Copilot, Codeium, Continue, etc.) was enabled during the session — informational, not by itself an integrity flag |
+| `terminal_active_during_external_change` | A terminal was open when files changed outside VS Code                 | Suggests CLI tool use; informational                                                                                                                         |
+| `extension_set_changed_mid_assignment`   | Extensions were installed/enabled while the assignment was in progress | An `ext.activate` for a new AI tool mid-session is interesting                                                                                               |
+| `shell_integration_disabled`             | We couldn't see terminal commands                                      | Informational; raises the prior on terminal-related flags                                                                                                    |
 
 **Integrity heuristics:**
 
-| Name | Detects | Logic |
-|---|---|---|
-| `chain_broken` | Hash chain failed validation | Hard flag, position recorded |
-| `clock_jumps` | Significant `clock.skew` events | Multiple skews or one large one (> 5min) |
-| `gap_in_heartbeats` | Recorder appears to have been suspended | Heartbeat gap > 5min with no `session.end`/`session.start` |
-| `multiple_sessions_overlap` | Two sessions claim the same time | Possible second VS Code instance running |
-| `extension_hash_mismatch` | The Recorder's own code hash doesn't match course-known good | Modified extension |
+| Name                        | Detects                                                      | Logic                                                      |
+| --------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
+| `chain_broken`              | Hash chain failed validation                                 | Hard flag, position recorded                               |
+| `clock_jumps`               | Significant `clock.skew` events                              | Multiple skews or one large one (> 5min)                   |
+| `gap_in_heartbeats`         | Recorder appears to have been suspended                      | Heartbeat gap > 5min with no `session.end`/`session.start` |
+| `multiple_sessions_overlap` | Two sessions claim the same time                             | Possible second VS Code instance running                   |
+| `extension_hash_mismatch`   | The Recorder's own code hash doesn't match course-known good | Modified extension                                         |
 
 **Cross-submission heuristics (v2+, requires staff loading multiple bundles):**
 
@@ -420,7 +423,7 @@ LLM review is **staff-initiated, per-submission.** A reviewer who is already loo
 - Optics. We do not want a system where "the AI flagged this student." Every LLM review is explicitly requested by a human who then reads the output and decides what to do with it.
 - Bias control. Auto-triage where the LLM sets the priority order could systematically miss patterns the deterministic heuristics catch, or hallucinate patterns that aren't there. Heuristics first, LLM second.
 
-Staff can also run LLM review on a submission that *passed* heuristic checks, if they have an independent reason to look (a tip, a peer report, suspicious code style). This matters: the LLM is a tool for human reviewers, not a gate.
+Staff can also run LLM review on a submission that _passed_ heuristic checks, if they have an independent reason to look (a tip, a peer report, suspicious code style). This matters: the LLM is a tool for human reviewers, not a gate.
 
 #### 7.6.2 What the LLM receives
 
@@ -510,16 +513,19 @@ A second reviewer can rerun the review (or run a different model) and compare. I
 ## 8. Roadmap
 
 **v1 (MVP) — target: a single project early in the semester.**
+
 - Recorder: activation, all event types in §4.2 except cross-session linking, paste detection, external-change detection, hash chain, bundle seal.
 - Analyzer: bundle load + validation, raw timeline view, three or four highest-value heuristics (`large_paste`, `external_edits`, `low_typing_high_output`, `chain_broken`).
 - No replay UI yet. Staff reviews from the raw timeline.
 
 **v2 — target: roll out across all projects, plus labs.**
+
 - Replay UI (Monaco-based, scrub/step/speed controls).
 - Full heuristic suite from §7.4.
 - Findings export.
 
 **v3 — target: after v2 is stable in production for at least one semester.**
+
 - **LLM-assisted review (§7.6).** Staff-initiated deep review of suspicious submissions. The capstone feature; depends on the heuristic suite and replay UI being mature, since the LLM reasons over their outputs.
 - Cross-submission heuristics over a batch of bundles (`paste_shared_across_students`, `editing_pattern_clone`).
 - Optional submission-time server verification (a course-run service that re-validates the bundle and stamps it; reduces the forgery window).

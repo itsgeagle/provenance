@@ -12,13 +12,13 @@
 
 CLAUDE.md forbids new dependencies without approval. The following are needed before Phase 1 can start and should be approved together:
 
-| Dependency | Used for | Proposed pick | Rationale |
-|---|---|---|---|
-| JCS (RFC 8785) canonicalizer | Hash-chain canonicalization (PRD §5.2) | [`canonicalize`](https://www.npmjs.com/package/canonicalize) | Single-purpose, no transitive deps, faithful to RFC 8785. CLAUDE.md explicitly says "use a library; do not hand-roll." |
-| Ed25519 signing | Manifest verify (PRD §4.1), per-session keypair (PRD §4.6), bundle sig (PRD §5.3) | [`@noble/ed25519`](https://www.npmjs.com/package/@noble/ed25519) | Pure JS, audited, browser-and-node, no native build. Same lib works for analyzer later. |
-| SHA-256 streaming | doc.change hashing (PRD §4.7 — "incremental … running SHA-256 state per file") | Node `crypto.createHash` in recorder; `@noble/hashes` in log-core if log-core ever needs to hash in-browser | Defer the log-core question until the analyzer ships. For now log-core takes a `HashFn` injected by the consumer. |
-| ZIP | Bundle seal (PRD §5.3) | [`jszip`](https://www.npmjs.com/package/jszip) | Same lib the analyzer will use; works on Node Buffers cleanly. |
-| UUID | session_id (PRD §5.1) | `node:crypto.randomUUID()` | No new dep. |
+| Dependency                   | Used for                                                                          | Proposed pick                                                                                               | Rationale                                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| JCS (RFC 8785) canonicalizer | Hash-chain canonicalization (PRD §5.2)                                            | [`canonicalize`](https://www.npmjs.com/package/canonicalize)                                                | Single-purpose, no transitive deps, faithful to RFC 8785. CLAUDE.md explicitly says "use a library; do not hand-roll." |
+| Ed25519 signing              | Manifest verify (PRD §4.1), per-session keypair (PRD §4.6), bundle sig (PRD §5.3) | [`@noble/ed25519`](https://www.npmjs.com/package/@noble/ed25519)                                            | Pure JS, audited, browser-and-node, no native build. Same lib works for analyzer later.                                |
+| SHA-256 streaming            | doc.change hashing (PRD §4.7 — "incremental … running SHA-256 state per file")    | Node `crypto.createHash` in recorder; `@noble/hashes` in log-core if log-core ever needs to hash in-browser | Defer the log-core question until the analyzer ships. For now log-core takes a `HashFn` injected by the consumer.      |
+| ZIP                          | Bundle seal (PRD §5.3)                                                            | [`jszip`](https://www.npmjs.com/package/jszip)                                                              | Same lib the analyzer will use; works on Node Buffers cleanly.                                                         |
+| UUID                         | session_id (PRD §5.1)                                                             | `node:crypto.randomUUID()`                                                                                  | No new dep.                                                                                                            |
 
 **Other up-front decisions (proposals; can be redirected):**
 
@@ -52,9 +52,10 @@ If any of these are wrong, redirect before Phase 1.
 - `index.ts` — re-export the public surface.
 
 **Tests (`*.test.ts` co-located):** full branch coverage (CLAUDE.md). Specifically:
+
 - Canonicalization: key order, whitespace, unicode escapes, number representation, nested objects.
 - Hash chain: empty chain, single entry, N-entry chain, deterministic across runs, breaks when any byte of any entry changes.
-- Validator: clean chain, hash break at position k, seq gap, `t` regression, `wall` regression *without* a `clock.skew` event, regression *with* `clock.skew` (must pass).
+- Validator: clean chain, hash break at position k, seq gap, `t` regression, `wall` regression _without_ a `clock.skew` event, regression _with_ `clock.skew` (must pass).
 - Result + Clock helpers.
 
 **Exit gate:** `npm run typecheck && npm run test && npm run lint` clean. `log-core` imports nothing from `vscode`, `fs`, or `path` — enforce via ESLint rule (`no-restricted-imports`) on this package.
@@ -137,6 +138,7 @@ If any of these are wrong, redirect before Phase 1.
 - `events/clock-watcher.ts` — periodic comparison between monotonic (`performance.now()`) and wall (`Date.now()`) deltas; if drift > threshold, emit `clock.skew`. CLAUDE.md: "Use a monotonic clock for `t`. Use wall clock for `wall`. Don't conflate."
 
 **Tests:**
+
 - Buffer policy with a fixed clock (already in Phase 1 but covered here too in writer integration).
 - Writer flushes on size threshold, on time threshold, on dispose.
 - Atomic-write helper: simulated crash between write and rename leaves no partial live file. (Use a temp dir; mock `rename` to throw on the second call.)
@@ -158,7 +160,7 @@ If any of these are wrong, redirect before Phase 1.
 - Handlers for: `doc.open` (with full-content sha256 and line count), `doc.change` (range deltas + source classification = `'typed'` for now; paste detection rewrites this in Phase 6), `doc.save`, `doc.close`, `selection.change`, `focus.change`.
 - `state/expected-content.ts` — per-file in-memory `ExpectedContent` model: applies each `doc.change` delta to a running content state and maintains a streaming SHA-256. This is the foundation for PRD §4.5. CLAUDE.md: "The expected-content model is the source of truth; the on-disk hash is what we compare against. Easy to get the direction wrong."
 
-**Performance:** the handler path is `vscode event → transformer → `sessionHost.emit` → `writer.append-to-buffer`. None of these touches disk or hashes from scratch. CLAUDE.md budget: <1ms p99. We benchmark in Phase 11.
+**Performance:** the handler path is `vscode event → transformer → `sessionHost.emit`→`writer.append-to-buffer`. None of these touches disk or hashes from scratch. CLAUDE.md budget: <1ms p99. We benchmark in Phase 11.
 
 **Tests:** transformers as pure functions with synthetic `TextDocumentChangeEvent`s. Expected-content model: replay a sequence of deltas, hash matches the equivalent string-concat result. Wiring tested via integration in Phase 11.
 
@@ -181,6 +183,7 @@ If any of these are wrong, redirect before Phase 1.
 - The recorder rewrites the `kind` from `doc.change` to `paste` for confirmed/likely pastes, with the full paste payload. **The non-paste `doc.change` still carries deltas verbatim.**
 
 **Tests:**
+
 - Classifier: 30-char insert → paste_likely; 29-char insert → typed; multi-edit composite → typed regardless of size.
 - Reconciler: synthetic streams of (intercepts, large-inserts) producing/not producing anomaly events.
 - Payload truncation correctness for 4KB boundary and a 1MB string.
@@ -199,11 +202,12 @@ If any of these are wrong, redirect before Phase 1.
 
 - `events/external-change-detector.ts` — on `doc.save`, compute on-disk sha256 (streaming, async via `worker_threads` if Phase 4 added one; otherwise direct). Compare with `ExpectedContent.hash` from Phase 5.
   - Equal → emit `doc.save` with hash (PRD §4.2).
-  - Not equal → emit `fs.external_change { path, old_hash: expected, new_hash: actual, diff_size }` *and* update `ExpectedContent` to the new on-disk content (so subsequent edits chain from reality).
+  - Not equal → emit `fs.external_change { path, old_hash: expected, new_hash: actual, diff_size }` _and_ update `ExpectedContent` to the new on-disk content (so subsequent edits chain from reality).
 - `wiring/fs-watcher.ts` — `vscode.workspace.createFileSystemWatcher` over `files_under_review` from the manifest. On change events with no recent `doc.change` for the same file (within ~250ms tolerance), emit `fs.external_change`. Watcher is disposed in `deactivate`.
 - `events/explanation-tags.ts` — a small allowlist scaffold for formatter / git events. If an external change was preceded (within ~2s) by a known formatter command (e.g., a saved-on-formatter run) or a `git.event`, the emitted `fs.external_change` carries `explanation: 'formatter' | 'git'`. PRD §4.5 says: "Anything we can't explain stays flagged."
 
 **Tests:**
+
 - `ExpectedContent.hash !== on-disk hash` → external_change emitted with correct old/new.
 - `FileSystemWatcher` path: edit `test-workspace/hw.py` from a Node script while VS Code is unfocused, expect `fs.external_change`.
 - Explanation-tag: simulate formatter run → tag attached.
@@ -250,6 +254,7 @@ If any of these are wrong, redirect before Phase 1.
 - `meta-writer.ts` consolidating §4.6 meta file responsibilities.
 
 **Tests:**
+
 - Sign/verify round-trip for checkpoints.
 - HKDF + symmetric encrypt/decrypt round-trip for private key.
 - Chain-recovery branch table (clean dangling, broken chain, missing file) under a temp dir.
@@ -279,6 +284,7 @@ If any of these are wrong, redirect before Phase 1.
 - `package.json` `contributes.commands` entry for the command and a status-bar action to invoke it.
 
 **Tests:**
+
 - End-to-end: start a session, type a few lines, run seal, unzip the result, validate via the same `log-core/chain-validator` and bundle-shape validators from Phase 2. (This is exactly what the analyzer will do; we're our own first consumer.)
 - Manifest signature verifies under the session pubkey.
 
