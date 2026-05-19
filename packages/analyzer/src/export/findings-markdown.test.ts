@@ -1,0 +1,350 @@
+/**
+ * findings-markdown.test.ts — pure-function tests for the Markdown exporter.
+ *
+ * The big test is an inline snapshot against a hand-built fixture so the
+ * shape of the report is self-documenting in the test file. The clock is
+ * always injected, so the snapshot is stable across runs.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { renderFindings, filenameFor } from './findings-markdown.js';
+import type { Bundle } from '../loader/types.js';
+import type { ValidationReport } from '../validation/check-types.js';
+import type { Flag } from '../heuristics/types.js';
+import type { HashedEnvelope } from '@provenance/log-core';
+
+// ---------------------------------------------------------------------------
+// Fixture builders
+// ---------------------------------------------------------------------------
+
+function makeFixtureBundle(): Bundle {
+  const events: HashedEnvelope[] = [
+    {
+      seq: 0,
+      t: 0,
+      wall: '2026-01-01T00:00:00.000Z',
+      kind: 'session.start',
+      data: {
+        format_version: '1.0',
+        session_id: 'abc',
+        prev_session_id: null,
+        assignment: { id: 'hw1', semester: 'sp26' },
+        manifest_sig: 'sig',
+        machine_id: 'machine-xyz',
+        vscode: { version: '1.97.0', commit: '', platform: 'darwin-arm64' },
+        recorder: { version: '1.0.0', extension_id: 'provenance' },
+        session_pubkey: 'pubkey-hex',
+      },
+      prev_hash: '0000000000000000000000000000000000000000000000000000000000000000',
+      hash: 'hash0',
+    } as HashedEnvelope,
+    {
+      seq: 1,
+      t: 1000,
+      wall: '2026-01-01T00:00:01.000Z',
+      kind: 'paste',
+      data: {
+        path: 'hw1.py',
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        length: 500,
+        sha256: 'pastehash',
+        content: 'def foo():\n    return 42\n',
+      },
+      prev_hash: 'hash0',
+      hash: 'hash1',
+    } as HashedEnvelope,
+    {
+      seq: 2,
+      t: 2000,
+      wall: '2026-01-01T00:00:02.000Z',
+      kind: 'fs.external_change',
+      data: {
+        path: 'hw1.py',
+        old_hash: 'a'.repeat(64),
+        new_hash: 'b'.repeat(64),
+        diff_size: 250,
+      },
+      prev_hash: 'hash1',
+      hash: 'hash2',
+    } as HashedEnvelope,
+  ];
+
+  return {
+    manifest: {
+      format_version: '1.0',
+      assignment_id: 'hw1',
+      semester: 'sp26',
+      extension_hash: 'd'.repeat(64),
+      sessions: [
+        {
+          session_id: 'abc',
+          prev_session_id: null,
+          slog_sha256: 'a'.repeat(64),
+          meta_sha256: 'b'.repeat(64),
+        },
+      ],
+    },
+    manifestSigHex: 'sig-hex',
+    sessions: [
+      {
+        sessionId: 'abc',
+        events,
+        meta: {} as never,
+        firstEvent: events[0] as never,
+      },
+    ],
+    sourceFilename: 'hw1-bundle.zip',
+    loadedAt: '2026-01-01T01:00:00.000Z',
+  };
+}
+
+const fixtureReport: ValidationReport = {
+  overall: 'fail',
+  checks: [
+    { id: 'manifest_sig', label: 'Manifest signature', status: 'pass' },
+    { id: 'session_binding', label: 'Session binding', status: 'pass' },
+    {
+      id: 'chain_integrity',
+      label: 'Chain integrity',
+      status: 'fail',
+      detail: 'Hash mismatch at seq 4.',
+      supportingSeqs: [{ sessionId: 'abc', seq: 4 }],
+    },
+    { id: 'seq_gaps', label: 'Sequence gaps', status: 'pass' },
+    { id: 'monotonic_t', label: 'Monotonic t', status: 'pass' },
+    { id: 'monotonic_wall', label: 'Monotonic wall', status: 'pass' },
+    { id: 'doc_save_hashes', label: 'Doc-save hashes', status: 'pass' },
+    {
+      id: 'submitted_code_match',
+      label: 'Submitted code match',
+      status: 'skipped',
+      detail: 'No course-staff hashes available in v1.',
+    },
+  ],
+};
+
+const fixtureFlags: Flag[] = [
+  {
+    id: 'large_paste-abc:1-0',
+    heuristic: 'large_paste',
+    title: 'Large paste detected',
+    severity: 'high',
+    confidence: 0.9,
+    supportingSeqs: ['abc:1'],
+    description: 'A paste of 500 characters was detected.',
+    detail: { pastedChars: 500, file: 'hw1.py' },
+  },
+  {
+    id: 'external_edits-abc:2-0',
+    heuristic: 'external_edits',
+    title: 'External file modification',
+    severity: 'medium',
+    confidence: 0.7,
+    supportingSeqs: ['abc:2'],
+    description: 'File was modified outside VS Code.',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('renderFindings', () => {
+  it('produces a coherent Markdown report (inline snapshot)', () => {
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, fixtureFlags, {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+      bundleSha256: 'c'.repeat(64),
+    });
+
+    expect(md).toMatchInlineSnapshot(`
+      "# Provenance Findings Report
+
+      - **Assignment:** hw1
+      - **Semester:** sp26
+      - **Bundle filename:** hw1-bundle.zip
+      - **Bundle sha256:** cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      - **Extension hash:** dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+      - **Sessions:** 1
+      - **Flags:** 2
+      - **Validation overall:** fail
+      - **Generated at:** 2026-05-19T12:34:56.000Z
+
+      ## Validation report
+
+      Overall: **fail**
+
+      | Check | Status | Detail |
+      | --- | --- | --- |
+      | Manifest signature | pass |  |
+      | Session ↔ assignment binding | pass |  |
+      | Hash chain integrity | fail | Hash mismatch at seq 4. |
+      | Sequence gaps | pass |  |
+      | Monotonic t | pass |  |
+      | Monotonic wall clock | pass |  |
+      | doc.save hash consistency | pass |  |
+      | Submitted-code hash match | skipped | No course-staff hashes available in v1. |
+
+      ## Heuristic flags
+
+      ### 1. Large paste detected
+
+      - **Heuristic:** \`large_paste\`
+      - **Severity:** high
+      - **Confidence:** 0.90
+      - **Supporting events:** 1
+
+      A paste of 500 characters was detected.
+
+      Supporting event keys:
+
+      - \`abc:1\`
+
+      Detail:
+
+      \`\`\`json
+      {
+        "file": "hw1.py",
+        "pastedChars": 500
+      }
+      \`\`\`
+
+      ### 2. External file modification
+
+      - **Heuristic:** \`external_edits\`
+      - **Severity:** medium
+      - **Confidence:** 0.70
+      - **Supporting events:** 1
+
+      File was modified outside VS Code.
+
+      Supporting event keys:
+
+      - \`abc:2\`
+
+      ## Appendix: sample supporting events
+
+      ### \`large_paste\` — first supporting event (\`abc:1\`)
+
+      \`\`\`json
+      {
+        "data": {
+          "content": "def foo():\\n    return 42\\n",
+          "length": 500,
+          "path": "hw1.py",
+          "range": {
+            "end": {
+              "character": 0,
+              "line": 0
+            },
+            "start": {
+              "character": 0,
+              "line": 0
+            }
+          },
+          "sha256": "pastehash"
+        },
+        "hash": "hash1",
+        "kind": "paste",
+        "prev_hash": "hash0",
+        "seq": 1,
+        "t": 1000,
+        "wall": "2026-01-01T00:00:01.000Z"
+      }
+      \`\`\`
+
+      ### \`external_edits\` — first supporting event (\`abc:2\`)
+
+      \`\`\`json
+      {
+        "data": {
+          "diff_size": 250,
+          "new_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "old_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "hw1.py"
+        },
+        "hash": "hash2",
+        "kind": "fs.external_change",
+        "prev_hash": "hash1",
+        "seq": 2,
+        "t": 2000,
+        "wall": "2026-01-01T00:00:02.000Z"
+      }
+      \`\`\`
+      "
+    `);
+  });
+
+  it('renders "(not available)" when bundleSha256 is omitted', () => {
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, [], {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+    });
+    expect(md).toContain('**Bundle sha256:** (not available)');
+  });
+
+  it('handles an empty flag list with a friendly message', () => {
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, [], {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+    });
+    expect(md).toContain('_No flags were raised by the v1 heuristic suite._');
+    expect(md).toContain(
+      '_No supporting events available for the flags raised, or no flags raised._',
+    );
+  });
+
+  it('renders an "event not found" marker when the supporting seq is not in the bundle', () => {
+    const orphanFlag: Flag = {
+      id: 'orphan-0',
+      heuristic: 'large_paste',
+      title: 'Missing-event flag',
+      severity: 'low',
+      confidence: 0.5,
+      supportingSeqs: ['abc:9999'],
+      description: 'Synthetic.',
+    };
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, [orphanFlag], {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+    });
+    expect(md).toContain('_Event `abc:9999` not found in bundle._');
+  });
+
+  it('does not call Date.now or other ambient clocks (pure function smoke check)', () => {
+    // Run the renderer twice with the same inputs — the output must be byte-equal.
+    const inputs = [
+      makeFixtureBundle(),
+      fixtureReport,
+      fixtureFlags,
+      { generatedAt: new Date('2026-05-19T12:34:56.000Z'), bundleSha256: 'c'.repeat(64) },
+    ] as const;
+    const a = renderFindings(inputs[0], inputs[1], inputs[2], inputs[3]);
+    const b = renderFindings(inputs[0], inputs[1], inputs[2], inputs[3]);
+    expect(a).toBe(b);
+  });
+});
+
+describe('filenameFor', () => {
+  it('includes the assignment id and a UTC timestamp', () => {
+    const bundle = makeFixtureBundle();
+    const name = filenameFor(bundle, new Date('2026-05-19T12:34:56.000Z'));
+    expect(name).toBe('findings-hw1-20260519-123456.md');
+  });
+
+  it('sanitizes weird assignment ids', () => {
+    const bundle = makeFixtureBundle();
+    bundle.manifest = { ...bundle.manifest, assignment_id: 'CS 61A / hw 3!' };
+    const name = filenameFor(bundle, new Date('2026-05-19T12:34:56.000Z'));
+    expect(name).toBe('findings-CS-61A-hw-3-20260519-123456.md');
+  });
+
+  it('falls back to "bundle" if assignment id has no valid chars', () => {
+    const bundle = makeFixtureBundle();
+    bundle.manifest = { ...bundle.manifest, assignment_id: '!!!' };
+    const name = filenameFor(bundle, new Date('2026-05-19T12:34:56.000Z'));
+    expect(name).toBe('findings-bundle-20260519-123456.md');
+  });
+
+  it('zero-pads single-digit date components', () => {
+    const bundle = makeFixtureBundle();
+    const name = filenameFor(bundle, new Date('2026-01-02T03:04:05.000Z'));
+    expect(name).toBe('findings-hw1-20260102-030405.md');
+  });
+});

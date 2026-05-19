@@ -3,13 +3,18 @@
  *
  * Tests:
  * - "Open Raw Timeline" button navigates to /timeline.
- * - "Export Findings (Markdown)" button is present but disabled.
+ * - "Export Findings (Markdown)" button is present.
+ * - Export button is disabled when no bundle is loaded.
+ *
+ * Export-button click behavior (download trigger) is covered separately
+ * in ExportMarkdownButton.test.tsx.
  */
 
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { Actions } from './Actions.js';
+import { BundleProvider } from '../../context/BundleContext.js';
 
 function LocationCapture({ onLocation }: { onLocation: (l: string) => void }) {
   const loc = useLocation();
@@ -21,15 +26,17 @@ function renderActions() {
   let lastLocation = '';
   render(
     <MemoryRouter initialEntries={['/overview']}>
-      <Routes>
-        <Route path="/overview" element={<Actions />} />
-        <Route path="/timeline" element={<div data-testid="timeline-page" />} />
-      </Routes>
-      <LocationCapture
-        onLocation={(l) => {
-          lastLocation = l;
-        }}
-      />
+      <BundleProvider>
+        <Routes>
+          <Route path="/overview" element={<Actions />} />
+          <Route path="/timeline" element={<div data-testid="timeline-page" />} />
+        </Routes>
+        <LocationCapture
+          onLocation={(l) => {
+            lastLocation = l;
+          }}
+        />
+      </BundleProvider>
     </MemoryRouter>,
   );
   return { getLocation: () => lastLocation };
@@ -57,15 +64,9 @@ describe('Actions', () => {
     expect(screen.getByTestId('btn-export-findings')).toBeInTheDocument();
   });
 
-  it('Export Findings (Markdown) button is disabled', () => {
+  it('Export Findings (Markdown) button is disabled when no bundle is loaded', () => {
     renderActions();
     const btn = screen.getByTestId('btn-export-findings');
     expect(btn).toBeDisabled();
-  });
-
-  it('Export button has a tooltip hinting at Phase 8', () => {
-    renderActions();
-    const btn = screen.getByTestId('btn-export-findings');
-    expect(btn.getAttribute('title')).toContain('Phase 8');
   });
 });
