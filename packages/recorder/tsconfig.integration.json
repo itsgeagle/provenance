@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-integration",
+    "rootDir": "./",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "types": ["mocha", "node"]
+  },
+  "include": ["test/integration/**/*"],
+  "exclude": ["node_modules", "dist", "dist-integration"]
+}

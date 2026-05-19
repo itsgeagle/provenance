@@ -2,9 +2,14 @@
   "name": "provenance-recorder",
   "displayName": "CS 61A Provenance",
   "description": "Academic integrity telemetry for CS 61A assignments.",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "publisher": "berkeley-cs61a",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/berkeley-cs61a/provenance"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -24,7 +29,10 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "build:integration": "tsc -p tsconfig.integration.json",
+    "test:integration": "npm run build && npm run build:integration && node ./dist-integration/test/integration/runTest.js",
+    "bench": "vitest run --reporter=verbose --config vitest.bench.config.ts"
   },
   "dependencies": {
     "@noble/ciphers": "^2.2.0",

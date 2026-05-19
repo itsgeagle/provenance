@@ -38,6 +38,7 @@ import { signCheckpoint } from './crypto/checkpoint-signer.js';
 import { recoverPreviousSession } from './startup/chain-recovery.js';
 import { sealBundle } from './commands/seal.js';
 import { computeExtensionHash } from './commands/extension-hash.js';
+import { DiskFullHandler } from './failure/disk-full-handler.js';
 import type { LargeInsertCounter } from './wiring/doc-wiring.js';
 import type { Cs61aManifest } from '@provenance/log-core';
 
@@ -193,10 +194,35 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
 
   // Step 4: Open a SessionWriter (.provenance/ dir already created in Step 3a).
   const slogPath = path.join(provenanceDir, `session-${randomUUID()}.slog`);
+
+  // Phase 11: DiskFullHandler — intercepts write errors, switches to ring buffer on ENOSPC.
+  // Constructed before the writer so we can pass handleWriteError as the onError hook.
+  // onDegraded emits recorder.degraded through the sessionHost; that event re-enters
+  // enqueue() which accepts it (CRITICAL_KINDS) — no infinite loop.
+  // handleWriteError is idempotent, so the second call from that re-entry is a no-op.
+  //
+  // sessionHostEmit is a forward reference populated in Step 5 after sessionHost is created.
+  // It is guaranteed to be set before any write error can occur (the writer isn't used
+  // until session.start is emitted in Step 6).
+  let sessionHostEmit: ((kind: 'recorder.degraded', data: { reason: string }) => void) | null =
+    null;
+
+  const diskFullHandler = new DiskFullHandler({
+    onDegraded: (data) => {
+      // Emit through sessionHost — this will call the onEntry callback below, which
+      // will route back through diskFullHandler.enqueue(). The entry is critical and
+      // gets stored in the ring. The writer.append() call is skipped because degraded=true.
+      sessionHostEmit?.('recorder.degraded', { reason: data.reason });
+    },
+    notify: (msg) => {
+      void vscode.window.showErrorMessage(msg);
+    },
+  });
+
   const writer = await SessionWriter.open({
     slogPath,
     clock,
-    onError: (e) => console.error('[provenance] writer error:', e),
+    onError: (e) => diskFullHandler.handleWriteError(e),
   });
 
   // Step 4b: Encrypt the private key and create the MetaWriter.
@@ -224,6 +250,14 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     sessionId: recorderContext.session_id,
     clock,
     onEntry: (entry: HashedEnvelope) => {
+      // Phase 11: route through disk-full handler.
+      // If degraded: critical entries go to the ring; non-critical are dropped.
+      // If not degraded: write to disk as normal.
+      if (diskFullHandler.degraded) {
+        diskFullHandler.enqueue(entry);
+        return;
+      }
+
       writer.append(entry);
       entryCountSinceLastCheckpoint++;
       if (entryCountSinceLastCheckpoint >= CHECKPOINT_INTERVAL) {
@@ -237,6 +271,9 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
       }
     },
   });
+
+  // Populate the forward reference for onDegraded so it can emit through sessionHost.
+  sessionHostEmit = (kind, data) => sessionHost.emit(kind, data);
 
   // Step 6: Emit session.start.
   sessionHost.emit('session.start', recorderContext);

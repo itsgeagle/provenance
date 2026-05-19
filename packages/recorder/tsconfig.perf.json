@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-perf",
+    "rootDir": "./",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "types": ["node"]
+  },
+  "include": ["test/perf/**/*"],
+  "exclude": ["node_modules", "dist", "dist-integration", "dist-perf"]
+}

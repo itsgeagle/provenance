@@ -1,0 +1,16 @@
+# Files excluded from the VSIX package.
+# Only dist/ and the runtime files are needed in the packaged extension.
+
+.vscode-test/**
+.vscode/**
+src/**
+test/**
+dist-integration/**
+dist-perf/**
+vitest.config.ts
+vitest.bench.config.ts
+tsconfig*.json
+*.vsix
+*.test.ts
+*.bench.ts
+node_modules/**
