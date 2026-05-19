@@ -1,24 +1,74 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+/**
+ * App — top-level routes.
+ *
+ * Route structure:
+ *   /          → redirect to /load
+ *   /load      → LoadView (drop zone; not guarded)
+ *   /overview  → OverviewPlaceholder (guarded by RequireBundle)
+ *   /timeline  → TimelinePlaceholder (guarded by RequireBundle)
+ *
+ * <BundleProvider> wraps <Routes> so all routes can read the context.
+ * <BundleProvider> itself sits inside <BrowserRouter> (set up in main.tsx).
+ *
+ * <RequireBundle> redirects to /load when no bundle is loaded (status='idle'
+ * and bundles.length === 0). It does NOT redirect during loading or error —
+ * LoadView handles those states internally.
+ *
+ * LoadView redirects to /overview via useEffect when status transitions to
+ * 'loaded'.
+ */
 
-function LoadPlaceholder() {
-  return <div data-testid="load-placeholder">Load view — drop a bundle here</div>;
+import type { ReactNode } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { BundleProvider, useBundle } from './context/BundleContext.js';
+import { LoadView } from './views/load/LoadView.js';
+import { OverviewPlaceholder } from './views/overview/OverviewPlaceholder.js';
+import { TimelinePlaceholder } from './views/timeline/TimelinePlaceholder.js';
+import { Layout } from './components/Layout.js';
+
+// ---------------------------------------------------------------------------
+// Route guard
+// ---------------------------------------------------------------------------
+
+function RequireBundle({ children }: { children: ReactNode }) {
+  const { bundles, status } = useBundle();
+  if (status === 'idle' && bundles.length === 0) {
+    return <Navigate to="/load" replace />;
+  }
+  return <>{children}</>;
 }
 
-function OverviewPlaceholder() {
-  return <div data-testid="overview-placeholder">Overview view — submission summary</div>;
-}
-
-function TimelinePlaceholder() {
-  return <div data-testid="timeline-placeholder">Timeline view — raw event log</div>;
-}
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
 
 export function App() {
   return (
-    <Routes>
-      <Route path="/load" element={<LoadPlaceholder />} />
-      <Route path="/overview" element={<OverviewPlaceholder />} />
-      <Route path="/timeline" element={<TimelinePlaceholder />} />
-      <Route path="/" element={<Navigate to="/load" replace />} />
-    </Routes>
+    <BundleProvider>
+      <Routes>
+        <Route path="/load" element={<LoadView />} />
+        <Route
+          path="/overview"
+          element={
+            <RequireBundle>
+              <Layout>
+                <OverviewPlaceholder />
+              </Layout>
+            </RequireBundle>
+          }
+        />
+        <Route
+          path="/timeline"
+          element={
+            <RequireBundle>
+              <Layout>
+                <TimelinePlaceholder />
+              </Layout>
+            </RequireBundle>
+          }
+        />
+        <Route path="/" element={<Navigate to="/load" replace />} />
+      </Routes>
+    </BundleProvider>
   );
 }

@@ -9,12 +9,20 @@ describe('Badge', () => {
   });
 
   it('applies variant class', () => {
-    render(<Badge variant="destructive" data-testid="badge">!</Badge>);
+    render(
+      <Badge variant="destructive" data-testid="badge">
+        !
+      </Badge>,
+    );
     expect(screen.getByTestId('badge')).toHaveClass('bg-destructive');
   });
 
   it('applies custom className', () => {
-    render(<Badge className="extra" data-testid="badge">x</Badge>);
+    render(
+      <Badge className="extra" data-testid="badge">
+        x
+      </Badge>,
+    );
     expect(screen.getByTestId('badge')).toHaveClass('extra');
   });
 });

@@ -31,13 +31,7 @@ import type { Flag } from '../heuristics/types.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type LoadingStage =
-  | 'unzip'
-  | 'parse'
-  | 'index'
-  | 'validate'
-  | 'heuristics'
-  | null;
+export type LoadingStage = 'unzip' | 'parse' | 'index' | 'validate' | 'heuristics' | null;
 
 export type BundleContextValue = {
   /** Plural-shaped; v1 always has length 0 or 1. */
