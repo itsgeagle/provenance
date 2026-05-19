@@ -35,6 +35,18 @@ ed.hashes.sha512 = sha512;
 // Public types
 // ---------------------------------------------------------------------------
 
+/**
+ * A single explicitly-specified event (post-session.start) for Phase 3 tests.
+ * The `kind` and `data` must be consistent with log-core event types.
+ * Wall and t are optional; if omitted they are auto-generated.
+ */
+export type EventSpec = {
+  kind: string;
+  data: Record<string, unknown>;
+  wall?: string;
+  t?: number;
+};
+
 export type BuildBundleOpts = {
   assignmentId?: string;
   semester?: string;
@@ -50,6 +62,16 @@ export type BuildBundleOpts = {
      * in-memory content built by the doc.change events. Used for check 7 tests.
      */
     appendDocSave?: boolean;
+    /**
+     * Explicit events to append after session.start (instead of/in addition to
+     * the generic doc.change sequence). When provided, `eventCount` is ignored
+     * and `appendDocSave` is also ignored (include doc.save in the events array
+     * if needed).
+     *
+     * Each EventSpec is chained into the session's hash chain in order.
+     * Walls auto-increment from the session base unless overridden per-event.
+     */
+    events?: EventSpec[];
   }>;
   tamper?: {
     omitManifest?: boolean;
@@ -145,6 +167,7 @@ async function buildSession(opts: {
   assignmentId: string;
   semester: string;
   appendDocSave?: boolean;
+  events?: EventSpec[];
 }): Promise<{ slogText: string; metaJson: string }> {
   const {
     sessionId,
@@ -155,6 +178,7 @@ async function buildSession(opts: {
     assignmentId,
     semester,
     appendDocSave,
+    events: explicitEvents,
   } = opts;
 
   const lines: string[] = [];
@@ -183,53 +207,81 @@ async function buildSession(opts: {
   lines.push(serializeEntry(startEntry).trimEnd());
   prevHash = startEntry.hash;
 
-  // Additional synthetic doc.change events
-  // Track content for doc.save hash computation.
-  let fileContent = '';
-  for (let i = 1; i <= eventCount; i++) {
-    const insertText = `x${i}`;
-    // All inserts go at position (0,0) with no deletion — they accumulate.
-    fileContent = insertText + fileContent;
+  if (explicitEvents !== undefined) {
+    // ---------------------------------------------------------------------------
+    // Explicit event list — used by Phase 3+ tests that need specific event kinds
+    // and payloads (paste, doc.save, fs.external_change, etc.).
+    // ---------------------------------------------------------------------------
+    for (let i = 0; i < explicitEvents.length; i++) {
+      const spec = explicitEvents[i]!;
+      const seq = i + 1;
+      const envelope = {
+        seq,
+        t: spec.t ?? seq * 1000,
+        wall: spec.wall ?? wallAt(sessionIndex, seq),
+        kind: spec.kind,
+        data: spec.data,
+      };
+      // chainEntry is typed as accepting a specific Envelope<K>; we cast here
+      // because EventSpec is intentionally loose (supports any kind string).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entry = chainEntry(prevHash, envelope as any);
+      lines.push(serializeEntry(entry).trimEnd());
+      prevHash = entry.hash;
+    }
+  } else {
+    // ---------------------------------------------------------------------------
+    // Legacy synthetic doc.change events (original behaviour, unchanged).
+    // ---------------------------------------------------------------------------
 
-    const changeEnvelope = {
-      seq: i,
-      t: i * 1000,
-      wall: walls?.[i] ?? wallAt(sessionIndex, i),
-      kind: 'doc.change' as const,
-      data: {
-        path: '/test/file.py',
-        deltas: [
-          {
-            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-            text: insertText,
-          },
-        ],
-        source: 'typed' as const,
-      },
-    };
+    // Additional synthetic doc.change events
+    // Track content for doc.save hash computation.
+    let fileContent = '';
+    for (let i = 1; i <= eventCount; i++) {
+      const insertText = `x${i}`;
+      // All inserts go at position (0,0) with no deletion — they accumulate.
+      fileContent = insertText + fileContent;
 
-    const entry = chainEntry(prevHash, changeEnvelope);
-    lines.push(serializeEntry(entry).trimEnd());
-    prevHash = entry.hash;
-  }
+      const changeEnvelope = {
+        seq: i,
+        t: i * 1000,
+        wall: walls?.[i] ?? wallAt(sessionIndex, i),
+        kind: 'doc.change' as const,
+        data: {
+          path: '/test/file.py',
+          deltas: [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              text: insertText,
+            },
+          ],
+          source: 'typed' as const,
+        },
+      };
 
-  // Optionally append a doc.save whose sha256 matches the in-memory content.
-  if (appendDocSave === true) {
-    const saveSeq = eventCount + 1;
-    const saveHash = sha256Hex(fileContent);
-    const saveEnvelope = {
-      seq: saveSeq,
-      t: saveSeq * 1000,
-      wall: walls?.[saveSeq] ?? wallAt(sessionIndex, saveSeq),
-      kind: 'doc.save' as const,
-      data: {
-        path: '/test/file.py',
-        sha256: saveHash,
-      },
-    };
-    const saveEntry = chainEntry(prevHash, saveEnvelope);
-    lines.push(serializeEntry(saveEntry).trimEnd());
-    prevHash = saveEntry.hash;
+      const entry = chainEntry(prevHash, changeEnvelope);
+      lines.push(serializeEntry(entry).trimEnd());
+      prevHash = entry.hash;
+    }
+
+    // Optionally append a doc.save whose sha256 matches the in-memory content.
+    if (appendDocSave === true) {
+      const saveSeq = eventCount + 1;
+      const saveHash = sha256Hex(fileContent);
+      const saveEnvelope = {
+        seq: saveSeq,
+        t: saveSeq * 1000,
+        wall: walls?.[saveSeq] ?? wallAt(sessionIndex, saveSeq),
+        kind: 'doc.save' as const,
+        data: {
+          path: '/test/file.py',
+          sha256: saveHash,
+        },
+      };
+      const saveEntry = chainEntry(prevHash, saveEnvelope);
+      lines.push(serializeEntry(saveEntry).trimEnd());
+      prevHash = saveEntry.hash;
+    }
   }
 
   const slogText = lines.join('\n') + '\n';
@@ -296,6 +348,7 @@ export async function buildTestBundle(opts?: BuildBundleOpts): Promise<BuiltBund
       assignmentId,
       semester,
       ...(spec.appendDocSave !== undefined ? { appendDocSave: spec.appendDocSave } : {}),
+      ...(spec.events !== undefined ? { events: spec.events } : {}),
     });
 
     sessions.push({
