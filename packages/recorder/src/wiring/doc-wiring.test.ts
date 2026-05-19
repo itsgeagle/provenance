@@ -89,6 +89,7 @@ vi.mock('vscode', () => ({
 import { startDocWiring } from './doc-wiring.js';
 import { ExpectedContentRegistry } from '../state/expected-content-registry.js';
 import type { WorkspaceLike } from '../events/doc-events.js';
+import { sha256Hex } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -143,6 +144,7 @@ function makeEmitters() {
     emitPaste: vi.fn(),
     emitSelectionChange: vi.fn(),
     emitFocusChange: vi.fn(),
+    emitFsExternalChange: vi.fn(),
   };
 }
 
@@ -187,6 +189,8 @@ function makeDefaultPasteDeps() {
     pasteIntercept: makeNullIntercept(),
     largeInsertCounter: makeLargeInsertCounter(),
     getNow: () => 0,
+    // Default: readFile resolves with empty string. Tests that need specific content override this.
+    readFile: vi.fn().mockResolvedValue(''),
   };
 }
 
@@ -347,8 +351,9 @@ describe('startDocWiring', () => {
     expect(registry.get('src/other.py')).toBeUndefined();
   });
 
-  it('doc.save emits with path and sha256', () => {
+  it('doc.save emits with path and sha256', async () => {
     setMockWindowState({ focused: true });
+    const content = 'content';
     const registry = new ExpectedContentRegistry(['src/foo.py']);
     const emitters = makeEmitters();
     startDocWiring({
@@ -357,11 +362,16 @@ describe('startDocWiring', () => {
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
       ...makeDefaultPasteDeps(),
+      // readFile returns the same content as expected — clean save
+      readFile: vi.fn().mockResolvedValue(content),
     });
 
-    const doc = fakeDoc({ path: 'src/foo.py', text: 'content', lineCount: 1 });
+    const doc = fakeDoc({ path: 'src/foo.py', text: content, lineCount: 1 });
     openSub.handler!(doc);
     saveSub.handler!(doc);
+
+    // doc.save is now async (awaits readFile); flush microtasks
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(emitters.emitDocSave).toHaveBeenCalledOnce();
     const payload = emitters.emitDocSave.mock.calls[0]![0] as Record<string, unknown>;
@@ -584,6 +594,7 @@ describe('startDocWiring', () => {
       pasteIntercept: makeNullIntercept(),
       largeInsertCounter: counter,
       getNow: () => 0,
+      readFile: vi.fn().mockResolvedValue(''),
     });
 
     // typed change — counter should NOT increment
@@ -618,6 +629,7 @@ describe('startDocWiring', () => {
       pasteIntercept: confirmingIntercept,
       largeInsertCounter: makeLargeInsertCounter(),
       getNow: () => 1000,
+      readFile: vi.fn().mockResolvedValue(''),
     });
 
     const event = fakeChangeEvent('src/foo.py', [
@@ -628,5 +640,135 @@ describe('startDocWiring', () => {
     // Whether confirmed or likely, both paths emit a 'paste' event
     expect(emitters.emitPaste).toHaveBeenCalledOnce();
     expect(emitters.emitDocChange).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 7: external-change detection on doc.save
+  // -------------------------------------------------------------------------
+
+  it('doc.save with on-disk content matching expected: emits only doc.save', async () => {
+    setMockWindowState({ focused: true });
+    const content = 'def foo(): pass\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+      // readFile returns the same content as what's in the expected registry
+      readFile: vi.fn().mockResolvedValue(content),
+    });
+
+    // Open to register expected content
+    const doc = fakeDoc({ path: 'src/foo.py', text: content, lineCount: 1 });
+    openSub.handler!(doc);
+
+    // Trigger save
+    saveSub.handler!(doc);
+
+    // Wait for async readFile + emit
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(emitters.emitDocSave).toHaveBeenCalledOnce();
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+
+    const savePayload = emitters.emitDocSave.mock.calls[0]![0] as Record<string, unknown>;
+    expect(savePayload.sha256).toBe(sha256Hex(content));
+  });
+
+  it('doc.save with on-disk content DIFFERENT from expected: emits fs.external_change then doc.save', async () => {
+    setMockWindowState({ focused: true });
+    const expectedContent = 'def foo(): pass\n';
+    const onDiskContent = 'def foo(): return 42  # externally edited\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+      readFile: vi.fn().mockResolvedValue(onDiskContent),
+    });
+
+    // Open to register expected content with original content
+    const doc = fakeDoc({ path: 'src/foo.py', text: expectedContent, lineCount: 1 });
+    openSub.handler!(doc);
+
+    // Trigger save
+    saveSub.handler!(doc);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // fs.external_change must be emitted BEFORE doc.save
+    expect(emitters.emitFsExternalChange).toHaveBeenCalledOnce();
+    expect(emitters.emitDocSave).toHaveBeenCalledOnce();
+
+    const extPayload = emitters.emitFsExternalChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(extPayload.path).toBe('src/foo.py');
+    expect(extPayload.old_hash).toBe(sha256Hex(expectedContent));
+    expect(extPayload.new_hash).toBe(sha256Hex(onDiskContent));
+
+    const savePayload = emitters.emitDocSave.mock.calls[0]![0] as Record<string, unknown>;
+    expect(savePayload.sha256).toBe(sha256Hex(onDiskContent));
+  });
+
+  it('doc.save external change: registry expected content reset to on-disk content', async () => {
+    setMockWindowState({ focused: true });
+    const expectedContent = 'original';
+    const onDiskContent = 'externally modified content';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+      readFile: vi.fn().mockResolvedValue(onDiskContent),
+    });
+
+    const doc = fakeDoc({ path: 'src/foo.py', text: expectedContent, lineCount: 1 });
+    openSub.handler!(doc);
+    saveSub.handler!(doc);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // After the save handler runs, the registry should reflect on-disk reality
+    const ec = registry.get('src/foo.py');
+    expect(ec?.content).toBe(onDiskContent);
+    expect(ec?.hash).toBe(sha256Hex(onDiskContent));
+  });
+
+  it('getLastDocChangeAt returns -Infinity for unseen path, then updates on doc.change', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    let nowVal = 1234;
+    const handle = startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      pasteIntercept: makeNullIntercept(),
+      largeInsertCounter: makeLargeInsertCounter(),
+      getNow: () => nowVal,
+      readFile: vi.fn().mockResolvedValue(''),
+    });
+
+    expect(handle.getLastDocChangeAt('src/foo.py')).toBe(-Infinity);
+
+    nowVal = 9999;
+    const event = fakeChangeEvent('src/foo.py', [
+      { startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: 'x' },
+    ]);
+    changeSub.handler!(event);
+
+    expect(handle.getLastDocChangeAt('src/foo.py')).toBe(9999);
   });
 });

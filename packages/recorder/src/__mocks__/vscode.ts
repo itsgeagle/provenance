@@ -48,6 +48,8 @@ export const workspace = {
   onDidCloseTextDocument: (_handler: (_doc: unknown) => void) => noopDisposable,
   // Used for building relative paths.
   asRelativePath: (uri: { fsPath: string }) => uri.fsPath,
+  // Used by fs-watcher.ts. Default returns a no-op watcher; tests override via vi.mock.
+  createFileSystemWatcher: (_pattern: unknown) => _defaultFsWatcher,
 };
 
 export const extensions = {
@@ -66,3 +68,19 @@ export class Uri {
   }
   constructor(public fsPath: string) {}
 }
+
+// Used by fs-watcher.ts.
+export class RelativePattern {
+  constructor(
+    public base: unknown,
+    public pattern: string,
+  ) {}
+}
+
+// Default no-op FileSystemWatcher (tests replace via workspace.createFileSystemWatcher stub).
+export const _defaultFsWatcher = {
+  onDidChange: (_handler: (_uri: unknown) => void) => ({ dispose: () => undefined }),
+  onDidCreate: (_handler: (_uri: unknown) => void) => ({ dispose: () => undefined }),
+  onDidDelete: (_handler: (_uri: unknown) => void) => ({ dispose: () => undefined }),
+  dispose: () => undefined,
+};

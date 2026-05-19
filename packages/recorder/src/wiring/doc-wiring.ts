@@ -20,6 +20,7 @@ import type {
   PastePayload,
   SelectionChangePayload,
   FocusChangePayload,
+  FsExternalChangePayload,
 } from '@provenance/log-core';
 import {
   transformDocOpen,
@@ -35,6 +36,8 @@ import { classifyChange } from '../events/paste-classifier.js';
 import { buildPastePayload } from '../events/paste-payload.js';
 import { ExpectedContentRegistry } from '../state/expected-content-registry.js';
 import type { PasteIntercept } from './paste-command-intercept.js';
+import { compareSavedContent } from '../events/external-change-detector.js';
+import type { ExplanationTagger } from '../events/explanation-tags.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +58,7 @@ export type DocWiringDeps = {
   emitPaste: (data: PastePayload) => void;
   emitSelectionChange: (data: SelectionChangePayload) => void;
   emitFocusChange: (data: FocusChangePayload) => void;
+  emitFsExternalChange: (data: FsExternalChangePayload) => void;
   /** Relative paths from the .cs61a manifest. */
   filesUnderReview: readonly string[];
   /** Registry for expected-content model. */
@@ -65,6 +69,14 @@ export type DocWiringDeps = {
   largeInsertCounter: LargeInsertCounter;
   /** Clock.now() for comparing paste-intercept timestamps. */
   getNow: () => number;
+  /**
+   * Read the on-disk content of a file after save. Path is relative to the workspace.
+   * Used by Phase 7 external-change detection on the doc.save path.
+   * In production: reads via node:fs/promises. In tests: stub.
+   */
+  readFile: (relativePath: string) => Promise<string>;
+  /** Optional explanation tagger (Phase 8 will hook formatters/git into it). */
+  explanationTagger?: ExplanationTagger;
 };
 
 // ---------------------------------------------------------------------------
@@ -79,10 +91,15 @@ function computeHash(content: string): string {
 // startDocWiring
 // ---------------------------------------------------------------------------
 
+export type DocWiringHandle = vscode.Disposable & {
+  /** Returns the monotonic time of the last doc.change for a relative path, or -Infinity. */
+  getLastDocChangeAt: (relativePath: string) => number;
+};
+
 /**
- * Register all doc-event subscriptions and return a Disposable that tears them all down.
+ * Register all doc-event subscriptions and return a DocWiringHandle that tears them all down.
  */
-export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
+export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   const {
     workspace,
     emitDocOpen,
@@ -92,11 +109,17 @@ export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
     emitPaste,
     emitSelectionChange,
     emitFocusChange,
+    emitFsExternalChange,
     expectedContent,
     pasteIntercept,
     largeInsertCounter,
     getNow,
+    readFile,
+    explanationTagger,
   } = deps;
+
+  // Track the most recent doc.change time per relative path (for fs-watcher tolerance).
+  const lastDocChangeAt = new Map<string, number>();
 
   // Track previous focus state for transition detection
   let prevFocused = vscode.window.state.focused;
@@ -134,6 +157,9 @@ export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
       text: c.text,
     }));
 
+    // Track last doc.change time for this path (used by fs-watcher tolerance check).
+    lastDocChangeAt.set(relativePath, getNow());
+
     // Apply deltas to expected content if watched (unchanged from Phase 5)
     if (expectedContent.isWatched(relativePath)) {
       const ec = expectedContent.get(relativePath);
@@ -169,21 +195,51 @@ export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
   });
 
   // -------------------------------------------------------------------------
-  // doc.save
+  // doc.save — Phase 7: compare on-disk content against expected for watched files.
   // -------------------------------------------------------------------------
   const saveSub = vscode.workspace.onDidSaveTextDocument((document) => {
     const relativePath = workspace.asRelativePath(document.uri);
-    let hash: string;
 
     if (expectedContent.isWatched(relativePath)) {
       const ec = expectedContent.get(relativePath);
-      // For Phase 5/6, we trust expected content == on-disk content.
-      // Phase 7 will compare against disk for fs.external_change.
-      hash = ec !== undefined ? ec.hash : computeHash(document.getText());
-    } else {
-      hash = computeHash(document.getText());
+      if (ec !== undefined) {
+        // Read the actual on-disk content to compare with expected.
+        // We must use readFile rather than doc.getText() because the VS Code
+        // buffer may differ from what a concurrent tool wrote (PRD §4.5).
+        readFile(relativePath).then(
+          (onDiskContent) => {
+            const result = compareSavedContent(ec, onDiskContent);
+
+            if (result.kind === 'external_change') {
+              // Emit fs.external_change FIRST, then reset, then emit doc.save.
+              // Order matters: doc.save's hash represents the post-reset state.
+              const explanation = explanationTagger?.consume();
+              emitFsExternalChange({
+                path: relativePath,
+                old_hash: result.old_hash,
+                new_hash: result.new_hash,
+                diff_size: result.diff_size,
+                ...(explanation !== undefined ? { explanation } : {}),
+              });
+              // Reset expected content to the on-disk reality before emitting doc.save.
+              ec.reset(onDiskContent);
+            }
+
+            // Always emit doc.save with the actual on-disk hash.
+            const saveHash = result.kind === 'clean_save' ? result.new_hash : result.new_hash;
+            emitDocSave(transformDocSave(document, workspace, saveHash));
+          },
+          (_err) => {
+            // Fallback: use expected hash if we can't read the file.
+            emitDocSave(transformDocSave(document, workspace, ec.hash));
+          },
+        );
+        return; // async path; doc.save emitted inside the promise handler
+      }
     }
 
+    // Unwatched file or no expected-content entry: use doc.getText() hash.
+    const hash = computeHash(document.getText());
     emitDocSave(transformDocSave(document, workspace, hash));
   });
 
@@ -220,6 +276,9 @@ export function startDocWiring(deps: DocWiringDeps): vscode.Disposable {
       closeSub.dispose();
       selectionSub.dispose();
       focusSub.dispose();
+    },
+    getLastDocChangeAt(relativePath: string): number {
+      return lastDocChangeAt.get(relativePath) ?? -Infinity;
     },
   };
 }

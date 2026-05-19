@@ -25,6 +25,8 @@ import { startClockWatcher } from './events/clock-watcher.js';
 import { startDocWiring } from './wiring/doc-wiring.js';
 import { startPasteIntercept } from './wiring/paste-command-intercept.js';
 import { startPasteReconciler } from './events/paste-reconciler.js';
+import { startFsWatcher } from './wiring/fs-watcher.js';
+import { ExplanationTagger } from './events/explanation-tags.js';
 import { ExpectedContentRegistry } from './state/expected-content-registry.js';
 import type { LargeInsertCounter } from './wiring/doc-wiring.js';
 import type { Cs61aManifest } from '@provenance/log-core';
@@ -193,8 +195,18 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     },
   };
 
-  // Step 11: Start doc-event wiring (PRD §4.2 + §4.3 paste detection).
+  // Step 11: Start doc-event wiring (PRD §4.2 + §4.3 paste detection + Phase 7).
   const expectedContentRegistry = new ExpectedContentRegistry(manifest.files_under_review);
+
+  // Phase 7: ExplanationTagger for formatter/git explanation of external changes.
+  // Phase 8 will hook markFormatter()/markGit() calls into terminal/git events.
+  const explanationTagger = new ExplanationTagger({ getNow: () => clock.now() });
+
+  // Production readFile: resolve relative path against workspace root + read UTF-8.
+  const workspaceRoot = workspaceFolder.uri.fsPath;
+  const prodReadFile = (relativePath: string): Promise<string> =>
+    fsPromises.readFile(path.join(workspaceRoot, relativePath), 'utf8');
+
   const docWiring = startDocWiring({
     workspace: { asRelativePath: vscode.workspace.asRelativePath.bind(vscode.workspace) },
     emitDocOpen: (data) => sessionHost.emit('doc.open', data),
@@ -204,13 +216,30 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     emitPaste: (data) => sessionHost.emit('paste', data),
     emitSelectionChange: (data) => sessionHost.emit('selection.change', data),
     emitFocusChange: (data) => sessionHost.emit('focus.change', data),
+    emitFsExternalChange: (data) => sessionHost.emit('fs.external_change', data),
     filesUnderReview: manifest.files_under_review,
     expectedContent: expectedContentRegistry,
     pasteIntercept,
     largeInsertCounter,
     getNow: () => clock.now(),
+    readFile: prodReadFile,
+    explanationTagger,
   });
   disposables.push(docWiring);
+
+  // Step 11b: Start FileSystemWatcher for external changes (PRD §4.5 — "file edited
+  // while VS Code unfocused" path). Must come after docWiring so getLastDocChangeAt works.
+  const fsWatcher = startFsWatcher({
+    workspaceFolder,
+    filesUnderReview: manifest.files_under_review,
+    registry: expectedContentRegistry,
+    emit: (data) => sessionHost.emit('fs.external_change', data),
+    getLastDocChangeAt: (p) => docWiring.getLastDocChangeAt(p),
+    getNow: () => clock.now(),
+    readFile: prodReadFile,
+    explanationTagger,
+  });
+  disposables.push(fsWatcher);
 
   // Step 12: Start paste reconciler (PRD §4.3 signal 3).
   const reconciler = startPasteReconciler({
