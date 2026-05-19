@@ -91,6 +91,14 @@ function getMessages(error: AnyError): ErrorMessages {
           'Only drop bundles produced by the Provenance recorder. Do not manually add files to the ZIP.',
       };
 
+    case 'unknown_failure':
+      return {
+        title: 'Something went wrong while loading the bundle.',
+        explanation: 'An unexpected error occurred during parsing, validation, or analysis.',
+        suggestion:
+          'Please try loading the bundle again. If the problem persists, the bundle may be incompatible with this version of the analyzer.',
+      };
+
     case 'ndjson_parse_failed':
       return {
         title: 'A session log is corrupted.',

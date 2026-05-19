@@ -124,7 +124,7 @@ export function BundleProvider({ children }: { children: ReactNode }) {
     } catch (err: unknown) {
       // Safety net: should not normally trigger since loadBundle returns Result.
       setLoadError({
-        kind: 'not_a_zip',
+        kind: 'unknown_failure',
         detail: err instanceof Error ? err.message : 'Unexpected error during load.',
       });
       setStatus('error');

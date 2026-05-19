@@ -28,7 +28,8 @@ export type LoaderError =
   | { kind: 'no_sessions' }
   | { kind: 'orphaned_meta'; sessionId: string }
   | { kind: 'orphaned_slog'; sessionId: string }
-  | { kind: 'unexpected_file'; filename: string; detail?: string };
+  | { kind: 'unexpected_file'; filename: string; detail?: string }
+  | { kind: 'unknown_failure'; detail: string };
 
 // ---------------------------------------------------------------------------
 // Session parse errors

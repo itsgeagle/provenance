@@ -10,9 +10,8 @@
  * <BundleProvider> wraps <Routes> so all routes can read the context.
  * <BundleProvider> itself sits inside <BrowserRouter> (set up in main.tsx).
  *
- * <RequireBundle> redirects to /load when no bundle is loaded (status='idle'
- * and bundles.length === 0). It does NOT redirect during loading or error —
- * LoadView handles those states internally.
+ * <RequireBundle> redirects to /load whenever status is not 'loaded'.
+ * This ensures guarded routes are only accessible when a bundle is fully loaded.
  *
  * LoadView redirects to /overview via useEffect when status transitions to
  * 'loaded'.
@@ -31,8 +30,8 @@ import { Layout } from './components/Layout.js';
 // ---------------------------------------------------------------------------
 
 function RequireBundle({ children }: { children: ReactNode }) {
-  const { bundles, status } = useBundle();
-  if (status === 'idle' && bundles.length === 0) {
+  const { status } = useBundle();
+  if (status !== 'loaded') {
     return <Navigate to="/load" replace />;
   }
   return <>{children}</>;

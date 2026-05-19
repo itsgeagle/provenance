@@ -74,6 +74,12 @@ const ERROR_FIXTURES: Array<{
     expectSuggestionFragment: 'Only drop bundles produced',
   },
   {
+    label: 'unknown_failure',
+    error: { kind: 'unknown_failure', detail: 'buildIndex threw: RangeError at line 42' },
+    expectTitle: 'Something went wrong while loading the bundle.',
+    expectSuggestionFragment: 'try loading the bundle again',
+  },
+  {
     label: 'ndjson_parse_failed',
     error: { kind: 'ndjson_parse_failed', line: 5, detail: 'Unexpected token' },
     expectTitle: 'A session log is corrupted.',

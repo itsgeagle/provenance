@@ -79,9 +79,7 @@ describe('Header', () => {
     });
     const file = new File([blob], 'hw3-bundle.zip', { type: 'application/zip' });
 
-    const { waitFor } = renderHeaderWithBundle(file) as ReturnType<typeof render> & {
-      waitFor: (typeof import('@testing-library/react'))['waitFor'];
-    };
+    renderHeaderWithBundle(file);
 
     act(() => {
       screen.getByTestId('load-btn').click();
@@ -94,9 +92,6 @@ describe('Header', () => {
     expect(screen.getByTestId('header-filename').textContent).toBe('hw3-bundle.zip');
     expect(screen.getByTestId('header-assignment-id').textContent).toContain('hw3');
     expect(screen.getByTestId('header-session-count').textContent).toContain('2');
-
-    // Suppress unused variable warning
-    void waitFor;
   });
 
   it('"Load different bundle" button clears the bundle and navigates to /load', async () => {
