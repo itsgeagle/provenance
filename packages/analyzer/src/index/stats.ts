@@ -257,11 +257,6 @@ export function computeStats(index: EventIndex): BundleStats {
     totalActiveMs,
     totalIdleMs,
     terminalOpenDurations,
-    sessionCount: bundle_session_count(index),
+    sessionCount: index.bySessionId.size,
   };
-}
-
-/** Extract session count from bySessionId map size. */
-function bundle_session_count(index: EventIndex): number {
-  return index.bySessionId.size;
 }

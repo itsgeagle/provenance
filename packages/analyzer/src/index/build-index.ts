@@ -3,7 +3,8 @@
  *
  * PRD §7.3.
  *
- * Pure function, O(N) in the total number of events across all sessions.
+ * Pure function: O(N log N) for the chronological sort; O(N) for the index
+ * construction passes (maps, byFile, byKind, etc.).
  * Target: <100ms on a 10k-event bundle (see build-index.test.ts perf test).
  */
 

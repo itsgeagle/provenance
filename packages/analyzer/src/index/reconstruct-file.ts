@@ -13,7 +13,6 @@
  */
 
 import type { DocChangeDelta, Range } from '@provenance/log-core';
-import { sha256Hex } from '@provenance/log-core';
 import type { EventIndex } from './event-index.js';
 
 // ---------------------------------------------------------------------------
@@ -76,7 +75,13 @@ function positionToOffset(content: string, line: number, character: number): num
 }
 
 /**
- * Apply a single DocChangeDelta to a content string.
+ * Applies a doc.change payload's deltas to the content string.
+ *
+ * IMPORTANT: VS Code emits `contentChanges` in reverse document order — bottom-
+ * to-top, rightmost-first — so each delta's `range` is valid against the
+ * pre-mutation document state. The recorder stores deltas in that order
+ * verbatim, and this function applies them in array order. Do not sort or
+ * reorder; the recorder/analyzer contract relies on this.
  *
  * v2 extension point: Phase 12 will replace this with a version that also
  * records, for each character in the output, the globalIdx of the event that
@@ -122,8 +127,11 @@ export function applyPaste(
     return { content, applied: false };
   }
 
-  const range = p['range'] as Range | undefined;
-  if (range === undefined) return { content, applied: false };
+  const rangeRaw = p['range'];
+  if (typeof rangeRaw !== 'object' || rangeRaw === null) {
+    return { content, applied: false };
+  }
+  const range = rangeRaw as Range;
 
   const text = p['content'] as string;
   const start = positionToOffset(content, range.start.line, range.start.character);
@@ -228,88 +236,4 @@ export function reconstructFile(
   }
 
   return { content, hashBySaveSeq, tainted, taintReasons };
-}
-
-// ---------------------------------------------------------------------------
-// verifyReconstructionAgainstSaves
-// ---------------------------------------------------------------------------
-
-/**
- * Verify that the reconstructed content at each doc.save matches the recorded
- * sha256. Returns one entry per save that can be verified (not tainted at that
- * point).
- *
- * This is a convenience helper for the exit-gate test and Phase 4 heuristics;
- * it is not used by reconstructFile itself.
- */
-export type SaveVerification = {
-  sessionId: string;
-  seq: number;
-  globalIdx: number;
-  path: string;
-  recordedSha256: string;
-  computedSha256: string;
-  matches: boolean;
-};
-
-export function verifyReconstructionAgainstSaves(
-  index: EventIndex,
-  filePath: string,
-): SaveVerification[] {
-  const results: SaveVerification[] = [];
-  const fileEvents = index.byFile.get(filePath) ?? [];
-
-  let content = '';
-  let tainted = false;
-  const taintGlobalIdxSet = new Set<number>();
-
-  for (const e of fileEvents) {
-    switch (e.kind) {
-      case 'doc.change':
-        if (!tainted) content = applyDocChange(content, e.payload);
-        break;
-
-      case 'paste': {
-        if (!tainted) {
-          const result = applyPaste(content, e.payload);
-          if (result.applied) {
-            content = result.content;
-          } else {
-            tainted = true;
-            taintGlobalIdxSet.add(e.globalIdx);
-            content = '';
-          }
-        }
-        break;
-      }
-
-      case 'fs.external_change':
-        tainted = true;
-        taintGlobalIdxSet.add(e.globalIdx);
-        content = '';
-        break;
-
-      case 'doc.save': {
-        const p = e.payload as Record<string, unknown> | null;
-        const recordedSha256 = typeof p?.['sha256'] === 'string' ? p['sha256'] : '';
-        if (!tainted) {
-          results.push({
-            sessionId: e.sessionId,
-            seq: e.seq,
-            globalIdx: e.globalIdx,
-            path: filePath,
-            recordedSha256,
-            computedSha256: sha256Hex(content),
-            matches: sha256Hex(content) === recordedSha256,
-          });
-        }
-        break;
-      }
-
-      default:
-        break;
-    }
-  }
-
-  return results;
 }

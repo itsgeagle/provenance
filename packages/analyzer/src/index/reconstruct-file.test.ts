@@ -139,6 +139,42 @@ describe('applyDocChange', () => {
   it('returns original content if deltas is not an array', () => {
     expect(applyDocChange('abc', { deltas: 'bad' })).toBe('abc');
   });
+
+  it('applies multiple deltas in reverse document order (VS Code contract)', () => {
+    // Regression test: VS Code emits deltas in reverse document order (bottom-to-top,
+    // rightmost-first) so each delta's range is valid against the pre-mutation state.
+    // The recorder stores them verbatim in that order, and applyDocChange must apply
+    // them in array order without sorting.
+    //
+    // Example: content 'abcdef'. Delete [0,2] (remove 'ab') and delete [4,5] (remove 'e').
+    // In reverse document order: [4,5] first (removes 'e'), then [0,2] (removes 'ab').
+    // Stored in payload as [{range:[4,5], text:''}, {range:[0,2], text:''}].
+    // Applying in array order:
+    //  - Apply [4,5] on 'abcdef' → 'abcdf'
+    //  - Apply [0,2] on 'abcdf' → 'cdf'
+    const payload = {
+      path: '/a.py',
+      deltas: [
+        {
+          range: { start: { line: 0, character: 4 }, end: { line: 0, character: 5 } },
+          text: '',
+        },
+        {
+          range: { start: { line: 0, character: 0 }, end: { line: 0, character: 2 } },
+          text: '',
+        },
+      ],
+      source: 'typed',
+    };
+    expect(applyDocChange('abcdef', payload)).toBe('cdf');
+
+    // Counterexample (for documentation): if deltas were misordered (ascending by start),
+    // applying [{range:[0,2], text:''}, {range:[4,5], text:''}] would yield wrong result:
+    //  - Apply [0,2] on 'abcdef' → 'cdef'
+    //  - Apply [4,5] on 'cdef' → tries to delete [4,5] of 'cdef', but cdef[4] is 'f', not 'e'.
+    //    Range clamping shifts the delete to [3,4] (or beyond the string), yielding 'cde' or 'cdf'.
+    // This is why the ordering matters: the reversal ensures each range is valid as-is.
+  });
 });
 
 // ---------------------------------------------------------------------------
