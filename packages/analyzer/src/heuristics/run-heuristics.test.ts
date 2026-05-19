@@ -346,6 +346,7 @@ describe('runHeuristics — snapshot fixture', () => {
         { heuristic: 'low_typing_high_output', severity: 'high' },
       ]),
     );
+    expect(flags).toHaveLength(5);
 
     // IDs are all unique
     const ids = flags.map((f) => f.id);

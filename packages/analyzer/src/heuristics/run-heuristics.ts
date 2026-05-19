@@ -86,7 +86,7 @@ export function runHeuristics(
   const integrityFlags = integrityFlagsFromReport(validationReport);
   allFlags.push(...integrityFlags);
 
-  // Sort: severity desc → confidence desc → supportingSeqs[0] lex asc.
+  // Sort: severity desc → confidence desc → supportingSeqs[0] lex asc → id lex asc.
   allFlags.sort((a, b) => {
     const sevDiff = severityRank(a) - severityRank(b);
     if (sevDiff !== 0) return sevDiff;
@@ -98,6 +98,9 @@ export function runHeuristics(
     const seqB = b.supportingSeqs[0] ?? '';
     if (seqA < seqB) return -1;
     if (seqA > seqB) return 1;
+
+    if (a.id < b.id) return -1;
+    if (a.id > b.id) return 1;
     return 0;
   });
 

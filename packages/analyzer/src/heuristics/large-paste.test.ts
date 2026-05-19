@@ -266,6 +266,34 @@ describe('large_paste — positive (line threshold)', () => {
     expect(flags).toHaveLength(1);
     expect(flags[0]!.severity).toBe('high');
   });
+
+  it('flags a 29-line paste as medium severity (below high-severity boundary)', async () => {
+    // 29 lines with ≥200 chars total → flagged as medium (not high)
+    const content = Array.from({ length: 29 }, (_, i) => `line_content_${i}`).join('\n');
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'paste',
+              data: {
+                path: '/test/file.py',
+                content,
+                length: content.length,
+                range: {
+                  start: { line: 0, character: 0 },
+                  end: { line: 0, character: 0 },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = largePasteHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('medium');
+  });
 });
 
 // ---------------------------------------------------------------------------

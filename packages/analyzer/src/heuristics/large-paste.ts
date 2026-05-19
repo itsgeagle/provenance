@@ -18,7 +18,7 @@
  *   of kind paste.anomaly in the SAME session has |t_P - t_anomaly| ≤ 5000ms.
  */
 
-import type { EventIndex, IndexedEvent } from '../index/event-index.js';
+import type { EventIndex } from '../index/event-index.js';
 import type { Bundle } from '../loader/types.js';
 import type { Flag, Heuristic, Severity } from './types.js';
 import type { HeuristicConfig } from './config.js';
@@ -35,9 +35,7 @@ import type { HeuristicConfig } from './config.js';
  */
 function buildAnomalyWindows(index: EventIndex): Map<string, number[]> {
   const bySession = new Map<string, number[]>();
-  // paste.anomaly is not a standard EventKind yet in log-core; use the cast
-  // pattern from stats.ts to future-proof.
-  const anomalyEvents = (index.byKind as Map<string, IndexedEvent[]>).get('paste.anomaly') ?? [];
+  const anomalyEvents = index.byKind.get('paste.anomaly') ?? [];
   for (const e of anomalyEvents) {
     let arr = bySession.get(e.sessionId);
     if (arr === undefined) {
