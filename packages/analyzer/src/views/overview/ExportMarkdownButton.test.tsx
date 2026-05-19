@@ -84,6 +84,10 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  // The "clicking triggers a download" test spies on document.createElement;
+  // restore so the spy doesn't leak into subsequent tests in this file (or
+  // any later-added tests that expect a real anchor element).
+  vi.restoreAllMocks();
 });
 
 // ---------------------------------------------------------------------------

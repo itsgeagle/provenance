@@ -141,14 +141,14 @@ function renderFlagsSection(flags: Flag[]): string {
 
   for (let i = 0; i < flags.length; i++) {
     const flag = flags[i]!;
-    lines.push(`### ${i + 1}. ${flag.title}`);
+    lines.push(`### ${i + 1}. ${escapeInlineMarkdown(flag.title)}`);
     lines.push(``);
     lines.push(`- **Heuristic:** \`${flag.heuristic}\``);
     lines.push(`- **Severity:** ${severityLabel(flag.severity)}`);
     lines.push(`- **Confidence:** ${flag.confidence.toFixed(2)}`);
     lines.push(`- **Supporting events:** ${flag.supportingSeqs.length}`);
     lines.push(``);
-    lines.push(flag.description);
+    lines.push(escapeInlineMarkdown(flag.description));
     lines.push(``);
 
     if (flag.supportingSeqs.length > 0) {
@@ -280,6 +280,22 @@ function severityLabel(s: Severity): string {
  */
 function escapeTableCell(s: string): string {
   return s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+/**
+ * Escape a recorder-supplied string for safe inline embedding in a Markdown
+ * heading or paragraph. PRD §6: the recorder protocol is public, so file
+ * paths and other payload fields are attacker-controlled. A path like
+ * `hw1.py\n\n# Forged heading` would otherwise inject structural markdown.
+ *
+ * Surgical fix: collapse CR/LF runs to a single space so nothing the
+ * recorder writes can break out of a single line. Intentionally NOT
+ * escaping inline backticks/asterisks/etc. — those render as styled text,
+ * not as new document structure, and over-escaping would make legitimate
+ * paths and descriptions ugly in the case file.
+ */
+function escapeInlineMarkdown(s: string): string {
+  return s.replace(/[\r\n]+/g, ' ');
 }
 
 /**

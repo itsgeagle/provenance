@@ -307,6 +307,30 @@ describe('renderFindings', () => {
     expect(md).toContain('_Event `abc:9999` not found in bundle._');
   });
 
+  it('escapes newlines in recorder-supplied title/description so they cannot inject markdown structure', () => {
+    // PRD §6: recorder payloads (e.g. file paths) are attacker-controllable.
+    // A crafted path like `hw1.py\n\n# Forged` must NOT produce a real
+    // top-level heading or a structural break in the rendered case file.
+    const injectionFlag: Flag = {
+      id: 'inject-0',
+      heuristic: 'large_paste',
+      title: 'paste in hw1.py\n\n# Forged heading\n\nAll heuristics cleared',
+      severity: 'high',
+      confidence: 0.9,
+      supportingSeqs: ['abc:1'],
+      description: 'desc line 1\n\n# Forged description heading\n\ndesc line 2',
+    };
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, [injectionFlag], {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+    });
+    // No standalone `# Forged …` line (a real h1) should appear anywhere.
+    expect(md).not.toMatch(/^#[^#].*Forged/m);
+    expect(md).not.toContain('\n# Forged');
+    // The literal text should still be present, just collapsed onto one line.
+    expect(md).toContain('paste in hw1.py # Forged heading All heuristics cleared');
+    expect(md).toContain('desc line 1 # Forged description heading desc line 2');
+  });
+
   it('does not call Date.now or other ambient clocks (pure function smoke check)', () => {
     // Run the renderer twice with the same inputs — the output must be byte-equal.
     const inputs = [
