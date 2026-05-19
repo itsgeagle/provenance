@@ -1,0 +1,409 @@
+/**
+ * Tests for sealBundle.
+ *
+ * Coverage:
+ * 1. No .slog files in provenanceDir → no_sessions.
+ * 2. provenanceDir does not exist → no_sessions.
+ * 3. One valid complete session (session.start + session.end) → ok.
+ *    Unzip the result and verify:
+ *    - manifest.json exists, parses, validates via validateBundleManifestShape.
+ *    - manifest.sig verifies under the supplied sessionPubkeyHex.
+ *    - All .slog + .meta files are present in the ZIP.
+ *    - slog_sha256 / meta_sha256 in the manifest match the actual file hashes.
+ * 4. One session with a broken chain → chain_broken.
+ * 5. Session with malformed JSON → chain_broken.
+ * 6. Bundle ZIP filename contains the assignment_id and a timestamp.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fsPromises from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { createHash } from 'node:crypto';
+import JSZip from 'jszip';
+import {
+  chainEntry,
+  GENESIS_PREV_HASH,
+  serializeEntry,
+  sha256Hex,
+  validateBundleManifestShape,
+  canonicalize,
+} from '@provenance/log-core';
+import type { Envelope } from '@provenance/log-core';
+import { generateSessionKeypair } from '../crypto/session-keys.js';
+import { sealBundle, verifyManifestSig } from './seal.js';
+import type { SealDeps } from './seal.js';
+
+// ---------------------------------------------------------------------------
+// Helpers: build fake .slog content
+// ---------------------------------------------------------------------------
+
+const TEST_SESSION_ID = '00000000-0000-0000-0000-000000000042';
+const TEST_ASSIGNMENT_ID = 'hw03';
+const TEST_SEMESTER = 'fa26';
+
+function makeStartEnvelope(
+  sessionId: string = TEST_SESSION_ID,
+  prevSessionId: string | null = null,
+): Envelope<'session.start'> {
+  return {
+    seq: 0,
+    t: 0,
+    wall: '2026-01-01T00:00:00.000Z',
+    kind: 'session.start',
+    data: {
+      format_version: '1.0',
+      session_id: sessionId,
+      prev_session_id: prevSessionId,
+      assignment: { id: TEST_ASSIGNMENT_ID, semester: TEST_SEMESTER },
+      manifest_sig: 'a'.repeat(128),
+      machine_id: 'b'.repeat(64),
+      vscode: { version: '1.97.0', commit: '', platform: 'darwin-arm64' },
+      recorder: { version: '0.0.0', extension_id: 'berkeley-cs61a.provenance-recorder' },
+      session_pubkey: 'c'.repeat(64),
+    },
+  };
+}
+
+function makeEndEnvelope(seq: number): Envelope<'session.end'> {
+  return {
+    seq,
+    t: 1000,
+    wall: '2026-01-01T00:10:00.000Z',
+    kind: 'session.end',
+    data: { reason: 'deactivate' },
+  };
+}
+
+/**
+ * Build a complete, valid two-entry .slog (session.start + session.end).
+ */
+function buildCompleteSlog(sessionId?: string): string {
+  const startEnv = makeStartEnvelope(sessionId);
+  const startEntry = chainEntry(GENESIS_PREV_HASH, startEnv, sha256Hex);
+
+  const endEnv = makeEndEnvelope(1);
+  const endEntry = chainEntry(startEntry.hash, endEnv, sha256Hex);
+
+  return serializeEntry(startEntry) + serializeEntry(endEntry);
+}
+
+/**
+ * Build a .slog with a broken chain (second entry has wrong prev_hash).
+ */
+function buildBrokenChainSlog(): string {
+  const startEnv = makeStartEnvelope();
+  const startEntry = chainEntry(GENESIS_PREV_HASH, startEnv, sha256Hex);
+
+  const endEnv = makeEndEnvelope(1);
+  // Chain with a wrong previous hash to break the chain.
+  const endEntry = chainEntry('dead'.repeat(16), endEnv, sha256Hex);
+
+  return serializeEntry(startEntry) + serializeEntry(endEntry);
+}
+
+/**
+ * SHA-256 of a string (UTF-8).
+ */
+function sha256OfString(s: string): string {
+  return createHash('sha256').update(Buffer.from(s, 'utf8')).digest('hex');
+}
+
+// ---------------------------------------------------------------------------
+// Helpers: build SealDeps
+// ---------------------------------------------------------------------------
+
+async function buildDeps(
+  provenanceDir: string,
+  outputDir: string,
+  keypair: Awaited<ReturnType<typeof generateSessionKeypair>>,
+): Promise<SealDeps> {
+  return {
+    workspaceFolder: {
+      uri: { fsPath: outputDir } as import('vscode').Uri,
+      name: 'test-workspace',
+      index: 0,
+    } as import('vscode').WorkspaceFolder,
+    provenanceDir,
+    assignmentId: TEST_ASSIGNMENT_ID,
+    semester: TEST_SEMESTER,
+    sessionPrivkey: keypair.privateKey,
+    sessionPubkeyHex: keypair.publicKeyHex,
+    computeExtensionHash: async () => 'a'.repeat(64),
+    outputDir,
+    now: () => new Date('2026-05-19T14:30:00.000Z'),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fixture setup
+// ---------------------------------------------------------------------------
+
+let tmpDir: string;
+let provenanceDir: string;
+let outputDir: string;
+
+beforeEach(async () => {
+  tmpDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'provenance-seal-test-'));
+  provenanceDir = path.join(tmpDir, '.provenance');
+  outputDir = path.join(tmpDir, 'output');
+  await fsPromises.mkdir(provenanceDir, { recursive: true });
+  await fsPromises.mkdir(outputDir, { recursive: true });
+});
+
+afterEach(async () => {
+  await fsPromises.rm(tmpDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('sealBundle', () => {
+  it('returns no_sessions when provenanceDir does not exist', async () => {
+    const keypair = await generateSessionKeypair();
+    const nonExistentDir = path.join(tmpDir, 'does-not-exist');
+    const deps = await buildDeps(nonExistentDir, outputDir, keypair);
+
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('no_sessions');
+  });
+
+  it('returns no_sessions when provenanceDir has no .slog files', async () => {
+    // provenanceDir exists but is empty.
+    const keypair = await generateSessionKeypair();
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('no_sessions');
+  });
+
+  it('returns no_sessions when provenanceDir has only non-slog files', async () => {
+    await fsPromises.writeFile(path.join(provenanceDir, 'something.txt'), 'not a slog');
+    const keypair = await generateSessionKeypair();
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('no_sessions');
+  });
+
+  it('returns chain_broken for a .slog with broken chain', async () => {
+    const brokenSlog = buildBrokenChainSlog();
+    await fsPromises.writeFile(path.join(provenanceDir, 'session-bad.slog'), brokenSlog, 'utf8');
+
+    const keypair = await generateSessionKeypair();
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('chain_broken');
+    if (result.kind === 'chain_broken') {
+      expect(result.sessionId).toBeTruthy();
+      expect(result.reason).toBeTruthy();
+    }
+  });
+
+  it('returns chain_broken for a .slog with malformed JSON', async () => {
+    await fsPromises.writeFile(
+      path.join(provenanceDir, 'session-malformed.slog'),
+      'not json at all\n',
+      'utf8',
+    );
+
+    const keypair = await generateSessionKeypair();
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('chain_broken');
+  });
+
+  it('produces a valid bundle for a complete session', async () => {
+    // Write a valid .slog.
+    const slogContent = buildCompleteSlog(TEST_SESSION_ID);
+    const slogFilename = 'session-00000000.slog';
+    const slogPath = path.join(provenanceDir, slogFilename);
+    await fsPromises.writeFile(slogPath, slogContent, 'utf8');
+
+    // Write a companion .meta file.
+    const metaFilename = `${slogFilename}.meta`;
+    const metaContent = JSON.stringify({ format_version: '1.0', session_id: TEST_SESSION_ID });
+    await fsPromises.writeFile(path.join(provenanceDir, metaFilename), metaContent, 'utf8');
+
+    const keypair = await generateSessionKeypair();
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return; // narrow for TS
+
+    // Verify bundlePath exists on disk.
+    await expect(fsPromises.access(result.bundlePath)).resolves.toBeUndefined();
+
+    // Verify the ZIP filename contains assignment_id and timestamp.
+    const basename = path.basename(result.bundlePath);
+    expect(basename).toContain(TEST_ASSIGNMENT_ID);
+    expect(basename).toContain('bundle');
+    expect(basename.endsWith('.zip')).toBe(true);
+
+    // -------------------------------------------------------------------
+    // Unzip and validate contents.
+    // -------------------------------------------------------------------
+    const zipBytes = await fsPromises.readFile(result.bundlePath);
+    const zip = await JSZip.loadAsync(zipBytes);
+
+    // manifest.json must be present.
+    expect(zip.file('manifest.json')).not.toBeNull();
+
+    // manifest.sig must be present.
+    expect(zip.file('manifest.sig')).not.toBeNull();
+
+    // .slog file must be present.
+    expect(zip.file(slogFilename)).not.toBeNull();
+
+    // .meta file must be present.
+    expect(zip.file(metaFilename)).not.toBeNull();
+
+    // -------------------------------------------------------------------
+    // Validate manifest shape.
+    // -------------------------------------------------------------------
+    const manifestRaw = await zip.file('manifest.json')!.async('string');
+    const manifestParsed = JSON.parse(manifestRaw) as unknown;
+    const shapeResult = validateBundleManifestShape(manifestParsed);
+
+    expect(shapeResult.ok).toBe(true);
+    if (!shapeResult.ok) return;
+
+    const manifest = shapeResult.value;
+    expect(manifest.format_version).toBe('1.0');
+    expect(manifest.assignment_id).toBe(TEST_ASSIGNMENT_ID);
+    expect(manifest.semester).toBe(TEST_SEMESTER);
+    expect(manifest.extension_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(manifest.sessions).toHaveLength(1);
+    expect(manifest.sessions[0]!.session_id).toBe(TEST_SESSION_ID);
+
+    // -------------------------------------------------------------------
+    // Validate manifest signature.
+    // -------------------------------------------------------------------
+    const sigHex = await zip.file('manifest.sig')!.async('string');
+
+    // The sig must verify against the canonical manifest JSON.
+    const canonicalManifest = canonicalize(manifest);
+    const sigValid = await verifyManifestSig(canonicalManifest, sigHex, keypair.publicKeyHex);
+    expect(sigValid).toBe(true);
+
+    // -------------------------------------------------------------------
+    // Validate slog_sha256 and meta_sha256 in the manifest session entry.
+    // -------------------------------------------------------------------
+    const session = manifest.sessions[0]!;
+    const expectedSlogSha256 = sha256OfString(slogContent);
+    expect(session.slog_sha256).toBe(expectedSlogSha256);
+
+    const expectedMetaSha256 = sha256OfString(metaContent);
+    expect(session.meta_sha256).toBe(expectedMetaSha256);
+  });
+
+  it('signature fails to verify under a different keypair', async () => {
+    const slogContent = buildCompleteSlog();
+    await fsPromises.writeFile(path.join(provenanceDir, 'session-good.slog'), slogContent, 'utf8');
+
+    const keypair = await generateSessionKeypair();
+    const differentKeypair = await generateSessionKeypair();
+
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    const zipBytes = await fsPromises.readFile(result.bundlePath);
+    const zip = await JSZip.loadAsync(zipBytes);
+
+    const manifestRaw = await zip.file('manifest.json')!.async('string');
+    const manifest = JSON.parse(manifestRaw) as unknown;
+    const sigHex = await zip.file('manifest.sig')!.async('string');
+
+    // Canonical form for verification.
+    const shapeResult = validateBundleManifestShape(manifest);
+    expect(shapeResult.ok).toBe(true);
+    if (!shapeResult.ok) return;
+    const canonicalManifest = canonicalize(shapeResult.value);
+
+    // Signature must NOT verify under a different public key.
+    const sigValid = await verifyManifestSig(
+      canonicalManifest,
+      sigHex,
+      differentKeypair.publicKeyHex,
+    );
+    expect(sigValid).toBe(false);
+  });
+
+  it('handles a session with no .meta file gracefully (meta_sha256 is sha256 of empty)', async () => {
+    const slogContent = buildCompleteSlog();
+    const slogFilename = 'session-nometa.slog';
+    await fsPromises.writeFile(path.join(provenanceDir, slogFilename), slogContent, 'utf8');
+    // Intentionally do NOT write a .meta file.
+
+    const keypair = await generateSessionKeypair();
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    const zipBytes = await fsPromises.readFile(result.bundlePath);
+    const zip = await JSZip.loadAsync(zipBytes);
+
+    const manifestRaw = await zip.file('manifest.json')!.async('string');
+    const shapeResult = validateBundleManifestShape(JSON.parse(manifestRaw) as unknown);
+    expect(shapeResult.ok).toBe(true);
+    if (!shapeResult.ok) return;
+
+    // meta_sha256 should be sha256 of '' (empty bytes).
+    const SHA256_EMPTY = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+    expect(shapeResult.value.sessions[0]!.meta_sha256).toBe(SHA256_EMPTY);
+  });
+
+  it('returns manifestSha256 matching the actual manifest.json content', async () => {
+    const slogContent = buildCompleteSlog();
+    await fsPromises.writeFile(path.join(provenanceDir, 'session-sha.slog'), slogContent, 'utf8');
+
+    const keypair = await generateSessionKeypair();
+    const deps = await buildDeps(provenanceDir, outputDir, keypair);
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    // Read the manifest.json from disk (not from the ZIP — it was written atomically).
+    const manifestPath = path.join(provenanceDir, 'manifest.json');
+    const manifestOnDisk = await fsPromises.readFile(manifestPath, 'utf8');
+
+    // The returned manifestSha256 must match sha256(canonical manifest bytes).
+    // Since atomicWriteFile writes the canonical string, sha256(manifestOnDisk) should match.
+    const actualSha256 = sha256Hex(new TextEncoder().encode(manifestOnDisk));
+    expect(result.manifestSha256).toBe(actualSha256);
+  });
+
+  it('uses outputDir from deps (not workspace root) for the ZIP', async () => {
+    const slogContent = buildCompleteSlog();
+    await fsPromises.writeFile(path.join(provenanceDir, 'session-out.slog'), slogContent, 'utf8');
+
+    const keypair = await generateSessionKeypair();
+    const customOutputDir = path.join(tmpDir, 'custom-output');
+    await fsPromises.mkdir(customOutputDir, { recursive: true });
+
+    const deps = await buildDeps(provenanceDir, customOutputDir, keypair);
+    const result = await sealBundle(deps);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    expect(result.bundlePath.startsWith(customOutputDir)).toBe(true);
+    await expect(fsPromises.access(result.bundlePath)).resolves.toBeUndefined();
+  });
+});

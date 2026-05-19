@@ -36,6 +36,8 @@ import { startGitWiring } from './wiring/git-wiring.js';
 import { generateSessionKeypair, encryptSessionPrivkey } from './crypto/session-keys.js';
 import { signCheckpoint } from './crypto/checkpoint-signer.js';
 import { recoverPreviousSession } from './startup/chain-recovery.js';
+import { sealBundle } from './commands/seal.js';
+import { computeExtensionHash } from './commands/extension-hash.js';
 import type { LargeInsertCounter } from './wiring/doc-wiring.js';
 import type { Cs61aManifest } from '@provenance/log-core';
 
@@ -70,6 +72,11 @@ export type ActivateDeps = {
    * Tests inject no-op stubs; production wires to vscode.window / workspace.
    */
   heartbeatDeps?: HeartbeatVscodeDeps;
+  /**
+   * Path to the recorder's dist/ directory for extension-hash computation.
+   * Tests can inject a tmp dir; production uses context.extensionPath + '/dist'.
+   */
+  extensionDistPath?: string;
 };
 
 /**
@@ -394,6 +401,45 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   });
   disposables.push(gitW);
 
+  // Step 17: Register the "Prepare Submission Bundle" command (PRD §4.6 + §5.3).
+  // The extensionDistPath for extension-hash is derived from context.extensionPath in production;
+  // tests inject an override via deps.extensionDistPath.
+  const extensionDistPath = deps.extensionDistPath ?? path.join(extension.extensionPath, 'dist');
+
+  const sealCmd = vscode.commands.registerCommand(
+    'provenance.prepareSubmissionBundle',
+    async () => {
+      // Flush the writer so any pending events land in the .slog before we read it.
+      await activeSession?.writer.flush();
+
+      const result = await sealBundle({
+        workspaceFolder,
+        provenanceDir,
+        assignmentId: manifest.assignment_id,
+        semester: manifest.semester,
+        sessionPrivkey: keypair.privateKey,
+        sessionPubkeyHex: keypair.publicKeyHex,
+        computeExtensionHash: () => computeExtensionHash(extensionDistPath),
+        now: () => new Date(),
+      });
+
+      if (result.kind === 'ok') {
+        void vscode.window.showInformationMessage(
+          `Provenance bundle saved to ${result.bundlePath}`,
+        );
+      } else if (result.kind === 'no_sessions') {
+        void vscode.window.showWarningMessage('No session data to seal.');
+      } else if (result.kind === 'chain_broken') {
+        void vscode.window.showErrorMessage(
+          `Session ${result.sessionId} chain broken: ${result.reason}`,
+        );
+      } else if (result.kind === 'write_error') {
+        void vscode.window.showErrorMessage(`Bundle write error: ${result.message}`);
+      }
+    },
+  );
+  disposables.push(sealCmd);
+
   // VS Code disposes context.subscriptions in LIFO order. We pushed the status bar disposable
   // (Step 2), then heartbeat (Step 7), then clock watcher (Step 8), then doc wiring (Step 9).
   // On teardown: doc wiring disposes first, then clock watcher, heartbeat, status bar.
@@ -469,6 +515,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       platform: `${process.platform}-${process.arch}`,
       clock: new SystemClock(),
       disposables: context.subscriptions,
+      // Derive extensionDistPath from the resolved extensionPath (context.extensionPath
+      // is the same as extension.extensionPath, but is always available from context).
+      extensionDistPath: path.join(context.extensionPath, 'dist'),
     });
     // activateImpl sets activeSession internally, so we don't need to do it here.
     // But we verify it was set correctly (for code clarity).
