@@ -45,18 +45,18 @@ The recorder makes **no network calls** during a session (PRD NG2). The log live
 
 This is a **deterrent**, not a cryptographic guarantee. The threat model is in PRD §6; the short version:
 
-| Attack | Detection |
-|---|---|
-| Hand-edit the JSON log to remove or rewrite an entry | Hash chain breaks at that seq; `validateChain` reports the location |
-| Drop a fake `.cs61a` manifest into any folder to make the recorder log there | Manifest signature fails to verify against the embedded course public key; extension silently does nothing |
-| Replay last week's session for this week's assignment | Each session pubkey is bound to that session's `manifest_sig`; analyzer detects the mismatch |
-| Tamper between sessions (edit a saved `.slog`) | Next session's startup chain-recovery quarantines the corrupt file and emits `recorder.recovered_from_corruption` |
+| Attack                                                                       | Detection                                                                                                                                                             |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hand-edit the JSON log to remove or rewrite an entry                         | Hash chain breaks at that seq; `validateChain` reports the location                                                                                                   |
+| Drop a fake `.cs61a` manifest into any folder to make the recorder log there | Manifest signature fails to verify against the embedded course public key; extension silently does nothing                                                            |
+| Replay last week's session for this week's assignment                        | Each session pubkey is bound to that session's `manifest_sig`; analyzer detects the mismatch                                                                          |
+| Tamper between sessions (edit a saved `.slog`)                               | Next session's startup chain-recovery quarantines the corrupt file and emits `recorder.recovered_from_corruption`                                                     |
 | Edit assignment files via Claude Code / Codex / `vim` / `cp` outside VS Code | Per-file expected-content model detects hash drift at next save; FileSystemWatcher catches edits while VS Code is unfocused; both produce `fs.external_change` events |
-| Paste a large LLM-generated block without typing | Three-signal paste detector (single-edit large-insert classifier + command intercept + reconciler) flags the paste; analyzer sees a `paste` event with the content |
-| Modify the recorder's own source to drop events | `extension_hash` in the seal bundle differs from the course-known-good hash |
-| Manipulate the wall clock to space out events | Clock-skew watcher emits a `clock.skew` event when wall and monotonic time diverge |
-| Suspend the extension by killing the process | `session.heartbeat` gap in the chain; `prev_session_id` linkage on next start |
-| Disk full | Recorder switches to a critical-only ring buffer and emits `recorder.degraded` plus a user notification |
+| Paste a large LLM-generated block without typing                             | Three-signal paste detector (single-edit large-insert classifier + command intercept + reconciler) flags the paste; analyzer sees a `paste` event with the content    |
+| Modify the recorder's own source to drop events                              | `extension_hash` in the seal bundle differs from the course-known-good hash                                                                                           |
+| Manipulate the wall clock to space out events                                | Clock-skew watcher emits a `clock.skew` event when wall and monotonic time diverge                                                                                    |
+| Suspend the extension by killing the process                                 | `session.heartbeat` gap in the chain; `prev_session_id` linkage on next start                                                                                         |
+| Disk full                                                                    | Recorder switches to a critical-only ring buffer and emits `recorder.degraded` plus a user notification                                                               |
 
 The system explicitly does NOT defend against an attacker who has the course's offline private key, or one who extracts the session private key from process memory during a live session. PRD §6 is candid about these limits.
 

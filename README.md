@@ -11,11 +11,11 @@ The full design lives in [`docs/prd.md`](docs/prd.md). Code conventions for work
 
 ## Status
 
-| Component | Status |
-|---|---|
-| `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests. |
+| Component           | Status                                                                                                                                                                                                                                                               |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests.                                                                                            |
 | `packages/recorder` | **v1 complete** — all PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode. 286 unit tests + 3 integration tests against real VS Code. |
-| `packages/analyzer` | **Not started.** Scaffold only. v2 work. |
+| `packages/analyzer` | **Not started.** Scaffold only. v2 work.                                                                                                                                                                                                                             |
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the phase-by-phase build history.
 
@@ -59,15 +59,15 @@ provenance/
 
 ## Common commands
 
-| Command | What it does |
-|---|---|
-| `npm run build` | TypeScript build for both packages. |
-| `npm run test` | Vitest unit tests (411 total: 125 log-core + 286 recorder). |
-| `npm run typecheck` | `tsc --noEmit` across the workspace. |
-| `npm run lint` | ESLint + Prettier check. |
-| `npm run package:recorder` | Build the VSIX (`.vsix` file) for local installation. |
+| Command                                                  | What it does                                                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `npm run build`                                          | TypeScript build for both packages.                                               |
+| `npm run test`                                           | Vitest unit tests (411 total: 125 log-core + 286 recorder).                       |
+| `npm run typecheck`                                      | `tsc --noEmit` across the workspace.                                              |
+| `npm run lint`                                           | ESLint + Prettier check.                                                          |
+| `npm run package:recorder`                               | Build the VSIX (`.vsix` file) for local installation.                             |
 | `npm run test:integration --workspace packages/recorder` | Download VS Code 1.120 and run integration tests against the real Extension Host. |
-| `npm run bench --workspace packages/recorder` | Run the SessionWriter perf benchmark (p99 should be << 1ms). |
+| `npm run bench --workspace packages/recorder`            | Run the SessionWriter perf benchmark (p99 should be << 1ms).                      |
 
 ## Course staff: key & manifest workflow
 
