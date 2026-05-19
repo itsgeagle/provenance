@@ -1,3 +1,23 @@
+// NDJSON serialization
+export { serializeEntry, parseEntries } from './ndjson.js';
+export type { ParseError } from './ndjson.js';
+
+// Buffer policy
+export { shouldFlush, DEFAULT_BUFFER_POLICY } from './buffer-policy.js';
+export type { BufferPolicyInput, BufferPolicyConfig } from './buffer-policy.js';
+
+// Meta (.slog.meta)
+export { validateMetaShape } from './meta.js';
+export type { SlogMeta, MetaShapeError } from './meta.js';
+
+// Bundle (manifest.json + validation report)
+export { validateBundleManifestShape } from './bundle.js';
+export type { BundleManifest, BundleShapeError, ValidationReport } from './bundle.js';
+
+// CS61A manifest (.cs61a)
+export { parseManifest, verifyManifest } from './cs61a-manifest.js';
+export type { Cs61aManifest, ManifestError } from './cs61a-manifest.js';
+
 // Events
 export type {
   EventKindMap,
