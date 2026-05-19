@@ -343,6 +343,36 @@ describe('renderFindings', () => {
     const b = renderFindings(inputs[0], inputs[1], inputs[2], inputs[3]);
     expect(a).toBe(b);
   });
+
+  it('escapes recorder-supplied header fields to prevent markdown injection', () => {
+    // PRD §6: recorder payloads are attacker-controllable. A hostile assignment_id
+    // like `hw1\n\n# Forged conclusion` must NOT inject a real markdown heading.
+    const bundle = makeFixtureBundle();
+    bundle.manifest = {
+      ...bundle.manifest,
+      assignment_id: 'hw1\n\n# Forged heading',
+      semester: 'sp26\n\n# Another forged',
+      extension_hash: 'abc123\n\n# Third forge',
+    };
+    bundle.sourceFilename = 'bundle.zip\n\n# Injected';
+
+    const md = renderFindings(bundle, fixtureReport, fixtureFlags, {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+      bundleSha256: 'c'.repeat(64),
+    });
+
+    // No standalone `# Forged …` or `# Another …` or `# Injected` heading lines.
+    // The regex `/^#[^#].*Forged/m` matches a line starting with single `#` followed
+    // by non-`#` (ruling out ## etc) and containing "Forged".
+    expect(md).not.toMatch(/^#[^#].*Forged/m);
+    expect(md).not.toMatch(/^#[^#].*Another/m);
+    expect(md).not.toMatch(/^#[^#].*Injected/m);
+
+    // The literal text should still be present, just collapsed onto one line.
+    expect(md).toContain('hw1 # Forged heading');
+    expect(md).toContain('sp26 # Another forged');
+    expect(md).toContain('bundle.zip # Injected');
+  });
 });
 
 describe('filenameFor', () => {

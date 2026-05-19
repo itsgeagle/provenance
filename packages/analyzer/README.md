@@ -20,7 +20,7 @@ Opens a dev server at `http://localhost:5173`. Drop a `.zip` bundle in the load 
 npm run build --workspace=packages/analyzer
 ```
 
-Produces static assets in `packages/analyzer/dist/`. Type-checks, lints, and bundles in one step.
+Produces static assets in `packages/analyzer/dist/`. Type-checks and bundles in one step (`tsc --noEmit && vite build`). Run `npm run lint --workspace=packages/analyzer` separately for lint.
 
 ## Hosting
 
@@ -38,6 +38,8 @@ vercel deploy packages/analyzer/dist
 ```
 
 The build is configured with `base: './'`, so relative asset paths work regardless of where you mount it.
+
+Because the analyzer uses HTML5 history-API routing, your static host must rewrite all non-asset paths to `index.html` (single-page-app fallback). Direct navigation to `https://host/sub/overview` returns 404 on a vanilla static host without this rewrite. Examples: GitHub Pages — add a `404.html` redirect; Netlify — add `/* /index.html 200` to `_redirects`; Vercel — automatic; nginx — `try_files $uri /index.html;`.
 
 ## Test fixture
 
