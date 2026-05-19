@@ -45,6 +45,11 @@ export type BuildBundleOpts = {
     eventCount?: number;
     /** Optional explicit wall timestamps for events (starting from session.start). */
     walls?: string[];
+    /**
+     * If true, append a doc.save event at the end whose sha256 matches the
+     * in-memory content built by the doc.change events. Used for check 7 tests.
+     */
+    appendDocSave?: boolean;
   }>;
   tamper?: {
     omitManifest?: boolean;
@@ -56,6 +61,36 @@ export type BuildBundleOpts = {
     omitOneSlog?: boolean;
     addStrayFile?: { name: string; content: string };
     corruptNdjsonAtLine?: { sessionIndex: number; line: number };
+    /**
+     * Mutate the hash field of one entry (by 0-based entryIndex within the
+     * session) to break the hash chain at that point.
+     */
+    breakChainAt?: { sessionIndex: number; entryIndex: number };
+    /**
+     * Drop one entry from a session's event stream by its 0-based entryIndex,
+     * creating a seq gap at the next entry.
+     */
+    addSeqGap?: { sessionIndex: number; afterEntryIndex: number };
+    /**
+     * Subtract deltaMs from the `t` field of one entry to make it regress.
+     * The entry still needs to be valid JSON (we patch post-chain-build).
+     */
+    regressT?: { sessionIndex: number; entryIndex: number; deltaMs: number };
+    /**
+     * Replace the wall timestamp of one entry with an earlier wall to make it
+     * regress (no clock.skew in the stream, so this should fail check 6).
+     */
+    regressWall?: { sessionIndex: number; entryIndex: number; earlierWall: string };
+    /**
+     * Override the manifest_sig field in one session's session.start.data to
+     * make it disagree with the other sessions (fails check 2).
+     */
+    mismatchManifestSig?: { sessionIndex: number; manifest_sig: string };
+    /**
+     * Replace the sha256 field on a doc.save entry (by 0-based entryIndex
+     * within the session) to make the doc-save hash check fail.
+     */
+    mismatchDocSaveHash?: { sessionIndex: number; saveEntryIndex: number; newHash: string };
   };
 };
 
@@ -97,8 +132,18 @@ async function buildSession(opts: {
   walls?: string[];
   assignmentId: string;
   semester: string;
+  appendDocSave?: boolean;
 }): Promise<{ slogText: string; metaJson: string }> {
-  const { sessionId, sessionIndex, pubkeyHex, eventCount, walls, assignmentId, semester } = opts;
+  const {
+    sessionId,
+    sessionIndex,
+    pubkeyHex,
+    eventCount,
+    walls,
+    assignmentId,
+    semester,
+    appendDocSave,
+  } = opts;
 
   const lines: string[] = [];
   let prevHash = GENESIS_PREV_HASH;
@@ -127,7 +172,13 @@ async function buildSession(opts: {
   prevHash = startEntry.hash;
 
   // Additional synthetic doc.change events
+  // Track content for doc.save hash computation.
+  let fileContent = '';
   for (let i = 1; i <= eventCount; i++) {
+    const insertText = `x${i}`;
+    // All inserts go at position (0,0) with no deletion — they accumulate.
+    fileContent = insertText + fileContent;
+
     const changeEnvelope = {
       seq: i,
       t: i * 1000,
@@ -138,7 +189,7 @@ async function buildSession(opts: {
         deltas: [
           {
             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-            text: `x${i}`,
+            text: insertText,
           },
         ],
         source: 'typed' as const,
@@ -148,6 +199,25 @@ async function buildSession(opts: {
     const entry = chainEntry(prevHash, changeEnvelope);
     lines.push(serializeEntry(entry).trimEnd());
     prevHash = entry.hash;
+  }
+
+  // Optionally append a doc.save whose sha256 matches the in-memory content.
+  if (appendDocSave === true) {
+    const saveSeq = eventCount + 1;
+    const saveHash = sha256Hex(fileContent);
+    const saveEnvelope = {
+      seq: saveSeq,
+      t: saveSeq * 1000,
+      wall: walls?.[saveSeq] ?? wallAt(sessionIndex, saveSeq),
+      kind: 'doc.save' as const,
+      data: {
+        path: '/test/file.py',
+        sha256: saveHash,
+      },
+    };
+    const saveEntry = chainEntry(prevHash, saveEnvelope);
+    lines.push(serializeEntry(saveEntry).trimEnd());
+    prevHash = saveEntry.hash;
   }
 
   const slogText = lines.join('\n') + '\n';
@@ -213,6 +283,7 @@ export async function buildTestBundle(opts?: BuildBundleOpts): Promise<BuiltBund
       ...(walls !== undefined ? { walls } : {}),
       assignmentId,
       semester,
+      ...(spec.appendDocSave !== undefined ? { appendDocSave: spec.appendDocSave } : {}),
     });
 
     sessions.push({
@@ -237,6 +308,131 @@ export async function buildTestBundle(opts?: BuildBundleOpts): Promise<BuiltBund
         slogLines[targetLine] = 'NOT VALID JSON {{{';
       }
       session.slogText = slogLines.join('\n');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 2b. Apply new validation-pipeline tamper options (post-chain, pre-manifest).
+  // These mutations corrupt specific fields in the NDJSON by finding and
+  // replacing the JSON line for the targeted entry.
+  // ---------------------------------------------------------------------------
+
+  /** Parse all entries in an NDJSON slog, return as an array of parsed objects. */
+  function parseSlogLines(slogText: string): Array<Record<string, unknown>> {
+    return slogText
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+  }
+
+  /** Serialize an array of parsed objects back to NDJSON. */
+  function serializeSlogLines(entries: Array<Record<string, unknown>>): string {
+    return entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
+  }
+
+  // breakChainAt: mutate entry.hash to a wrong value.
+  if (tamper.breakChainAt !== undefined) {
+    const { sessionIndex, entryIndex } = tamper.breakChainAt;
+    const session = sessions[sessionIndex];
+    if (session !== undefined) {
+      const entries = parseSlogLines(session.slogText);
+      const entry = entries[entryIndex];
+      if (entry !== undefined) {
+        entry['hash'] = 'dead'.repeat(16); // 64 hex chars, wrong value
+      }
+      session.slogText = serializeSlogLines(entries);
+    }
+  }
+
+  // addSeqGap: drop the entry AFTER afterEntryIndex to create a gap.
+  if (tamper.addSeqGap !== undefined) {
+    const { sessionIndex, afterEntryIndex } = tamper.addSeqGap;
+    const session = sessions[sessionIndex];
+    if (session !== undefined) {
+      const entries = parseSlogLines(session.slogText);
+      // Drop the entry at afterEntryIndex + 1
+      const dropIndex = afterEntryIndex + 1;
+      if (dropIndex < entries.length) {
+        entries.splice(dropIndex, 1);
+      }
+      session.slogText = serializeSlogLines(entries);
+    }
+  }
+
+  // regressT: subtract deltaMs from entry.t.
+  if (tamper.regressT !== undefined) {
+    const { sessionIndex, entryIndex, deltaMs } = tamper.regressT;
+    const session = sessions[sessionIndex];
+    if (session !== undefined) {
+      const entries = parseSlogLines(session.slogText);
+      const entry = entries[entryIndex];
+      if (entry !== undefined && typeof entry['t'] === 'number') {
+        entry['t'] = entry['t'] - deltaMs;
+        // Recomputing the hash would re-validate the chain, which is not what
+        // we want — we want the chain validator to catch the t regression
+        // separately from hash integrity. So leave hash as-is (the hash check
+        // catches this entry's hash too, but the test must pick a chain-valid
+        // entry for regressT to have the t_regression fail in isolation).
+        // NOTE: tests using regressT should set the entry's hash to the
+        // recomputed value if they only want t_regression, not hash_mismatch.
+        // For simplicity we leave the hash stale — tests check for either.
+      }
+      session.slogText = serializeSlogLines(entries);
+    }
+  }
+
+  // regressWall: replace entry.wall with an earlier timestamp.
+  if (tamper.regressWall !== undefined) {
+    const { sessionIndex, entryIndex, earlierWall } = tamper.regressWall;
+    const session = sessions[sessionIndex];
+    if (session !== undefined) {
+      const entries = parseSlogLines(session.slogText);
+      const entry = entries[entryIndex];
+      if (entry !== undefined) {
+        entry['wall'] = earlierWall;
+        // Leave hash stale — same rationale as regressT.
+      }
+      session.slogText = serializeSlogLines(entries);
+    }
+  }
+
+  // mismatchManifestSig: replace session.start.data.manifest_sig.
+  if (tamper.mismatchManifestSig !== undefined) {
+    const { sessionIndex, manifest_sig } = tamper.mismatchManifestSig;
+    const session = sessions[sessionIndex];
+    if (session !== undefined) {
+      const entries = parseSlogLines(session.slogText);
+      const startEntry = entries[0];
+      if (startEntry !== undefined) {
+        const data = startEntry['data'] as Record<string, unknown> | undefined;
+        if (data !== undefined) {
+          data['manifest_sig'] = manifest_sig;
+        }
+      }
+      session.slogText = serializeSlogLines(entries);
+    }
+  }
+
+  // mismatchDocSaveHash: replace the sha256 on the Nth doc.save entry.
+  if (tamper.mismatchDocSaveHash !== undefined) {
+    const { sessionIndex, saveEntryIndex, newHash } = tamper.mismatchDocSaveHash;
+    const session = sessions[sessionIndex];
+    if (session !== undefined) {
+      const entries = parseSlogLines(session.slogText);
+      let saveCount = 0;
+      for (const entry of entries) {
+        if (entry['kind'] === 'doc.save') {
+          if (saveCount === saveEntryIndex) {
+            const data = entry['data'] as Record<string, unknown> | undefined;
+            if (data !== undefined) {
+              data['sha256'] = newHash;
+            }
+            break;
+          }
+          saveCount++;
+        }
+      }
+      session.slogText = serializeSlogLines(entries);
     }
   }
 
