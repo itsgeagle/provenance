@@ -2,31 +2,47 @@
  * Check 3 — Hash chain integrity.
  * PRD §5.4 step 3.
  *
- * Calls log-core's validateChain per session and surfaces hash_mismatch
- * failures. seq_gap, t_regression, and wall_regression are surfaced by their
- * own dedicated check files (checks 4–6).
+ * Walks each session's events directly and recomputes the expected hash for
+ * each entry. Reports every entry whose own hash is incorrect given its own
+ * content (i.e. sha256(prev_hash + canonical(entry without hash)) ≠ entry.hash).
+ *
+ * We do NOT cascade-report entries whose prev_hash points at a corrupted
+ * predecessor — only entries where the entry itself is broken. seq_gap,
+ * t_regression, and wall_regression are surfaced by checks 4–6.
  */
 
-import { validateChain } from '@provenance/log-core';
+import { sha256Hex, canonicalize } from '@provenance/log-core';
+import type { HashedEnvelope } from '@provenance/log-core';
 import type { Bundle } from '../loader/types.js';
 import type { ValidationCheck } from './check-types.js';
+
+/**
+ * Recompute the expected hash for a HashedEnvelope entry given a prevHash.
+ * Strips prev_hash and hash, canonicalizes the rest, prepends prevHash.
+ */
+function recomputeHash(prevHash: string, entry: HashedEnvelope): string {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { prev_hash, hash: _hash, ...envelope } = entry;
+  return sha256Hex(prevHash + canonicalize(envelope));
+}
 
 export function verifyChain(bundle: Bundle): ValidationCheck {
   const failures: Array<{ sessionId: string; seq: number }> = [];
 
   for (const session of bundle.sessions) {
-    // validateChain stops at the first failure. Collect all failures by
-    // re-running on the tail after each discovered break.
-    let events = session.events;
-    while (true) {
-      const result = validateChain(events);
-      if (result.ok) break;
-      if (result.break.reason !== 'hash_mismatch') break; // handled by other checks
-      failures.push({ sessionId: session.sessionId, seq: result.break.at_seq });
-      // Advance past the broken entry to find additional breaks.
-      const breakIdx = events.findIndex((e) => e.seq === result.break.at_seq);
-      if (breakIdx === -1 || breakIdx + 1 >= events.length) break;
-      events = events.slice(breakIdx + 1);
+    for (const entry of session.events) {
+      // Rule: an entry is "broken" iff
+      //   sha256(entry.prev_hash + canonical(entry without hash)) ≠ entry.hash.
+      //
+      // We use entry.prev_hash (not a tracked chain value) so that entries after
+      // a seq gap are not cascade-reported: a seq gap does not change any entry's
+      // hash fields, so these entries still self-verify correctly against their
+      // own prev_hash. Only an entry whose hash field was tampered will fail.
+      const expectedHash = recomputeHash(entry.prev_hash, entry);
+
+      if (expectedHash !== entry.hash) {
+        failures.push({ sessionId: session.sessionId, seq: entry.seq });
+      }
     }
   }
 

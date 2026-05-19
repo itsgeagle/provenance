@@ -80,15 +80,8 @@ type FileState = {
   /** True if a large paste (> 4 KB, no inline content) was seen since the
    *  last verified save. Content reconstruction is unreliable past this point. */
   indeterminate: boolean;
-  /** True if we've seen at least one doc.open for this file. We start empty,
-   *  so the first doc.open without a preceding save means the starting content
-   *  is unknown — marks subsequent saves as indeterminate until we get a
-   *  verified anchor. */
-  openedWithUnknownContent: boolean;
   /** True if a fs.external_change was seen since the last save. */
   externalChangeSinceSave: boolean;
-  /** Last verified save hash (after a successful check). */
-  lastVerifiedHash: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -118,9 +111,7 @@ function checkSession(
       state = {
         content: '',
         indeterminate: false,
-        openedWithUnknownContent: false,
         externalChangeSinceSave: false,
-        lastVerifiedHash: null,
       };
       fileStates.set(path, state);
     }
@@ -135,8 +126,7 @@ function checkSession(
       case 'doc.open': {
         const data = event.data as { path: string; sha256: string };
         const state = getOrCreate(data.path);
-        // We don't have the actual content — only sha256. Mark as unknown.
-        state.openedWithUnknownContent = true;
+        // We don't have the actual content — only sha256. Mark as indeterminate.
         state.indeterminate = true;
         break;
       }
@@ -193,12 +183,9 @@ function checkSession(
           // the external-change flag and clear indeterminate if the hash now
           // anchors us.
           state.externalChangeSinceSave = false;
-          state.indeterminate = false;
           state.content = ''; // We don't know the new content, but mark as fresh anchor
-          // Actually we can't reconstruct from here either without knowing content.
-          // Mark indeterminate for next interval.
+          // We can't reconstruct from here either without knowing content.
           state.indeterminate = true;
-          state.lastVerifiedHash = data.sha256;
           break;
         }
 
@@ -213,10 +200,7 @@ function checkSession(
               `file was opened with unknown content or contained a large paste (>4 KB inline limit). ` +
               `Relying on doc.save sha256 alone.`,
           });
-          // After recording the indeterminate, try to re-anchor: we know the
-          // hash now but not the content. Keep indeterminate until we have a
-          // recoverable starting point. We can't recover content from sha256.
-          state.lastVerifiedHash = data.sha256;
+          // Can't recover content from sha256 — stay indeterminate.
           break;
         }
 
@@ -232,10 +216,8 @@ function checkSession(
               `Save at seq ${event.seq} (${data.path}): computed sha256 ${computedHash} ` +
               `does not match recorded sha256 ${data.sha256}.`,
           });
-        } else {
-          // Hash matched — this save is verified. Keep content for next interval.
-          state.lastVerifiedHash = data.sha256;
         }
+        // Hash matched or mismatched — keep content for next interval.
         break;
       }
 

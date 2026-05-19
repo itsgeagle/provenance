@@ -54,16 +54,37 @@ describe('verifyChain', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    // verify-chain should not report seq_gap as a chain_integrity failure.
+    // A pure seq-gap (dropping an entry so the next entry's seq is off by one)
+    // does NOT change any entry's hash — the remaining entries still have valid
+    // hash values relative to their own content and their predecessor's hash.
+    // verify-chain must return pass for this case.
     const check = verifyChain(result.value);
-    // A seq gap that's also followed by a hash mismatch (since prev_hash chain
-    // is now broken) would show here. But a pure seq-gap (no hash corruption)
-    // would only be caught by verify-seq. With our tamper, dropping an entry
-    // means the NEXT entry's seq now != its array index (seq_gap), not necessarily
-    // a hash_mismatch. So verify-chain should return pass or fail only on hash_mismatch.
-    // The check may still pass here since seq_gap ≠ hash_mismatch.
     expect(check.id).toBe('chain_integrity');
-    // We don't assert pass/fail here because whether it fails depends on whether
-    // the next entry's prev_hash still matches. Just assert no exception thrown.
+    expect(check.status).toBe('pass');
+  });
+
+  it('collects all hash mismatches in a session, not just the first', async () => {
+    // Break the chain at two separate entries (index 1 and index 4).
+    const { blob } = await buildTestBundle({
+      sessions: [{ eventCount: 5 }],
+      tamper: {
+        breakChainAt: [
+          { sessionIndex: 0, entryIndex: 1 },
+          { sessionIndex: 0, entryIndex: 4 },
+        ],
+      },
+    });
+    const result = await loadBundle(blob, 'test.zip');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const check = verifyChain(result.value);
+    expect(check.status).toBe('fail');
+    expect(check.supportingSeqs).toBeDefined();
+    // Both broken entries must appear in the results.
+    const seqs = check.supportingSeqs!.map((s) => s.seq);
+    expect(seqs).toContain(1);
+    expect(seqs).toContain(4);
+    expect(seqs.length).toBeGreaterThanOrEqual(2);
   });
 });

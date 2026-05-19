@@ -58,4 +58,46 @@ describe('verifySeq', () => {
     const check = verifySeq(result.value);
     expect(check.status).toBe('pass');
   });
+
+  it('collects all seq gaps across sessions', async () => {
+    // Two sessions, each with one gap. Both gaps should be reported.
+    const { blob } = await buildTestBundle({
+      sessions: [{ eventCount: 3 }, { eventCount: 3 }],
+      tamper: {
+        addSeqGap: [
+          { sessionIndex: 0, afterEntryIndex: 1 },
+          { sessionIndex: 1, afterEntryIndex: 1 },
+        ],
+      },
+    });
+    const result = await loadBundle(blob, 'test.zip');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const check = verifySeq(result.value);
+    expect(check.status).toBe('fail');
+    expect(check.supportingSeqs).toBeDefined();
+    // One gap per session → 2 failures total.
+    expect(check.supportingSeqs!.length).toBe(2);
+    // Each failure is in a different session.
+    const sessionIds = new Set(check.supportingSeqs!.map((s) => s.sessionId));
+    expect(sessionIds.size).toBe(2);
+  });
+
+  it('reports one failure (not N) for a single gap that misaligns all subsequent entries', async () => {
+    // Drop one entry: all following entries shift seq vs. index. Only 1 gap recorded.
+    const { blob } = await buildTestBundle({
+      sessions: [{ eventCount: 5 }],
+      tamper: { addSeqGap: { sessionIndex: 0, afterEntryIndex: 1 } },
+    });
+    const result = await loadBundle(blob, 'test.zip');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const check = verifySeq(result.value);
+    expect(check.status).toBe('fail');
+    expect(check.supportingSeqs).toBeDefined();
+    // One gap, not 4 cascade reports.
+    expect(check.supportingSeqs!.length).toBe(1);
+  });
 });

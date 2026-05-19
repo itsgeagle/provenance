@@ -2,12 +2,14 @@
  * Check 6 — Monotonically non-decreasing wall clock (clock.skew-aware).
  * PRD §5.4 step 6.
  *
- * Calls log-core's validateChain per session and surfaces wall_regression
- * failures. The clock.skew window interpretation is already baked into
- * validateChain (see chain-validator.ts); we do not re-implement it.
+ * Walks each session's events directly. For every entry from index 1,
+ * asserts entry.wall >= prevEntry.wall unless a clock.skew event appears in
+ * the inclusive window [prev.seq, entry.seq]. Records every unexcused
+ * regression.
+ *
+ * The clock.skew set is precomputed once per session for O(N) overall cost.
  */
 
-import { validateChain } from '@provenance/log-core';
 import type { Bundle } from '../loader/types.js';
 import type { ValidationCheck } from './check-types.js';
 
@@ -15,16 +17,34 @@ export function verifyMonotonicWall(bundle: Bundle): ValidationCheck {
   const failures: Array<{ sessionId: string; seq: number }> = [];
 
   for (const session of bundle.sessions) {
-    let events = session.events;
-    while (true) {
-      const result = validateChain(events);
-      if (result.ok) break;
-      if (result.break.reason !== 'wall_regression') break; // handled by other checks
-      failures.push({ sessionId: session.sessionId, seq: result.break.at_seq });
-      // Advance past the bad entry.
-      const breakIdx = events.findIndex((e) => e.seq === result.break.at_seq);
-      if (breakIdx === -1 || breakIdx + 1 >= events.length) break;
-      events = events.slice(breakIdx + 1);
+    const events = session.events;
+
+    // Precompute the set of seq values where clock.skew events occur.
+    const clockSkewSeqs = new Set<number>();
+    for (const entry of events) {
+      if (entry.kind === 'clock.skew') {
+        clockSkewSeqs.add(entry.seq);
+      }
+    }
+
+    for (let i = 1; i < events.length; i++) {
+      const prev = events[i - 1];
+      const entry = events[i];
+      if (prev === undefined || entry === undefined) continue;
+
+      if (entry.wall < prev.wall) {
+        // Check if any clock.skew event falls in the inclusive window [prev.seq, entry.seq].
+        let excused = false;
+        for (let s = prev.seq; s <= entry.seq; s++) {
+          if (clockSkewSeqs.has(s)) {
+            excused = true;
+            break;
+          }
+        }
+        if (!excused) {
+          failures.push({ sessionId: session.sessionId, seq: entry.seq });
+        }
+      }
     }
   }
 

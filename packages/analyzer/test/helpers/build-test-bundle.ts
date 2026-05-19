@@ -62,25 +62,37 @@ export type BuildBundleOpts = {
     addStrayFile?: { name: string; content: string };
     corruptNdjsonAtLine?: { sessionIndex: number; line: number };
     /**
-     * Mutate the hash field of one entry (by 0-based entryIndex within the
-     * session) to break the hash chain at that point.
+     * Mutate the hash field of one or more entries (by 0-based entryIndex
+     * within the session) to break the hash chain at those points.
+     * Accepts a single object or an array for multiple mutations.
      */
-    breakChainAt?: { sessionIndex: number; entryIndex: number };
+    breakChainAt?:
+      | { sessionIndex: number; entryIndex: number }
+      | Array<{ sessionIndex: number; entryIndex: number }>;
     /**
-     * Drop one entry from a session's event stream by its 0-based entryIndex,
-     * creating a seq gap at the next entry.
+     * Drop one or more entries from a session's event stream by their 0-based
+     * afterEntryIndex, creating seq gaps at the following entries.
+     * Accepts a single object or an array for multiple mutations.
      */
-    addSeqGap?: { sessionIndex: number; afterEntryIndex: number };
+    addSeqGap?:
+      | { sessionIndex: number; afterEntryIndex: number }
+      | Array<{ sessionIndex: number; afterEntryIndex: number }>;
     /**
-     * Subtract deltaMs from the `t` field of one entry to make it regress.
-     * The entry still needs to be valid JSON (we patch post-chain-build).
+     * Subtract deltaMs from the `t` field of one or more entries to make them
+     * regress. The entry still needs to be valid JSON (we patch post-chain-build).
+     * Accepts a single object or an array for multiple mutations.
      */
-    regressT?: { sessionIndex: number; entryIndex: number; deltaMs: number };
+    regressT?:
+      | { sessionIndex: number; entryIndex: number; deltaMs: number }
+      | Array<{ sessionIndex: number; entryIndex: number; deltaMs: number }>;
     /**
-     * Replace the wall timestamp of one entry with an earlier wall to make it
-     * regress (no clock.skew in the stream, so this should fail check 6).
+     * Replace the wall timestamp of one or more entries with an earlier wall to
+     * make them regress (no clock.skew in the stream, so this should fail check 6).
+     * Accepts a single object or an array for multiple mutations.
      */
-    regressWall?: { sessionIndex: number; entryIndex: number; earlierWall: string };
+    regressWall?:
+      | { sessionIndex: number; entryIndex: number; earlierWall: string }
+      | Array<{ sessionIndex: number; entryIndex: number; earlierWall: string }>;
     /**
      * Override the manifest_sig field in one session's session.start.data to
      * make it disagree with the other sessions (fails check 2).
@@ -332,67 +344,81 @@ export async function buildTestBundle(opts?: BuildBundleOpts): Promise<BuiltBund
 
   // breakChainAt: mutate entry.hash to a wrong value.
   if (tamper.breakChainAt !== undefined) {
-    const { sessionIndex, entryIndex } = tamper.breakChainAt;
-    const session = sessions[sessionIndex];
-    if (session !== undefined) {
-      const entries = parseSlogLines(session.slogText);
-      const entry = entries[entryIndex];
-      if (entry !== undefined) {
-        entry['hash'] = 'dead'.repeat(16); // 64 hex chars, wrong value
+    const mutations = Array.isArray(tamper.breakChainAt)
+      ? tamper.breakChainAt
+      : [tamper.breakChainAt];
+    for (const { sessionIndex, entryIndex } of mutations) {
+      const session = sessions[sessionIndex];
+      if (session !== undefined) {
+        const entries = parseSlogLines(session.slogText);
+        const entry = entries[entryIndex];
+        if (entry !== undefined) {
+          entry['hash'] = 'dead'.repeat(16); // 64 hex chars, wrong value
+        }
+        session.slogText = serializeSlogLines(entries);
       }
-      session.slogText = serializeSlogLines(entries);
     }
   }
 
   // addSeqGap: drop the entry AFTER afterEntryIndex to create a gap.
+  // When applying multiple gaps, sort by afterEntryIndex descending so that
+  // earlier drops don't shift the indices for later ones.
   if (tamper.addSeqGap !== undefined) {
-    const { sessionIndex, afterEntryIndex } = tamper.addSeqGap;
-    const session = sessions[sessionIndex];
-    if (session !== undefined) {
-      const entries = parseSlogLines(session.slogText);
-      // Drop the entry at afterEntryIndex + 1
-      const dropIndex = afterEntryIndex + 1;
-      if (dropIndex < entries.length) {
-        entries.splice(dropIndex, 1);
+    const mutations = (Array.isArray(tamper.addSeqGap) ? tamper.addSeqGap : [tamper.addSeqGap])
+      .slice()
+      .sort((a, b) => b.afterEntryIndex - a.afterEntryIndex);
+    for (const { sessionIndex, afterEntryIndex } of mutations) {
+      const session = sessions[sessionIndex];
+      if (session !== undefined) {
+        const entries = parseSlogLines(session.slogText);
+        // Drop the entry at afterEntryIndex + 1
+        const dropIndex = afterEntryIndex + 1;
+        if (dropIndex < entries.length) {
+          entries.splice(dropIndex, 1);
+        }
+        session.slogText = serializeSlogLines(entries);
       }
-      session.slogText = serializeSlogLines(entries);
     }
   }
 
   // regressT: subtract deltaMs from entry.t.
   if (tamper.regressT !== undefined) {
-    const { sessionIndex, entryIndex, deltaMs } = tamper.regressT;
-    const session = sessions[sessionIndex];
-    if (session !== undefined) {
-      const entries = parseSlogLines(session.slogText);
-      const entry = entries[entryIndex];
-      if (entry !== undefined && typeof entry['t'] === 'number') {
-        entry['t'] = entry['t'] - deltaMs;
-        // Recomputing the hash would re-validate the chain, which is not what
-        // we want — we want the chain validator to catch the t regression
-        // separately from hash integrity. So leave hash as-is (the hash check
-        // catches this entry's hash too, but the test must pick a chain-valid
-        // entry for regressT to have the t_regression fail in isolation).
-        // NOTE: tests using regressT should set the entry's hash to the
-        // recomputed value if they only want t_regression, not hash_mismatch.
-        // For simplicity we leave the hash stale — tests check for either.
+    const mutations = Array.isArray(tamper.regressT) ? tamper.regressT : [tamper.regressT];
+    for (const { sessionIndex, entryIndex, deltaMs } of mutations) {
+      const session = sessions[sessionIndex];
+      if (session !== undefined) {
+        const entries = parseSlogLines(session.slogText);
+        const entry = entries[entryIndex];
+        if (entry !== undefined && typeof entry['t'] === 'number') {
+          entry['t'] = entry['t'] - deltaMs;
+          // Recomputing the hash would re-validate the chain, which is not what
+          // we want — we want the chain validator to catch the t regression
+          // separately from hash integrity. So leave hash as-is (the hash check
+          // catches this entry's hash too, but the test must pick a chain-valid
+          // entry for regressT to have the t_regression fail in isolation).
+          // NOTE: tests using regressT should set the entry's hash to the
+          // recomputed value if they only want t_regression, not hash_mismatch.
+          // For simplicity we leave the hash stale — tests check for either.
+        }
+        session.slogText = serializeSlogLines(entries);
       }
-      session.slogText = serializeSlogLines(entries);
     }
   }
 
   // regressWall: replace entry.wall with an earlier timestamp.
   if (tamper.regressWall !== undefined) {
-    const { sessionIndex, entryIndex, earlierWall } = tamper.regressWall;
-    const session = sessions[sessionIndex];
-    if (session !== undefined) {
-      const entries = parseSlogLines(session.slogText);
-      const entry = entries[entryIndex];
-      if (entry !== undefined) {
-        entry['wall'] = earlierWall;
-        // Leave hash stale — same rationale as regressT.
+    const mutations = Array.isArray(tamper.regressWall) ? tamper.regressWall : [tamper.regressWall];
+    for (const { sessionIndex, entryIndex, earlierWall } of mutations) {
+      const session = sessions[sessionIndex];
+      if (session !== undefined) {
+        const entries = parseSlogLines(session.slogText);
+        const entry = entries[entryIndex];
+        if (entry !== undefined) {
+          entry['wall'] = earlierWall;
+          // Leave hash stale — same rationale as regressT.
+        }
+        session.slogText = serializeSlogLines(entries);
       }
-      session.slogText = serializeSlogLines(entries);
     }
   }
 
