@@ -195,7 +195,7 @@ A companion `session-<uuid>.slog.meta` file holds:
 - A per-session ephemeral signing keypair (private key encrypted with a key derived from the `.cs61a` manifest's signature — this means it can't be recovered without the manifest, raising the bar for replay attacks)
 - The chain of `seq → hash` checkpoints, signed every N events
 
-Both files are written atomically (write to `.tmp`, fsync, rename). On startup, the Recorder validates the existing log: if the chain is broken, it records a `chain.broken` event with the location of the break and continues recording — we don't try to "fix" tampering by silently dropping records.
+Both files are written atomically (write to `.tmp`, fsync, rename). On startup, the Recorder validates any previous `.slog` files. If the chain is broken, it quarantines the offending file (renames it to `<file>.corrupt-<ISO timestamp>`), starts a new session, and emits a `recorder.recovered_from_corruption` event in the new session whose payload references the quarantined path. We don't try to "fix" tampering by silently dropping records, and we don't continue writing into a chain we can't validate — the quarantined file is preserved for the analyzer's `validate_chain` step to inspect.
 
 A submission-ready bundle is produced by a "seal" operation:
 

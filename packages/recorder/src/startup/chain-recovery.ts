@@ -19,6 +19,14 @@
  *   linking to it adds no information and clutters the analyzer's session graph.
  *   This matches PRD §4.8: "On reload, we open a new session, link it to the previous
  *   via the prev_session_id field" — "reload" implies a crash, not a clean close.
+ *
+ * Decision — corruption surfacing:
+ *   When the prior chain fails to validate, we DO NOT emit a `chain.broken` event into
+ *   the new session. We quarantine the corrupt file (renamed to `<slog>.corrupt-<ISO>`)
+ *   and emit `recorder.recovered_from_corruption` with the quarantined path; the analyzer
+ *   inspects the quarantined file directly. PRD §4.6 documents this as the canonical
+ *   behavior. `chain.broken` remains in the event type system but is reserved for any
+ *   future case where the live session detects its own chain breaking mid-stream.
  */
 
 import { parseEntries, validateChain } from '@provenance/log-core';
