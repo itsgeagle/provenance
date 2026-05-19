@@ -52,25 +52,15 @@ export async function loadBundle(
   //
   // Do this before parsing sessions so a malformed manifest fails fast.
   // ---------------------------------------------------------------------------
+  // Structural validation of manifest.json: invalid JSON or wrong shape both
+  // surface as 'invalid_manifest' so callers can distinguish them from the
+  // ZIP-itself-couldn't-be-read case.
   let parsedManifestRaw: unknown;
   try {
     parsedManifestRaw = JSON.parse(manifestJson);
   } catch (e) {
-    // manifest.json is not valid JSON — treat as a loader-level failure.
-    // We re-use `unexpected_file` isn't right; the closest fit is missing_manifest
-    // is wrong too. We surface this as a LoaderError with kind 'missing_manifest'
-    // carrying a detail. Actually we can use 'unexpected_file' with the manifest
-    // filename since the content is malformed, but that's confusing.
-    //
-    // The spec doesn't enumerate a `manifest_invalid_json` variant. The cleanest
-    // mapping is to surface it as a SessionParseError `meta_invalid_shape` applied
-    // at the manifest level — but that conflates levels.
-    //
-    // Decision: propagate as a LoaderError `not_a_zip` with a clear detail, since
-    // a ZIP whose manifest.json is unparseable is as invalid as a non-ZIP. This is
-    // the least surprising for callers: any load failure short-circuits via LoaderError.
     return err({
-      kind: 'not_a_zip',
+      kind: 'invalid_manifest',
       detail: `manifest.json is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
     });
   }
@@ -86,9 +76,7 @@ export async function loadBundle(
           : me.kind === 'missing_field'
             ? `missing_field: ${me.field}`
             : `invalid_field: ${me.field} — ${me.reason}`;
-    // Surface manifest shape errors as `not_a_zip` with detail: the ZIP is structurally
-    // invalid from the loader's perspective if the manifest doesn't conform to spec.
-    return err({ kind: 'not_a_zip', detail: `manifest.json shape invalid: ${detail}` });
+    return err({ kind: 'invalid_manifest', detail: `manifest.json shape invalid: ${detail}` });
   }
 
   const manifest = manifestResult.value;

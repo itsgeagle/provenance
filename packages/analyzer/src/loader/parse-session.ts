@@ -57,7 +57,7 @@ export function parseSession(
     });
   }
 
-  const events = entriesResult.value as HashedEnvelope[];
+  const events = entriesResult.value;
 
   // ---------------------------------------------------------------------------
   // 2. Check first event is session.start.

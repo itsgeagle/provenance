@@ -23,6 +23,7 @@ import type {
 export type LoaderError =
   | { kind: 'not_a_zip'; detail?: string }
   | { kind: 'missing_manifest' }
+  | { kind: 'invalid_manifest'; detail: string }
   | { kind: 'missing_signature' }
   | { kind: 'no_sessions' }
   | { kind: 'orphaned_meta'; sessionId: string }
@@ -67,7 +68,7 @@ export type BundleFiles = {
 
 export type ParsedSession = {
   sessionId: string;
-  events: HashedEnvelope[];
+  events: readonly HashedEnvelope[];
   meta: SlogMeta;
   /** Narrowed to session.start — guaranteed to be the first event. */
   firstEvent: HashedEnvelope<'session.start'> & { data: SessionStartPayload };
@@ -81,7 +82,7 @@ export type Bundle = {
   manifest: BundleManifest;
   /** Hex-encoded ed25519 signature over canonical manifest JSON. */
   manifestSigHex: string;
-  /** Sessions sorted oldest → newest by firstEvent.data.wall. */
+  /** Sessions sorted oldest → newest by firstEvent.wall. */
   sessions: ParsedSession[];
   /** Original filename of the ZIP that was loaded. */
   sourceFilename: string;

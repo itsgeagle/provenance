@@ -56,7 +56,7 @@ describe('loadBundle', () => {
     expect(result.value.loadedAt).toBe(FIXED_NOW);
   });
 
-  it('sessions are sorted oldest → newest by firstEvent.data.wall', async () => {
+  it('sessions are sorted oldest → newest by firstEvent.wall', async () => {
     // Build two sessions with explicit, reversed wall timestamps.
     // Session 0 wall: newer; Session 1 wall: older.
     // After sort, session 1 should come first.
@@ -129,7 +129,7 @@ describe('loadBundle', () => {
     expect(result.error.kind).toBe('missing_manifest');
   });
 
-  it('returns not_a_zip with detail for invalid manifest JSON content', async () => {
+  it('returns invalid_manifest with detail for invalid manifest JSON content', async () => {
     // Build a valid ZIP, then manually replace manifest.json with garbage JSON.
     // Use zipBuffer directly — jsdom's Blob may not expose .arrayBuffer().
     const { zipBuffer } = await buildTestBundle({ sessions: [{}] });
@@ -141,8 +141,23 @@ describe('loadBundle', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error.kind).toBe('not_a_zip');
-    if (result.error.kind !== 'not_a_zip') return;
+    expect(result.error.kind).toBe('invalid_manifest');
+    if (result.error.kind !== 'invalid_manifest') return;
     expect(result.error.detail).toMatch(/manifest\.json/);
+  });
+
+  it('returns invalid_manifest for parseable manifest JSON that fails shape validation', async () => {
+    const { zipBuffer } = await buildTestBundle({ sessions: [{}] });
+    const zip = await JSZip.loadAsync(zipBuffer);
+    zip.file('manifest.json', JSON.stringify({ wrong: 'shape' }));
+    const newAb = await zip.generateAsync({ type: 'arraybuffer' });
+
+    const result = await loadBundle(newAb, 'hw1.zip', fixedNow);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe('invalid_manifest');
+    if (result.error.kind !== 'invalid_manifest') return;
+    expect(result.error.detail).toMatch(/manifest\.json shape invalid/);
   });
 });
