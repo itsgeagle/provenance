@@ -1,14 +1,17 @@
 /**
  * ReplayView — top-level layout for the /replay/:sessionId route.
  *
- * Layout:
- *   ┌─────────────────────────────────┐
- *   │ FileTabs                        │
- *   ├─────────────────────────────────┤
- *   │ MonacoMount          (flex-1)   │
- *   ├─────────────────────────────────┤
- *   │ TransportBar                    │
- *   └─────────────────────────────────┘
+ * Layout (Phase 14):
+ *   ┌─────────────────────────────────────┬──────────────┐
+ *   │ FileTabs (full width)               │              │
+ *   ├─────────────────────────────────────┤ EventSidebar │
+ *   │ MonacoMount (70% width)             │ (30% width)  │
+ *   │ + GutterDecorations (headless)      │              │
+ *   │ + LineHoverProvider (headless)      │              │
+ *   │ + ColorLegend (overlay)             │              │
+ *   ├─────────────────────────────────────┴──────────────┤
+ *   │ TransportBar (full width)                          │
+ *   └────────────────────────────────────────────────────┘
  *
  * Route guard:
  *   - Requires a loaded bundle (RequireBundle via App.tsx wrapping this route).
@@ -24,17 +27,21 @@
  *   On mount: parse params → seek(event).
  *   On state change: debounced write-back.
  *   Pattern mirrors TimelineView's A16 deep-link approach.
- *
- * Sidebar (Phase 14): reserved — not present in Phase 13.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams, Navigate } from 'react-router-dom';
+import type { editor as MonacoEditorNS } from 'monaco-editor';
+import type * as MonacoType from 'monaco-editor';
 import { useBundle } from '../../context/BundleContext.js';
 import { useReplayEngine } from './useReplayEngine.js';
 import { FileTabs } from './FileTabs.js';
 import { MonacoMount } from './MonacoMount.js';
 import { TransportBar } from './TransportBar.js';
+import { GutterDecorations } from './GutterDecorations.js';
+import { LineHoverProvider } from './LineHoverProvider.js';
+import { EventSidebar } from './EventSidebar.js';
+import { ColorLegend } from './ColorLegend.js';
 
 // ---------------------------------------------------------------------------
 // ReplayView — entry + session guard
@@ -97,8 +104,54 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
   // Content for Monaco.
   const content = resolvedFile !== null ? (fileStates.get(resolvedFile)?.content ?? '') : '';
 
+  // FileReplayState for the active file (used by GutterDecorations + LineHoverProvider).
+  const activeFileState = resolvedFile !== null ? (fileStates.get(resolvedFile) ?? null) : null;
+
   // Total event count for the session (passed to TransportBar).
   const eventCount = index?.bySessionId.get(sessionId)?.length ?? 0;
+
+  // Session events for the sidebar.
+  const sessionEvents = useMemo(() => index?.bySessionId.get(sessionId) ?? [], [index, sessionId]);
+
+  // All events ordered (for hover lookup).
+  const orderedEvents = useMemo(() => index?.ordered ?? [], [index]);
+
+  // Monaco editor + monaco instances (set via onMount callback).
+  const [monacoEditor, setMonacoEditor] = useState<MonacoEditorNS.IStandaloneCodeEditor | null>(
+    null,
+  );
+  const [monacoInstance, setMonacoInstance] = useState<typeof MonacoType | null>(null);
+
+  const handleEditorMount = useCallback(
+    (ed: MonacoEditorNS.IStandaloneCodeEditor, monaco: typeof MonacoType) => {
+      setMonacoEditor(ed);
+      setMonacoInstance(monaco);
+    },
+    [],
+  );
+
+  // Language for the hover provider (derived from the active file path).
+  const language = useMemo(() => {
+    if (resolvedFile === null) return 'plaintext';
+    const ext = resolvedFile.split('.').pop()?.toLowerCase() ?? '';
+    switch (ext) {
+      case 'py':
+        return 'python';
+      case 'js':
+      case 'jsx':
+        return 'javascript';
+      case 'ts':
+      case 'tsx':
+        return 'typescript';
+      case 'json':
+        return 'json';
+      case 'md':
+      case 'markdown':
+        return 'markdown';
+      default:
+        return 'plaintext';
+    }
+  }, [resolvedFile]);
 
   // ---------------------------------------------------------------------------
   // Mount: parse URL params → seek to initial event.
@@ -183,18 +236,48 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
         <FileTabs files={files} activeFile={resolvedFile} onFileChange={setActiveFile} />
       </div>
 
-      {/* Monaco editor — fills remaining space */}
-      <div className="flex-1 min-h-0">
-        {resolvedFile !== null ? (
-          <MonacoMount content={content} filePath={resolvedFile} className="h-full w-full" />
-        ) : (
-          <div
-            className="flex items-center justify-center h-full text-sm text-muted-foreground"
-            data-testid="no-file-placeholder"
-          >
-            No files under review in this session.
-          </div>
-        )}
+      {/* Main area: Monaco (70%) + EventSidebar (30%) */}
+      <div className="flex flex-1 min-h-0">
+        {/* Monaco editor — 70% width */}
+        <div className="relative flex-1 min-w-0" style={{ flex: '0 0 70%' }}>
+          {resolvedFile !== null ? (
+            <>
+              <MonacoMount
+                content={content}
+                filePath={resolvedFile}
+                className="h-full w-full"
+                onMount={handleEditorMount}
+              />
+              {/* Phase 14: headless side-effect drivers */}
+              <GutterDecorations editor={monacoEditor} fileState={activeFileState} />
+              <LineHoverProvider
+                editor={monacoEditor}
+                monaco={monacoInstance}
+                fileState={activeFileState}
+                language={language}
+                orderedEvents={orderedEvents}
+              />
+              {/* Color legend overlay */}
+              <ColorLegend />
+            </>
+          ) : (
+            <div
+              className="flex items-center justify-center h-full text-sm text-muted-foreground"
+              data-testid="no-file-placeholder"
+            >
+              No files under review in this session.
+            </div>
+          )}
+        </div>
+
+        {/* Event sidebar — 30% width */}
+        <div className="flex-1 min-w-0 min-h-0" style={{ flex: '0 0 30%' }}>
+          <EventSidebar
+            events={sessionEvents}
+            currentGlobalIdx={state.currentGlobalIdx}
+            onSeek={seek}
+          />
+        </div>
       </div>
 
       {/* Transport bar */}
@@ -208,8 +291,6 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
           onSeek={seek}
         />
       </div>
-
-      {/* Phase 14: EventSidebar slot — not rendered in Phase 13. */}
     </div>
   );
 }
