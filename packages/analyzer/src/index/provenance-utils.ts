@@ -85,6 +85,10 @@ export function colorForGlobalIdx(state: FileReplayState, gi: number): Provenanc
  * if the line index is out of range. Used by Phase 14's hover provider to
  * show "this line last edited by event #N" without forcing the UI to
  * iterate the per-char array itself.
+ *
+ * Perf note: each call re-runs `linesWithProvenance` over the entire file
+ * (O(N_chars)). For Phase 14 consumers querying multiple lines per state,
+ * call `linesWithProvenance(state)` ONCE and index the result, or memoize.
  */
 export function lineLastTouchedAt(state: FileReplayState, line: number): number | null {
   const lines = linesWithProvenance(state);

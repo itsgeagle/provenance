@@ -59,7 +59,11 @@ export type FileReplayState = {
   provenance: Uint32Array;
   /**
    * Maps a writing event's `globalIdx` to the kind of write it performed.
-   * Consumers use this to map per-character provenance → color/label.
+   * For `'typed'` and `'paste'` entries, at least one position in `provenance`
+   * will equal that `globalIdx`. For `'external_change'` entries, the event
+   * cleared the file's content; no character in `provenance` will equal that
+   * `globalIdx` (the entry is a sentinel). Do not assume bijection in either
+   * direction when building Phase 14 gutter/hover decoration logic.
    */
   kindByGlobalIdx: Map<number, ProvenanceKind>;
   /** Maps `${sessionId}:${seq}` to the sha256 recorded at that save event. */
@@ -102,6 +106,7 @@ function positionToOffset(content: string, line: number, character: number): num
  *
  * Exported for the splice-edge-cases tests.
  */
+// Exported only for unit testing of edge cases; not part of the public Phase 12 API.
 export function spliceWithProvenance(
   content: string,
   provenance: number[],
