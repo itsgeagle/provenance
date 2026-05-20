@@ -514,3 +514,121 @@ describe('large_paste — custom thresholds', () => {
     expect(flags).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Recorder v1.2: paste-shaped doc.change events should also flag
+// ---------------------------------------------------------------------------
+
+describe('large_paste — paste-shaped doc.change (recorder v1.2)', () => {
+  it('flags a doc.change with source=paste_likely whose delta is ≥ minChars (replacement edit)', async () => {
+    // Real-world shape from a Claude Code "Apply" against hello.py:
+    //   one delta, ~722 chars, replacing L6C0..L10C0. Range non-empty so the
+    //   recorder writes it as a doc.change (not a paste event) with
+    //   source=paste_likely.
+    const text = "    elif op == '-':\n        return num1 - num2\n".repeat(20); // ≈ 940 chars
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hello.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 6, character: 0 },
+                      end: { line: 10, character: 0 },
+                    },
+                    text,
+                  },
+                ],
+                source: 'paste_likely',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = largePasteHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('high'); // 940 chars ≥ highSeverityChars default
+    expect(flags[0]!.detail!['origin']).toBe('doc.change');
+    expect(flags[0]!.detail!['charCount']).toBe(text.length);
+    expect(flags[0]!.description).toMatch(/paste-shaped bulk edit/);
+  });
+
+  it('flags each delta of a multi-delta paste_likely WorkspaceEdit separately', async () => {
+    // Two deltas, each large enough on its own → two flags.
+    const text1 = 'x'.repeat(250);
+    const text2 = 'y'.repeat(300);
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hello.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 0 },
+                    },
+                    text: text1,
+                  },
+                  {
+                    range: {
+                      start: { line: 5, character: 0 },
+                      end: { line: 5, character: 0 },
+                    },
+                    text: text2,
+                  },
+                ],
+                source: 'paste_likely',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = largePasteHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(2);
+    for (const f of flags) {
+      expect(f.detail!['origin']).toBe('doc.change');
+    }
+  });
+
+  it('does NOT flag a doc.change whose source is "typed" even when delta is large', async () => {
+    // Regression: source='typed' must remain unflagged. Otherwise a student
+    // typing fast loses the distinction.
+    const text = 'x'.repeat(500);
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hello.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 0 },
+                    },
+                    text,
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = largePasteHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(0);
+  });
+});

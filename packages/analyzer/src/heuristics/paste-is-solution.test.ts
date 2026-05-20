@@ -272,3 +272,58 @@ describe('paste_is_solution — negative', () => {
     expect(flags.filter((f) => f.heuristic === 'paste_is_solution')).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Recorder v1.2: paste-shaped doc.change should also be evaluated
+// ---------------------------------------------------------------------------
+
+describe('paste_is_solution — paste-shaped doc.change (recorder v1.2)', () => {
+  it('flags a doc.change with source=paste_likely whose delta text matches the final file', async () => {
+    // Bundle: doc.open seeds the file as empty, then a paste_likely
+    // doc.change inserts the entire "solution". Final file content equals
+    // the inserted text → 100% line overlap → flag.
+    const solution =
+      'def square(x):\n    return x * x\n\n' +
+      'def cube(x):\n    return x * x * x\n\n' +
+      'def quad(x):\n    return x ** 4\n';
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'hw.py',
+                sha256: 'a'.repeat(64),
+                line_count: 1,
+                content: '',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hw.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 0 },
+                    },
+                    text: solution,
+                  },
+                ],
+                source: 'paste_likely',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = pasteIsSolutionHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.detail!['origin']).toBe('doc.change');
+    expect(flags[0]!.detail!['overlapRatio']).toBeGreaterThanOrEqual(
+      cfg.pasteIsSolution.lineOverlap,
+    );
+  });
+});

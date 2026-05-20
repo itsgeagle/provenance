@@ -39,6 +39,7 @@ import type { EventIndex } from '../index/event-index.js';
 import type { Bundle } from '../loader/types.js';
 import type { Flag, Heuristic } from './types.js';
 import type { HeuristicConfig, KnownSource } from './config.js';
+import { iterateCandidatePastes, sha256OfCandidate } from './candidate-pastes.js';
 
 // ---------------------------------------------------------------------------
 // Corpus loader
@@ -219,20 +220,19 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
   // When no corpus is provided, emit 0 flags.
   if (corpus.length === 0) return [];
 
-  const pasteEvents = index.byKind.get('paste') ?? [];
-  if (pasteEvents.length === 0) return [];
-
   const flags: Flag[] = [];
   let flagIndex = 0;
 
-  for (const e of pasteEvents) {
-    const p = e.payload as Record<string, unknown> | null;
-    if (typeof p !== 'object' || p === null) continue;
-
-    const pasteSha256 = typeof p['sha256'] === 'string' ? (p['sha256'] as string) : undefined;
-    const pasteContent = typeof p['content'] === 'string' ? (p['content'] as string) : undefined;
-    const filePath = typeof p['path'] === 'string' ? (p['path'] as string) : 'unknown';
-    const seqKey = `${e.sessionId}:${e.seq}`;
+  // Iterate paste-shaped candidates from both `paste` events and recorder-v1.2
+  // `doc.change` events with `source: 'paste_likely' | 'paste_confirmed'`.
+  // For doc.change-derived candidates we compute the sha256 lazily (recorder
+  // doesn't pre-compute it for delta text).
+  for (const c of iterateCandidatePastes(index)) {
+    const pasteSha256 = sha256OfCandidate(c);
+    const pasteContent = c.content;
+    const filePath = c.path;
+    const seqKey = c.seqKey;
+    const sourceLabel = c.origin === 'paste' ? 'paste' : 'paste-shaped bulk edit';
 
     for (const entry of corpus) {
       // -----------------------------------------------------------------------
@@ -248,14 +248,15 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
           confidence: 0.95,
           supportingSeqs: [seqKey],
           description:
-            `A paste in ${filePath} has a SHA-256 hash that exactly matches the known ` +
-            `source "${entry.name}". This indicates the paste content is identical to a ` +
+            `A ${sourceLabel} in ${filePath} has a SHA-256 hash that exactly matches the known ` +
+            `source "${entry.name}". This indicates the inserted content is identical to a ` +
             `course-known solution or reference material.`,
           detail: {
             filePath,
             sourceName: entry.name,
             matchKind: 'hash_exact',
             pasteSha256,
+            origin: c.origin,
           },
         });
         // Hash match is definitive; skip fuzzy check for same entry.
@@ -278,7 +279,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
               confidence: 0.8,
               supportingSeqs: [seqKey],
               description:
-                `A paste in ${filePath} shares ${Math.round(ratio * 100)}% of its lines ` +
+                `A ${sourceLabel} in ${filePath} shares ${Math.round(ratio * 100)}% of its lines ` +
                 `with a block in the known source "${entry.name}".`,
               detail: {
                 filePath,
@@ -286,6 +287,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
                 matchKind: 'fuzzy_lines',
                 lineRatio: ratio,
                 fuzzyThreshold,
+                origin: c.origin,
               },
             });
             // Stop checking other blocks for this entry once a match is found.

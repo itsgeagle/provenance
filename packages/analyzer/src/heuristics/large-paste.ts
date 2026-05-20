@@ -1,27 +1,37 @@
 /**
- * large_paste heuristic (Phase 4).
+ * large_paste heuristic (Phase 4, extended in recorder v1.2).
  *
  * PRD §7.4: "Single paste with text length ≥ 200 chars or ≥ 10 lines."
  *
- * Emits one Flag per qualifying paste event. Severity escalates to high when
- * the paste exceeds the high-severity thresholds (500 chars or 30 lines by
- * default — see config.ts for the rubric).
+ * Emits one Flag per qualifying paste-shaped insertion. Severity escalates
+ * to high when the paste exceeds the high-severity thresholds (500 chars or
+ * 30 lines by default — see config.ts for the rubric).
  *
- * Confidence is 0.8 for normal paste events. If a paste event is temporally
+ * Iterates `iterateCandidatePastes(index)` rather than `index.byKind.get('paste')`
+ * so we catch BOTH:
+ *   - native `paste` events (single-delta empty-range pastes — the classical
+ *     clipboard shape), and
+ *   - `doc.change` events with `source: 'paste_likely' | 'paste_confirmed'`,
+ *     which recorder v1.2's broadened classifier uses for multi-delta
+ *     WorkspaceEdits and large replacement edits typical of AI-assistant
+ *     "Apply" actions (Claude Code, Copilot, etc.).
+ *
+ * Confidence is 0.8 for normal candidates. If a candidate is temporally
  * adjacent to a paste.anomaly event (within the same session's event stream),
  * confidence is reduced to 0.6 because the paste detection is less reliable
  * in that context (paste.anomaly fires when the recorder's paste detection
  * heuristics had low confidence themselves).
  *
  * paste.anomaly adjacency rule:
- *   A paste event P is "in an anomaly window" if the previous or next event
- *   of kind paste.anomaly in the SAME session has |t_P - t_anomaly| ≤ 5000ms.
+ *   A candidate C is "in an anomaly window" if any paste.anomaly event in the
+ *   SAME session has |t_C - t_anomaly| ≤ 5000ms.
  */
 
 import type { EventIndex } from '../index/event-index.js';
 import type { Bundle } from '../loader/types.js';
 import type { Flag, Heuristic, Severity } from './types.js';
 import type { HeuristicConfig } from './config.js';
+import { iterateCandidatePastes } from './candidate-pastes.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -71,28 +81,20 @@ function flagId(seq0: string, index: number): string {
 function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[] {
   const { minChars, minLines, highSeverityChars, highSeverityLines } = config.largePaste;
 
-  const pasteEvents = index.byKind.get('paste') ?? [];
   const anomalyWindows = buildAnomalyWindows(index);
 
   const flags: Flag[] = [];
   let flagIndex = 0;
 
-  for (const e of pasteEvents) {
-    const p = e.payload as Record<string, unknown> | null;
-    if (typeof p !== 'object' || p === null) continue;
+  for (const c of iterateCandidatePastes(index)) {
+    // `length` is authoritative — present even when content was omitted (paste
+    // events that exceeded the 4 KB inline cap).
+    const length = c.length;
 
-    // `length` is always present on paste payloads (even large pastes that
-    // omit `content`). This is the authoritative character count.
-    const length = typeof p['length'] === 'number' ? p['length'] : 0;
-
-    // Line count: count newlines in `content` if available; otherwise fall back
-    // to estimating from length (we can only reliably flag by lines when we have
-    // the content).
-    let lines = 0;
-    if (typeof p['content'] === 'string') {
-      // Count newline-separated lines (a string with N '\n' chars has N+1 lines).
-      lines = (p['content'] as string).split('\n').length;
-    }
+    // Line count: count newlines in `content` if available. When the content
+    // wasn't inlined (large paste only), we can't infer line count reliably
+    // and rely on the char threshold alone.
+    const lines = c.content !== undefined ? c.content.split('\n').length : 0;
 
     // Check threshold. We flag on either chars OR lines.
     const meetsCharThreshold = length >= minChars;
@@ -104,28 +106,29 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
       length >= highSeverityChars || lines >= highSeverityLines ? 'high' : 'medium';
 
     // Confidence: reduced if inside a paste.anomaly window.
-    const anomalyTs = anomalyWindows.get(e.sessionId);
-    const confidence = isInAnomalyWindow(e.t, anomalyTs) ? ANOMALY_CONFIDENCE : NORMAL_CONFIDENCE;
+    const anomalyTs = anomalyWindows.get(c.sessionId);
+    const confidence = isInAnomalyWindow(c.t, anomalyTs) ? ANOMALY_CONFIDENCE : NORMAL_CONFIDENCE;
 
-    const supportingSeqKey = `${e.sessionId}:${e.seq}`;
-    const id = flagId(supportingSeqKey, flagIndex++);
+    const id = flagId(c.seqKey, flagIndex++);
 
-    const path = typeof p['path'] === 'string' ? p['path'] : 'unknown file';
     const lineInfo = lines > 0 ? `, ${lines} lines` : '';
+    const sourceDescriptor =
+      c.origin === 'paste' ? 'A paste' : 'A paste-shaped bulk edit (doc.change/paste_likely)';
 
     flags.push({
       id,
       heuristic: 'large_paste',
-      title: `Large paste in ${path}`,
+      title: `Large paste in ${c.path}`,
       severity,
       confidence,
-      supportingSeqs: [supportingSeqKey],
-      description: `A paste of ${length} characters${lineInfo} was detected in ${path}.`,
+      supportingSeqs: [c.seqKey],
+      description: `${sourceDescriptor} of ${length} characters${lineInfo} was detected in ${c.path}.`,
       detail: {
-        path,
+        path: c.path,
         charCount: length,
         lineCount: lines > 0 ? lines : null,
-        inAnomalyWindow: isInAnomalyWindow(e.t, anomalyTs),
+        inAnomalyWindow: isInAnomalyWindow(c.t, anomalyTs),
+        origin: c.origin,
       },
     });
   }

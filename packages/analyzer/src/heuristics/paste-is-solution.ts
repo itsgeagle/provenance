@@ -1,21 +1,29 @@
 /**
- * paste_is_solution heuristic (Phase 16).
+ * paste_is_solution heuristic (Phase 16, extended in recorder v1.2).
  *
  * PRD §7.4 process-shape: "Paste payload matches ≥80% of the file's final
  * state." Uses Phase 12's reconstructFileWithProvenance to obtain the final
  * file content, then runs diffLines() to compute line overlap between the
  * paste payload and the final content.
  *
- * Fires one Flag per qualifying paste event. Severity is 'high'; confidence
+ * Iterates `iterateCandidatePastes(index)` so we evaluate BOTH:
+ *   - native `paste` events
+ *   - `doc.change` events with `source: 'paste_likely' | 'paste_confirmed'`,
+ *     one candidate per delta. Recorder v1.2's broadened classifier routes
+ *     tool-applied bulk edits (Claude Code "Apply", multi-delta WorkspaceEdits)
+ *     through this path; without iterating doc.change candidates those edits
+ *     never trip this heuristic.
+ *
+ * Fires one Flag per qualifying candidate. Severity is 'high'; confidence
  * is 0.85 (high signal but paste contents could match a skeleton/boilerplate).
  *
- * Threshold: ≥80% of the paste's lines are present in the final file.
- * Specifically: shared_lines / paste_lines ≥ pasteIsSolutionLineOverlap.
+ * Threshold: ≥80% of the candidate's lines are present in the final file.
+ * Specifically: shared_lines / candidate_lines ≥ pasteIsSolutionLineOverlap.
  *
- * Only paste events with an inline `content` field are eligible — large pastes
- * (> 4 KB, content omitted) cannot be checked this way. The line overlap
- * metric counts lines that appear on BOTH sides of the diff (i.e., lines that
- * diffLines reports as unchanged).
+ * Only candidates with inline content are eligible — paste events that exceed
+ * the 4 KB inline cap omit content and cannot be checked this way. The line
+ * overlap metric counts lines that appear on BOTH sides of the diff (i.e.,
+ * lines that diffLines reports as unchanged).
  */
 
 import { diffLines } from 'diff';
@@ -24,6 +32,7 @@ import type { Bundle } from '../loader/types.js';
 import type { Flag, Heuristic } from './types.js';
 import type { HeuristicConfig } from './config.js';
 import { reconstructFileWithProvenance } from '../index/reconstruct-file-provenance.js';
+import { iterateCandidatePastes } from './candidate-pastes.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,7 +75,6 @@ function flagId(seqKey: string, idx: number): string {
 
 function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[] {
   const threshold = config.pasteIsSolution.lineOverlap;
-  const pasteEvents = index.byKind.get('paste') ?? [];
 
   // Cache the final state per file path to avoid re-running reconstruction.
   const finalStateCache = new Map<string, string>();
@@ -82,47 +90,44 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
   const flags: Flag[] = [];
   let flagIndex = 0;
 
-  for (const e of pasteEvents) {
-    const p = e.payload as Record<string, unknown> | null;
-    if (typeof p !== 'object' || p === null) continue;
+  for (const c of iterateCandidatePastes(index)) {
+    // Only candidates with inline content can be compared. Paste events that
+    // exceeded the 4 KB cap omit content; doc.change deltas always carry text.
+    if (c.content === undefined || c.content.length === 0) continue;
 
-    // Only inline-content pastes can be compared.
-    const content = typeof p['content'] === 'string' ? (p['content'] as string) : undefined;
-    if (content === undefined || content.length === 0) continue;
-
-    const filePath = typeof p['path'] === 'string' ? (p['path'] as string) : undefined;
-    if (filePath === undefined) continue;
-
-    const finalContent = getFinalContent(filePath);
+    const finalContent = getFinalContent(c.path);
     if (finalContent.length === 0) continue;
 
-    const pasteLines = lineCount(content);
+    const pasteLines = lineCount(c.content);
     if (pasteLines === 0) continue;
 
-    const shared = sharedLineCount(content, finalContent);
+    const shared = sharedLineCount(c.content, finalContent);
     const ratio = shared / pasteLines;
 
     if (ratio < threshold) continue;
 
-    const seqKey = `${e.sessionId}:${e.seq}`;
-    const id = flagId(seqKey, flagIndex++);
+    const id = flagId(c.seqKey, flagIndex++);
+
+    const sourceDescriptor =
+      c.origin === 'paste' ? 'A paste' : 'A paste-shaped bulk edit (doc.change/paste_likely)';
 
     flags.push({
       id,
       heuristic: 'paste_is_solution',
-      title: `Paste matches solution in ${filePath}`,
+      title: `Paste matches solution in ${c.path}`,
       severity: 'high',
       confidence: 0.85,
-      supportingSeqs: [seqKey],
+      supportingSeqs: [c.seqKey],
       description:
-        `A paste in ${filePath} shares ${Math.round(ratio * 100)}% of its lines with the ` +
-        `file's final content, suggesting the paste may be the complete solution.`,
+        `${sourceDescriptor} in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
+        `file's final content, suggesting the insertion may be the complete solution.`,
       detail: {
-        filePath,
+        filePath: c.path,
         pasteLines,
         sharedLines: shared,
         overlapRatio: ratio,
         threshold,
+        origin: c.origin,
       },
     });
   }

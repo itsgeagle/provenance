@@ -322,3 +322,57 @@ describe('paste_matches_known_source — negative', () => {
     expect(flags).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Recorder v1.2: paste-shaped doc.change should also match the corpus
+// ---------------------------------------------------------------------------
+
+describe('paste_matches_known_source — paste-shaped doc.change (recorder v1.2)', () => {
+  it('flags a doc.change delta whose computed sha256 matches a corpus entry', async () => {
+    // Recorder doesn't write sha256 onto doc.change deltas, so the heuristic
+    // must compute it from delta.text. The corpus contains the hash of the
+    // exact text we insert below.
+    const deltaText = 'def evil_solution():\n    return 42\n';
+    const { sha256Hex } = await import('@provenance/log-core');
+    const knownHash = sha256Hex(deltaText);
+
+    const cfgWithCorpus: HeuristicConfig = {
+      ...DEFAULT_HEURISTIC_CONFIG,
+      pasteMatchesKnownSource: {
+        fuzzyThreshold: 0.7,
+        corpus: [{ name: 'hw1 solution', hashes: [knownHash] }],
+      },
+    };
+
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/hw/hw1.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 0 },
+                    },
+                    text: deltaText,
+                  },
+                ],
+                source: 'paste_likely',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const flags = pasteMatchesKnownSourceHeuristic.run(index, bundle, cfgWithCorpus);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('high');
+    expect(flags[0]!.detail!['matchKind']).toBe('hash_exact');
+    expect(flags[0]!.detail!['origin']).toBe('doc.change');
+  });
+});
