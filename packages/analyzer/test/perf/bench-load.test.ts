@@ -10,10 +10,10 @@
  *    5% doc.save
  *   10% other (session.heartbeat, terminal.command, doc.open, etc.)
  *
- * Reconstruction complexity: O(N × avg_line_len) because reconstructFile calls
- * content.split('\n') per delta; multi-line content would be O(N × total_chars).
- * The bench's single-line content keeps line_len small enough to be acceptable.
- * This is a known v2 watch item.
+ * Pipeline measured: ZIP decode + JSON parse + per-event chain validation (O(N))
+ * + index build (O(N) sort + O(N) passes over ordered events). No file
+ * reconstruction is performed here — that is a separate operation not on the
+ * critical load path.
  *
  * Strategy:
  *   - Build the synthetic bundle ONCE in beforeAll and reuse the same ZIP

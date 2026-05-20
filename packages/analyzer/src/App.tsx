@@ -116,6 +116,7 @@ export function App() {
           }
         />
         <Route path="/" element={<Navigate to="/load" replace />} />
+        <Route path="*" element={<Navigate to="/load" replace />} />
       </Routes>
     </BundleProvider>
   );

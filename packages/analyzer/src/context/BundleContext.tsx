@@ -49,7 +49,7 @@ import { runCrossHeuristics } from '../heuristics/cross/run-cross-heuristics.js'
 // Types
 // ---------------------------------------------------------------------------
 
-export type LoadingStage = 'unzip' | 'parse' | 'index' | 'validate' | 'heuristics' | null;
+export type LoadingStage = 'unzip' | 'index' | 'validate' | 'heuristics' | null;
 
 export type BundleContextValue = {
   /** All loaded bundles. Empty when idle/error. */

@@ -20,6 +20,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useBundle } from '../../context/BundleContext.js';
 import type { Bundle } from '../../loader/types.js';
 import type { CrossFlag } from '../../heuristics/cross/types.js';
@@ -61,6 +62,7 @@ type CrossFlagDetailPaneProps = {
 
 function CrossFlagDetailPane({ flag, bundles, onClose }: CrossFlagDetailPaneProps) {
   const bundleMap = new Map(bundles.map((b) => [b.id, b]));
+  const navigate = useNavigate();
 
   return (
     <div
@@ -114,13 +116,14 @@ function CrossFlagDetailPane({ flag, bundles, onClose }: CrossFlagDetailPaneProp
                   <ul className="space-y-1" data-testid={`cross-flag-events-${bundleId}`}>
                     {seqKeys.map((key) => (
                       <li key={key}>
-                        <a
-                          href={`/timeline?seq=${encodeURIComponent(key)}`}
-                          className="text-xs font-mono text-blue-600 hover:underline"
+                        <button
+                          type="button"
+                          onClick={() => void navigate(`/timeline?seq=${encodeURIComponent(key)}`)}
+                          className="text-xs font-mono text-blue-600 hover:underline focus:outline-none focus:underline"
                           data-testid={`cross-flag-seq-link-${key}`}
                         >
                           {key}
-                        </a>
+                        </button>
                       </li>
                     ))}
                   </ul>

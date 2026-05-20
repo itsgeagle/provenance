@@ -10,13 +10,14 @@
  *   6. Phase 18: cross-flags table renders when crossFlags is non-empty.
  *   7. Phase 18: empty state renders when crossFlags is empty and 2 bundles selected.
  *   8. Phase 18: clicking a flag row opens the detail pane.
- *   9. Phase 18: detail pane shows supporting seq keys as links.
+ *   9. Phase 18: detail pane shows supporting seq keys as buttons that trigger navigate().
  *  10. Phase 18: detail pane close button dismisses it.
+ *  11. v2 final review: seq-key buttons use in-app navigate, not page reload.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { BundleProvider, useBundle } from '../../context/BundleContext.js';
@@ -443,6 +444,70 @@ describe('CompareView — Phase 18 cross-flag rendering', () => {
 
     expect(screen.getByTestId('cross-flag-row-flag-1')).toBeTruthy();
     expect(screen.getByTestId('cross-flag-row-flag-2')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v2 final review: seq-key buttons use in-app navigate, not page reload.
+//
+// Clicking a seq-key element in CrossFlagDetailPane must call navigate() (react-
+// router) rather than issuing a full page reload. We verify this by rendering
+// inside MemoryRouter with a LocationCapture helper that records the current
+// path+search string after every click.
+// ---------------------------------------------------------------------------
+
+function LocationCapture({ onLocation }: { onLocation: (l: string) => void }) {
+  const loc = useLocation();
+  onLocation(loc.pathname + loc.search);
+  return null;
+}
+
+describe('CompareView — seq-key deep-link uses navigate, not page reload', () => {
+  beforeEach(() => {
+    mockUseBundleEnabled = true;
+  });
+  afterEach(() => {
+    mockUseBundleEnabled = false;
+    mockUseBundleReturn = null;
+  });
+
+  it('clicking a seq-key button triggers navigate() to /timeline?seq=<key>', () => {
+    const flag = makeCrossFlag({
+      eventsPerBundle: {
+        'bundle-a': ['sess-a:42'],
+        'bundle-b': ['sess-b:7'],
+      },
+    });
+    mockUseBundleReturn = makeStubContext([flag]);
+
+    let capturedLocation = '';
+
+    render(
+      <MemoryRouter initialEntries={['/compare']}>
+        <Routes>
+          <Route path="/compare" element={<CompareView />} />
+          <Route path="/timeline" element={<div data-testid="timeline-page" />} />
+        </Routes>
+        <LocationCapture
+          onLocation={(l) => {
+            capturedLocation = l;
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    // Open detail pane.
+    fireEvent.click(screen.getByTestId(`cross-flag-row-${flag.id}`));
+    expect(screen.getByTestId('cross-flag-detail-overlay')).toBeTruthy();
+
+    // Click the seq-key button for bundle-a.
+    const btn = screen.getByTestId('cross-flag-seq-link-sess-a:42');
+    // Must be a button, not an anchor — anchors cause full page reload.
+    expect(btn.tagName).toBe('BUTTON');
+    fireEvent.click(btn);
+
+    // MemoryRouter should have navigated in-app to /timeline?seq=sess-a:42.
+    expect(capturedLocation).toBe('/timeline?seq=sess-a%3A42');
   });
 });
 
