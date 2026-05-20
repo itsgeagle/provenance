@@ -32,7 +32,7 @@ npm run build && npm run typecheck && npm run lint && npm run test
 
 To run the recorder against the bundled test workspace, open this repo in VS Code and press F5 (or pick **"Run Recorder Extension"** in the Run & Debug panel). A second VS Code window opens with `test-workspace/` loaded; the status bar shows "CS 61A: recording".
 
-For richer instructions — including how to read the live log, run the integration tests against a real VS Code, and exercise the bundle-seal flow — see [`packages/recorder/README.md`](packages/recorder/README.md).
+For richer instructions — including how to read the live log, run the integration tests against a real VS Code, and exercise the bundle-seal flow — see [`docs/recorder.md`](docs/recorder.md). The student-facing description that ships with the VSIX lives at [`packages/recorder/README.md`](packages/recorder/README.md).
 
 To run the analyzer in development, start the dev server:
 
@@ -107,5 +107,4 @@ PROVENANCE_COURSE_PUBLIC_KEY_HEX=<64-hex-from-generate-step> \
 
 `build:prod` embeds the production key, builds, packages a VSIX, then restores the source file so further local work uses the dev key. The script refuses to run if the env var is missing, malformed, or matches the dev key — so a misconfigured release can never silently ship a dev VSIX.
 
-See [`packages/recorder/README.md`](packages/recorder/README.md) for the full security model and what the recorder defends against.
-
+See [`docs/recorder.md`](docs/recorder.md) for the full security model and what the recorder defends against.

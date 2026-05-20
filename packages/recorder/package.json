@@ -10,7 +10,6 @@
     "type": "git",
     "url": "https://github.com/berkeley-cs61a/provenance"
   },
-  "license": "MIT",
   "engines": {
     "vscode": "^1.94.0"
   },
