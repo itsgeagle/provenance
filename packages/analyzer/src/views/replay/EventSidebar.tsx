@@ -155,7 +155,10 @@ export function EventSidebar({ events, currentGlobalIdx, onSeek }: EventSidebarP
   const virtualItems = virtualizer.getVirtualItems();
 
   return (
-    <div className="flex h-full flex-col overflow-hidden border-l bg-background" data-testid="event-sidebar">
+    <div
+      className="flex h-full flex-col overflow-hidden border-l bg-background"
+      data-testid="event-sidebar"
+    >
       {/* Header */}
       <div className="shrink-0 border-b bg-muted/50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         Events
