@@ -79,6 +79,12 @@ export type ReplayState = {
   currentGlobalIdx: number;
   speed: number;
   sessionId: string;
+  /**
+   * The engine's current position in session time (ms since session start).
+   * Tracks the virtual playhead for real-time rAF-based playback.
+   * Synced to events[currentGlobalIdx].t on seek/step; advanced by tick().
+   */
+  virtualT: number;
 };
 
 export type EngineHandle = {
@@ -101,6 +107,20 @@ export type EngineHandle = {
   setPaused(): ReplayState;
   /** Update speed (does not start/stop playing). Returns new state. */
   setSpeed(speed: number): ReplayState;
+
+  /**
+   * Advance the virtual time pointer by `virtualDeltaMs` ms of session time.
+   * Applies all events whose `t` falls in [currentVirtualT, currentVirtualT + virtualDeltaMs].
+   * If no events fall in the window, just advances virtualT (sits through an idle gap).
+   * Returns new state.
+   */
+  tick(virtualDeltaMs: number): ReplayState;
+
+  /**
+   * The t value of the last event in the session (or 0 if no events).
+   * Used by the rAF loop to detect end-of-stream.
+   */
+  endVirtualT(): number;
 };
 
 // ---------------------------------------------------------------------------
@@ -245,6 +265,7 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
     currentGlobalIdx: -1,
     speed: 1,
     sessionId,
+    virtualT: sessionEvents.length > 0 ? (sessionEvents[0]!.t ?? 0) : 0,
   };
 
   const internal: InternalState = {
@@ -284,10 +305,18 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
         ? new Map(internal.files.map((f) => [f, emptyFileState()]))
         : buildFileStates(internal, upTo);
 
+    // Sync virtualT to the target event's t value.
+    // At -1 (before any event), use the first event's t (or 0).
+    const targetVirtualT =
+      clamped === -1
+        ? (internal.events[0]?.t ?? 0)
+        : (internal.events[clamped]?.t ?? internal.state.virtualT);
+
     internal.fileStates = newFileStates;
     internal.state = {
       ...internal.state,
       currentGlobalIdx: clamped,
+      virtualT: targetVirtualT,
     };
 
     return { ...internal.state };
@@ -336,6 +365,53 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
     setSpeed(speed) {
       internal.state = { ...internal.state, speed };
       return { ...internal.state };
+    },
+
+    tick(virtualDeltaMs) {
+      if (internal.events.length === 0) {
+        return { ...internal.state };
+      }
+
+      const newVirtualT = internal.state.virtualT + virtualDeltaMs;
+      const currentIdx = internal.state.currentGlobalIdx;
+      const maxIdx = internal.events.length - 1;
+
+      // If already at the end, just update virtualT.
+      if (currentIdx >= maxIdx) {
+        internal.state = { ...internal.state, virtualT: newVirtualT };
+        return { ...internal.state };
+      }
+
+      // Find the last event whose t <= newVirtualT, starting after currentIdx.
+      // All events with t in (currentVirtualT, newVirtualT] are applied.
+      let targetIdx = currentIdx;
+      for (let i = currentIdx + 1; i <= maxIdx; i++) {
+        const eventT = internal.events[i]!.t ?? 0;
+        if (eventT <= newVirtualT) {
+          targetIdx = i;
+        } else {
+          break;
+        }
+      }
+
+      if (targetIdx !== currentIdx) {
+        // We have new events to apply — seek to the last one in the window.
+        // seekTo also syncs virtualT to the event's t, but we want virtualT to
+        // reflect the full advance (including idle time beyond the last event).
+        // So we call seekTo and then overwrite virtualT.
+        seekTo(targetIdx);
+        internal.state = { ...internal.state, virtualT: newVirtualT };
+      } else {
+        // No events fell in the window (idle gap): just advance virtualT.
+        internal.state = { ...internal.state, virtualT: newVirtualT };
+      }
+
+      return { ...internal.state };
+    },
+
+    endVirtualT() {
+      if (internal.events.length === 0) return 0;
+      return internal.events[internal.events.length - 1]!.t ?? 0;
     },
   };
 
