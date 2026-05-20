@@ -38,10 +38,23 @@ import { useReplayEngine } from './useReplayEngine.js';
 import { FileTabs } from './FileTabs.js';
 import { MonacoMount, languageFromPath } from './MonacoMount.js';
 import { TransportBar } from './TransportBar.js';
+import { SpeedControl } from './SpeedControl.js';
+import { JumpControls } from './JumpControls.js';
 import { GutterDecorations } from './GutterDecorations.js';
 import { LineHoverProvider } from './LineHoverProvider.js';
 import { EventSidebar } from './EventSidebar.js';
 import { ColorLegend } from './ColorLegend.js';
+import {
+  findNextPaste,
+  findNextExternalChange,
+  findNextFlag,
+  findNextFileSwitch,
+  buildFlaggedGlobalIdxSet,
+  countRemainingPastes,
+  countRemainingExternalChanges,
+  countRemainingFlags,
+  countRemainingFileSwitches,
+} from './jump-predicates.js';
 
 // ---------------------------------------------------------------------------
 // ReplayView — entry + session guard
@@ -90,7 +103,7 @@ type ReplayViewInnerProps = { sessionId: string };
 
 function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { index } = useBundle();
+  const { index, flags } = useBundle();
 
   const engine = useReplayEngine(index, sessionId);
   const { state, fileStates, files, play, pause, step, seek } = engine;
@@ -115,6 +128,49 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
 
   // All events ordered (for hover lookup).
   const orderedEvents = useMemo(() => index?.ordered ?? [], [index]);
+
+  // ---------------------------------------------------------------------------
+  // Jump controls: pre-compute next targets + remaining counts.
+  // (A44): flaggedSet is memoized so buildFlaggedGlobalIdxSet doesn't rebuild
+  // on every render. It only changes when flags or the index's bySeq changes.
+  // ---------------------------------------------------------------------------
+  const flaggedSet = useMemo(
+    () => buildFlaggedGlobalIdxSet(flags, index?.bySeq ?? new Map()),
+    [flags, index],
+  );
+
+  const nextPaste = useMemo(
+    () => findNextPaste(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
+  const nextExternalChange = useMemo(
+    () => findNextExternalChange(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
+  const nextFlag = useMemo(
+    () => findNextFlag(sessionEvents, state.currentGlobalIdx, flaggedSet),
+    [sessionEvents, state.currentGlobalIdx, flaggedSet],
+  );
+  const nextFileSwitch = useMemo(
+    () => findNextFileSwitch(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
+  const remainingPastes = useMemo(
+    () => countRemainingPastes(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
+  const remainingExternalChanges = useMemo(
+    () => countRemainingExternalChanges(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
+  const remainingFlags = useMemo(
+    () => countRemainingFlags(sessionEvents, state.currentGlobalIdx, flaggedSet),
+    [sessionEvents, state.currentGlobalIdx, flaggedSet],
+  );
+  const remainingFileSwitches = useMemo(
+    () => countRemainingFileSwitches(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
 
   // Monaco editor + monaco instances (set via onMount callback).
   const [monacoEditor, setMonacoEditor] = useState<MonacoEditorNS.IStandaloneCodeEditor | null>(
@@ -211,6 +267,38 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
     play(speed);
   }
 
+  // SpeedControl: update the engine speed.
+  // - If playing: restart with the new speed (recreates the interval).
+  // - If paused: play(newSpeed) sets the engine's speed, then pause() immediately
+  //   cancels the interval. The URL write-back effect picks up state.speed on the
+  //   next render.
+  const handleSpeedChange = useCallback(
+    (newSpeed: number) => {
+      if (state.status === 'playing') {
+        // Restart the playback interval at the new rate.
+        play(newSpeed);
+      } else {
+        // Update engine speed without actually playing: play sets speed,
+        // pause cancels the interval. Net result: engine.speed === newSpeed,
+        // status stays 'paused'.
+        play(newSpeed);
+        pause();
+      }
+    },
+    [state.status, play, pause],
+  );
+
+  // JumpControls: seek to the target globalIdx. Seek does not change play
+  // status (the engine stays playing/paused). We pause before seeking so
+  // jumps always land in a paused/browseable state.
+  const handleJumpSeek = useCallback(
+    (globalIdx: number) => {
+      pause();
+      seek(globalIdx);
+    },
+    [pause, seek],
+  );
+
   return (
     <div className="flex flex-col h-full" data-testid="replay-view">
       {/* File tabs row */}
@@ -262,15 +350,42 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
         </div>
       </div>
 
-      {/* Transport bar */}
+      {/* Transport bar row: SpeedControl on right, TransportBar fills remaining space */}
       <div className="shrink-0">
-        <TransportBar
-          state={state}
-          eventCount={eventCount}
-          onPlay={handlePlay}
-          onPause={pause}
-          onStep={step}
-          onSeek={seek}
+        <div className="flex items-center border-t bg-background">
+          <div className="flex-1">
+            <TransportBar
+              state={state}
+              eventCount={eventCount}
+              onPlay={handlePlay}
+              onPause={pause}
+              onStep={step}
+              onSeek={seek}
+            />
+          </div>
+          {/* Speed control sits at the right edge of the transport row */}
+          <div className="shrink-0 px-3 py-2 border-l" data-testid="speed-control-wrapper">
+            <SpeedControl
+              speed={state.speed}
+              onSpeedChange={handleSpeedChange}
+              disabled={eventCount === 0}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Jump controls strip */}
+      <div className="shrink-0">
+        <JumpControls
+          nextPaste={nextPaste}
+          nextExternalChange={nextExternalChange}
+          nextFlag={nextFlag}
+          nextFileSwitch={nextFileSwitch}
+          remainingPastes={remainingPastes}
+          remainingExternalChanges={remainingExternalChanges}
+          remainingFlags={remainingFlags}
+          remainingFileSwitches={remainingFileSwitches}
+          onSeek={handleJumpSeek}
         />
       </div>
     </div>
