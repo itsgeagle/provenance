@@ -56,6 +56,20 @@ export type DocOpenPayload = {
   path: string;
   sha256: string;
   line_count: number;
+  /**
+   * Initial content of the file at the time it was opened.
+   *
+   * Optional for backwards compatibility with pre-v1.1 recorders.
+   * Present when the recorder is v1.1+ AND the file is ≤ 64 KB.
+   * Larger files have only `sha256`/`line_count`; reconstruction taints in
+   * that case.
+   */
+  content?: string;
+  /**
+   * Set to true when `content` is omitted because the file exceeded 64 KB.
+   * Absent (not false) when the file was small enough to inline.
+   */
+  truncated?: boolean;
 };
 
 export type DocChangeDelta = {
