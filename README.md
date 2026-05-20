@@ -11,11 +11,11 @@ The full design lives in [`docs/prd.md`](docs/prd.md). Code conventions for work
 
 ## Status
 
-| Component           | Status                                                                                                                                                                                                                                                               |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
-| `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests.                                                                                            |
-| `packages/recorder` | **v1 complete** — all PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode. 286 unit tests + 3 integration tests against real VS Code. |
-| `packages/analyzer` | **v1 complete** — bundle load + validation, raw timeline (virtualized + filterable), four high-value heuristics (`large_paste`, `external_edits`, `low_typing_high_output`, `chain_broken`), markdown findings export. 408+ unit tests. Static hosting ready.        |     |
+| Component           | Status                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests.                                                                                                                                                                                                              |
+| `packages/recorder` | **v1.1 complete** — all PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode, initial-content capture on `doc.open` (v1.1). 255 unit tests + integration tests against real VS Code.                                                                     |
+| `packages/analyzer` | **v2 complete** — bundle load + validation, multi-bundle + `/compare` view, overview, raw timeline (virtualized), Monaco replay (real-time playback at recorded event spacing, gutter decorations, hover attribution, jumps), full heuristic suite (process-shape + environment + integrity + cross-submission), markdown + PDF findings export. 816 unit tests. Static hosting ready. |
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the phase-by-phase build history.
 
@@ -52,7 +52,7 @@ provenance/
 ├── packages/
 │   ├── log-core/              # shared event types, hash chain, format
 │   ├── recorder/              # the VS Code extension (v1 complete)
-│   └── analyzer/              # web app (not yet built)
+│   └── analyzer/              # web app (v2 complete)
 ├── tools/                     # dev scripts (key generation, manifest signing)
 ├── test-workspace/            # sample student workspace used for dev & integration tests
 ├── CLAUDE.md                  # repo conventions
@@ -70,7 +70,7 @@ provenance/
 | Command                                                  | What it does                                                                      |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `npm run build`                                          | TypeScript build for both packages.                                               |
-| `npm run test`                                           | Vitest unit tests (411 total: 125 log-core + 286 recorder).                       |
+| `npm run test`                                           | Vitest unit tests across all workspaces (~1200 total).                            |
 | `npm run typecheck`                                      | `tsc --noEmit` across the workspace.                                              |
 | `npm run lint`                                           | ESLint + Prettier check.                                                          |
 | `npm run package:recorder`                               | Build the VSIX (`.vsix` file) for local installation.                             |
