@@ -10,6 +10,7 @@ dist-perf/**
 vitest.config.ts
 vitest.bench.config.ts
 tsconfig*.json
+esbuild.config.mjs
 *.vsix
 *.test.ts
 *.bench.ts

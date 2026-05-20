@@ -27,13 +27,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "bundle": "node esbuild.config.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "package": "vsce package --no-dependencies",
     "build:integration": "tsc -p tsconfig.integration.json",
     "test:integration": "npm run build && npm run build:integration && node ./dist-integration/test/integration/runTest.js",
     "bench": "vitest run --reporter=verbose --config vitest.bench.config.ts",
-    "build:prod": "node --experimental-strip-types ../../tools/embed-course-key.ts && npm run build && npm run package && git -C ../.. checkout packages/recorder/src/activation/course-public-key.ts"
+    "build:prod": "node --experimental-strip-types ../../tools/embed-course-key.ts && npm run bundle && npm run package && git -C ../.. checkout packages/recorder/src/activation/course-public-key.ts"
   },
   "dependencies": {
     "@noble/ciphers": "^2.2.0",
@@ -46,6 +47,7 @@
     "@types/vscode": "^1.93.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.12",
     "glob": "^13.0.6",
     "mocha": "^11.7.5"
   }
