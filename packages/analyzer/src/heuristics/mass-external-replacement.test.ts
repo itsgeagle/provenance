@@ -245,4 +245,78 @@ describe('mass_external_replacement — negative', () => {
     const flags = massExternalReplacementHeuristic.run(index, bundle, cfg);
     expect(flags.filter((f) => f.heuristic === 'mass_external_replacement')).toHaveLength(0);
   });
+
+  it('does not flag when external_change is whitespace-only but user types afterward (immediate post-change content differs from next-save content)', async () => {
+    // Scenario: formatter does whitespace-only external change → student types 50 chars
+    // → saves. Using nextSaveGi+1 would inflate the diff. Using e.globalIdx+1 (immediate
+    // post-change) avoids this false positive.
+    //
+    // Pre-change: "code\nwith\nindent"  (3 lines)
+    // External change: reformats to "code\n  with\nindent" (same 3 lines, whitespace adjusted)
+    // User typing after external_change: adds 50 chars of new code → save
+    // At immediate post-change (e.globalIdx+1): content is the reformatted version (80% shared)
+    // At next save: content includes the 50 new chars (lower shared ratio)
+    //
+    // We want NO flag since the external change was whitespace-only (80% shared).
+
+    const preContent = 'code\nwith\nindent';
+    const userTypingContent = 'code\n  with\n  indent\n' + 'x'.repeat(50);
+
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path: '/hw/hw1.py', sha256: 'a'.repeat(64), line_count: 0 },
+            },
+            {
+              kind: 'paste',
+              data: {
+                path: '/hw/hw1.py',
+                content: preContent,
+                length: preContent.length,
+                sha256: 'b'.repeat(64),
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              },
+            },
+            { kind: 'doc.save', data: { path: '/hw/hw1.py', sha256: 'c'.repeat(64) } },
+            // External change (e.g., formatter): whitespace-only, no semantic change
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/hw/hw1.py',
+                old_hash: 'c'.repeat(64),
+                new_hash: 'd'.repeat(64),
+                diff_size: 4, // small, just whitespace
+              },
+            },
+            // Immediately after external change: reformatted content
+            // (in a real scenario this would be captured by doc.change or paste events,
+            // but we simulate it by relying on reconstruction)
+            // Then user types 50 chars
+            {
+              kind: 'paste',
+              data: {
+                path: '/hw/hw1.py',
+                content: userTypingContent,
+                length: userTypingContent.length,
+                sha256: 'e'.repeat(64),
+                range: {
+                  start: { line: 0, character: 0 },
+                  end: { line: 0, character: preContent.length },
+                },
+              },
+            },
+            { kind: 'doc.save', data: { path: '/hw/hw1.py', sha256: 'f'.repeat(64) } },
+          ],
+        },
+      ],
+    });
+
+    const flags = massExternalReplacementHeuristic.run(index, bundle, cfg);
+    // Should NOT flag because at immediate post-change (e.globalIdx+1), the content
+    // is the whitespace-reformatted version with 3 shared lines / 3 max = 100% shared.
+    expect(flags.filter((f) => f.heuristic === 'mass_external_replacement')).toHaveLength(0);
+  });
 });

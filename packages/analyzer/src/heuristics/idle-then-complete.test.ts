@@ -310,4 +310,88 @@ describe('idle_then_complete — negative', () => {
     const flags = idleThenCompleteHeuristic.run(index, bundle, cfg);
     expect(flags).toHaveLength(0);
   });
+
+  it('respects custom postIdleWindowMs configuration', async () => {
+    // Build: idle gap followed by a save at t=gapEndT + 90s.
+    // With default postIdleWindowMs=60s: save at +90s is outside window → no flag.
+    // With custom postIdleWindowMs=120s: same save is inside window → flag fires.
+
+    const skeletonContent = 'x'.repeat(50);
+    const finalContent = 'y'.repeat(500);
+
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'session.heartbeat',
+              data: { focused: true, active_file: null, idle_since_ms: 0 },
+              t: 0,
+            },
+            {
+              kind: 'doc.open',
+              data: { path: '/hw/hw1.py', sha256: 'a'.repeat(64), line_count: 0 },
+              t: 1000,
+            },
+            {
+              kind: 'paste',
+              data: {
+                path: '/hw/hw1.py',
+                content: skeletonContent,
+                length: skeletonContent.length,
+                sha256: 'b'.repeat(64),
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              },
+              t: 1500,
+            },
+            { kind: 'doc.save', data: { path: '/hw/hw1.py', sha256: 'c'.repeat(64) }, t: 2000 },
+            {
+              kind: 'session.heartbeat',
+              data: { focused: true, active_file: '/hw/hw1.py', idle_since_ms: 0 },
+              t: 3000,
+            },
+            // Idle gap > 10min
+            {
+              kind: 'session.heartbeat',
+              data: { focused: true, active_file: '/hw/hw1.py', idle_since_ms: 612000 },
+              t: 615000,
+            },
+            // Save at t=615000 + 90000 = 705000ms (90s after gap end)
+            {
+              kind: 'paste',
+              data: {
+                path: '/hw/hw1.py',
+                content: finalContent,
+                length: finalContent.length,
+                sha256: 'd'.repeat(64),
+                range: {
+                  start: { line: 0, character: 0 },
+                  end: { line: 0, character: skeletonContent.length },
+                },
+              },
+              t: 704000,
+            },
+            { kind: 'doc.save', data: { path: '/hw/hw1.py', sha256: 'e'.repeat(64) }, t: 705000 },
+          ],
+        },
+      ],
+    });
+
+    // With default config (postIdleWindowMs=60000): save at 705000 is 90000ms after
+    // gapEndT=615000 → outside 60s window → no flag
+    const flagsDefault = idleThenCompleteHeuristic.run(index, bundle, cfg);
+    expect(flagsDefault.filter((f) => f.heuristic === 'idle_then_complete')).toHaveLength(0);
+
+    // With custom config (postIdleWindowMs=120000): save at 705000 is 90000ms after
+    // gapEndT → inside 120s window → flag fires
+    const customConfig = {
+      ...cfg,
+      idleThenComplete: {
+        ...cfg.idleThenComplete,
+        postIdleWindowMs: 120_000, // 120 seconds
+      },
+    };
+    const flagsCustom = idleThenCompleteHeuristic.run(index, bundle, customConfig);
+    expect(flagsCustom.filter((f) => f.heuristic === 'idle_then_complete')).toHaveLength(1);
+  });
 });

@@ -62,43 +62,50 @@ function flagId(seqKey: string, idx: number): string {
 // Heuristic implementation
 // ---------------------------------------------------------------------------
 
-/**
- * Build a map from filePath → ordered list of doc.save globalIdx values.
- * Used to find the next save after an external_change event.
- */
-function buildSaveGlobalIdxByFile(index: EventIndex): Map<string, number[]> {
-  const saveEvents = index.byKind.get('doc.save') ?? [];
-  const result = new Map<string, number[]>();
-  for (const e of saveEvents) {
-    const p = e.payload as Record<string, unknown> | null;
-    const path = typeof p?.['path'] === 'string' ? (p['path'] as string) : undefined;
-    if (path === undefined) continue;
-    let arr = result.get(path);
-    if (arr === undefined) {
-      arr = [];
-      result.set(path, arr);
-    }
-    arr.push(e.globalIdx);
-  }
-  // Each array is in ascending globalIdx order (byKind is ordered).
-  return result;
-}
-
-/**
- * Find the first globalIdx in `sortedIdxList` that is strictly greater than
- * `afterGlobalIdx`. Returns undefined if none found.
- */
-function firstAfter(sortedIdxList: number[], afterGlobalIdx: number): number | undefined {
-  for (const gi of sortedIdxList) {
-    if (gi > afterGlobalIdx) return gi;
-  }
-  return undefined;
-}
-
 function getFilePath(payload: unknown): string | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;
   const p = payload as Record<string, unknown>;
   return typeof p['path'] === 'string' ? (p['path'] as string) : undefined;
+}
+
+/**
+ * Find the first globalIdx of a content-modifying event (doc.change or paste)
+ * strictly after `afterGlobalIdx` for a given file. Returns undefined if none found.
+ */
+function firstContentEventAfter(
+  index: EventIndex,
+  filePath: string,
+  afterGlobalIdx: number,
+): number | undefined {
+  const fileEvents = index.byFile.get(filePath) ?? [];
+  for (const e of fileEvents) {
+    if (e.globalIdx <= afterGlobalIdx) continue;
+    if (e.kind === 'doc.change' || e.kind === 'paste') {
+      return e.globalIdx;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Find the next globalIdx of a doc.save event strictly after `afterGlobalIdx`
+ * in the same session. Returns undefined if none found.
+ */
+function nextSaveAfter(
+  index: EventIndex,
+  filePath: string,
+  sessionId: string,
+  afterGlobalIdx: number,
+): number | undefined {
+  const fileEvents = index.byFile.get(filePath) ?? [];
+  for (const e of fileEvents) {
+    if (e.globalIdx <= afterGlobalIdx) continue;
+    if (e.sessionId !== sessionId) continue;
+    if (e.kind === 'doc.save') {
+      return e.globalIdx;
+    }
+  }
+  return undefined;
 }
 
 function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[] {
@@ -106,8 +113,6 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
 
   const externalEvents = index.byKind.get('fs.external_change') ?? [];
   if (externalEvents.length === 0) return [];
-
-  const saveGlobalIdxByFile = buildSaveGlobalIdxByFile(index);
 
   // Cache reconstructed content at specific globalIdx boundaries.
   const reconstructionCache = new Map<string, string>();
@@ -135,18 +140,20 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
     // skip — we cannot compute a meaningful overlap ratio.
     if (preContent.length === 0) continue;
 
-    // Post-change content: use the content at the next save after this event,
-    // by reconstructing up to just past that save's globalIdx (exclusive = +1).
-    const saveIdxList = saveGlobalIdxByFile.get(filePath);
-    const nextSaveGi = saveIdxList !== undefined ? firstAfter(saveIdxList, e.globalIdx) : undefined;
+    // Liveness check: there must be a subsequent doc.save in the same session.
+    // This prevents flagging on stale external changes that the user never accepted.
+    const savePastExternal = nextSaveAfter(index, filePath, e.sessionId, e.globalIdx);
+    if (savePastExternal === undefined) continue;
 
-    if (nextSaveGi === undefined) {
-      // No subsequent save found; cannot determine post-change content.
-      continue;
-    }
-
-    // Reconstruct through and including the next save (upTo = nextSaveGi + 1).
-    const postContent = getContentAt(filePath, nextSaveGi + 1);
+    // Post-change content: reconstruct up to and including the first
+    // content-modifying event (doc.change or paste) after the external_change.
+    // This captures the post-external-change state (the content that the next
+    // content event establishes), avoiding inflation from subsequent user typing.
+    // If there's no content event after external_change, reconstruct immediately
+    // after external_change (which will be empty/tainted), and we'll skip below.
+    const firstContentGi = firstContentEventAfter(index, filePath, e.globalIdx);
+    const postGlobalIdx = (firstContentGi ?? e.globalIdx) + 1;
+    const postContent = getContentAt(filePath, postGlobalIdx);
 
     if (postContent.length === 0) continue;
 

@@ -159,6 +159,11 @@ export type HeuristicConfig = {
      * Default: 0.5 (50%).
      */
     sizeRatio: number;
+    /**
+     * Window (in ms) after idle-gap end within which a save is considered "post-idle".
+     * Default: 60000 (60 seconds).
+     */
+    postIdleWindowMs: number;
   };
   /** Phase 16: paste_matches_known_source heuristic. */
   pasteMatchesKnownSource: {
@@ -207,6 +212,7 @@ export const DEFAULT_HEURISTIC_CONFIG: HeuristicConfig = {
   idleThenComplete: {
     idleGapMs: 600_000, // 10 minutes
     sizeRatio: 0.5,
+    postIdleWindowMs: 60_000, // 60 seconds
   },
   pasteMatchesKnownSource: {
     fuzzyThreshold: 0.7,

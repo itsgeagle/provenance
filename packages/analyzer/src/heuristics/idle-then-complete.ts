@@ -38,9 +38,6 @@ import { reconstructFileWithProvenance } from '../index/reconstruct-file-provena
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Window after an idle-gap end within which a save is considered "post-idle". */
-const POST_IDLE_WINDOW_MS = 60_000; // 60 seconds
-
 function flagId(seqKey: string, idx: number): string {
   return `idle_then_complete-${seqKey}-${idx}`;
 }
@@ -111,7 +108,7 @@ function lastFileEventGlobalIdx(
 // ---------------------------------------------------------------------------
 
 function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[] {
-  const { idleGapMs, sizeRatio } = config.idleThenComplete;
+  const { idleGapMs, sizeRatio, postIdleWindowMs } = config.idleThenComplete;
 
   const saveEvents = index.byKind.get('doc.save') ?? [];
   if (saveEvents.length === 0) return [];
@@ -174,7 +171,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
     const gaps = findIdleGaps(heartbeats, idleGapMs);
     if (gaps.length === 0) continue;
 
-    // For each idle gap, find saves in [gapEndT, gapEndT + POST_IDLE_WINDOW_MS].
+    // For each idle gap, find saves in [gapEndT, gapEndT + postIdleWindowMs].
     for (const gap of gaps) {
       // Find files with saves in the post-idle window for this session.
       for (const [key, saves] of savesBySessionFile) {
@@ -182,7 +179,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
         const filePath = key.slice(sessionId.length + 1);
 
         const postIdleSave = saves.find(
-          (r) => r.event.t >= gap.gapEndT && r.event.t <= gap.gapEndT + POST_IDLE_WINDOW_MS,
+          (r) => r.event.t >= gap.gapEndT && r.event.t <= gap.gapEndT + postIdleWindowMs,
         );
         if (postIdleSave === undefined) continue;
 
