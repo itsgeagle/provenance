@@ -20,6 +20,24 @@
  *
  * One flag per `fs.external_change` event that co-occurs with an open terminal.
  * De-duplicated by the change event's seq.
+ *
+ * Known limitation — signal-to-noise:
+ *   Once any `terminal.open` event appears in a session, every subsequent
+ *   `fs.external_change` event will fire this heuristic for the remainder of
+ *   the session (since terminal.close is never emitted; terminals remain "open"
+ *   until session end). In sessions with many external changes (e.g., auto-save,
+ *   formatter runs, git operations), this results in repeated 'info' flags that
+ *   dilute the flag list and weaken the signal. Example: a 4-hour session with
+ *   one terminal open and 30 external changes yields 30 'info' flags, none of
+ *   which directly indicate dishonesty.
+ *
+ *   Mitigations for future polish:
+ *   - Gate on co-occurrence with `external_edits` or `mass_external_replacement`
+ *     flags (strengthens the case that the terminal contributed to the change).
+ *   - Aggregate to a single per-session flag listing all affected external-change
+ *     events, rather than one per event.
+ *   - Consider filtering out external changes with explanations that suggest
+ *     automated origin (e.g., "git", "formatter").
  */
 
 import type { EventIndex } from '../index/event-index.js';

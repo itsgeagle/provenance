@@ -363,14 +363,13 @@ describe('runHeuristics — snapshot fixture', () => {
 
     // Snapshot: assert flag count and heuristic-severity pairs are stable.
     const summary = flags.map((f) => ({ heuristic: f.heuristic, severity: f.severity }));
-    // Verify expected count: chain_broken(1) + large_paste(1) + external_edits(1) +
-    // low_typing_high_output(2: solution.py via large paste + file.py via ratio) +
-    // paste_is_solution(1: solution.py paste = 100% of final file content)
-    // Note: solution.py gets a large paste (tainted), so low_typing is only /test/file.py.
-    // Also large paste on solution.py is inline (< 4KB), so not tainted.
-    // solution.py: charsTyped=0, finalLength=600 → infinite ratio → high!
-    // file.py: charsTyped=1, finalLength=5 → ratio=5 → high!
-    // solution.py paste shares 100% lines with final file → paste_is_solution high!
+    // Verify expected count: 6 total flags
+    // - chain_broken(1): hash chain integrity failure
+    // - large_paste(1): solution.py 600-char paste
+    // - external_edits(1): helper.py external change, unexplained
+    // - low_typing_high_output(1): file.py only (solution.py is tainted by large paste)
+    //   file.py: typed 1 char, pasted 4 chars → ratio=5 → high severity
+    // - paste_is_solution(1): solution.py 600-char paste matches 100% of final content
     // Phase 17 heuristics do not fire on this fixture (no AI tool events, no clock.skew,
     // no heartbeats, single session, extension_hash suppressed via config override above).
     expect(summary).toEqual(

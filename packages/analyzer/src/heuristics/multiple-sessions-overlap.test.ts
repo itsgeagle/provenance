@@ -139,6 +139,34 @@ describe('multiple_sessions_overlap — positive', () => {
     expect(flags).toHaveLength(1);
   });
 
+  it('flags two open sessions (both no session.end) that overlap in wall-time', async () => {
+    // Session A: starts at 0, no session.end → range [0, Infinity)
+    // Session B: starts at 10, no session.end → range [10, Infinity)
+    // Both open → A.start < B.end (Inf) AND B.start < A.end (Inf) → always overlap
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [],
+          walls: [wallAt(0)],
+        },
+        {
+          events: [],
+          walls: [wallAt(10)],
+        },
+      ],
+    });
+    const flags = multipleSessionsOverlapHeuristic.run(index, bundle, defaultConfig);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.heuristic).toBe('multiple_sessions_overlap');
+    expect(flags[0]!.severity).toBe('high');
+    expect(flags[0]!.detail).toMatchObject({
+      sessionA: expect.any(String),
+      sessionB: expect.any(String),
+      sessionAEndWall: 'open',
+      sessionBEndWall: 'open',
+    });
+  });
+
   it('flag ID is stable across runs', async () => {
     const { index, bundle } = await buildAndIndex({
       sessions: [
