@@ -445,3 +445,78 @@ describe('CompareView — Phase 18 cross-flag rendering', () => {
     expect(screen.getByTestId('cross-flag-row-flag-2')).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// selectedIds auto-sync tests (Phase 18 review fix)
+// ---------------------------------------------------------------------------
+
+describe('CompareView — selectedIds auto-sync', () => {
+  beforeEach(() => {
+    mockUseBundleEnabled = true;
+  });
+  afterEach(() => {
+    mockUseBundleEnabled = false;
+    mockUseBundleReturn = null;
+  });
+
+  it('all initial bundles are checked on mount', () => {
+    mockUseBundleReturn = makeStubContext([]);
+
+    render(
+      <MemoryRouter>
+        <CompareView />
+      </MemoryRouter>,
+    );
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    // Both bundle-a and bundle-b should be checked (makeStubContext provides 2 bundles).
+    expect(checkboxes).toHaveLength(2);
+    for (const cb of checkboxes) {
+      expect((cb as HTMLInputElement).checked).toBe(true);
+    }
+  });
+
+  it('auto-checks a newly-loaded (3rd) bundle after remount with updated context', () => {
+    // Start with 2 bundles.
+    mockUseBundleReturn = makeStubContext([]);
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <CompareView />
+      </MemoryRouter>,
+    );
+
+    // Verify both initial bundles are checked.
+    let checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(2);
+
+    // Simulate a 3rd bundle being added (user loads more via Header).
+    const thirdBundle = {
+      id: 'bundle-c',
+      manifest: { assignment_id: 'hw1', semester: 'sp26' },
+      manifestSigHex: 'sig',
+      sessions: [],
+      sourceFilename: 'student-c.zip',
+      loadedAt: new Date().toISOString(),
+    } as unknown as import('../../loader/types.js').Bundle;
+
+    const updatedContext: BundleContextValue = {
+      ...makeStubContext([]),
+      bundles: [...makeStubContext([]).bundles, thirdBundle],
+    };
+    mockUseBundleReturn = updatedContext;
+
+    rerender(
+      <MemoryRouter>
+        <CompareView />
+      </MemoryRouter>,
+    );
+
+    // All 3 bundles should now be checked (auto-sync added the new one).
+    checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(3);
+    for (const cb of checkboxes) {
+      expect((cb as HTMLInputElement).checked).toBe(true);
+    }
+  });
+});

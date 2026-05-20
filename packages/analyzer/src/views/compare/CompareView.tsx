@@ -19,7 +19,7 @@
  * PRD refs: §7.4 cross-submission heuristics, §8 v2.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useBundle } from '../../context/BundleContext.js';
 import type { Bundle } from '../../loader/types.js';
 import type { CrossFlag } from '../../heuristics/cross/types.js';
@@ -240,6 +240,28 @@ export function CompareView() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     () => new Set(bundles.map((b) => b.id)),
   );
+
+  // Auto-check bundles that arrive after mount (e.g. user loads a 3rd bundle
+  // via the Header while CompareView is already mounted). Without this, the new
+  // bundle's id is never added to selectedIds, so cross-flags involving it are
+  // silently hidden (the `every` filter in visibleCrossFlags requires all
+  // involved bundles to be selected).
+  //
+  // Functional-updater + changed flag: preserves reference equality when
+  // nothing changed, avoiding spurious re-renders.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const b of bundles) {
+        if (!next.has(b.id)) {
+          next.add(b.id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [bundles]);
 
   const toggleBundle = (id: string) => {
     setSelectedIds((prev) => {

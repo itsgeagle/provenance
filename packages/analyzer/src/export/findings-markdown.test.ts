@@ -11,6 +11,7 @@ import { renderFindings, filenameFor } from './findings-markdown.js';
 import type { Bundle } from '../loader/types.js';
 import type { ValidationReport } from '../validation/check-types.js';
 import type { Flag } from '../heuristics/types.js';
+import type { CrossFlag } from '../heuristics/cross/types.js';
 import type { HashedEnvelope } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
@@ -373,6 +374,102 @@ describe('renderFindings', () => {
     expect(md).toContain('hw1 # Forged heading');
     expect(md).toContain('sp26 # Another forged');
     expect(md).toContain('bundle.zip # Injected');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Cross-flags section (Phase 18 review fix)
+  // ---------------------------------------------------------------------------
+
+  const fixtureCrossFlag: CrossFlag = {
+    id: 'paste_shared_across_students-bundle-x|bundle-y-0',
+    heuristic: 'paste_shared_across_students',
+    title: 'Shared paste detected across 2 bundles',
+    severity: 'high',
+    confidence: 0.95,
+    bundleIds: ['bundle-x', 'bundle-y'],
+    eventsPerBundle: {
+      'bundle-x': ['sess-x:3', 'sess-x:7'],
+      'bundle-y': ['sess-y:2'],
+    },
+    description: 'An identical paste appears in 2 different student bundles.',
+    detail: { matchKind: 'sha256_exact', pasteCount: 2 },
+  };
+
+  const fixtureBundleNamesById: Record<string, string> = {
+    'bundle-x': 'student-x.zip',
+    'bundle-y': 'student-y.zip',
+  };
+
+  it('renders a Cross-submission flags section when crossFlags is non-empty (inline snapshot)', () => {
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, [], {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+      crossFlags: [fixtureCrossFlag],
+      bundleNamesById: fixtureBundleNamesById,
+    });
+
+    // Section heading present.
+    expect(md).toContain('## Cross-submission flags');
+    // Flag heading present.
+    expect(md).toContain('### 1. Shared paste detected across 2 bundles');
+    // Bundle name labels (sourceFilename, not UUID).
+    expect(md).toContain('student-x.zip');
+    expect(md).toContain('student-y.zip');
+    // Supporting events line.
+    expect(md).toContain('sess-x:3, sess-x:7');
+    expect(md).toContain('sess-y:2');
+    // Description.
+    expect(md).toContain('An identical paste appears in 2 different student bundles.');
+    // The section appears between the per-bundle flags section and the appendix.
+    const crossPos = md.indexOf('## Cross-submission flags');
+    const appendixPos = md.indexOf('## Appendix:');
+    expect(crossPos).toBeGreaterThan(-1);
+    expect(appendixPos).toBeGreaterThan(crossPos);
+  });
+
+  it('omits the Cross-submission flags section when crossFlags is empty', () => {
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, fixtureFlags, {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+      bundleSha256: 'c'.repeat(64),
+      crossFlags: [],
+    });
+
+    expect(md).not.toContain('## Cross-submission flags');
+    // Output must be byte-identical to the snapshot (no crossFlags passed at all).
+    const mdNoCrossFlags = renderFindings(makeFixtureBundle(), fixtureReport, fixtureFlags, {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+      bundleSha256: 'c'.repeat(64),
+    });
+    expect(md).toBe(mdNoCrossFlags);
+  });
+
+  it('omits the Cross-submission flags section when crossFlags is omitted', () => {
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, fixtureFlags, {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+      bundleSha256: 'c'.repeat(64),
+    });
+
+    expect(md).not.toContain('## Cross-submission flags');
+  });
+
+  it('escapes newlines in cross-flag title/description to prevent markdown injection', () => {
+    const injectionCrossFlag: CrossFlag = {
+      ...fixtureCrossFlag,
+      title: 'paste in hw1.py\n\n# Forged',
+      description: 'desc\n\n# Forged description',
+    };
+
+    const md = renderFindings(makeFixtureBundle(), fixtureReport, [], {
+      generatedAt: new Date('2026-05-19T12:34:56.000Z'),
+      crossFlags: [injectionCrossFlag],
+      bundleNamesById: fixtureBundleNamesById,
+    });
+
+    // No standalone `# Forged …` heading line.
+    expect(md).not.toMatch(/^#[^#].*Forged/m);
+    expect(md).not.toContain('\n# Forged');
+    // The text is still present, just collapsed.
+    expect(md).toContain('paste in hw1.py # Forged');
+    expect(md).toContain('desc # Forged description');
   });
 });
 
