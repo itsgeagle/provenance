@@ -36,7 +36,7 @@ import type * as MonacoType from 'monaco-editor';
 import { useBundle } from '../../context/BundleContext.js';
 import { useReplayEngine } from './useReplayEngine.js';
 import { FileTabs } from './FileTabs.js';
-import { MonacoMount } from './MonacoMount.js';
+import { MonacoMount, languageFromPath } from './MonacoMount.js';
 import { TransportBar } from './TransportBar.js';
 import { GutterDecorations } from './GutterDecorations.js';
 import { LineHoverProvider } from './LineHoverProvider.js';
@@ -132,25 +132,7 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
 
   // Language for the hover provider (derived from the active file path).
   const language = useMemo(() => {
-    if (resolvedFile === null) return 'plaintext';
-    const ext = resolvedFile.split('.').pop()?.toLowerCase() ?? '';
-    switch (ext) {
-      case 'py':
-        return 'python';
-      case 'js':
-      case 'jsx':
-        return 'javascript';
-      case 'ts':
-      case 'tsx':
-        return 'typescript';
-      case 'json':
-        return 'json';
-      case 'md':
-      case 'markdown':
-        return 'markdown';
-      default:
-        return 'plaintext';
-    }
+    return resolvedFile !== null ? languageFromPath(resolvedFile) : 'plaintext';
   }, [resolvedFile]);
 
   // ---------------------------------------------------------------------------

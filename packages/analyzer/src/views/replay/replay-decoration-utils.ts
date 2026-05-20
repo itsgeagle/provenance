@@ -162,9 +162,8 @@ export function hoverContentFor(
 
   // Find the event by globalIdx. The ordered array is indexed by globalIdx
   // (ordered[gi].globalIdx === gi by build-index invariant), so direct access
-  // is O(1). Fallback to linear search for robustness.
-  const event: IndexedEvent | undefined =
-    orderedEvents[gi] ?? orderedEvents.find((e) => e.globalIdx === gi);
+  // is O(1).
+  const event = orderedEvents[gi];
   if (event === undefined) return null;
 
   return `Last modified at t=${event.t}ms, kind=${kind}, seq=#${event.seq}`;

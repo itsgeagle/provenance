@@ -36,7 +36,7 @@ const MonacoEditor = React.lazy(() => import('@monaco-editor/react'));
 // Language detection
 // ---------------------------------------------------------------------------
 
-function languageFromPath(filePath: string): string {
+export function languageFromPath(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   switch (ext) {
     case 'py':

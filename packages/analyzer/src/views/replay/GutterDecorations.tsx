@@ -84,15 +84,6 @@ export function GutterDecorations({ editor, fileState }: GutterDecorationsProps)
     decorationIdsRef.current = newIds;
   }, [editor, fileState]);
 
-  // Cleanup: remove all decorations when this component unmounts.
-  useEffect(() => {
-    return () => {
-      // We access editor through a closure capture — this is safe because
-      // the outer effect already ran and set decorationIdsRef.
-      // We cannot access `editor` here directly without a ref, so we store it.
-    };
-  }, []);
-
   // Separate cleanup effect that captures editor in a ref.
   const editorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
   useEffect(() => {

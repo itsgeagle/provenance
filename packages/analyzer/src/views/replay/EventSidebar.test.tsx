@@ -127,6 +127,6 @@ describe('ColorLegend', () => {
     expect(legend).toBeDefined();
     expect(legend.textContent).toContain('Paste');
     expect(legend.textContent).toContain('External');
-    expect(legend.textContent).toContain('Typed');
+    expect(legend.textContent).toContain('Uncolored: typed');
   });
 });

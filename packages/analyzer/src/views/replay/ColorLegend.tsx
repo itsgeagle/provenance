@@ -22,10 +22,10 @@ type ColorLegendProps = {
 // Legend items
 // ---------------------------------------------------------------------------
 
-const LEGEND_ITEMS: { label: string; color: string }[] = [
+const LEGEND_ITEMS: Array<{ label: string; color: string | undefined }> = [
   { label: 'Paste', color: 'rgba(251, 146, 60, 0.4)' }, // orange-400 tint
   { label: 'External', color: 'rgba(239, 68, 68, 0.4)' }, // red-500 tint
-  { label: 'Typed', color: 'rgba(148, 163, 184, 0.2)' }, // slate-400 tint (unstyled = default)
+  { label: 'Uncolored: typed', color: undefined }, // typed regions have no decoration
 ];
 
 // ---------------------------------------------------------------------------
@@ -45,11 +45,18 @@ export function ColorLegend({ className }: ColorLegendProps) {
     >
       {LEGEND_ITEMS.map(({ label, color }) => (
         <span key={label} className="flex items-center gap-1">
-          <span
-            className="inline-block h-3 w-3 rounded-sm border border-border/50"
-            style={{ backgroundColor: color }}
-            aria-hidden="true"
-          />
+          {color !== undefined ? (
+            <span
+              className="inline-block h-3 w-3 rounded-sm border border-border/50"
+              style={{ backgroundColor: color }}
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              className="inline-block h-3 w-3 rounded-sm border border-border/50 bg-transparent"
+              aria-hidden="true"
+            />
+          )}
           {label}
         </span>
       ))}

@@ -54,8 +54,18 @@ type LineHoverProviderProps = {
  * Registers a Monaco hover provider showing provenance for the hovered
  * character. Returns null — this component is purely a side-effect driver.
  *
- * The provider is re-registered whenever `fileState` or `orderedEvents`
- * changes so the closure always captures fresh data.
+ * The provider is per-language, not per-editor instance. It is registered
+ * (and re-registered on deps changes) via `monaco.languages.registerHoverProvider()`.
+ * Re-registration happens when `fileState`, `orderedEvents`, or `language` changes;
+ * the old provider is disposed and a new one is registered with fresh closures.
+ *
+ * Known limitation (Phase 14):
+ *   During rapid state changes (e.g., scrubbing through events quickly), the
+ *   cleanup-then-register dance creates brief windows where the hover provider
+ *   is unregistered. In these moments, hovering over code shows no provenance
+ *   (hover box appears empty). This is a cosmetic limitation for single-editor
+ *   scenarios. Multi-editor support for the same language (Phase 15 or v2.1)
+ *   would need a model-keyed registration scheme to avoid re-registration.
  */
 export function LineHoverProvider({
   editor,
