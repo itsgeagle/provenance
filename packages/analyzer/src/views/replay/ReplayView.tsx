@@ -260,11 +260,11 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
   // ---------------------------------------------------------------------------
 
   function handlePlay() {
-    // Read speed from URL param if present; otherwise use current engine speed.
-    const speedParam = searchParams.get('speed');
-    const parsedSpeed = speedParam !== null ? parseFloat(speedParam) : NaN;
-    const speed = !isNaN(parsedSpeed) && parsedSpeed > 0 ? parsedSpeed : state.speed;
-    play(speed);
+    // Use current engine speed. URL ?speed= is a delayed mirror (debounced 100ms),
+    // not the source of truth. state.speed is updated synchronously by handleSpeedChange.
+    // Reading the stale URL param here risks a race: if the user changes speed then
+    // clicks Play within 100ms, the URL hasn't been written yet (A47).
+    play(state.speed);
   }
 
   // SpeedControl: update the engine speed.

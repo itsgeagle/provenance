@@ -125,56 +125,63 @@ export const fixtureFlags: Flag[] = [
 // ---------------------------------------------------------------------------
 
 export function makeMinimalIndex(): EventIndex {
-  return {
-    bySeq: new Map(),
-    byKind: new Map(),
-    byFile: new Map([
-      [
-        'hw1.py',
-        [
-          {
-            sessionId: 'abc',
-            seq: 1,
-            globalIdx: 1,
-            wall: '2026-01-01T00:00:10.000Z',
-            t: 10000,
-            kind: 'doc.change',
-            payload: {
-              deltas: [
-                {
-                  text: 'hello',
-                  range: {
-                    start: { line: 0, character: 0 },
-                    end: { line: 0, character: 0 },
-                  },
-                },
-              ],
+  // bySeq maps "${sessionId}:${seq}" → event.
+  const bySeqMap = new Map([
+    [
+      'abc:1',
+      {
+        sessionId: 'abc',
+        seq: 1,
+        globalIdx: 1,
+        wall: '2026-01-01T00:00:10.000Z',
+        t: 10000,
+        kind: 'doc.change' as const,
+        payload: {
+          deltas: [
+            {
+              text: 'hello',
+              range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 0 },
+              },
             },
-            filePath: 'hw1.py',
-          },
-          {
-            sessionId: 'abc',
-            seq: 2,
-            globalIdx: 2,
-            wall: '2026-01-01T00:00:20.000Z',
-            t: 20000,
-            kind: 'paste',
-            payload: { length: 300, file: 'hw1.py' },
-            filePath: 'hw1.py',
-          },
-          {
-            sessionId: 'abc',
-            seq: 3,
-            globalIdx: 3,
-            wall: '2026-01-01T00:00:30.000Z',
-            t: 30000,
-            kind: 'doc.save',
-            payload: { sha256: 'abc', file: 'hw1.py' },
-            filePath: 'hw1.py',
-          },
-        ],
-      ],
-    ]),
+          ],
+        },
+        filePath: 'hw1.py',
+      },
+    ],
+    [
+      'abc:2',
+      {
+        sessionId: 'abc',
+        seq: 2,
+        globalIdx: 2,
+        wall: '2026-01-01T00:00:20.000Z',
+        t: 20000,
+        kind: 'paste' as const,
+        payload: { length: 300, file: 'hw1.py' },
+        filePath: 'hw1.py',
+      },
+    ],
+    [
+      'abc:3',
+      {
+        sessionId: 'abc',
+        seq: 3,
+        globalIdx: 3,
+        wall: '2026-01-01T00:00:30.000Z',
+        t: 30000,
+        kind: 'doc.save' as const,
+        payload: { sha256: 'abc', file: 'hw1.py' },
+        filePath: 'hw1.py',
+      },
+    ],
+  ]);
+
+  return {
+    bySeq: bySeqMap,
+    byKind: new Map(),
+    byFile: new Map([['hw1.py', Array.from(bySeqMap.values())]]),
     bySessionId: new Map([['abc', []]]),
     ordered: [
       {
