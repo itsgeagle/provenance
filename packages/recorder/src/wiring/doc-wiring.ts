@@ -125,6 +125,31 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   let prevFocused = vscode.window.state.focused;
 
   // -------------------------------------------------------------------------
+  // Recordability filter (PRD §4.1, §4.2)
+  //
+  // The recorder MUST NOT record activity outside the assignment workspace.
+  // This guard is the single source of truth for "is this document inside
+  // the workspace and is it a real on-disk file?" It is applied at the top
+  // of every live subscription handler (open/change/save/close/selection).
+  //
+  // Two checks:
+  //   1. scheme === 'file'  — excludes 'vscode-userdata', 'output', 'git',
+  //      'untitled', and any other virtual scheme.
+  //   2. asRelativePath(uri) !== uri.fsPath  — VS Code's asRelativePath
+  //      returns the absolute fsPath verbatim when the file is OUTSIDE the
+  //      workspace folder. A successful relative-path conversion means the
+  //      file is inside the workspace.
+  //
+  // The startup catch-up loop at the bottom of this function applies the
+  // same filter inline; the helper here covers live events.
+  // -------------------------------------------------------------------------
+  function isRecordable(uri: { fsPath: string; scheme: string }): boolean {
+    if (uri.scheme !== 'file') return false;
+    const rel = workspace.asRelativePath(uri as import('vscode').Uri);
+    return rel !== uri.fsPath;
+  }
+
+  // -------------------------------------------------------------------------
   // doc.open
   // -------------------------------------------------------------------------
   // Track documents we've already emitted doc.open for. VS Code should not
@@ -167,6 +192,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   }
 
   const openSub = vscode.workspace.onDidOpenTextDocument((document) => {
+    if (!isRecordable(document.uri)) return;
     emitDocOpenForDocument(document);
   });
 
@@ -174,6 +200,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // doc.change — integrates paste detection (PRD §4.3)
   // -------------------------------------------------------------------------
   const changeSub = vscode.workspace.onDidChangeTextDocument((event) => {
+    if (!isRecordable(event.document.uri)) return;
     const relativePath = workspace.asRelativePath(event.document.uri);
 
     // Track last doc.change time for this path BEFORE checking contentChanges length.
@@ -220,12 +247,38 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
       // both produce a 'paste' event. The reconciler (signal 3) handles discrepancy tracking.
       void isConfirmed; // intentionally unused in v1 per PRD analysis in task spec
 
-      // Build paste payload from the single delta's text
-      const delta = deltas[0]!;
-      const fields = buildPastePayload(delta.text);
-      const pastePayload = transformPaste(relativePath, delta.range, fields);
+      // Two emit paths:
+      //
+      // (a) Single delta with empty range — classical paste shape. Emit a
+      //     `paste` event; analyzer reconstructs the file by inserting the
+      //     pasted text at the recorded range.
+      //
+      // (b) Anything else (multi-delta WorkspaceEdit, large replacement of
+      //     existing content) — emit `doc.change` with source='paste_likely'
+      //     so the analyzer can apply the deltas faithfully (preserves
+      //     reconstruction). The `source` field marks it as suspicious for
+      //     downstream heuristics. We cannot route these through `paste`
+      //     because PastePayload carries a single range/text, while the
+      //     event in question may span multiple disjoint ranges that
+      //     applyPaste cannot reproduce.
+      const isSinglePasteShaped =
+        deltas.length === 1 &&
+        deltas[0]!.range.start.line === deltas[0]!.range.end.line &&
+        deltas[0]!.range.start.character === deltas[0]!.range.end.character;
 
-      emitPaste(pastePayload);
+      if (isSinglePasteShaped) {
+        const delta = deltas[0]!;
+        const fields = buildPastePayload(delta.text);
+        const pastePayload = transformPaste(relativePath, delta.range, fields);
+        emitPaste(pastePayload);
+      } else {
+        // Bulk insertion that isn't a clean single-range paste: emit as
+        // doc.change with paste_likely source so reconstruction stays
+        // faithful and heuristics can still see the signal.
+        const payload = transformDocChange(event, workspace);
+        payload.source = 'paste_likely';
+        emitDocChange(payload);
+      }
     } else {
       // typed path — emit doc.change as before
       emitDocChange(transformDocChange(event, workspace));
@@ -236,6 +289,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // doc.save — Phase 7: compare on-disk content against expected for watched files.
   // -------------------------------------------------------------------------
   const saveSub = vscode.workspace.onDidSaveTextDocument((document) => {
+    if (!isRecordable(document.uri)) return;
     const relativePath = workspace.asRelativePath(document.uri);
 
     if (expectedContent.isWatched(relativePath)) {
@@ -285,6 +339,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // doc.close
   // -------------------------------------------------------------------------
   const closeSub = vscode.workspace.onDidCloseTextDocument((document) => {
+    if (!isRecordable(document.uri)) return;
     // CLAUDE.md: do not delete registry entry on close; close+reopen is common.
     emitDocClose(transformDocClose(document, workspace));
   });
@@ -293,6 +348,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // selection.change
   // -------------------------------------------------------------------------
   const selectionSub = vscode.window.onDidChangeTextEditorSelection((event) => {
+    if (!isRecordable(event.textEditor.document.uri)) return;
     emitSelectionChange(transformSelectionChange(event, workspace));
   });
 
@@ -327,15 +383,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // `emitDocOpenForDocument` prevents double-emits for such a race.
   // -------------------------------------------------------------------------
   for (const doc of vscode.workspace.textDocuments) {
-    if (doc.uri.scheme !== 'file') {
-      continue;
-    }
-    const relPath = workspace.asRelativePath(doc.uri);
-    // asRelativePath returns the original fsPath when the file is outside the
-    // workspace. We want only in-workspace files.
-    if (relPath === doc.uri.fsPath) {
-      continue;
-    }
+    if (!isRecordable(doc.uri)) continue;
     emitDocOpenForDocument(doc);
   }
 

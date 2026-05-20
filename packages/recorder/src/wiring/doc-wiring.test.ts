@@ -105,8 +105,15 @@ import { sha256Hex } from '@provenance/log-core';
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+// All in-workspace paths in tests live under a synthetic '/workspace/' root.
+// `testWorkspace.asRelativePath` strips that prefix; the recorder's
+// `isRecordable` guard treats anything where asRelativePath(uri) === uri.fsPath
+// as out-of-workspace and skips it. Passing an already-absolute path
+// (starts with '/') routes around the prefix so tests can simulate
+// out-of-workspace URIs (e.g. '/outside/some.py').
 function fakeUri(path = 'src/foo.py') {
-  return { fsPath: path };
+  const fsPath = path.startsWith('/') ? path : `/workspace/${path}`;
+  return { fsPath, scheme: 'file' };
 }
 
 function fakeDoc(options: { path?: string; lineCount?: number; text?: string } = {}) {
@@ -142,7 +149,10 @@ function fakeChangeEvent(
 }
 
 const testWorkspace: WorkspaceLike = {
-  asRelativePath: (uri) => (uri as { fsPath: string }).fsPath,
+  asRelativePath: (uri) => {
+    const fsPath = (uri as { fsPath: string }).fsPath;
+    return fsPath.startsWith('/workspace/') ? fsPath.slice('/workspace/'.length) : fsPath;
+  },
 };
 
 function makeEmitters() {
@@ -576,7 +586,7 @@ describe('startDocWiring', () => {
     expect(emitters.emitPaste).not.toHaveBeenCalled();
   });
 
-  it('large insert with non-empty range: emits doc.change (deletion present → not paste)', () => {
+  it('large insert with non-empty range: emits doc.change with source=paste_likely (replacement-shaped bulk edit)', () => {
     setMockWindowState({ focused: true });
     const registry = new ExpectedContentRegistry(['src/foo.py']);
     const emitters = makeEmitters();
@@ -595,8 +605,40 @@ describe('startDocWiring', () => {
     ]);
     changeSub.handler!(event);
 
+    // Under the broadened classifier this is paste_likely (rule 1: any single
+    // delta ≥ threshold), but routed through doc.change because the range
+    // isn't empty — applyPaste can't reproduce a replacement.
     expect(emitters.emitDocChange).toHaveBeenCalledOnce();
     expect(emitters.emitPaste).not.toHaveBeenCalled();
+    const payload = emitters.emitDocChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.source).toBe('paste_likely');
+  });
+
+  it('multi-delta WorkspaceEdit (tool-applied): emits doc.change with source=paste_likely', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    // Two deltas, aggregate ≥ threshold, one carries a newline → rule 2.
+    const event = fakeChangeEvent('src/foo.py', [
+      { startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: 'x'.repeat(20) },
+      { startLine: 1, startChar: 0, endLine: 1, endChar: 0, text: 'line\nmore-line-text' },
+    ]);
+    changeSub.handler!(event);
+
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+    const payload = emitters.emitDocChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.source).toBe('paste_likely');
+    expect(Array.isArray(payload.deltas)).toBe(true);
+    expect((payload.deltas as unknown[]).length).toBe(2);
   });
 
   it('large-insert counter increments on paste_likely, not on typed', () => {
@@ -943,5 +985,132 @@ describe('startDocWiring', () => {
 
     // seenDocs Set must prevent a second emit.
     expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
+  });
+
+  // -------------------------------------------------------------------------
+  // Recordability filter: scheme + in-workspace guard (PRD §4.1, §4.2)
+  // -------------------------------------------------------------------------
+
+  describe('recordability filter', () => {
+    it('skips doc.open / doc.change / doc.save / doc.close / selection for non-file scheme', () => {
+      setMockWindowState({ focused: true });
+      const registry = new ExpectedContentRegistry([]);
+      const emitters = makeEmitters();
+      startDocWiring({
+        workspace: testWorkspace,
+        ...emitters,
+        filesUnderReview: [],
+        expectedContent: registry,
+        ...makeDefaultPasteDeps(),
+      });
+
+      const virtualDoc = {
+        uri: { fsPath: '/workspace/src/foo.py', scheme: 'output' },
+        lineCount: 1,
+        getText: () => 'x',
+      };
+
+      openSub.handler!(virtualDoc);
+      changeSub.handler!({
+        document: virtualDoc,
+        contentChanges: [
+          {
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 0 },
+            },
+            text: 'hello',
+            rangeOffset: 0,
+            rangeLength: 0,
+          },
+        ],
+      });
+      saveSub.handler!(virtualDoc);
+      closeSub.handler!(virtualDoc);
+      selectionSub.handler!({
+        textEditor: { document: virtualDoc },
+        selections: [
+          {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 0 },
+            isEmpty: true,
+          },
+        ],
+      });
+
+      expect(emitters.emitDocOpen).not.toHaveBeenCalled();
+      expect(emitters.emitDocChange).not.toHaveBeenCalled();
+      expect(emitters.emitPaste).not.toHaveBeenCalled();
+      expect(emitters.emitDocSave).not.toHaveBeenCalled();
+      expect(emitters.emitDocClose).not.toHaveBeenCalled();
+      expect(emitters.emitSelectionChange).not.toHaveBeenCalled();
+    });
+
+    it('skips out-of-workspace file-scheme documents (e.g. VS Code settings.json, /terminal2.py)', () => {
+      setMockWindowState({ focused: true });
+      const registry = new ExpectedContentRegistry([]);
+      const emitters = makeEmitters();
+      startDocWiring({
+        workspace: testWorkspace,
+        ...emitters,
+        filesUnderReview: [],
+        expectedContent: registry,
+        ...makeDefaultPasteDeps(),
+      });
+
+      // Outside workspace: testWorkspace.asRelativePath returns the fsPath
+      // verbatim (relPath === fsPath), so the filter rejects it.
+      const outsideDoc = {
+        uri: { fsPath: '/terminal2.py', scheme: 'file' },
+        lineCount: 1,
+        getText: () => 'print(1)\n',
+      };
+
+      openSub.handler!(outsideDoc);
+      changeSub.handler!({
+        document: outsideDoc,
+        contentChanges: [
+          {
+            range: {
+              start: { line: 0, character: 0 },
+              end: { line: 0, character: 0 },
+            },
+            text: 'x',
+            rangeOffset: 0,
+            rangeLength: 0,
+          },
+        ],
+      });
+      saveSub.handler!(outsideDoc);
+      closeSub.handler!(outsideDoc);
+
+      expect(emitters.emitDocOpen).not.toHaveBeenCalled();
+      expect(emitters.emitDocChange).not.toHaveBeenCalled();
+      expect(emitters.emitPaste).not.toHaveBeenCalled();
+      expect(emitters.emitDocSave).not.toHaveBeenCalled();
+      expect(emitters.emitDocClose).not.toHaveBeenCalled();
+    });
+
+    it('records in-workspace file-scheme documents normally', () => {
+      setMockWindowState({ focused: true });
+      const registry = new ExpectedContentRegistry([]);
+      const emitters = makeEmitters();
+      startDocWiring({
+        workspace: testWorkspace,
+        ...emitters,
+        filesUnderReview: [],
+        expectedContent: registry,
+        ...makeDefaultPasteDeps(),
+      });
+
+      // fakeUri uses '/workspace/' prefix; testWorkspace strips it →
+      // relPath !== fsPath → isRecordable() returns true.
+      const doc = fakeDoc({ path: 'src/hw.py', text: 'x', lineCount: 1 });
+      openSub.handler!(doc);
+
+      expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
+      const payload = emitters.emitDocOpen.mock.calls[0]![0] as Record<string, unknown>;
+      expect(payload.path).toBe('src/hw.py');
+    });
   });
 });
