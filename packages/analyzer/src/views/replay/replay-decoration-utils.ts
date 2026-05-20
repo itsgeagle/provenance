@@ -82,7 +82,12 @@ export function runsFromProvenance(state: FileReplayState): DecorationRun[] {
     for (let charIdx = 0; charIdx < line.provenance.length; charIdx++) {
       const gi = line.provenance[charIdx]!;
       const kind = state.kindByGlobalIdx.get(gi);
-      const effectiveKind: 'paste' | 'external_change' | 'typed' = kind ?? 'typed';
+      // 'preexisting' characters (recorder v1.1 initial content) are rendered
+      // without any decoration, same as 'typed'. Future work (Phase 14) could
+      // give them a distinct gutter color.
+      const rawKind = kind ?? 'typed';
+      const effectiveKind: 'paste' | 'external_change' | 'typed' =
+        rawKind === 'preexisting' ? 'typed' : rawKind;
 
       if (effectiveKind === 'typed') {
         // Close any open non-typed run.

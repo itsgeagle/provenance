@@ -544,3 +544,154 @@ describe('reconstructFile — exit gate: sha256 matches recorded saves', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// reconstructFile — recorder v1.1 doc.open content seeding
+// ---------------------------------------------------------------------------
+
+describe('reconstructFile — doc.open content seeding (recorder v1.1)', () => {
+  it('seeds content from doc.open payload and applies subsequent delta correctly', async () => {
+    // Reproduces the real-world bug: hw.py has '# placeholder\n' as pre-existing
+    // content; the first recorded delta inserts 'h' at line 1, char 0.
+    //
+    // OLD behaviour (no content in doc.open):
+    //   content starts as '' → delta clamps to offset 0 → result: 'h'
+    //
+    // NEW behaviour (recorder v1.1, content seeded):
+    //   content starts as '# placeholder\n' → delta at L1C0 = offset 15
+    //   → result: '# placeholder\nh'
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'hw.py',
+                sha256: sha256Hex('# placeholder\n'),
+                line_count: 2,
+                content: '# placeholder\n',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hw.py',
+                deltas: [
+                  {
+                    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+                    text: 'h',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, 'hw.py');
+
+    expect(recon.content).toBe('# placeholder\nh');
+    expect(recon.tainted).toBe(false);
+  });
+
+  it('without doc.open content (pre-v1.1 behaviour), delta at L1C0 clamps to empty string', async () => {
+    // Control case: no content field in doc.open → starts from ''.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'hw.py',
+                sha256: sha256Hex('# placeholder\n'),
+                line_count: 2,
+                // No content field — pre-v1.1 recorder behaviour.
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hw.py',
+                deltas: [
+                  {
+                    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+                    text: 'h',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, 'hw.py');
+
+    // Without initial content, L1C0 in an empty string clamps to offset 0.
+    expect(recon.content).toBe('h');
+    expect(recon.tainted).toBe(false);
+  });
+
+  it('save hash matches after seeding from doc.open content', async () => {
+    // Verify that the recorded doc.save hash matches the reconstructed content
+    // when reconstruction is seeded from doc.open content.
+    const initialContent = '# placeholder\n';
+    const finalContent = '# placeholder\ndef main():\n    pass\n';
+    const saveHash = sha256Hex(finalContent);
+
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'hw.py',
+                sha256: sha256Hex(initialContent),
+                line_count: 2,
+                content: initialContent,
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hw.py',
+                deltas: [
+                  {
+                    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+                    text: 'def main():\n    pass\n',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'doc.save',
+              data: { path: 'hw.py', sha256: saveHash },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, 'hw.py');
+
+    expect(recon.tainted).toBe(false);
+    expect(recon.content).toBe(finalContent);
+    expect(recon.hashBySaveSeq.size).toBe(1);
+    const recordedHash = [...recon.hashBySaveSeq.values()][0]!;
+    expect(sha256Hex(recon.content)).toBe(recordedHash);
+    expect(recordedHash).toBe(saveHash);
+  });
+});

@@ -37,8 +37,18 @@ import type { EventIndex } from './event-index.js';
  * The kind tag we attribute to an event in `kindByGlobalIdx`. This is a
  * narrowed projection of `EventKind` covering only the events that can
  * actually write characters into a file's content.
+ *
+ * `'preexisting'` is set for `doc.open` events whose payload carries a
+ * `content` field (recorder v1.1+). Every position in `provenance` seeded
+ * from that initial content is attributed to the doc.open event's globalIdx.
+ * Unlike `'external_change'`, preexisting entries DO have characters mapped
+ * to them in the provenance array.
+ *
+ * Future UI work (Phase 14 gutter coloring) could render preexisting
+ * characters in a distinct color (e.g. greyed-out to indicate "not written
+ * during this session").
  */
-export type ProvenanceKind = 'typed' | 'paste' | 'external_change';
+export type ProvenanceKind = 'typed' | 'paste' | 'external_change' | 'preexisting';
 
 /**
  * State of a file at a given point in its event stream.
@@ -59,11 +69,12 @@ export type FileReplayState = {
   provenance: Uint32Array;
   /**
    * Maps a writing event's `globalIdx` to the kind of write it performed.
-   * For `'typed'` and `'paste'` entries, at least one position in `provenance`
-   * will equal that `globalIdx`. For `'external_change'` entries, the event
-   * cleared the file's content; no character in `provenance` will equal that
-   * `globalIdx` (the entry is a sentinel). Do not assume bijection in either
-   * direction when building Phase 14 gutter/hover decoration logic.
+   * For `'typed'`, `'paste'`, and `'preexisting'` entries, at least one
+   * position in `provenance` will equal that `globalIdx`. For
+   * `'external_change'` entries, the event cleared the file's content; no
+   * character in `provenance` will equal that `globalIdx` (the entry is a
+   * sentinel). Do not assume bijection in either direction when building
+   * Phase 14 gutter/hover decoration logic.
    */
   kindByGlobalIdx: Map<number, ProvenanceKind>;
   /** Maps `${sessionId}:${seq}` to the sha256 recorded at that save event. */
@@ -204,7 +215,11 @@ function applyPasteWithProvenance(
  * exclusive).
  *
  * Semantics match v1's `reconstructFile`:
- *  - `doc.open` / `doc.close` — ignored.
+ *  - `doc.open` — if the payload has a `content` field (recorder v1.1+),
+ *                 seeds content and provenance; every seeded character is
+ *                 attributed to this event's globalIdx with kind
+ *                 `'preexisting'`. Pre-v1.1 payloads are ignored.
+ *  - `doc.close` — ignored.
  *  - `doc.change` — splice deltas; attribute inserted chars to the event.
  *  - `paste` (inline) — splice; attribute inserted chars to the event.
  *  - `paste` (large, no inline content) — clear content + provenance.
@@ -232,7 +247,22 @@ export function reconstructFileWithProvenance(
     if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
 
     switch (e.kind) {
-      case 'doc.open':
+      case 'doc.open': {
+        // Recorder v1.1+ includes the file's initial content in the payload.
+        // Seed content and provenance; attribute every character to this event.
+        //
+        // Pre-v1.1 doc.open events have no content field — analyzer cannot
+        // recover initial content and reconstruction starts from ''.
+        const p = e.payload as Record<string, unknown> | null;
+        if (typeof p?.['content'] === 'string') {
+          const initialText = p['content'];
+          content = initialText;
+          provenance = Array.from({ length: initialText.length }, () => e.globalIdx);
+          kindByGlobalIdx.set(e.globalIdx, 'preexisting');
+        }
+        break;
+      }
+
       case 'doc.close':
         break;
 

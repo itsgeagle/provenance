@@ -154,7 +154,9 @@ export function applyPaste(
  * already in chronological order (globalIdx ascending).
  *
  * Reconstruction semantics:
- *  - `doc.open`   — no content in the payload, ignored for content purposes.
+ *  - `doc.open`   — if the payload has a `content` field (recorder v1.1+),
+ *                   seeds the running content from it. Pre-v1.1 payloads
+ *                   have no content field; reconstruction starts from ''.
  *  - `doc.close`  — ignored; content keeps accumulating (we want final state).
  *  - `doc.change` — apply deltas via applyDocChange.
  *  - `paste`      — apply via applyPaste if inline; otherwise taint.
@@ -185,9 +187,19 @@ export function reconstructFile(
     // v2 extension point: after the switch, Phase 12's provenance-tracked
     // loop will update a per-character attribution array here.
     switch (e.kind) {
-      case 'doc.open':
-        // No full content in payload — we can't seed from it. Skip.
+      case 'doc.open': {
+        // Recorder v1.1+ includes the file's initial content in the payload
+        // (≤ 64 KB). When present, seed the running content from it so that
+        // subsequent deltas resolve against the correct baseline.
+        //
+        // Pre-v1.1 doc.open events have no content field — analyzer cannot
+        // recover initial content and reconstruction starts from ''.
+        const p = e.payload as Record<string, unknown> | null;
+        if (typeof p?.['content'] === 'string') {
+          content = p['content'];
+        }
         break;
+      }
 
       case 'doc.close':
         // Ignored for content reconstruction.
