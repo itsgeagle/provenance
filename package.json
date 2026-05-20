@@ -10,7 +10,8 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint 'packages/log-core/src' 'packages/recorder/src' 'packages/analyzer/src' && prettier --check .",
-    "package:recorder": "npm run build && npm run package --workspace=packages/recorder"
+    "package:recorder": "npm run build && npm run package --workspace=packages/recorder",
+    "update-hashes": "node scripts/update-extension-hash-allowlist.mjs"
   },
   "devDependencies": {
     "eslint": "^9.0.0",
