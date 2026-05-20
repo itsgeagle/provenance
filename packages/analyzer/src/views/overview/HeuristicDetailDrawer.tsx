@@ -62,7 +62,9 @@ function SupportingEventRow({ seqKey, globalIdx }: SupportingEventRowProps) {
 
   return (
     <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
-      <span className="font-mono text-xs text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={seqKey}>
+        {label}
+      </span>
       <div className="flex shrink-0 items-center gap-1">
         <Button
           variant="ghost"
@@ -120,7 +122,7 @@ function DrawerBody({ flag }: { flag: Flag }) {
           {/* Description */}
           <section>
             <h3 className="mb-1 text-sm font-semibold">Description</h3>
-            <p className="text-sm text-muted-foreground">{flag.description}</p>
+            <p className="break-words text-sm text-muted-foreground">{flag.description}</p>
           </section>
 
           {/* Supporting events */}

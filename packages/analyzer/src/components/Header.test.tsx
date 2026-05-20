@@ -171,4 +171,58 @@ describe('Header', () => {
     });
     expect(screen.queryByTestId('partial-load-error-banner')).not.toBeInTheDocument();
   });
+
+  it('renders nav links (Overview + Raw timeline) after loading a single bundle', async () => {
+    const { blob } = await buildTestBundle({ sessions: [{ eventCount: 1 }] });
+    const file = new File([blob], 'bundle.zip', { type: 'application/zip' });
+
+    renderHeaderWithBundle(file);
+
+    act(() => {
+      screen.getByTestId('load-btn').click();
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('header')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('nav-link-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-link-timeline')).toBeInTheDocument();
+    // Compare link hidden when only 1 bundle.
+    expect(screen.queryByTestId('nav-link-compare')).not.toBeInTheDocument();
+  });
+
+  it('renders Compare nav link when 2 bundles are loaded', async () => {
+    const { blob: blob1 } = await buildTestBundle({
+      assignmentId: 'hw1',
+      sessions: [{ eventCount: 1 }],
+    });
+    const { blob: blob2 } = await buildTestBundle({
+      assignmentId: 'hw1',
+      sessions: [{ eventCount: 1 }],
+    });
+    const file1 = new File([blob1], 'bundle1.zip', { type: 'application/zip' });
+    const file2 = new File([blob2], 'bundle2.zip', { type: 'application/zip' });
+
+    render(
+      <MemoryRouter initialEntries={['/overview']}>
+        <BundleProvider>
+          <Header />
+          <LoadFilesTrigger files={[file1, file2]} />
+          <Routes>
+            <Route path="/overview" element={<div>Overview</div>} />
+            <Route path="/compare" element={<div data-testid="compare-view">Compare</div>} />
+          </Routes>
+        </BundleProvider>
+      </MemoryRouter>,
+    );
+
+    act(() => {
+      screen.getByTestId('load-files-btn').click();
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('nav-link-compare')).toBeInTheDocument();
+    });
+  });
 });

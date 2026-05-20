@@ -15,7 +15,7 @@
  */
 
 import { useRef, useCallback, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, NavLink } from 'react-router-dom';
 import { ChevronDown, X } from 'lucide-react';
 import { useBundle } from '../context/BundleContext.js';
 import { Badge } from './ui/badge.js';
@@ -275,6 +275,55 @@ export function Header() {
           </Button>
         </div>
       </div>
+
+      {/* Nav links row: pill-style links between views. Desktop only. */}
+      <nav
+        className="flex items-center gap-1 border-t px-6 py-1.5 text-sm"
+        aria-label="Primary navigation"
+        data-testid="header-nav"
+      >
+        <NavLink
+          to="/overview"
+          data-testid="nav-link-overview"
+          className={({ isActive }) =>
+            `rounded-md px-3 py-1 transition-colors ${
+              isActive
+                ? 'bg-accent text-accent-foreground font-medium'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            }`
+          }
+        >
+          Overview
+        </NavLink>
+        <NavLink
+          to="/timeline"
+          data-testid="nav-link-timeline"
+          className={({ isActive }) =>
+            `rounded-md px-3 py-1 transition-colors ${
+              isActive
+                ? 'bg-accent text-accent-foreground font-medium'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+            }`
+          }
+        >
+          Raw timeline
+        </NavLink>
+        {bundles.length >= 2 && (
+          <NavLink
+            to="/compare"
+            data-testid="nav-link-compare"
+            className={({ isActive }) =>
+              `rounded-md px-3 py-1 transition-colors ${
+                isActive
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+              }`
+            }
+          >
+            Compare
+          </NavLink>
+        )}
+      </nav>
     </header>
   );
 }
