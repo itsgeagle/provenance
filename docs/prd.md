@@ -99,6 +99,8 @@ The extension activates only when the workspace is recognized as a CS 61A assign
 
 The extension does **not** activate on arbitrary workspaces, and does **not** record anything outside the assignment folder. This is a deliberate privacy constraint: the recorder watches one folder and shuts up everywhere else.
 
+Concretely, every document event subscription (`onDidOpenTextDocument`, `onDidChangeTextDocument`, `onDidSaveTextDocument`, `onDidCloseTextDocument`, `onDidChangeTextEditorSelection`) drops events whose document URI either (a) has a scheme other than `file` (excluding `vscode-userdata`, `output`, `git`, `untitled`, and other virtual schemes) or (b) is outside the activated workspace folder (detected by `workspace.asRelativePath(uri)` returning the unchanged absolute `fsPath`). This guard applies uniformly to live events and to the startup catch-up loop that emits synthetic `doc.open` for documents already open at activation. Files like the student's user-level `settings.json` or tool-written scratch files outside the workspace must never appear in a `.slog`.
+
 On activation, the extension shows a non-dismissible status bar item ("CS 61A: recording") so the student is always aware that telemetry is active. This is both an ethical disclosure and a usability signal — if the indicator disappears, something is wrong.
 
 ### 4.2 What is recorded
@@ -160,9 +162,16 @@ Additionally, every `doc.open` event in v1.1+ carries the file's initial content
 
 VS Code does not expose a "this change was a paste" flag directly. We approximate paste detection with three signals, combined:
 
-1. **Single-edit large insert.** A `doc.change` with a single insert ≥ 30 characters and zero deletions is almost always a paste. We mark these `kind: "paste"` rather than `doc.change`.
+1. **Bulk-insertion classifier.** A `doc.change` is classified as paste-shaped if ANY of:
+   - a single delta contains text ≥ 30 characters (covers classical clipboard pastes AND single-shot replacement edits, e.g. an AI assistant rewriting a block of code)
+   - the aggregate of inserted text across all deltas is ≥ 30 characters AND at least one delta's text contains a newline (covers multi-delta `WorkspaceEdit`s produced by tools like Claude Code and Copilot's "Apply", without misclassifying multi-cursor typing — which produces several small single-line deltas without embedded newlines)
+
+   Emit path: when the event has a single delta inserted at an empty range — the classical paste shape — the recorder emits `kind: "paste"` so the analyzer can reconstruct the file via `applyPaste`. For multi-delta events and large replacement edits (non-empty range), the recorder emits `kind: "doc.change"` with `source: "paste_likely"` so the analyzer can apply each delta faithfully via `applyDocChange` while still recognizing the bulk-insertion signal downstream. The `source` field has been part of `DocChangePayload` since format v1.0; this routing change is schema-compatible.
+
+   _History._ The v1 classifier required exactly one delta at an empty range with text ≥ 30 chars and routed every match through `paste`. That missed tool-applied edits — they slip in as either multi-delta `WorkspaceEdit`s or single replacements with a non-empty range — and a student using Claude Code's "Apply" appeared in the log as ordinary typing. The broader rule above closes that gap.
+
 2. **Editor `paste` command intercept.** We register a command handler that wraps the default `editor.action.clipboardPasteAction` and emits a `paste` marker immediately before the resulting `doc.change` fires. Pairing the two by `seq` gives us a high-confidence label.
-3. **External clipboard read.** We track our own command-handler-driven paste counts and compare against the count of large single-insert changes. Mismatches indicate either programmatic edits or unusual input methods, and we record this discrepancy as a `paste.anomaly` event.
+3. **External clipboard read.** We track our own command-handler-driven paste counts and compare against the count of bulk-insertion classifications. Mismatches indicate either programmatic edits or unusual input methods, and we record this discrepancy as a `paste.anomaly` event.
 
 For the payload itself: we store the full pasted text up to 4 KB inline, and a hash + truncated head/tail for anything larger. Storing the content matters for review — staff need to see "did this student paste a working `accumulate` implementation, or did they paste an error message from Stack Overflow."
 
@@ -387,7 +396,7 @@ The v1 heuristic suite below is a starting set. We expect to add and tune.
 | `paste_is_solution`          | Paste that closely matches the final submitted file                                    | Pasted content has > 80% line overlap with the file's final state                    |
 | `external_edits`             | Edits outside VS Code                                                                  | Any `fs.external_change` event not preceded by a known formatter                     |
 | `mass_external_replacement`  | Whole-file replacement outside VS Code                                                 | `fs.external_change` where new content shares < 20% lines with old                   |
-| `low_typing_high_output`     | Output far exceeds typed input                                                         | (chars saved in final file) / (chars typed via `doc.change` inserts) > 3             |
+| `low_typing_high_output`     | Output far exceeds typed input                                                         | (net chars added: `finalLength` − `startLength`) / (chars typed via `doc.change` inserts with `source: "typed"`) > 3. Skipped entirely when the net delta is ≤ 0 (file shrank or stayed the same — see note below). |
 | `time_to_first_save_anomaly` | File appeared faster than plausibly typed                                              | < 30s from doc.open to a save containing > 500 chars of new code                     |
 | `idle_then_complete`         | Long idle followed by completed solution                                               | Idle > 10min, then a single save brings the file from skeleton to complete           |
 | `no_intermediate_errors`     | Code arrives without the usual failed-run pattern                                      | File goes from empty to passing-tests with zero terminal commands that exit non-zero |
@@ -418,6 +427,8 @@ The v1 heuristic suite below is a starting set. We expect to add and tune.
 - `editing_pattern_clone`: students whose event sequences are anomalously similar (timing, file-switch order).
 
 The dashboard sums weighted severity into a single review-priority score, but the score is never the verdict — it's a sort order for staff triage.
+
+**Note on `low_typing_high_output` (net-delta semantics).** The v1 specification used the file's _absolute_ final length in the numerator: `finalLength / charsTyped`. In practice that fired on every student who opened a non-trivial skeleton — a 500-char starter that a student grew to 550 with 50 keystrokes gives an 11× ratio, even though the student wrote everything in the file. The PRD's own §7.6.3 example acknowledges this exact false positive. The refined rule uses the **net delta** — `finalLength − startLength` — so only chars the student actually _added_ count as output. `startLength` is read from the first `doc.open` event's inlined `content` (recorder v1.1+); older bundles fall back to `startLength = 0`, which matches the v1 numerator behavior. When the net delta is ≤ 0 (the file shrank or stayed the same) the heuristic emits no flag. The "chars typed" denominator also excludes any `doc.change` deltas whose `source` is `paste_likely` or `paste_confirmed` (per §4.3) — those characters never came from the keyboard.
 
 ### 7.5 Export
 
