@@ -7,12 +7,37 @@
  * The allowlist is consulted by the `extension_hash_mismatch` heuristic. Any
  * bundle whose `manifest.extension_hash` is NOT in the list gets flagged.
  *
+ * IMPORTANT: this script produces the hash that an installed VSIX reports at
+ * seal time — i.e. the hash over the **bundled** `dist/` (single
+ * `extension.js` + sourcemap), NOT the hash of a `tsc`-emitted dev-install
+ * `dist/` (many .js / .d.ts files). Those are structurally different and a
+ * dev-install hash will never appear in a real student submission. Prior
+ * versions of this script hashed the tsc output by mistake.
+ *
  * USAGE
- *   node scripts/update-extension-hash-allowlist.mjs              # rebuild recorder, add its hash
- *   node scripts/update-extension-hash-allowlist.mjs --no-build   # use existing dist/, add its hash
- *   node scripts/update-extension-hash-allowlist.mjs --hash <hex> # add a specific hash
+ *   # Bundle with the current source key (dev key when nothing is overridden)
+ *   # and add that hash. Useful for local dev only — emits a warning that the
+ *   # hash won't match any production release.
+ *   node scripts/update-extension-hash-allowlist.mjs
+ *
+ *   # Production: read public_key_hex from a course keypair JSON and run the
+ *   # full build:prod pipeline (embed key → bundle → package). This produces
+ *   # the actual VSIX hash that students will report. A .vsix is left at
+ *   # packages/recorder/provenance-recorder-<version>.vsix as a side effect.
+ *   node scripts/update-extension-hash-allowlist.mjs --keypair /path/to/cs61a-fa26.json
+ *
+ *   # Same as --keypair but reads the public key hex directly. Equivalent to
+ *   # exporting PROVENANCE_COURSE_PUBLIC_KEY_HEX yourself.
+ *   PROVENANCE_COURSE_PUBLIC_KEY_HEX=<64-hex> node scripts/update-extension-hash-allowlist.mjs
+ *
+ *   # Skip the rebuild — hash whatever is currently in packages/recorder/dist.
+ *   # Useful if you already ran `npm run build:prod` separately.
+ *   node scripts/update-extension-hash-allowlist.mjs --no-build
+ *
+ *   # Add / remove / inspect specific entries.
+ *   node scripts/update-extension-hash-allowlist.mjs --hash <hex>
  *   node scripts/update-extension-hash-allowlist.mjs --remove <hex>
- *   node scripts/update-extension-hash-allowlist.mjs --clear      # remove all entries
+ *   node scripts/update-extension-hash-allowlist.mjs --clear
  *   node scripts/update-extension-hash-allowlist.mjs --show
  *   node scripts/update-extension-hash-allowlist.mjs --help
  *
@@ -23,10 +48,11 @@
  * After every write, the script prints the resulting list with +/- markers.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join, relative } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -44,7 +70,12 @@ const HEX64 = /^[0-9a-f]{64}$/;
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const opts = { mode: 'add-from-dist', build: true, hash: null };
+  const opts = {
+    mode: 'add-from-dist',
+    build: true,
+    hash: null,
+    keypairPath: null,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') opts.mode = 'help';
@@ -57,6 +88,8 @@ function parseArgs(argv) {
     } else if (a === '--remove') {
       opts.mode = 'remove';
       opts.hash = argv[++i];
+    } else if (a === '--keypair') {
+      opts.keypairPath = argv[++i];
     } else {
       console.error(`Unknown argument: ${a}`);
       opts.mode = 'help';
@@ -69,16 +102,29 @@ function parseArgs(argv) {
 function usage() {
   console.log(`Usage: node scripts/update-extension-hash-allowlist.mjs [options]
 
-Default action: rebuild packages/recorder/dist, compute its extension_hash,
-and add it to the analyzer's known-good list (stripping the placeholder).
+Default action: bundle packages/recorder via esbuild (the same path that
+produces the VSIX), compute its extension_hash, and add it to the analyzer's
+known-good list (stripping the placeholder).
 
 Options:
-  --no-build         Use existing packages/recorder/dist (no rebuild).
+  --keypair <path>   Read public_key_hex from a course keypair JSON file and
+                     run the full build:prod pipeline (embed key, bundle,
+                     package VSIX). Produces the hash a real installed VSIX
+                     will report. Leaves a .vsix in packages/recorder/.
+  --no-build         Use existing packages/recorder/dist (no rebuild). Must
+                     be a bundled dist (run 'npm run bundle' or
+                     'npm run build:prod' first).
   --hash <hex>       Add a specific 64-char lowercase hex hash (no dist read).
   --remove <hex>     Remove a specific hash from the allowlist.
   --clear            Remove all entries.
   --show             Print the current allowlist and exit.
   --help, -h         Show this help.
+
+Env vars:
+  PROVENANCE_COURSE_PUBLIC_KEY_HEX
+                     64-char lowercase hex public key. When set (and
+                     --keypair isn't given), triggers the full build:prod
+                     pipeline just like --keypair.
 
 Allowlist file: ${ALLOWLIST_PATH}`);
 }
@@ -97,8 +143,7 @@ async function readAllowlist() {
 }
 
 async function writeAllowlist(obj) {
-  // Preserve top-level field order to keep the diff clean. We always write
-  // $schema, $id, description, hashes (in that order) — match the existing file.
+  // Preserve top-level field order to keep the diff clean.
   const out = {
     $schema: obj.$schema ?? 'https://json-schema.org/draft/2020-12/schema',
     $id: obj.$id ?? 'known-good-extension-hashes',
@@ -130,32 +175,139 @@ function validateHash(h) {
   }
 }
 
-function rebuildRecorder() {
-  console.log('Rebuilding packages/recorder/dist ...');
-  const r = spawnSync('npm', ['run', 'build', '--workspace=packages/recorder'], {
+/**
+ * Load `public_key_hex` from a course keypair JSON file (the same shape
+ * `tools/generate-course-keypair.ts` writes).
+ */
+async function loadKeypairPubkey(jsonPath) {
+  let raw;
+  try {
+    raw = await readFile(jsonPath, 'utf8');
+  } catch (err) {
+    throw new Error(`Could not read keypair file ${jsonPath}: ${err.message}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`Keypair file ${jsonPath} is not valid JSON: ${err.message}`);
+  }
+  const hex = parsed?.public_key_hex;
+  if (typeof hex !== 'string') {
+    throw new Error(`Keypair file ${jsonPath} has no string 'public_key_hex' field.`);
+  }
+  if (!HEX64.test(hex)) {
+    throw new Error(
+      `Keypair file ${jsonPath} has malformed 'public_key_hex' ` +
+        `(expected 64 lowercase hex chars, got ${hex.length}).`,
+    );
+  }
+  return hex;
+}
+
+/**
+ * Bundle the recorder with a production course public key embedded.
+ * Runs `npm run build:prod --workspace=packages/recorder` with
+ * PROVENANCE_COURSE_PUBLIC_KEY_HEX in the environment. That script handles
+ * embed → bundle → package → git restore, leaving a fresh VSIX in
+ * packages/recorder/ and a bundled dist in packages/recorder/dist/.
+ */
+function buildRecorderProd(pubkeyHex) {
+  console.log(`Building recorder with production public key ${pubkeyHex.slice(0, 16)}… ...`);
+  const r = spawnSync('npm', ['run', 'build:prod', '--workspace=packages/recorder'], {
+    cwd: REPO_ROOT,
+    stdio: 'inherit',
+    env: { ...process.env, PROVENANCE_COURSE_PUBLIC_KEY_HEX: pubkeyHex },
+  });
+  if (r.status !== 0) {
+    throw new Error(`recorder build:prod failed (exit ${r.status})`);
+  }
+}
+
+/**
+ * Bundle the recorder with whatever key is currently in source (dev key
+ * unless someone manually edited course-public-key.ts). Produces the same
+ * bundled dist shape as build:prod but does NOT package a VSIX or touch
+ * the source file.
+ *
+ * Use this path for local-dev convenience only. The resulting hash will
+ * NOT match any released VSIX and is only useful for analyzer tests that
+ * exercise dev bundles.
+ */
+function bundleRecorderDev() {
+  console.warn(
+    '[update-hashes] WARNING: bundling with the dev key (no --keypair or ' +
+      'PROVENANCE_COURSE_PUBLIC_KEY_HEX set).',
+  );
+  console.warn('[update-hashes]   The resulting hash will NOT match any production VSIX.');
+  console.warn(
+    '[update-hashes]   Use --keypair <path> or set PROVENANCE_COURSE_PUBLIC_KEY_HEX ' +
+      'to record a release hash.',
+  );
+  console.log('Bundling packages/recorder/dist (dev key) ...');
+  const r = spawnSync('npm', ['run', 'bundle', '--workspace=packages/recorder'], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
   });
   if (r.status !== 0) {
-    throw new Error(`recorder build failed (exit ${r.status})`);
+    throw new Error(`recorder bundle failed (exit ${r.status})`);
   }
 }
 
-async function computeHashFromDist() {
-  // Import the recorder's own implementation so the algorithm matches exactly
-  // what the recorder uses at seal time.
-  const modPath = resolve(RECORDER_DIST, 'commands/extension-hash.js');
-  let mod;
-  try {
-    mod = await import(modPath);
-  } catch (err) {
+/**
+ * Recursively collect every regular file under `dir`, returning absolute paths.
+ * Mirrors `collectFiles` in packages/recorder/src/commands/extension-hash.ts.
+ */
+async function collectFiles(dir) {
+  const out = [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const e of entries) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) {
+      out.push(...(await collectFiles(p)));
+    } else if (e.isFile()) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+/**
+ * Compute the recorder's extension_hash from a dist/ directory.
+ *
+ * Algorithm (kept in lockstep with computeExtensionHash in
+ * packages/recorder/src/commands/extension-hash.ts):
+ *
+ *   sha256(
+ *     for each file in dist/ (sorted by relative path, locale-compare):
+ *       relative-path-bytes (utf8)
+ *       || 0x00
+ *       || file-content-bytes
+ *   )
+ *
+ * If you change this, change the recorder too — and audit existing hashes in
+ * the allowlist, since they're algorithm-dependent.
+ */
+async function computeExtensionHash(distPath) {
+  const absolutePaths = await collectFiles(distPath);
+  if (absolutePaths.length === 0) {
     throw new Error(
-      `Could not import ${modPath}. Has the recorder been built? ` +
-        `(Run without --no-build, or run 'npm run build --workspace=packages/recorder'.)\n` +
-        `Underlying error: ${err.message}`,
+      `No files found under ${distPath}. The recorder hasn't been built. ` +
+        `Run without --no-build, or run 'npm run bundle --workspace=packages/recorder' first.`,
     );
   }
-  return mod.computeExtensionHash(RECORDER_DIST);
+
+  const rels = absolutePaths.map((abs) => ({ abs, rel: relative(distPath, abs) }));
+  rels.sort((a, b) => a.rel.localeCompare(b.rel));
+
+  const hash = createHash('sha256');
+  for (const { abs, rel } of rels) {
+    const bytes = await readFile(abs);
+    hash.update(Buffer.from(rel, 'utf8'));
+    hash.update(Buffer.from([0]));
+    hash.update(bytes);
+  }
+  return hash.digest('hex');
 }
 
 function printList(label, hashes) {
@@ -219,9 +371,34 @@ async function main() {
     if (!opts.hash) throw new Error('--remove requires a value');
     next = before.filter((h) => h !== opts.hash);
   } else if (opts.mode === 'add-from-dist') {
-    if (opts.build) rebuildRecorder();
-    const hash = await computeHashFromDist();
+    if (opts.build) {
+      // Decide prod-vs-dev path:
+      //   --keypair <path>     → load JSON, extract public_key_hex, prod build
+      //   env var set          → prod build
+      //   neither              → dev bundle, warn
+      let pubkeyHex = null;
+      if (opts.keypairPath !== null) {
+        pubkeyHex = await loadKeypairPubkey(opts.keypairPath);
+      } else if (process.env['PROVENANCE_COURSE_PUBLIC_KEY_HEX']) {
+        pubkeyHex = process.env['PROVENANCE_COURSE_PUBLIC_KEY_HEX'];
+        if (!HEX64.test(pubkeyHex)) {
+          throw new Error(
+            `PROVENANCE_COURSE_PUBLIC_KEY_HEX is malformed ` +
+              `(expected 64 lowercase hex, got ${pubkeyHex.length}).`,
+          );
+        }
+      }
+
+      if (pubkeyHex !== null) {
+        buildRecorderProd(pubkeyHex);
+      } else {
+        bundleRecorderDev();
+      }
+    }
+
+    const hash = await computeExtensionHash(RECORDER_DIST);
     validateHash(hash);
+    console.log('');
     console.log(`Computed extension_hash from ${RECORDER_DIST}:\n  ${hash}`);
     next = dedup([...stripPlaceholders(before), hash]);
   } else {

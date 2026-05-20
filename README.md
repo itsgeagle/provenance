@@ -127,4 +127,14 @@ PROVENANCE_COURSE_PUBLIC_KEY_HEX=<64-hex-from-generate-step> \
 
 `build:prod` embeds the production key, builds, packages a VSIX, then restores the source file so further local work uses the dev key. The script refuses to run if the env var is missing, malformed, or matches the dev key — so a misconfigured release can never silently ship a dev VSIX.
 
+**Refresh the analyzer's known-good extension-hash list** so the new VSIX won't trip `extension_hash_mismatch` when staff load real submissions:
+
+```sh
+npm run update-hashes -- --keypair /Volumes/SECURE/cs61a-fa26.json
+```
+
+This runs the same `build:prod` pipeline as above (you can re-use the same keypair JSON instead of exporting the env var by hand), then hashes the bundled `dist/` and appends the result to `packages/analyzer/src/heuristics/config/known-good-extension-hashes.json`. The script computes the hash with the same algorithm the recorder uses at seal time, so any VSIX produced by the same run will validate cleanly. Without `--keypair` (and with no `PROVENANCE_COURSE_PUBLIC_KEY_HEX` env var) the script falls back to bundling with the dev key and prints a loud warning — that hash will never match a real release.
+
+Other modes: `--show` (print current list), `--no-build` (hash an already-bundled `dist/`), `--hash <hex>` / `--remove <hex>` (manual entries), `--clear`.
+
 See [`docs/recorder.md`](docs/recorder.md) for the full security model and what the recorder defends against.
