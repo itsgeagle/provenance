@@ -174,14 +174,20 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // doc.change — integrates paste detection (PRD §4.3)
   // -------------------------------------------------------------------------
   const changeSub = vscode.workspace.onDidChangeTextDocument((event) => {
+    const relativePath = workspace.asRelativePath(event.document.uri);
+
+    // Track last doc.change time for this path BEFORE checking contentChanges length.
+    // Empty-delta events (dirty-flag toggles, encoding/EOL changes) still represent a
+    // document touch and should update the fs-watcher tolerance clock. We skip emitting
+    // doc.change for non-content changes, but we do track the timestamp.
+    lastDocChangeAt.set(relativePath, getNow());
+
     // VS Code fires onDidChangeTextDocument for non-content reasons too
     // (dirty-flag toggles, encoding/EOL changes). These events have no
     // contentChanges and are noise to the analyzer — drop them early.
     if (event.contentChanges.length === 0) {
       return;
     }
-
-    const relativePath = workspace.asRelativePath(event.document.uri);
 
     // Build log-core delta representation
     const deltas = event.contentChanges.map((c) => ({
@@ -191,9 +197,6 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
       },
       text: c.text,
     }));
-
-    // Track last doc.change time for this path (used by fs-watcher tolerance check).
-    lastDocChangeAt.set(relativePath, getNow());
 
     // Apply deltas to expected content if watched (unchanged from Phase 5)
     if (expectedContent.isWatched(relativePath)) {

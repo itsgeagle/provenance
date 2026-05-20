@@ -253,11 +253,20 @@ export function reconstructFileWithProvenance(
         //
         // Pre-v1.1 doc.open events have no content field — analyzer cannot
         // recover initial content and reconstruction starts from ''.
+        //
+        // If this is a re-seed (e.g., file closed and reopened with new content),
+        // clear all previous kindByGlobalIdx entries to avoid stale references to
+        // globalIdx values from before the reopen. These entries won't have any
+        // corresponding provenance positions after the new content is seeded.
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
           const initialText = p['content'];
           content = initialText;
           provenance = Array.from({ length: initialText.length }, () => e.globalIdx);
+          // Clear all stale entries from before this re-seed. Subsequent
+          // reconstruction will repopulate kindByGlobalIdx with only the events
+          // that actually contribute to the current file state.
+          kindByGlobalIdx.clear();
           kindByGlobalIdx.set(e.globalIdx, 'preexisting');
         }
         break;

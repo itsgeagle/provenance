@@ -651,4 +651,104 @@ describe('reconstructFileWithProvenance — doc.open content seeding (recorder v
     // Invariant: provenance length matches content length.
     expect(v2.provenance.length).toBe(v2.content.length);
   });
+
+  it('doc.open re-seed clears stale kindByGlobalIdx entries from before reopen', async () => {
+    // Regression test for Fix 1: when a file is reopened with new content,
+    // all kindByGlobalIdx entries from before the reopen must be cleared.
+    // Otherwise stale globalIdx values (which no longer have provenance positions)
+    // could leak into Phase 14's gutter consumer.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'test.py',
+                sha256: sha256Hex('abc'),
+                line_count: 1,
+                content: 'abc',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'test.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 3 }, end: { line: 0, character: 3 } },
+                    text: 'd',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'doc.close',
+              data: { path: 'test.py' },
+            },
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'test.py',
+                sha256: sha256Hex('xyz'),
+                line_count: 1,
+                content: 'xyz',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'test.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 3 }, end: { line: 0, character: 3 } },
+                    text: 'w',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const state = reconstructFileWithProvenance(index, 'test.py');
+
+    // Final content is 'xyzw' (from the second reopen)
+    expect(state.content).toBe('xyzw');
+
+    // kindByGlobalIdx must NOT contain the first doc.open globalIdx.
+    // After the second doc.open, the old globalIdx entries should be cleared.
+    const firstDocOpen = index.byKind.get('doc.open')?.[0];
+    const secondDocOpen = index.byKind.get('doc.open')?.[1];
+    expect(firstDocOpen).toBeDefined();
+    expect(secondDocOpen).toBeDefined();
+
+    // The first doc.change globalIdx (from before reopen) should also be cleared
+    // because its provenance (from the 'abcd' content) no longer exists.
+    const firstDocChange = (index.byKind.get('doc.change') ?? [])[0];
+    expect(firstDocChange).toBeDefined();
+
+    // After reopen, kindByGlobalIdx should only contain entries from the second
+    // doc.open onwards. The first doc.open and first doc.change should be gone.
+    expect(state.kindByGlobalIdx.has(firstDocOpen!.globalIdx)).toBe(false);
+    expect(state.kindByGlobalIdx.has(firstDocChange!.globalIdx)).toBe(false);
+
+    // The second doc.open should be in kindByGlobalIdx (seeded as 'preexisting')
+    expect(state.kindByGlobalIdx.get(secondDocOpen!.globalIdx)).toBe('preexisting');
+
+    // The second doc.change should be in kindByGlobalIdx (typed)
+    const secondDocChange = (index.byKind.get('doc.change') ?? [])[1];
+    expect(secondDocChange).toBeDefined();
+    expect(state.kindByGlobalIdx.get(secondDocChange!.globalIdx)).toBe('typed');
+
+    // Invariant: no provenance positions reference the stale globalIdx values
+    for (const idx of state.provenance) {
+      expect(state.kindByGlobalIdx.has(idx)).toBe(true);
+    }
+  });
 });

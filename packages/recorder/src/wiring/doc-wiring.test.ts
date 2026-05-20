@@ -790,6 +790,40 @@ describe('startDocWiring', () => {
     expect(handle.getLastDocChangeAt('src/foo.py')).toBe(9999);
   });
 
+  it('empty-delta doc.change updates lastDocChangeAt even though no emitDocChange', () => {
+    // Regression test for Fix 2: empty-delta events (dirty-flag toggles, encoding changes)
+    // must update lastDocChangeAt for fs-watcher tolerance. They don't emit doc.change,
+    // but they do represent a document touch.
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    const nowVal = 5000;
+    const handle = startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      pasteIntercept: makeNullIntercept(),
+      largeInsertCounter: makeLargeInsertCounter(),
+      getNow: () => nowVal,
+      readFile: vi.fn().mockResolvedValue(''),
+    });
+
+    // Simulate an empty-delta event (contentChanges is empty).
+    const emptyEvent = {
+      document: fakeDoc({ path: 'src/foo.py' }),
+      contentChanges: [],
+    };
+    changeSub.handler!(emptyEvent);
+
+    // Should NOT emit doc.change or paste (empty-delta is noise)
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+
+    // But lastDocChangeAt SHOULD be updated to track the document touch
+    expect(handle.getLastDocChangeAt('src/foo.py')).toBe(5000);
+  });
+
   // -------------------------------------------------------------------------
   // Issue C fix: filter empty-delta doc.change events (recorder v1.1)
   // -------------------------------------------------------------------------
