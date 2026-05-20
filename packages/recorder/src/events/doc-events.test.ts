@@ -50,20 +50,39 @@ function fakeRange(startLine: number, startChar: number, endLine: number, endCha
 // ---------------------------------------------------------------------------
 
 describe('transformDocOpen', () => {
-  it('returns correct path, sha256, and line_count', () => {
-    const doc = fakeDoc({ lineCount: 7 });
-    const result = transformDocOpen(doc as never, fakeWorkspace, 'abc123hash');
+  it('returns correct path, sha256, line_count, and content for small document', () => {
+    const doc = fakeDoc({ lineCount: 7, text: 'hello\nworld\n' });
+    const result = transformDocOpen(doc as never, fakeWorkspace, 'abc123hash', 'hello\nworld\n');
     expect(result).toEqual({
       path: 'src/foo.py',
       sha256: 'abc123hash',
       line_count: 7,
+      content: 'hello\nworld\n',
     });
   });
 
   it('uses the injected hash (not recomputed)', () => {
-    const doc = fakeDoc({ lineCount: 1 });
-    const result = transformDocOpen(doc as never, fakeWorkspace, 'deadbeef');
+    const doc = fakeDoc({ lineCount: 1, text: 'x' });
+    const result = transformDocOpen(doc as never, fakeWorkspace, 'deadbeef', 'x');
     expect(result.sha256).toBe('deadbeef');
+  });
+
+  it('inlines content for a document exactly at the 64 KB limit', () => {
+    // 64 KB of ASCII characters — one byte each.
+    const text = 'a'.repeat(64 * 1024);
+    const doc = fakeDoc({ lineCount: 1, text });
+    const result = transformDocOpen(doc as never, fakeWorkspace, 'hash64k', text);
+    expect(result.content).toBe(text);
+    expect(result.truncated).toBeUndefined();
+  });
+
+  it('sets truncated=true for a document exceeding 64 KB, omits content', () => {
+    // 64 KB + 1 byte.
+    const text = 'a'.repeat(64 * 1024 + 1);
+    const doc = fakeDoc({ lineCount: 1, text });
+    const result = transformDocOpen(doc as never, fakeWorkspace, 'hashbig', text);
+    expect(result.content).toBeUndefined();
+    expect(result.truncated).toBe(true);
   });
 });
 

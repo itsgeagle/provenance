@@ -32,16 +32,51 @@ export type WorkspaceLike = {
 // Transformers
 // ---------------------------------------------------------------------------
 
-/** Build a doc.open payload from a VS Code TextDocument. */
+/**
+ * Maximum byte-length for inlining document content in a doc.open payload.
+ * Files larger than this have only `sha256`/`line_count`; `truncated: true`
+ * is set so the analyzer knows reconstruction will be tainted for this file.
+ */
+export const DOC_OPEN_MAX_INLINE_BYTES = 64 * 1024; // 64 KB
+
+/**
+ * Build a doc.open payload from a VS Code TextDocument.
+ *
+ * @param document      The opened document.
+ * @param workspace     Workspace helper for relative-path resolution.
+ * @param contentHash   Pre-computed SHA-256 of the document text (caller
+ *                      already computed this for the expected-content registry;
+ *                      we accept it to avoid a second hash pass).
+ * @param text          The raw document text. Used to decide whether to inline
+ *                      the content (≤ maxInlineBytes) or set truncated=true.
+ *                      Must match the text that produced `contentHash`.
+ * @param maxInlineBytes  Size ceiling in bytes; defaults to DOC_OPEN_MAX_INLINE_BYTES.
+ */
 export function transformDocOpen(
   document: vscode.TextDocument,
   workspace: WorkspaceLike,
   contentHash: string,
+  text: string,
+  maxInlineBytes: number = DOC_OPEN_MAX_INLINE_BYTES,
 ): DocOpenPayload {
+  // Measure byte-length of the content. TextEncoder.encode returns UTF-8 bytes.
+  const byteLen = new TextEncoder().encode(text).length;
+
+  if (byteLen <= maxInlineBytes) {
+    return {
+      path: workspace.asRelativePath(document.uri),
+      sha256: contentHash,
+      line_count: document.lineCount,
+      content: text,
+    };
+  }
+
+  // File exceeds the inline threshold — omit content, set truncated flag.
   return {
     path: workspace.asRelativePath(document.uri),
     sha256: contentHash,
     line_count: document.lineCount,
+    truncated: true,
   };
 }
 
