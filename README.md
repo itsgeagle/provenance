@@ -109,6 +109,3 @@ PROVENANCE_COURSE_PUBLIC_KEY_HEX=<64-hex-from-generate-step> \
 
 See [`packages/recorder/README.md`](packages/recorder/README.md) for the full security model and what the recorder defends against.
 
-## License
-
-MIT. See `LICENSE`.
