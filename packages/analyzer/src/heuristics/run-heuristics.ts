@@ -23,6 +23,12 @@ import { largePasteHeuristic } from './large-paste.js';
 import { externalEditsHeuristic } from './external-edits.js';
 import { lowTypingHighOutputHeuristic } from './low-typing-high-output.js';
 import { integrityFlagsFromReport } from './integrity-flags.js';
+import { pasteIsSolutionHeuristic } from './paste-is-solution.js';
+import { massExternalReplacementHeuristic } from './mass-external-replacement.js';
+import { timeToFirstSaveAnomalyHeuristic } from './time-to-first-save-anomaly.js';
+import { idleThenCompleteHeuristic } from './idle-then-complete.js';
+import { noIntermediateErrorsHeuristic } from './no-intermediate-errors.js';
+import { pasteMatchesKnownSourceHeuristic } from './paste-matches-known-source.js';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -35,6 +41,12 @@ const HEURISTIC_REGISTRY: Heuristic[] = [
   largePasteHeuristic,
   externalEditsHeuristic,
   lowTypingHighOutputHeuristic,
+  pasteIsSolutionHeuristic,
+  massExternalReplacementHeuristic,
+  timeToFirstSaveAnomalyHeuristic,
+  idleThenCompleteHeuristic,
+  noIntermediateErrorsHeuristic,
+  pasteMatchesKnownSourceHeuristic,
 ];
 
 // ---------------------------------------------------------------------------

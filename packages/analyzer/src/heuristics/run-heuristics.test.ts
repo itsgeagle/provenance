@@ -333,20 +333,23 @@ describe('runHeuristics — snapshot fixture', () => {
     // Snapshot: assert flag count and heuristic-severity pairs are stable.
     const summary = flags.map((f) => ({ heuristic: f.heuristic, severity: f.severity }));
     // Verify expected count: chain_broken(1) + large_paste(1) + external_edits(1) +
-    // low_typing_high_output(2: solution.py via large paste + file.py via ratio)
+    // low_typing_high_output(2: solution.py via large paste + file.py via ratio) +
+    // paste_is_solution(1: solution.py paste = 100% of final file content)
     // Note: solution.py gets a large paste (tainted), so low_typing is only /test/file.py.
     // Also large paste on solution.py is inline (< 4KB), so not tainted.
     // solution.py: charsTyped=0, finalLength=600 → infinite ratio → high!
     // file.py: charsTyped=1, finalLength=5 → ratio=5 → high!
+    // solution.py paste shares 100% lines with final file → paste_is_solution high!
     expect(summary).toEqual(
       expect.arrayContaining([
         { heuristic: 'chain_broken', severity: 'high' },
         { heuristic: 'large_paste', severity: 'high' },
         { heuristic: 'external_edits', severity: 'medium' },
         { heuristic: 'low_typing_high_output', severity: 'high' },
+        { heuristic: 'paste_is_solution', severity: 'high' },
       ]),
     );
-    expect(flags).toHaveLength(5);
+    expect(flags).toHaveLength(6);
 
     // IDs are all unique
     const ids = flags.map((f) => f.id);
