@@ -70,6 +70,7 @@ function makeFixtureBundle(): Bundle {
   ];
 
   return {
+    id: 'test-bundle-id',
     manifest: {
       format_version: '1.0',
       assignment_id: 'hw1',

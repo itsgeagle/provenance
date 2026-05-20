@@ -80,6 +80,12 @@ export type ParsedSession = {
 // ---------------------------------------------------------------------------
 
 export type Bundle = {
+  /**
+   * Stable per-bundle identifier. Computed at load time via crypto.randomUUID()
+   * (WebCrypto, available in browsers and jsdom). Used as a map key in
+   * BundleContext's per-bundle maps (indicesByBundle, etc.).
+   */
+  id: string;
   manifest: BundleManifest;
   /** Hex-encoded ed25519 signature over canonical manifest JSON. */
   manifestSigHex: string;

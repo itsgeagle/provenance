@@ -1,64 +1,186 @@
 /**
- * Header — bundle filename, assignment id, session count, "Load different bundle".
+ * Header — bundle info, bundle switcher, "Load more bundles" button, "Load different bundle".
+ *
+ * v2 Phase 11:
+ * - When bundles.length >= 2, a bundle switcher dropdown appears in the centre.
+ *   Selecting an item calls selectBundle(id), updating all single-bundle consumers
+ *   transparently (index, validationReport, flags derived scalars update automatically).
+ * - "Load more bundles" button appears when bundles.length >= 1. Clicking it opens
+ *   a hidden multi-file <input> that appends to the existing list (does NOT clear).
+ * - "Load different bundle" clears all state and navigates to /load.
  *
  * Hidden when no bundle is loaded (bundles.length === 0).
+ *
+ * NOTE: all hooks must be declared before any early returns (React rule of hooks).
  */
 
+import { useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronDown } from 'lucide-react';
 import { useBundle } from '../context/BundleContext.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu.js';
 
 export function Header() {
-  const { bundles, clearBundle } = useBundle();
+  const { bundles, selectedBundleId, selectBundle, clearBundle, loadBundleFiles } = useBundle();
   const navigate = useNavigate();
+  const loadMoreInputRef = useRef<HTMLInputElement>(null);
+
+  // All hooks must appear before any conditional returns.
+
+  const handleLoadDifferent = useCallback(() => {
+    clearBundle();
+    void navigate('/load');
+  }, [clearBundle, navigate]);
+
+  const handleLoadMoreClick = useCallback(() => {
+    loadMoreInputRef.current?.click();
+  }, []);
+
+  const handleLoadMoreChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      if (files.length > 0) {
+        void loadBundleFiles(files);
+      }
+      // Reset so the same file(s) can be re-selected if needed.
+      e.target.value = '';
+    },
+    [loadBundleFiles],
+  );
 
   // Hidden when no bundle is loaded.
   if (bundles.length === 0) {
     return null;
   }
 
-  const bundle = bundles[0]!; // v1: always exactly one bundle when loaded.
-
-  const handleLoadDifferent = () => {
-    clearBundle();
-    void navigate('/load');
-  };
+  const selectedBundle = bundles.find((b) => b.id === selectedBundleId) ?? bundles[0]!;
 
   return (
     <header
       data-testid="header"
-      className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-6 py-3"
+      className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-6 py-3 gap-4"
     >
-      {/* Left: bundle info */}
-      <div className="flex items-center gap-4 min-w-0">
-        <div className="min-w-0">
-          <p
-            data-testid="header-filename"
-            className="truncate text-sm font-semibold"
-            title={bundle.sourceFilename}
-          >
-            {bundle.sourceFilename}
-          </p>
-          <p data-testid="header-assignment-id" className="text-xs text-muted-foreground">
-            Assignment: {bundle.manifest.assignment_id}
-          </p>
-        </div>
+      {/* Left: selected bundle info */}
+      <div className="flex items-center gap-4 min-w-0 flex-1">
+        {bundles.length === 1 ? (
+          /* Single bundle: show filename + assignment inline */
+          <div className="min-w-0">
+            <p
+              data-testid="header-filename"
+              className="truncate text-sm font-semibold"
+              title={selectedBundle.sourceFilename}
+            >
+              {selectedBundle.sourceFilename}
+            </p>
+            <p data-testid="header-assignment-id" className="text-xs text-muted-foreground">
+              Assignment: {selectedBundle.manifest.assignment_id}
+            </p>
+          </div>
+        ) : (
+          /* Multiple bundles: show a switcher dropdown */
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex items-center gap-2 h-auto py-1 px-2 min-w-0"
+                data-testid="bundle-switcher-trigger"
+                aria-label="Switch active bundle"
+              >
+                <div className="min-w-0 text-left">
+                  <p
+                    className="truncate text-sm font-semibold max-w-[200px]"
+                    title={selectedBundle.sourceFilename}
+                  >
+                    {selectedBundle.sourceFilename}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Assignment: {selectedBundle.manifest.assignment_id}
+                  </p>
+                </div>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-80">
+              <DropdownMenuLabel>{bundles.length} bundles loaded</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {bundles.map((b) => (
+                <DropdownMenuItem
+                  key={b.id}
+                  onSelect={() => selectBundle(b.id)}
+                  data-testid={`bundle-option-${b.id}`}
+                  className="flex flex-col items-start gap-0.5 py-2"
+                >
+                  <span className="font-medium truncate max-w-full" title={b.sourceFilename}>
+                    {b.sourceFilename}
+                    {b.id === selectedBundleId && (
+                      <span className="ml-2 text-xs text-muted-foreground">(active)</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {b.manifest.assignment_id} · {b.sessions.length}{' '}
+                    {b.sessions.length === 1 ? 'session' : 'sessions'}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
         <Badge variant="secondary" data-testid="header-session-count">
-          {bundle.sessions.length} {bundle.sessions.length === 1 ? 'session' : 'sessions'}
+          {selectedBundle.sessions.length}{' '}
+          {selectedBundle.sessions.length === 1 ? 'session' : 'sessions'}
         </Badge>
+
+        {bundles.length > 1 && (
+          <Badge variant="outline" data-testid="header-bundle-count">
+            {bundles.length} bundles
+          </Badge>
+        )}
       </div>
 
-      {/* Right: action */}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleLoadDifferent}
-        data-testid="header-load-different-btn"
-      >
-        Load different bundle
-      </Button>
+      {/* Right: actions */}
+      <div className="flex items-center gap-2 shrink-0">
+        {/* "Load more bundles" — visible when at least one bundle is loaded */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLoadMoreClick}
+          data-testid="header-load-more-btn"
+        >
+          Load more bundles
+        </Button>
+
+        {/* Hidden multi-file input for "Load more bundles" */}
+        <input
+          ref={loadMoreInputRef}
+          type="file"
+          accept=".zip,application/zip"
+          multiple
+          className="hidden"
+          data-testid="header-load-more-input"
+          onChange={handleLoadMoreChange}
+          aria-label="Choose additional bundle files"
+        />
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLoadDifferent}
+          data-testid="header-load-different-btn"
+        >
+          Load different bundle
+        </Button>
+      </div>
     </header>
   );
 }
