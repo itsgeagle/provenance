@@ -6,7 +6,8 @@
  *   /load      → LoadView (drop zone; not guarded)
  *   /overview  → OverviewView (guarded by RequireBundle: bundles.length >= 1)
  *   /timeline  → TimelineView (guarded by RequireBundle: bundles.length >= 1)
- *   /compare   → CompareView (guarded by RequireMultiBundles: bundles.length >= 2)
+ *   /compare        → CompareView (guarded by RequireMultiBundles: bundles.length >= 2)
+ *   /replay/:id     → ReplayView (guarded by RequireBundle; inner guard checks session exists)
  *
  * <BundleProvider> wraps <Routes> so all routes can read the context.
  * <BundleProvider> itself sits inside <BrowserRouter> (set up in main.tsx).
@@ -28,6 +29,7 @@ import { LoadView } from './views/load/LoadView.js';
 import { OverviewView } from './views/overview/OverviewView.js';
 import { TimelineView } from './views/timeline/TimelineView.js';
 import { CompareView } from './views/compare/CompareView.js';
+import { ReplayView } from './views/replay/ReplayView.js';
 import { Layout } from './components/Layout.js';
 
 // ---------------------------------------------------------------------------
@@ -103,6 +105,14 @@ export function App() {
                 <CompareView />
               </Layout>
             </RequireMultiBundles>
+          }
+        />
+        <Route
+          path="/replay/:sessionId"
+          element={
+            <RequireBundle>
+              <ReplayView />
+            </RequireBundle>
           }
         />
         <Route path="/" element={<Navigate to="/load" replace />} />
