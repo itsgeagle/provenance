@@ -1,9 +1,10 @@
 /**
  * Actions — top-of-overview action bar.
  *
- * Two buttons:
+ * Three buttons:
  *   - "Open Raw Timeline" — navigates to /timeline.
  *   - "Export Findings (Markdown)" — Phase 8, wired via <ExportMarkdownButton />.
+ *   - "Export Findings (PDF)" — Phase 19, wired via <ExportPdfButton />.
  *
  * Replay button is Phase 13 — not present here.
  */
@@ -11,6 +12,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button.js';
 import { ExportMarkdownButton } from './ExportMarkdownButton.js';
+import { ExportPdfButton } from './ExportPdfButton.js';
 
 export function Actions() {
   const navigate = useNavigate();
@@ -26,6 +28,7 @@ export function Actions() {
       </Button>
 
       <ExportMarkdownButton />
+      <ExportPdfButton />
     </div>
   );
 }
