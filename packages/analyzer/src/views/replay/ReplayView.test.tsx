@@ -220,4 +220,26 @@ describe('ReplayView', () => {
       });
     });
   });
+
+  describe('layout: height cap (Fix 2)', () => {
+    it('outer wrapper has h-full and flex-col classes (viewport-constrained)', async () => {
+      mockIndex.current = buildIndex([makeDocChangeEvent(0, 'sess1', 'hw.py')]);
+      renderReplayView('sess1');
+      await waitFor(() => {
+        const container = screen.getByTestId('replay-view');
+        // h-full resolves to 100% of #root, which globals.css sets to 100vh.
+        expect(container.classList.contains('h-full')).toBe(true);
+        expect(container.classList.contains('flex-col')).toBe(true);
+      });
+    });
+
+    it('event sidebar has overflow-hidden to clip virtualizer', async () => {
+      mockIndex.current = buildIndex([makeDocChangeEvent(0, 'sess1', 'hw.py')]);
+      renderReplayView('sess1');
+      await waitFor(() => {
+        const sidebar = screen.getByTestId('event-sidebar');
+        expect(sidebar.classList.contains('overflow-hidden')).toBe(true);
+      });
+    });
+  });
 });

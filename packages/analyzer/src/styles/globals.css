@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Ensure html/body/#root fill the viewport so that h-full on top-level route
+ * containers resolves to 100vh. Without this, flex children with h-full measure
+ * against an unconstrained height and cause the ReplayView transport bar to
+ * fall below the fold on tall event streams.
+ */
+html,
+body,
+#root {
+  height: 100%;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
