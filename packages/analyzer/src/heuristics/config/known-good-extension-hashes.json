@@ -4,6 +4,7 @@
   "description": "Course-maintained allowlist of known-good Provenance recorder extension hashes. The extension_hash_mismatch heuristic flags any bundle whose manifest.extension_hash is NOT in this list. Operational note: update this list each time a new recorder .vsix is published. The actual hash is the SHA-256 of the built .vsix file (64-char lowercase hex), as emitted by the recorder into bundle.manifest.extension_hash at seal time. PLACEHOLDER_EXTENSION_HASH must be replaced with the real hash before deployment.",
   "hashes": [
     "657f9fb661cc9b1380a98cd988f44d95f7ad54180551b21dd0f4fb87226fcbe9",
-    "2caa15ee2970d0f9e2d857041594a242a803e0e22da1df01f13b784928d5c313"
+    "2caa15ee2970d0f9e2d857041594a242a803e0e22da1df01f13b784928d5c313",
+    "817c01fbcd2510f205a37f4d3a4a6d53a690ed694f525a54b206a712850265d9"
   ]
 }
