@@ -534,3 +534,221 @@ describe('reconstructFileWithProvenance — perf smoke', () => {
     expect(elapsed).toBeLessThan(1000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// reconstructFileWithProvenance — recorder v1.1 doc.open content seeding
+// ---------------------------------------------------------------------------
+
+describe('reconstructFileWithProvenance — doc.open content seeding (recorder v1.1)', () => {
+  it('seeds content and provenance from doc.open payload', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'hw.py',
+                sha256: sha256Hex('# placeholder\n'),
+                line_count: 2,
+                content: '# placeholder\n',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hw.py',
+                deltas: [
+                  {
+                    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+                    text: 'h',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const state = reconstructFileWithProvenance(index, 'hw.py');
+
+    expect(state.content).toBe('# placeholder\nh');
+    expect(state.provenance.length).toBe('# placeholder\nh'.length);
+
+    // Provenance: the first 15 chars (the initial content) should be attributed
+    // to the doc.open event; the last char 'h' to the doc.change event.
+    const docOpenEvent = index.byKind.get('doc.open')?.[0];
+    expect(docOpenEvent).toBeDefined();
+    expect(state.kindByGlobalIdx.get(docOpenEvent!.globalIdx)).toBe('preexisting');
+    // The 'h' appended by doc.change has a different globalIdx.
+    const lastCharIdx = state.provenance[state.provenance.length - 1];
+    expect(lastCharIdx).not.toBe(docOpenEvent!.globalIdx);
+
+    // Invariant: content.length === provenance.length
+    expect(state.content.length).toBe(state.provenance.length);
+  });
+
+  it('parity with v1 reconstructFile: content and hashBySaveSeq match', async () => {
+    // Both reconstructors must produce identical content + hashBySaveSeq when
+    // doc.open carries a content field.
+    const initialContent = '# placeholder\n';
+    const finalContent = '# placeholder\ndef main():\n    pass\n';
+    const saveHash = sha256Hex(finalContent);
+
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'hw.py',
+                sha256: sha256Hex(initialContent),
+                line_count: 2,
+                content: initialContent,
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'hw.py',
+                deltas: [
+                  {
+                    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+                    text: 'def main():\n    pass\n',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'doc.save',
+              data: { path: 'hw.py', sha256: saveHash },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+
+    const v1 = reconstructFile(index, 'hw.py');
+    const v2 = reconstructFileWithProvenance(index, 'hw.py');
+
+    // Content must be identical.
+    expect(v2.content).toBe(v1.content);
+    // hashBySaveSeq must be identical.
+    expect(v2.hashBySaveSeq.size).toBe(v1.hashBySaveSeq.size);
+    for (const [key, hash] of v1.hashBySaveSeq) {
+      expect(v2.hashBySaveSeq.get(key)).toBe(hash);
+    }
+
+    // Invariant: provenance length matches content length.
+    expect(v2.provenance.length).toBe(v2.content.length);
+  });
+
+  it('doc.open re-seed clears stale kindByGlobalIdx entries from before reopen', async () => {
+    // Regression test for Fix 1: when a file is reopened with new content,
+    // all kindByGlobalIdx entries from before the reopen must be cleared.
+    // Otherwise stale globalIdx values (which no longer have provenance positions)
+    // could leak into Phase 14's gutter consumer.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'test.py',
+                sha256: sha256Hex('abc'),
+                line_count: 1,
+                content: 'abc',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'test.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 3 }, end: { line: 0, character: 3 } },
+                    text: 'd',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'doc.close',
+              data: { path: 'test.py' },
+            },
+            {
+              kind: 'doc.open',
+              data: {
+                path: 'test.py',
+                sha256: sha256Hex('xyz'),
+                line_count: 1,
+                content: 'xyz',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: 'test.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 3 }, end: { line: 0, character: 3 } },
+                    text: 'w',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const state = reconstructFileWithProvenance(index, 'test.py');
+
+    // Final content is 'xyzw' (from the second reopen)
+    expect(state.content).toBe('xyzw');
+
+    // kindByGlobalIdx must NOT contain the first doc.open globalIdx.
+    // After the second doc.open, the old globalIdx entries should be cleared.
+    const firstDocOpen = index.byKind.get('doc.open')?.[0];
+    const secondDocOpen = index.byKind.get('doc.open')?.[1];
+    expect(firstDocOpen).toBeDefined();
+    expect(secondDocOpen).toBeDefined();
+
+    // The first doc.change globalIdx (from before reopen) should also be cleared
+    // because its provenance (from the 'abcd' content) no longer exists.
+    const firstDocChange = (index.byKind.get('doc.change') ?? [])[0];
+    expect(firstDocChange).toBeDefined();
+
+    // After reopen, kindByGlobalIdx should only contain entries from the second
+    // doc.open onwards. The first doc.open and first doc.change should be gone.
+    expect(state.kindByGlobalIdx.has(firstDocOpen!.globalIdx)).toBe(false);
+    expect(state.kindByGlobalIdx.has(firstDocChange!.globalIdx)).toBe(false);
+
+    // The second doc.open should be in kindByGlobalIdx (seeded as 'preexisting')
+    expect(state.kindByGlobalIdx.get(secondDocOpen!.globalIdx)).toBe('preexisting');
+
+    // The second doc.change should be in kindByGlobalIdx (typed)
+    const secondDocChange = (index.byKind.get('doc.change') ?? [])[1];
+    expect(secondDocChange).toBeDefined();
+    expect(state.kindByGlobalIdx.get(secondDocChange!.globalIdx)).toBe('typed');
+
+    // Invariant: no provenance positions reference the stale globalIdx values
+    for (const idx of state.provenance) {
+      expect(state.kindByGlobalIdx.has(idx)).toBe(true);
+    }
+  });
+});

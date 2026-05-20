@@ -31,7 +31,7 @@ import type { IndexedEvent } from '../../index/event-index.js';
 function makeState(
   content: string,
   provenance: number[],
-  kindByGlobalIdx: Map<number, 'typed' | 'paste' | 'external_change'>,
+  kindByGlobalIdx: Map<number, 'typed' | 'paste' | 'external_change' | 'preexisting'>,
 ): FileReplayState {
   return {
     content,
@@ -292,5 +292,19 @@ describe('hoverContentFor', () => {
     // provenance references gi=99 but events array only has 0,1,2
     const state = makeState('x', [99], new Map([[99, 'typed']]));
     expect(hoverContentFor(0, state, events)).toBeNull();
+  });
+
+  it('returns formatted string for a preexisting character', () => {
+    // offset 0 → provenance[0] = gi=3 (doc.open), kind=preexisting
+    // Create an event with kind=doc.open and t=1500
+    const preexistingEvent = makeEvent(3, 'doc.open', 5, 1500);
+    const allEvents = [...events, preexistingEvent];
+    const state = makeState(
+      'preexisting text',
+      Array.from({ length: 'preexisting text'.length }, () => 3),
+      new Map([[3, 'preexisting']]),
+    );
+    const result = hoverContentFor(0, state, allEvents);
+    expect(result).toBe('Last modified at t=1500ms, kind=preexisting, seq=#5');
   });
 });

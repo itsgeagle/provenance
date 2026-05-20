@@ -56,6 +56,9 @@ export const workspace = {
   asRelativePath: (uri: { fsPath: string }) => uri.fsPath,
   // Used by fs-watcher.ts. Default returns a no-op watcher; tests override via vi.mock.
   createFileSystemWatcher: (_pattern: unknown) => _defaultFsWatcher,
+  // Already-open documents at extension activation time. Default empty; tests
+  // that exercise the synthetic-open path stub this via vi.mock.
+  textDocuments: [] as readonly unknown[],
 };
 
 export const extensions = {

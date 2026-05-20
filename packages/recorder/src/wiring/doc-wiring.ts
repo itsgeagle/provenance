@@ -127,19 +127,47 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // -------------------------------------------------------------------------
   // doc.open
   // -------------------------------------------------------------------------
-  const openSub = vscode.workspace.onDidOpenTextDocument((document) => {
-    const relativePath = workspace.asRelativePath(document.uri);
+  // Track documents we've already emitted doc.open for. VS Code should not
+  // re-fire onDidOpenTextDocument for documents already open, but we add a
+  // defensive guard anyway: if a future VS Code API change or version causes
+  // a re-fire for an already-seen document, this Set prevents a double-emit.
+  const seenDocs = new Set<string>();
+
+  /**
+   * Emit a doc.open event for `document`.
+   * Reads the document text ONCE (via getText()) and passes it to both the
+   * expected-content registry (for hash computation) and transformDocOpen
+   * (for content inlining). This avoids a second getText() call.
+   */
+  function emitDocOpenForDocument(document: {
+    uri: { fsPath: string; scheme: string };
+    lineCount: number;
+    getText(): string;
+  }): void {
+    const relativePath = workspace.asRelativePath(document.uri as import('vscode').Uri);
+
+    // Defensive de-dup: skip if we've already emitted doc.open for this path.
+    if (seenDocs.has(relativePath)) {
+      return;
+    }
+    seenDocs.add(relativePath);
+
+    const text = document.getText();
     let hash: string;
 
     if (expectedContent.isWatched(relativePath)) {
       // Create (or restore) expected-content state for this file
-      const ec = expectedContent.getOrCreate(relativePath, document.getText());
+      const ec = expectedContent.getOrCreate(relativePath, text);
       hash = ec.hash;
     } else {
-      hash = computeHash(document.getText());
+      hash = computeHash(text);
     }
 
-    emitDocOpen(transformDocOpen(document, workspace, hash));
+    emitDocOpen(transformDocOpen(document as import('vscode').TextDocument, workspace, hash, text));
+  }
+
+  const openSub = vscode.workspace.onDidOpenTextDocument((document) => {
+    emitDocOpenForDocument(document);
   });
 
   // -------------------------------------------------------------------------
@@ -147,6 +175,19 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   // -------------------------------------------------------------------------
   const changeSub = vscode.workspace.onDidChangeTextDocument((event) => {
     const relativePath = workspace.asRelativePath(event.document.uri);
+
+    // Track last doc.change time for this path BEFORE checking contentChanges length.
+    // Empty-delta events (dirty-flag toggles, encoding/EOL changes) still represent a
+    // document touch and should update the fs-watcher tolerance clock. We skip emitting
+    // doc.change for non-content changes, but we do track the timestamp.
+    lastDocChangeAt.set(relativePath, getNow());
+
+    // VS Code fires onDidChangeTextDocument for non-content reasons too
+    // (dirty-flag toggles, encoding/EOL changes). These events have no
+    // contentChanges and are noise to the analyzer — drop them early.
+    if (event.contentChanges.length === 0) {
+      return;
+    }
 
     // Build log-core delta representation
     const deltas = event.contentChanges.map((c) => ({
@@ -156,9 +197,6 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
       },
       text: c.text,
     }));
-
-    // Track last doc.change time for this path (used by fs-watcher tolerance check).
-    lastDocChangeAt.set(relativePath, getNow());
 
     // Apply deltas to expected content if watched (unchanged from Phase 5)
     if (expectedContent.isWatched(relativePath)) {
@@ -267,6 +305,39 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
       prevFocused = state.focused;
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Issue A fix: emit synthetic doc.open for documents already open at
+  // activation time.
+  //
+  // VS Code's onDidOpenTextDocument fires only for documents that open AFTER
+  // the extension activates. Any file that was already open when the extension
+  // started (e.g., the student had hw.py open before hitting "Start Session")
+  // never triggers the subscription. We cover the gap by iterating
+  // vscode.workspace.textDocuments synchronously.
+  //
+  // Filter: only `file`-scheme URIs whose relative path differs from the
+  // absolute fsPath (i.e., the document is inside the workspace folder).
+  // This excludes untitled buffers, git-extension overlays, output panels,
+  // and any virtual-document schemes that should not appear in the log.
+  //
+  // Ordering: subscriptions are wired before this block executes, so any
+  // document that opens between subscription-registration and here would be
+  // handled by the live `openSub`. The `seenDocs` Set in
+  // `emitDocOpenForDocument` prevents double-emits for such a race.
+  // -------------------------------------------------------------------------
+  for (const doc of vscode.workspace.textDocuments) {
+    if (doc.uri.scheme !== 'file') {
+      continue;
+    }
+    const relPath = workspace.asRelativePath(doc.uri);
+    // asRelativePath returns the original fsPath when the file is outside the
+    // workspace. We want only in-workspace files.
+    if (relPath === doc.uri.fsPath) {
+      continue;
+    }
+    emitDocOpenForDocument(doc);
+  }
 
   return {
     dispose() {

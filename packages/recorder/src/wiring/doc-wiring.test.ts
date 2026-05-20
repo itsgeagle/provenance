@@ -24,6 +24,8 @@ const {
   focusSub,
   getMockWindowState,
   setMockWindowState,
+  getMockTextDocuments,
+  setMockTextDocuments,
 } = vi.hoisted(() => {
   function makeSub<T>() {
     let captured: Handler<T> | null = null;
@@ -50,6 +52,7 @@ const {
   const focusSub = makeSub<{ focused: boolean }>();
 
   let _state = { focused: true };
+  let _textDocuments: unknown[] = [];
 
   return {
     openSub,
@@ -62,6 +65,10 @@ const {
     setMockWindowState: (s: { focused: boolean }) => {
       _state = s;
     },
+    getMockTextDocuments: () => _textDocuments,
+    setMockTextDocuments: (docs: unknown[]) => {
+      _textDocuments = docs;
+    },
   };
 });
 
@@ -72,6 +79,9 @@ vi.mock('vscode', () => ({
     onDidSaveTextDocument: saveSub.sub,
     onDidCloseTextDocument: closeSub.sub,
     asRelativePath: (uri: { fsPath: string }) => uri.fsPath,
+    get textDocuments() {
+      return getMockTextDocuments();
+    },
   },
   window: {
     onDidChangeTextEditorSelection: selectionSub.sub,
@@ -198,7 +208,15 @@ function makeDefaultPasteDeps() {
 // Tests
 // ---------------------------------------------------------------------------
 
+import { beforeEach } from 'vitest';
+
 describe('startDocWiring', () => {
+  // Reset textDocuments before each test to prevent state leakage between
+  // tests that call setMockTextDocuments().
+  beforeEach(() => {
+    setMockTextDocuments([]);
+  });
+
   it('registers all 6 subscriptions and disposes cleanly', () => {
     setMockWindowState({ focused: true });
     const registry = new ExpectedContentRegistry(['src/foo.py']);
@@ -770,5 +788,160 @@ describe('startDocWiring', () => {
     changeSub.handler!(event);
 
     expect(handle.getLastDocChangeAt('src/foo.py')).toBe(9999);
+  });
+
+  it('empty-delta doc.change updates lastDocChangeAt even though no emitDocChange', () => {
+    // Regression test for Fix 2: empty-delta events (dirty-flag toggles, encoding changes)
+    // must update lastDocChangeAt for fs-watcher tolerance. They don't emit doc.change,
+    // but they do represent a document touch.
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    const nowVal = 5000;
+    const handle = startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      pasteIntercept: makeNullIntercept(),
+      largeInsertCounter: makeLargeInsertCounter(),
+      getNow: () => nowVal,
+      readFile: vi.fn().mockResolvedValue(''),
+    });
+
+    // Simulate an empty-delta event (contentChanges is empty).
+    const emptyEvent = {
+      document: fakeDoc({ path: 'src/foo.py' }),
+      contentChanges: [],
+    };
+    changeSub.handler!(emptyEvent);
+
+    // Should NOT emit doc.change or paste (empty-delta is noise)
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+
+    // But lastDocChangeAt SHOULD be updated to track the document touch
+    expect(handle.getLastDocChangeAt('src/foo.py')).toBe(5000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue C fix: filter empty-delta doc.change events (recorder v1.1)
+  // -------------------------------------------------------------------------
+
+  it('doc.change with contentChanges=[] does NOT emit emitDocChange (non-content VS Code event)', () => {
+    setMockWindowState({ focused: true });
+    setMockTextDocuments([]);
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    // Simulate a non-content VS Code change event (contentChanges is empty).
+    const emptyEvent = {
+      document: fakeDoc({ path: 'src/foo.py' }),
+      contentChanges: [],
+    };
+    changeSub.handler!(emptyEvent);
+
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue A fix: synthetic doc.open for already-open documents (recorder v1.1)
+  // -------------------------------------------------------------------------
+
+  it('emits doc.open for in-workspace documents already open at activation', () => {
+    setMockWindowState({ focused: true });
+    setMockTextDocuments([]);
+    // One in-workspace doc (relative path != fsPath) and one outside-workspace doc
+    // (asRelativePath returns the fsPath unchanged when outside workspace).
+    const inWorkspaceDoc = {
+      uri: { fsPath: '/workspace/src/hw.py', scheme: 'file' },
+      lineCount: 2,
+      getText: () => '# placeholder\n',
+    };
+    const outsideDoc = {
+      // testWorkspace.asRelativePath returns uri.fsPath, which equals the
+      // fsPath → this document is treated as outside-workspace and skipped.
+      uri: { fsPath: '/outside/some.py', scheme: 'file' },
+      lineCount: 1,
+      getText: () => 'pass\n',
+    };
+    setMockTextDocuments([inWorkspaceDoc, outsideDoc]);
+
+    // Use a workspace where in-workspace docs return a shorter relative path
+    // (different from fsPath). The testWorkspace returns uri.fsPath as-is, so
+    // we need a custom workspace for this test.
+    const workspaceWithRoot: WorkspaceLike = {
+      asRelativePath: (uri) => {
+        const fsPath = (uri as { fsPath: string }).fsPath;
+        if (fsPath.startsWith('/workspace/')) {
+          return fsPath.slice('/workspace/'.length); // 'src/hw.py'
+        }
+        return fsPath; // outside workspace: unchanged
+      },
+    };
+
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: workspaceWithRoot,
+      ...emitters,
+      filesUnderReview: [],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    // Should emit exactly ONE doc.open: for the in-workspace doc.
+    expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
+    const payload = emitters.emitDocOpen.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.path).toBe('src/hw.py');
+    expect(payload.content).toBe('# placeholder\n');
+    // sha256 must be a 64-char hex string
+    expect(typeof payload.sha256).toBe('string');
+    expect((payload.sha256 as string).length).toBe(64);
+  });
+
+  it('does not double-emit doc.open when onDidOpenTextDocument fires for a synthetic doc', () => {
+    setMockWindowState({ focused: true });
+    const alreadyOpenDoc = {
+      uri: { fsPath: '/workspace/src/hw.py', scheme: 'file' },
+      lineCount: 2,
+      getText: () => '# placeholder\n',
+    };
+    setMockTextDocuments([alreadyOpenDoc]);
+
+    const workspaceWithRoot: WorkspaceLike = {
+      asRelativePath: (uri) => {
+        const fsPath = (uri as { fsPath: string }).fsPath;
+        return fsPath.startsWith('/workspace/') ? fsPath.slice('/workspace/'.length) : fsPath;
+      },
+    };
+
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: workspaceWithRoot,
+      ...emitters,
+      filesUnderReview: [],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    // Synthetic emit happened at startup.
+    expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
+
+    // Simulate VS Code re-firing onDidOpenTextDocument for the same doc
+    // (defensive guard test).
+    openSub.handler!(alreadyOpenDoc);
+
+    // seenDocs Set must prevent a second emit.
+    expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
   });
 });
