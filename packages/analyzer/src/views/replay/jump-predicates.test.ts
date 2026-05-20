@@ -268,3 +268,65 @@ describe('countRemainingFileSwitches', () => {
     expect(countRemainingFileSwitches(EVENTS, 7)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Recorder v1.2: paste_likely doc.change events count as paste-shaped
+// ---------------------------------------------------------------------------
+
+describe('findNextPaste / countRemainingPastes — paste-shaped doc.change', () => {
+  function makeDocChange(
+    globalIdx: number,
+    file: string,
+    source: 'typed' | 'paste_likely' | 'paste_confirmed',
+  ): IndexedEvent {
+    return {
+      sessionId: 'sess1',
+      seq: globalIdx,
+      globalIdx,
+      wall: '2026-01-01T00:00:00.000Z',
+      t: globalIdx * 100,
+      kind: 'doc.change',
+      payload: { path: file, deltas: [], source },
+      file,
+    };
+  }
+
+  it('jumps to the next doc.change with source=paste_likely', () => {
+    const events: IndexedEvent[] = [
+      makeEvent(0, 'session.start'),
+      makeDocChange(1, 'hw.py', 'typed'),
+      makeDocChange(2, 'hw.py', 'paste_likely'),
+      makeDocChange(3, 'hw.py', 'typed'),
+    ];
+    expect(findNextPaste(events, 0)).toBe(2);
+  });
+
+  it('jumps to the next doc.change with source=paste_confirmed', () => {
+    const events: IndexedEvent[] = [
+      makeEvent(0, 'session.start'),
+      makeDocChange(1, 'hw.py', 'typed'),
+      makeDocChange(2, 'hw.py', 'paste_confirmed'),
+    ];
+    expect(findNextPaste(events, 0)).toBe(2);
+  });
+
+  it('skips doc.change with source=typed', () => {
+    const events: IndexedEvent[] = [
+      makeEvent(0, 'session.start'),
+      makeDocChange(1, 'hw.py', 'typed'),
+      makeDocChange(2, 'hw.py', 'typed'),
+    ];
+    expect(findNextPaste(events, 0)).toBeNull();
+  });
+
+  it('counts paste-shaped doc.change events plus native paste events', () => {
+    const events: IndexedEvent[] = [
+      makeEvent(0, 'session.start'),
+      makeEvent(1, 'paste', 'hw.py'),
+      makeDocChange(2, 'hw.py', 'paste_likely'),
+      makeDocChange(3, 'hw.py', 'typed'),
+      makeDocChange(4, 'hw.py', 'paste_confirmed'),
+    ];
+    expect(countRemainingPastes(events, 0)).toBe(3);
+  });
+});

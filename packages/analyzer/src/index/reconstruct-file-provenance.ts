@@ -278,7 +278,23 @@ export function reconstructFileWithProvenance(
       case 'doc.change': {
         const next = applyDocChangeWithProvenance(content, provenance, e.payload, e.globalIdx);
         if (next.content !== content || next.provenance !== provenance) {
-          kindByGlobalIdx.set(e.globalIdx, 'typed');
+          // Recorder v1.2 broadened the paste classifier (PRD §4.3): multi-
+          // delta WorkspaceEdits and large replacement edits arrive as
+          // `doc.change` events with `source: "paste_likely" |
+          // "paste_confirmed"` so applyDocChange can reproduce them
+          // faithfully. For provenance attribution, treat those characters as
+          // paste-sourced — they did not come from the keyboard. The replay
+          // gutter, hover labels, and PDF screenshots all key off this map
+          // and will paint the region as a paste accordingly. Default `typed`
+          // unless the payload's `source` says otherwise.
+          const payload = e.payload as Record<string, unknown> | null;
+          const source =
+            payload !== null && typeof payload['source'] === 'string'
+              ? (payload['source'] as string)
+              : 'typed';
+          const provenanceKind: ProvenanceKind =
+            source === 'paste_likely' || source === 'paste_confirmed' ? 'paste' : 'typed';
+          kindByGlobalIdx.set(e.globalIdx, provenanceKind);
         }
         content = next.content;
         provenance = next.provenance;

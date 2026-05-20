@@ -21,15 +21,34 @@ import type { Flag } from '../../heuristics/types.js';
 // ---------------------------------------------------------------------------
 
 /**
- * Find the globalIdx of the next `paste` event strictly after `currentGlobalIdx`.
- * Returns null if no such event exists.
+ * True if an event is paste-shaped — either a native `paste` event OR a
+ * `doc.change` whose payload `source` is `'paste_likely'` or
+ * `'paste_confirmed'`. Recorder v1.2's broadened classifier routes multi-
+ * delta WorkspaceEdits and large replacement edits through the latter
+ * shape (PRD §4.3); the "next paste" jump should land on those too,
+ * otherwise the most interesting AI-applied edits get skipped.
+ */
+function isPasteShaped(e: IndexedEvent): boolean {
+  if (e.kind === 'paste') return true;
+  if (e.kind === 'doc.change') {
+    const p = e.payload as Record<string, unknown> | null;
+    const source =
+      p !== null && typeof p['source'] === 'string' ? (p['source'] as string) : 'typed';
+    return source === 'paste_likely' || source === 'paste_confirmed';
+  }
+  return false;
+}
+
+/**
+ * Find the globalIdx of the next paste-shaped event strictly after
+ * `currentGlobalIdx`. Returns null if no such event exists.
  */
 export function findNextPaste(
   events: readonly IndexedEvent[],
   currentGlobalIdx: number,
 ): number | null {
   for (const e of events) {
-    if (e.globalIdx > currentGlobalIdx && e.kind === 'paste') {
+    if (e.globalIdx > currentGlobalIdx && isPasteShaped(e)) {
       return e.globalIdx;
     }
   }
@@ -159,7 +178,8 @@ export function findNextFileSwitch(
 // ---------------------------------------------------------------------------
 
 /**
- * Count the number of `paste` events strictly after `currentGlobalIdx`.
+ * Count the number of paste-shaped events (native `paste` + `doc.change`
+ * with paste-classified `source`) strictly after `currentGlobalIdx`.
  */
 export function countRemainingPastes(
   events: readonly IndexedEvent[],
@@ -167,7 +187,7 @@ export function countRemainingPastes(
 ): number {
   let count = 0;
   for (const e of events) {
-    if (e.globalIdx > currentGlobalIdx && e.kind === 'paste') count++;
+    if (e.globalIdx > currentGlobalIdx && isPasteShaped(e)) count++;
   }
   return count;
 }

@@ -121,17 +121,50 @@ const KIND_CHIP_CLASSES: Partial<Record<EventKind, string>> = {
 
 const DEFAULT_KIND_CHIP = 'bg-gray-100 text-gray-700 border-gray-200';
 
-function KindChip({ kind }: { kind: EventKind }) {
-  const cls = KIND_CHIP_CLASSES[kind] ?? DEFAULT_KIND_CHIP;
+/**
+ * Style + label for the kind chip. Recorder v1.2 marks paste-shaped bulk
+ * edits as `doc.change` with `source: 'paste_likely' | 'paste_confirmed'`
+ * (PRD §4.3); render those with the paste color and a "paste*" label so
+ * they're visually grouped with native paste events.
+ */
+function chipFor(event: IndexedEvent): { className: string; label: string; testIdKind: string } {
+  if (event.kind === 'doc.change') {
+    const payload = event.payload as Record<string, unknown> | null;
+    const source =
+      payload !== null && typeof payload['source'] === 'string'
+        ? (payload['source'] as string)
+        : 'typed';
+    if (source === 'paste_likely' || source === 'paste_confirmed') {
+      return {
+        className: KIND_CHIP_CLASSES.paste!,
+        label: 'paste*',
+        testIdKind: 'doc.change-paste_likely',
+      };
+    }
+  }
+  return {
+    className: KIND_CHIP_CLASSES[event.kind] ?? DEFAULT_KIND_CHIP,
+    label: event.kind,
+    testIdKind: event.kind,
+  };
+}
+
+function KindChip({ event }: { event: IndexedEvent }) {
+  const { className, label, testIdKind } = chipFor(event);
   return (
     <span
       className={cn(
         'inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium',
-        cls,
+        className,
       )}
-      data-testid={`kind-chip-${kind}`}
+      data-testid={`kind-chip-${testIdKind}`}
+      title={
+        label === 'paste*'
+          ? 'paste-shaped doc.change (recorder v1.2 broadened paste classifier — multi-delta or replacement edit)'
+          : undefined
+      }
     >
-      {kind}
+      {label}
     </span>
   );
 }
@@ -208,7 +241,7 @@ function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
       </span>
 
       {/* kind chip */}
-      <KindChip kind={event.kind} />
+      <KindChip event={event} />
 
       {/* file path */}
       {filePart && (

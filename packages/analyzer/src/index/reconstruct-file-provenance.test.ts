@@ -752,3 +752,91 @@ describe('reconstructFileWithProvenance — doc.open content seeding (recorder v
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Recorder v1.2: paste_likely doc.change events tag provenance as 'paste'
+// ---------------------------------------------------------------------------
+
+describe('reconstructFileWithProvenance — paste_likely doc.change attribution', () => {
+  it('tags a doc.change with source=paste_likely as paste in kindByGlobalIdx (replay gutter)', async () => {
+    // Recorder v1.2 routes tool-applied bulk edits through doc.change with
+    // source=paste_likely (PRD §4.3). The provenance map drives the replay
+    // gutter highlight; if those globalIdx entries get 'typed' instead of
+    // 'paste' the gutter shows them as uncolored typing, which defeats the
+    // whole purpose of broadening the classifier.
+    const longText = 'x'.repeat(50);
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/test/file.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 0 },
+                    },
+                    text: longText,
+                  },
+                ],
+                source: 'paste_likely',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const result = await loadBundle(new Blob([zipBuffer]), 'test.zip');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const index = buildIndex(result.value);
+    const state = reconstructFileWithProvenance(index, '/test/file.py');
+
+    const docChange = (index.byKind.get('doc.change') ?? [])[0]!;
+    expect(state.kindByGlobalIdx.get(docChange.globalIdx)).toBe('paste');
+    // Every char in the file was contributed by this event → all provenance
+    // entries point at it.
+    expect(state.content).toBe(longText);
+    for (const idx of state.provenance) {
+      expect(idx).toBe(docChange.globalIdx);
+    }
+  });
+
+  it('keeps source=typed doc.change as typed (no false positives)', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/test/file.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 0 },
+                    },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const result = await loadBundle(new Blob([zipBuffer]), 'test.zip');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const index = buildIndex(result.value);
+    const state = reconstructFileWithProvenance(index, '/test/file.py');
+
+    const docChange = (index.byKind.get('doc.change') ?? [])[0]!;
+    expect(state.kindByGlobalIdx.get(docChange.globalIdx)).toBe('typed');
+  });
+});

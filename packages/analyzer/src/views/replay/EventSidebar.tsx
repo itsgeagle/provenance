@@ -44,11 +44,41 @@ const KIND_CHIP_CLASSES: Partial<Record<EventKind, string>> = {
 
 const DEFAULT_KIND_CHIP = 'bg-gray-100 text-gray-600';
 
-function SidebarKindChip({ kind }: { kind: EventKind }) {
-  const cls = KIND_CHIP_CLASSES[kind] ?? DEFAULT_KIND_CHIP;
+/**
+ * Determine the chip style + label for an event. Recorder v1.2 marks
+ * paste-shaped bulk edits as `doc.change` with `source: 'paste_likely' |
+ * 'paste_confirmed'` (PRD §4.3); render those with the paste color and a
+ * trailing asterisk so they're visually grouped with native paste events.
+ */
+function chipFor(event: IndexedEvent): { className: string; label: string } {
+  if (event.kind === 'doc.change') {
+    const payload = event.payload as Record<string, unknown> | null;
+    const source =
+      payload !== null && typeof payload['source'] === 'string'
+        ? (payload['source'] as string)
+        : 'typed';
+    if (source === 'paste_likely' || source === 'paste_confirmed') {
+      return { className: KIND_CHIP_CLASSES.paste!, label: 'paste*' };
+    }
+  }
+  return {
+    className: KIND_CHIP_CLASSES[event.kind] ?? DEFAULT_KIND_CHIP,
+    label: event.kind,
+  };
+}
+
+function SidebarKindChip({ event }: { event: IndexedEvent }) {
+  const { className, label } = chipFor(event);
   return (
-    <span className={cn('shrink-0 rounded px-1 py-0.5 font-mono text-[9px] font-medium', cls)}>
-      {kind}
+    <span
+      className={cn('shrink-0 rounded px-1 py-0.5 font-mono text-[9px] font-medium', className)}
+      title={
+        label === 'paste*'
+          ? 'paste-shaped doc.change (recorder v1.2 broadened paste classifier — multi-delta or replacement edit)'
+          : undefined
+      }
+    >
+      {label}
     </span>
   );
 }
@@ -91,7 +121,7 @@ function SidebarRow({ event, isCurrent, onSeek, style }: SidebarRowProps) {
       <span className="w-10 shrink-0 font-mono text-muted-foreground">#{event.seq}</span>
 
       {/* kind chip */}
-      <SidebarKindChip kind={event.kind} />
+      <SidebarKindChip event={event} />
 
       {/* file (basename only) */}
       {filePart && (
