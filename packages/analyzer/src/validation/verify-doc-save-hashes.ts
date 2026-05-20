@@ -6,12 +6,16 @@
  * content hash is consistent with the sequence of doc.change / paste events
  * that preceded it since the previous save (or doc.open).
  *
- * Reconstruction approach (v1):
+ * Reconstruction approach:
  *
  *  - We track in-memory content per file by applying doc.change deltas to a
- *    running string. We start with an empty string (files that were opened
- *    carry only a sha256, not full content, so we can't seed the state from
- *    doc.open).
+ *    running string. We seed the string from the doc.open event's inlined
+ *    `content` field when present (recorder v1.1+ ships up to 64 KB of
+ *    initial content inside the payload). When `content` is absent — pre-
+ *    v1.1 bundles, files that exceeded the 64 KB inline cap and got
+ *    `truncated: true`, or files that never received a doc.open — we cannot
+ *    reconstruct from scratch and mark the file as indeterminate until the
+ *    next anchor.
  *  - For paste events with inline content (content field present), we apply
  *    the paste to the current tracked state by inserting the content at the
  *    target range.
@@ -24,13 +28,11 @@
  *    for the same file appears between the previous save and this one (the
  *    recorder already accounted for the divergence).
  *
- * Limitations (by design in v1):
- *  - Full reconstruction is only possible when the file started as an empty
- *    string at the beginning of the session. If the file was already populated
- *    (doc.open before any doc.change), we start with "" and the first save
- *    after a doc.open will likely produce a hash mismatch from the first event
- *    forward. We detect this and mark the first save as indeterminate.
- *  - Phase 3 (indices + full reconstruction) will do this properly.
+ * Note: this check predates the Phase-3 `reconstructFile` indexer
+ * (`src/index/reconstruct-file.ts`), which performs the same kind of replay
+ * but with provenance tracking. The two implementations are kept in lockstep
+ * by sharing the doc.open seed rule and the splice algorithm; if you change
+ * one, audit the other.
  */
 
 import { sha256Hex } from '@provenance/log-core';
@@ -124,10 +126,21 @@ function checkSession(
   for (const event of events) {
     switch (event.kind) {
       case 'doc.open': {
-        const data = event.data as { path: string; sha256: string };
+        // Recorder v1.1+ inlines the file's initial content (up to 64 KB) in
+        // the doc.open payload. When present, seed the running content from
+        // it so that subsequent deltas resolve against the correct baseline
+        // and the first save can actually be verified. When absent — older
+        // recorders, or files that hit the 64 KB inline cap and carry
+        // `truncated: true` — we have no way to recover initial content and
+        // mark the file as indeterminate.
+        const data = event.data as { path: string; sha256: string; content?: string };
         const state = getOrCreate(data.path);
-        // We don't have the actual content — only sha256. Mark as indeterminate.
-        state.indeterminate = true;
+        if (typeof data.content === 'string') {
+          state.content = data.content;
+          state.indeterminate = false;
+        } else {
+          state.indeterminate = true;
+        }
         break;
       }
 
