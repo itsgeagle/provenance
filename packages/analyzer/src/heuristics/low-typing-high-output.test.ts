@@ -458,3 +458,212 @@ describe('low_typing_high_output — per-file scope', () => {
     expect(files).toEqual(['/test/a.py', '/test/b.py']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Net-delta semantics: "output" is finalLength - startLength, not finalLength
+// ---------------------------------------------------------------------------
+
+describe('low_typing_high_output — net-delta semantics', () => {
+  it('does NOT flag a student who opened a large skeleton and made small edits', async () => {
+    // Skeleton (500 chars) opens; student adds 50 chars on top → final 550.
+    // Old absolute-size heuristic: 550/50 = 11× (HIGH FLAG, false positive).
+    // New net-delta heuristic: (550-500)/50 = 1× (no flag). This is the
+    // exact false positive the PRD §7.6.3 example calls out.
+    const skeleton = 'x'.repeat(500);
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: '/test/file.py',
+                sha256: 'a'.repeat(64),
+                line_count: 1,
+                content: skeleton,
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/test/file.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 500 },
+                      end: { line: 0, character: 500 },
+                    },
+                    text: 'y'.repeat(50),
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = lowTypingHighOutputHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(0);
+  });
+
+  it('does NOT flag a refactor where the file shrank (deltaLength < 0)', async () => {
+    // Student opens 100 chars of skeleton, types 5 chars, ends with 80 chars
+    // (i.e. deleted 25 net). deltaLength = -20 → no flag.
+    const skeleton = 'x'.repeat(100);
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: '/test/file.py',
+                sha256: 'a'.repeat(64),
+                line_count: 1,
+                content: skeleton,
+              },
+            },
+            // Delete 25 chars
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/test/file.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 25 },
+                    },
+                    text: '',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            // Type 5 chars
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/test/file.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 0, character: 0 },
+                    },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = lowTypingHighOutputHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(0);
+  });
+
+  it('DOES flag when deltaLength is high relative to typing', async () => {
+    // 100-char skeleton; student types 10 chars but file ends at 500 chars
+    // (paste added 390). deltaLength = 400, ratio = 400/10 = 40 → high.
+    const skeleton = 'x'.repeat(100);
+    const pasted = 'p'.repeat(390);
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: '/test/file.py',
+                sha256: 'a'.repeat(64),
+                line_count: 1,
+                content: skeleton,
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/test/file.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 100 },
+                      end: { line: 0, character: 100 },
+                    },
+                    text: 't'.repeat(10),
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'paste',
+              data: {
+                path: '/test/file.py',
+                content: pasted,
+                length: pasted.length,
+                range: {
+                  start: { line: 0, character: 110 },
+                  end: { line: 0, character: 110 },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = lowTypingHighOutputHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('high');
+    expect(flags[0]!.detail!['startLength']).toBe(100);
+    expect(flags[0]!.detail!['finalLength']).toBe(500);
+    expect(flags[0]!.detail!['deltaLength']).toBe(400);
+    expect(flags[0]!.detail!['ratio']).toBe(40);
+  });
+
+  it('falls back to startLength=0 when doc.open has no content field (pre-v1.1 bundles)', async () => {
+    // doc.open omits `content` (older recorder). Heuristic should treat
+    // startLength as 0, matching legacy behavior. File grows to 100 chars
+    // with 0 typed → infinite ratio, high severity.
+    const pasted = 'p'.repeat(100);
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: '/test/file.py',
+                sha256: 'a'.repeat(64),
+                line_count: 1,
+                // no `content` field
+              },
+            },
+            {
+              kind: 'paste',
+              data: {
+                path: '/test/file.py',
+                content: pasted,
+                length: pasted.length,
+                range: {
+                  start: { line: 0, character: 0 },
+                  end: { line: 0, character: 0 },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = lowTypingHighOutputHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('high');
+    expect(flags[0]!.detail!['startLength']).toBe(0);
+    expect(flags[0]!.detail!['deltaLength']).toBe(100);
+    expect(flags[0]!.detail!['ratio']).toBeNull();
+  });
+});
