@@ -126,7 +126,7 @@ Event types in v1:
 | `session.start`      | Extension activates on a valid assignment                                         | assignment_id, machine_id, extension_version, VS Code version, OS, list of all currently installed extensions with versions                                |
 | `session.heartbeat`  | Every 30s while VS Code is open                                                   | window focused (bool), active file, idle since (ms)                                                                                                        |
 | `session.end`        | VS Code closes or workspace switches                                              | reason                                                                                                                                                     |
-| `doc.open`           | A workspace file is opened                                                        | relative path, sha256 of full content, line count                                                                                                          |
+| `doc.open`           | A workspace file is opened (or was already open at session start — see §4.2.1)   | relative path, sha256 of full content, line count, content if ≤ 64 KB (else `truncated: true`). Old recorders (pre-v1.1) may omit content; analyzer treats such files as starting empty (best-effort). |
 | `doc.change`         | A `TextDocument` change event fires                                               | relative path, list of `{range, text}` deltas, source classification (see below)                                                                           |
 | `doc.save`           | File saved                                                                        | relative path, sha256 of full content                                                                                                                      |
 | `doc.close`          | Editor closed                                                                     | relative path                                                                                                                                              |
@@ -140,6 +140,14 @@ Event types in v1:
 | `fs.external_change` | A file in the workspace changed _without_ a corresponding `doc.change` (see §4.5) | relative path, old_hash, new_hash, detected_at                                                                                                             |
 | `git.event`          | Git operation observed via the Git extension API                                  | operation (commit/checkout/etc), commit sha if applicable                                                                                                  |
 | `clock.skew`         | Wall clock jumps non-monotonically                                                | delta_ms                                                                                                                                                   |
+
+**§4.2.1 — Activation-time documents and initial content (recorder v1.1+)**
+
+VS Code's `onDidOpenTextDocument` only fires for files that open _after_ extension activation. Files that were already open when the extension started produce no `doc.open` event via the subscription. The recorder (v1.1+) addresses this by iterating `vscode.workspace.textDocuments` synchronously at activation and emitting a synthetic `doc.open` for each in-workspace file-scheme document.
+
+Additionally, every `doc.open` event in v1.1+ carries the file's initial content (up to 64 KB UTF-8). Files larger than 64 KB get `truncated: true` instead. The analyzer uses this to seed its content-reconstruction model so that the first `doc.change`'s deltas resolve against the actual file state rather than an empty buffer.
+
+**Backwards compatibility:** A pre-v1.1 recorder may not emit `doc.open` for files already open at activation, and will not include `content` in the `doc.open` payload. The analyzer handles this gracefully: it starts reconstruction from an empty string (best-effort) when `content` is absent.
 
 **What we deliberately do not record:**
 
