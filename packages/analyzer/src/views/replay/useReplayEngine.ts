@@ -3,7 +3,7 @@
  *
  * Responsibilities:
  *  - Instantiates/re-instantiates the engine when (index, sessionId) changes.
- *  - Manages the playback interval (timer). CLAUDE.md rule: every interval
+ *  - Manages the playback rAF loop. CLAUDE.md rule: every timer/RAF
  *    has an explicit cleanup path.
  *  - Exposes `play`, `pause`, `step`, `seek` to React components.
  *  - Exposes reactive `state`, `fileStates`, `files` (via useState).
@@ -12,14 +12,17 @@
  * re-creating it on every render. Only the *output* (ReplayState + fileStates)
  * is stored in state so React re-renders on meaningful changes.
  *
- * Timer contract:
- *  - `play(speed?)`: starts an interval that calls engine.step(1) every
- *    (1000 / speed) ms. If the engine reaches the last event, the interval is
- *    cleared and status is set to 'paused'.
- *  - `pause()`: clears the interval, sets status to 'paused'.
- *  - On unmount: interval is cleared via useEffect cleanup.
- *  - On (index, sessionId) change: engine is recreated; any running interval
- *    is cleared first.
+ * rAF loop contract:
+ *  - `play(speed?)`: captures wall-clock t0 = performance.now(), schedules a
+ *    requestAnimationFrame loop. Each frame: compute wallDelta since last frame,
+ *    scale by speed to get virtualDelta, call engine.tick(virtualDelta).
+ *    If engine.getVirtualT() >= engine.endVirtualT(), auto-pause.
+ *  - `pause()`: cancels pending rAF, sets engine to paused.
+ *  - On unmount: rAF is cancelled via useEffect cleanup.
+ *  - On (index, sessionId) change: engine is recreated; any running rAF
+ *    is cancelled first.
+ *  - Speed change while playing: restarts the rAF loop with the new multiplier
+ *    (play() is called again, which cancels the old rAF before starting a new one).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -55,8 +58,13 @@ export function useReplayEngine(
 ): UseReplayEngineResult {
   // Engine handle lives in a ref so we don't re-create it on every render.
   const engineRef = useRef<EngineHandle | null>(null);
-  // Interval id lives in a ref so callbacks always see the latest value.
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // rAF id lives in a ref so the cancel callback always sees the latest id.
+  const rafRef = useRef<number | null>(null);
+  // Last wall-clock timestamp for rAF loop delta computation.
+  const lastFrameWallMsRef = useRef<number>(0);
+  // Speed ref: always reflects the latest speed, read inside the rAF closure
+  // so there is no stale-closure footgun when speed changes during playback.
+  const speedRef = useRef<number>(1);
 
   // React state: the only things that trigger re-renders.
   const [replayState, setReplayState] = useState<ReplayState>(() => ({
@@ -64,6 +72,7 @@ export function useReplayEngine(
     currentGlobalIdx: -1,
     speed: 1,
     sessionId,
+    virtualT: 0,
   }));
   const [fileStates, setFileStates] = useState<Map<string, FileReplayState>>(new Map());
   const [files, setFiles] = useState<string[]>([]);
@@ -72,15 +81,15 @@ export function useReplayEngine(
   // (Re-)create engine when index or sessionId changes.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    // Clear any running interval before recreating the engine.
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    // Cancel any running rAF before recreating the engine.
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
 
     if (index === null) {
       engineRef.current = null;
-      setReplayState({ status: 'paused', currentGlobalIdx: -1, speed: 1, sessionId });
+      setReplayState({ status: 'paused', currentGlobalIdx: -1, speed: 1, sessionId, virtualT: 0 });
       setFileStates(new Map());
       setFiles([]);
       return;
@@ -88,16 +97,17 @@ export function useReplayEngine(
 
     const engine = createEngine(index, sessionId);
     engineRef.current = engine;
+    speedRef.current = engine.getState().speed;
 
     setReplayState(engine.getState());
     setFileStates(engine.getFileStates());
     setFiles(engine.getFiles());
 
     return () => {
-      // Cleanup: clear any interval when engine is replaced or component unmounts.
-      if (intervalRef.current !== null) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
+      // Cleanup: cancel rAF when engine is replaced or component unmounts.
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
       }
     };
   }, [index, sessionId]);
@@ -111,62 +121,78 @@ export function useReplayEngine(
   }, []);
 
   // ---------------------------------------------------------------------------
-  // clearInterval helper (idempotent)
+  // cancelRaf helper (idempotent)
   // ---------------------------------------------------------------------------
-  const clearPlayInterval = useCallback(() => {
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+  const cancelRaf = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
   }, []);
 
   // ---------------------------------------------------------------------------
   // play(speed?)
+  //
+  // Uses a requestAnimationFrame loop so events replay at the actual rate they
+  // were recorded. virtualDelta = wallDelta * speed, passed to engine.tick().
   // ---------------------------------------------------------------------------
   const play = useCallback(
     (speed?: number) => {
       const engine = engineRef.current;
       if (engine === null) return;
 
-      clearPlayInterval();
+      cancelRaf();
 
       const effectiveSpeed = speed ?? engine.getState().speed;
       engine.setSpeed(effectiveSpeed);
+      speedRef.current = effectiveSpeed;
       engine.setPlaying();
       syncFromEngine(engine);
 
-      const intervalMs = Math.max(1, Math.round(1000 / effectiveSpeed));
-      intervalRef.current = setInterval(() => {
+      // Capture starting wall time.
+      lastFrameWallMsRef.current = performance.now();
+
+      function rafCallback(nowWall: number) {
         const eng = engineRef.current;
         if (eng === null) {
-          clearPlayInterval();
+          rafRef.current = null;
           return;
         }
-        const maxIdx = eng.eventCount() - 1;
-        if (eng.getState().currentGlobalIdx >= maxIdx) {
-          // Reached end of stream: auto-pause.
-          clearPlayInterval();
+
+        const wallDelta = nowWall - lastFrameWallMsRef.current;
+        lastFrameWallMsRef.current = nowWall;
+
+        const virtualDelta = wallDelta * speedRef.current;
+        eng.tick(virtualDelta);
+        syncFromEngine(eng);
+
+        // Check for end-of-stream: virtualT reached or passed endVirtualT.
+        if (eng.getState().virtualT >= eng.endVirtualT() && eng.eventCount() > 0) {
+          // Auto-pause at end of stream.
+          rafRef.current = null;
           eng.setPaused();
           syncFromEngine(eng);
           return;
         }
-        eng.step(1);
-        syncFromEngine(eng);
-      }, intervalMs);
+
+        rafRef.current = requestAnimationFrame(rafCallback);
+      }
+
+      rafRef.current = requestAnimationFrame(rafCallback);
     },
-    [clearPlayInterval, syncFromEngine],
+    [cancelRaf, syncFromEngine],
   );
 
   // ---------------------------------------------------------------------------
   // pause()
   // ---------------------------------------------------------------------------
   const pause = useCallback(() => {
-    clearPlayInterval();
+    cancelRaf();
     const engine = engineRef.current;
     if (engine === null) return;
     engine.setPaused();
     syncFromEngine(engine);
-  }, [clearPlayInterval, syncFromEngine]);
+  }, [cancelRaf, syncFromEngine]);
 
   // ---------------------------------------------------------------------------
   // step(n)
@@ -177,12 +203,12 @@ export function useReplayEngine(
       if (engine === null) return;
       // Always pause before stepping: standard media-player UX.
       // (Matches behavior of conventional playback controls: step is a scrub operation.)
-      clearPlayInterval();
+      cancelRaf();
       engine.setPaused();
       engine.step(n);
       syncFromEngine(engine);
     },
-    [clearPlayInterval, syncFromEngine],
+    [cancelRaf, syncFromEngine],
   );
 
   // ---------------------------------------------------------------------------

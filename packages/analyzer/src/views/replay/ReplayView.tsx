@@ -30,7 +30,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams, Navigate } from 'react-router-dom';
+import { useParams, useSearchParams, Navigate, useNavigate } from 'react-router-dom';
+import { ChevronLeft } from 'lucide-react';
 import type { editor as MonacoEditorNS } from 'monaco-editor';
 import type * as MonacoType from 'monaco-editor';
 import { useBundle } from '../../context/BundleContext.js';
@@ -55,6 +56,57 @@ import {
   countRemainingFlags,
   countRemainingFileSwitches,
 } from './jump-predicates.js';
+
+// ---------------------------------------------------------------------------
+// ReplayHeader — back button + session context info.
+// Sits above the FileTabs row; shrink-0 so it doesn't compete with the editor.
+// ---------------------------------------------------------------------------
+
+interface ReplayHeaderProps {
+  sessionId: string;
+  sourceFilename: string;
+}
+
+function ReplayHeader({ sessionId, sourceFilename }: ReplayHeaderProps) {
+  const navigate = useNavigate();
+
+  const handleBack = () => {
+    // go back in history if there's a previous entry, else fall back to /overview.
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      void navigate('/overview');
+    }
+  };
+
+  const label = `${sourceFilename} · ${sessionId.slice(0, 8)}…`;
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-3 border-b bg-background px-4"
+      style={{ height: '44px' }}
+      data-testid="replay-header"
+    >
+      <button
+        type="button"
+        onClick={handleBack}
+        className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        data-testid="replay-back-btn"
+        aria-label="Back"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        Back
+      </button>
+      <span className="mx-2 h-4 border-l" aria-hidden="true" />
+      <span
+        className="min-w-0 truncate text-xs text-muted-foreground"
+        title={`Session: ${sessionId} · Bundle: ${sourceFilename}`}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // ReplayView — entry + session guard
@@ -103,7 +155,13 @@ type ReplayViewInnerProps = { sessionId: string };
 
 function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { index, flags } = useBundle();
+  const { index, flags, bundles, selectedBundleId } = useBundle();
+
+  // Source filename for the ReplayHeader context label.
+  const sourceFilename = useMemo(() => {
+    const selected = bundles.find((b) => b.id === selectedBundleId) ?? bundles[0];
+    return selected?.sourceFilename ?? '';
+  }, [bundles, selectedBundleId]);
 
   const engine = useReplayEngine(index, sessionId);
   const { state, fileStates, files, play, pause, step, seek } = engine;
@@ -301,6 +359,9 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
 
   return (
     <div className="flex flex-col h-full" data-testid="replay-view">
+      {/* Back button + session context */}
+      <ReplayHeader sessionId={sessionId} sourceFilename={sourceFilename} />
+
       {/* File tabs row */}
       <div className="px-4 pt-3 pb-1 border-b bg-background shrink-0">
         <FileTabs files={files} activeFile={resolvedFile} onFileChange={setActiveFile} />

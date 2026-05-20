@@ -80,7 +80,7 @@ function CrossFlagDetailPane({ flag, bundles, onClose }: CrossFlagDetailPaneProp
               <SeverityChip severity={flag.severity} />
               <span className="text-xs text-muted-foreground font-mono">{flag.heuristic}</span>
             </div>
-            <h2 className="text-base font-semibold">{flag.title}</h2>
+            <h2 className="break-words text-base font-semibold">{flag.title}</h2>
           </div>
           <button
             type="button"
@@ -94,7 +94,7 @@ function CrossFlagDetailPane({ flag, bundles, onClose }: CrossFlagDetailPaneProp
         </div>
 
         {/* Description */}
-        <p className="text-sm text-muted-foreground">{flag.description}</p>
+        <p className="break-words text-sm text-muted-foreground">{flag.description}</p>
 
         {/* Side-by-side bundle evidence */}
         <div
@@ -199,10 +199,16 @@ function CrossFlagTable({ flags, bundles }: CrossFlagTableProps) {
                 <td className="px-4 py-2">
                   <SeverityChip severity={flag.severity} />
                 </td>
-                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                  {flag.heuristic}
+                <td className="max-w-[180px] px-4 py-2 font-mono text-xs text-muted-foreground">
+                  <span className="block truncate" title={flag.heuristic}>
+                    {flag.heuristic}
+                  </span>
                 </td>
-                <td className="px-4 py-2">{flag.title}</td>
+                <td className="max-w-[300px] px-4 py-2">
+                  <span className="block truncate" title={flag.title}>
+                    {flag.title}
+                  </span>
+                </td>
                 <td className="px-4 py-2">
                   <ul className="space-y-0.5">
                     {flag.bundleIds.map((id) => (
