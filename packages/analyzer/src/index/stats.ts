@@ -112,12 +112,27 @@ export function computeStats(index: EventIndex): BundleStats {
       switch (e.kind) {
         case 'doc.change': {
           // Sum inserted characters across all deltas in the event.
+          //
+          // Recorder routes paste-shaped doc.changes (multi-delta WorkspaceEdits,
+          // large replacement edits) through this event kind with
+          // `source: 'paste_likely'` so reconstruction can apply the deltas
+          // faithfully — but those chars did NOT come from student typing.
+          // Bucket them under charsPasted instead. Older recorders (pre-1.1
+          // and unconverted bundles) emit `source: 'typed'` for every
+          // doc.change; treat anything other than an explicit paste_likely /
+          // paste_confirmed value as typed.
           const p = e.payload as Record<string, unknown> | null;
+          const source = typeof p?.['source'] === 'string' ? (p['source'] as string) : 'typed';
+          const isPasteSourced = source === 'paste_likely' || source === 'paste_confirmed';
           const deltas = p?.['deltas'];
           if (Array.isArray(deltas)) {
             for (const delta of deltas as Array<{ text?: unknown }>) {
               if (typeof delta.text === 'string') {
-                stats.charsTyped += delta.text.length;
+                if (isPasteSourced) {
+                  stats.charsPasted += delta.text.length;
+                } else {
+                  stats.charsTyped += delta.text.length;
+                }
               }
             }
           }
