@@ -310,4 +310,16 @@ describe('generatePdf', () => {
     expect(pdfInput.screenshots[0]!.flagId).toBe('f1');
     expect(pdfInput.screenshots[0]!.dataUrl).toContain('data:image/png');
   });
+
+  it('includes wall time in screenshot label', async () => {
+    const { generatePdf } = await import('./findings-pdf.js');
+    const { renderPdf } = await import('./pdf-renderer.js');
+    const event = makeEvent(0, 'sess-abc', 0, 'paste', 'hw1.py');
+    const index = makeIndex([event]);
+    const flags = [makeFlag('f1', 'high', ['sess-abc:0'])];
+    await generatePdf(makeInput({ flags, index }));
+    const call = vi.mocked(renderPdf).mock.calls[0];
+    const pdfInput = call![0];
+    expect(pdfInput.screenshots[0]!.label).toContain(event.wall);
+  });
 });

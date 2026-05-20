@@ -13,7 +13,7 @@
  * PRD §7.5.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button.js';
 import { useBundle } from '@/context/BundleContext.js';
 import { generatePdf } from '@/export/findings-pdf.js';
@@ -24,6 +24,15 @@ export function ExportPdfButton() {
 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
+  const cancelledRef = useRef(false);
+
+  // Guard against state updates on unmounted component.
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   const handleExport = useCallback(async () => {
     const bundle = bundles[0];
@@ -48,7 +57,9 @@ export function ExportPdfButton() {
         flags,
         generatedAt,
         onProgress: (completed, total) => {
-          setProgress({ completed, total });
+          if (!cancelledRef.current) {
+            setProgress({ completed, total });
+          }
         },
       });
 
@@ -56,8 +67,10 @@ export function ExportPdfButton() {
       const pdfBlob = doc.output('blob');
       downloadAs(filename, pdfBlob);
     } finally {
-      setIsExporting(false);
-      setProgress(null);
+      if (!cancelledRef.current) {
+        setIsExporting(false);
+        setProgress(null);
+      }
     }
   }, [bundles, index, validationReport, flags, status]);
 

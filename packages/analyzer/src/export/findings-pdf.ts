@@ -140,7 +140,7 @@ export async function generatePdf(input: GeneratePdfInput): Promise<GeneratePdfR
       screenshots.push({
         flagId: flag.id,
         dataUrl,
-        label: `${filePath} — event #${event.globalIdx} (seq ${firstKey})`,
+        label: `${filePath} — event #${event.globalIdx} (seq ${firstKey}) @ ${event.wall}`,
       });
     } catch {
       // Screenshot failed — skip, do not abort the whole export.

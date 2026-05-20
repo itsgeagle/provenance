@@ -125,6 +125,12 @@ export function runsToFlatOffsets(
  * body and captured by html2canvas. It renders the file content as a <pre>
  * with inline <span> tags for paste/external-change regions.
  *
+ * ## Long line handling
+ *
+ * Files with lines exceeding ~95 characters (800px at 12px monospace) are
+ * wrapped using `white-space:pre-wrap` to prevent silent clipping. The outer
+ * div does not clip overflow; html2canvas captures the rendered size naturally.
+ *
  * Pure function; testable without DOM.
  *
  * @param content   File content string.
@@ -173,7 +179,7 @@ export function buildScreenshotHtml(
   padding:12px 16px;
   width:800px;
   box-sizing:border-box;
-  overflow:hidden;
+  overflow:visible;
 ">
   <div style="
     color:#9cdcfe;
@@ -186,8 +192,7 @@ export function buildScreenshotHtml(
   </div>
   <pre style="
     margin:0;
-    white-space:pre;
-    overflow:hidden;
+    white-space:pre-wrap;
     color:#d4d4d4;
   ">${html}</pre>
 </div>`.trim();
