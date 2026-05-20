@@ -273,7 +273,8 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
     // Warm the checkpoint below this position so future adjacent seeks can
     // short-circuit. (The warmup itself calls reconstructFileWithProvenance.)
     const checkpointFloor = Math.floor(clamped / CHECKPOINT_EVERY) * CHECKPOINT_EVERY;
-    if (checkpointFloor > 0) {
+    // Skip warmup for the implicit-empty checkpoint at 0.
+    if (checkpointFloor >= CHECKPOINT_EVERY) {
       ensureCheckpoint(internal, checkpointFloor);
     }
 

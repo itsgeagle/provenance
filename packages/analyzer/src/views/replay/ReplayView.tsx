@@ -116,6 +116,7 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
         seek(idx);
       }
     }
+    // Mount-only: didInitRef guards re-fires; seek is stable via useCallback.
     // Intentionally empty dep array: this effect handles initial URL→engine sync only
     // on mount. Re-firing on searchParams changes would re-seek on every URL write-back,
     // overriding navigation that happened during the session.

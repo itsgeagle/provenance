@@ -80,7 +80,7 @@ export function TransportBar({
   );
 
   const isPlaying = state.status === 'playing';
-  const atStart = state.currentGlobalIdx <= 0;
+  const atStart = state.currentGlobalIdx < 0;
   const atEnd = state.currentGlobalIdx >= sliderMax;
 
   // Display: "event N of M" or "— of M" before first event.

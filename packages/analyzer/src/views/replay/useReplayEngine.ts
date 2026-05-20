@@ -175,11 +175,14 @@ export function useReplayEngine(
     (n = 1) => {
       const engine = engineRef.current;
       if (engine === null) return;
-      // Stepping while playing: keep playing but advance immediately.
+      // Always pause before stepping: standard media-player UX.
+      // (Matches behavior of conventional playback controls: step is a scrub operation.)
+      clearPlayInterval();
+      engine.setPaused();
       engine.step(n);
       syncFromEngine(engine);
     },
-    [syncFromEngine],
+    [clearPlayInterval, syncFromEngine],
   );
 
   // ---------------------------------------------------------------------------
