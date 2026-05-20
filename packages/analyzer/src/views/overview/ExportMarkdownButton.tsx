@@ -17,7 +17,7 @@ import { renderFindings, filenameFor } from '@/export/findings-markdown.js';
 import { downloadAs } from '@/export/download.js';
 
 export function ExportMarkdownButton() {
-  const { bundles, validationReport, flags, status } = useBundle();
+  const { bundles, validationReport, flags, crossFlags, status } = useBundle();
 
   const handleExport = useCallback(() => {
     const bundle = bundles[0];
@@ -25,11 +25,20 @@ export function ExportMarkdownButton() {
       // Should not happen — button is disabled in this case — but be safe.
       return;
     }
+    // Build a bundleId → sourceFilename map for human-readable cross-flag labels.
+    const bundleNamesById: Record<string, string> = {};
+    for (const b of bundles) {
+      bundleNamesById[b.id] = b.sourceFilename;
+    }
     const generatedAt = new Date();
-    const markdown = renderFindings(bundle, validationReport, flags, { generatedAt });
+    const markdown = renderFindings(bundle, validationReport, flags, {
+      generatedAt,
+      crossFlags,
+      bundleNamesById,
+    });
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     downloadAs(filenameFor(bundle, generatedAt), blob);
-  }, [bundles, validationReport, flags, status]);
+  }, [bundles, validationReport, flags, crossFlags, status]);
 
   const disabled = status !== 'loaded' || bundles.length === 0 || validationReport === null;
 

@@ -17,7 +17,7 @@ import { Card, CardContent } from '../../components/ui/card.js';
 import { Button } from '../../components/ui/button.js';
 
 export function LoadView() {
-  const { status, loadingStage, loadError, loadBundleFile, clearBundle } = useBundle();
+  const { status, loadingStage, loadError, loadBundleFiles, clearBundle } = useBundle();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -30,18 +30,20 @@ export function LoadView() {
   }, [status, navigate]);
 
   // ---------------------------------------------------------------------------
-  // File handling
+  // File handling — accepts one or more files
   // ---------------------------------------------------------------------------
 
-  const handleFile = useCallback(
-    (file: File) => {
-      void loadBundleFile(file);
+  const handleFiles = useCallback(
+    (files: File[]) => {
+      if (files.length > 0) {
+        void loadBundleFiles(files);
+      }
     },
-    [loadBundleFile],
+    [loadBundleFiles],
   );
 
   // ---------------------------------------------------------------------------
-  // Drag-and-drop handlers
+  // Drag-and-drop handlers (multi-file)
   // ---------------------------------------------------------------------------
 
   const onDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -58,28 +60,24 @@ export function LoadView() {
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       setIsDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file !== undefined) {
-        handleFile(file);
-      }
+      const files = Array.from(e.dataTransfer.files);
+      handleFiles(files);
     },
-    [handleFile],
+    [handleFiles],
   );
 
   // ---------------------------------------------------------------------------
-  // File picker handler
+  // File picker handler (multi-file)
   // ---------------------------------------------------------------------------
 
   const onFilePickerChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file !== undefined) {
-        handleFile(file);
-      }
+      const files = Array.from(e.target.files ?? []);
+      handleFiles(files);
       // Reset the input so the same file can be re-selected after clearing.
       e.target.value = '';
     },
-    [handleFile],
+    [handleFiles],
   );
 
   const openFilePicker = useCallback(() => {
@@ -139,7 +137,7 @@ export function LoadView() {
           onClick={openFilePicker}
           role="button"
           tabIndex={0}
-          aria-label="Drop zone — click or drag a .zip bundle here"
+          aria-label="Drop zone — click or drag .zip bundle(s) here"
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') openFilePicker();
           }}
@@ -161,21 +159,24 @@ export function LoadView() {
               />
             </svg>
             <div className="text-center">
-              <p className="text-base font-medium">Drop your .zip bundle here</p>
-              <p className="text-sm text-muted-foreground mt-1">or click to choose a file</p>
+              <p className="text-base font-medium">Drop your .zip bundle(s) here</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                or click to choose one or more files
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Hidden file input */}
+        {/* Hidden file input — multiple to support batch loading */}
         <input
           ref={fileInputRef}
           type="file"
           accept=".zip,application/zip"
+          multiple
           className="hidden"
           data-testid="file-input"
           onChange={onFilePickerChange}
-          aria-label="Choose bundle file"
+          aria-label="Choose bundle file(s)"
         />
 
         <div className="flex justify-center">

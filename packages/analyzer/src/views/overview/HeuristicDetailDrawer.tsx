@@ -6,8 +6,13 @@
  * Uses a Radix Dialog in the DrawerContent variant (right panel, not centered
  * modal). Esc and overlay-click close are free from Radix.
  *
- * Phase 15 will add "Jump to replay" buttons alongside the "Jump to raw
- * timeline" buttons.
+ * Phase 15: each supporting event row now has a "Jump to replay" button
+ * alongside the existing "Jump to raw timeline" button.
+ *
+ * Resolving globalIdx from seqKey:
+ *   seqKey = "${sessionId}:${seq}"
+ *   globalIdx = index.bySeq.get(seqKey)?.globalIdx
+ *   The replay route is /replay/:sessionId?event=:globalIdx
  */
 
 import { useNavigate } from 'react-router-dom';
@@ -22,14 +27,22 @@ import { ScrollArea } from '@/components/ui/scroll-area.js';
 import { Progress } from '@/components/ui/progress.js';
 import { Button } from '@/components/ui/button.js';
 import { SeverityChip } from './SeverityChip.js';
+import { useBundle } from '../../context/BundleContext.js';
 import type { Flag } from '../../heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Supporting event list
 // ---------------------------------------------------------------------------
 
-function SupportingEventRow({ seqKey }: { seqKey: string }) {
+interface SupportingEventRowProps {
+  seqKey: string;
+  /** globalIdx resolved from index.bySeq, or null if unavailable. */
+  globalIdx: number | null;
+}
+
+function SupportingEventRow({ seqKey, globalIdx }: SupportingEventRowProps) {
   const navigate = useNavigate();
+
   // seqKey format: "${sessionId}:${seq}"
   const colonIdx = seqKey.indexOf(':');
   const sessionId = colonIdx !== -1 ? seqKey.slice(0, colonIdx) : seqKey;
@@ -38,16 +51,37 @@ function SupportingEventRow({ seqKey }: { seqKey: string }) {
 
   const label = isNaN(seqNum) ? seqKey : `seq #${seqNum} (session ${sessionId.slice(0, 8)}…)`;
 
-  const handleJump = () => {
+  const handleJumpTimeline = () => {
     void navigate(`/timeline?seq=${seqKey}`);
   };
 
+  const handleJumpReplay = () => {
+    if (globalIdx === null) return;
+    void navigate(`/replay/${sessionId}?event=${globalIdx}`);
+  };
+
   return (
-    <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+    <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
       <span className="font-mono text-xs text-muted-foreground">{label}</span>
-      <Button variant="ghost" size="sm" onClick={handleJump} data-testid={`jump-btn-${seqKey}`}>
-        Jump to raw timeline
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleJumpTimeline}
+          data-testid={`jump-btn-${seqKey}`}
+        >
+          Raw timeline
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleJumpReplay}
+          disabled={globalIdx === null}
+          data-testid={`jump-replay-btn-${seqKey}`}
+        >
+          ▶ Replay
+        </Button>
+      </div>
     </div>
   );
 }
@@ -58,6 +92,7 @@ function SupportingEventRow({ seqKey }: { seqKey: string }) {
 
 function DrawerBody({ flag }: { flag: Flag }) {
   const pct = Math.round(flag.confidence * 100);
+  const { index } = useBundle();
 
   return (
     <div className="flex h-full flex-col">
@@ -95,9 +130,12 @@ function DrawerBody({ flag }: { flag: Flag }) {
                 Supporting events ({flag.supportingSeqs.length})
               </h3>
               <div className="space-y-1" data-testid="supporting-events-list">
-                {flag.supportingSeqs.map((seqKey) => (
-                  <SupportingEventRow key={seqKey} seqKey={seqKey} />
-                ))}
+                {flag.supportingSeqs.map((seqKey) => {
+                  // Resolve globalIdx from index.bySeq once per row render.
+                  // index is null before bundle loads; globalIdx is null → replay button disabled.
+                  const globalIdx = index?.bySeq.get(seqKey)?.globalIdx ?? null;
+                  return <SupportingEventRow key={seqKey} seqKey={seqKey} globalIdx={globalIdx} />;
+                })}
               </div>
             </section>
           )}

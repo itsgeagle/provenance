@@ -9,7 +9,6 @@ import type { LoadingStage } from '../../context/BundleContext.js';
 
 const STAGE_LABELS: Record<NonNullable<LoadingStage>, string> = {
   unzip: 'Reading ZIP file…',
-  parse: 'Parsing sessions…',
   index: 'Building event index…',
   validate: 'Running validation…',
   heuristics: 'Running heuristics…',

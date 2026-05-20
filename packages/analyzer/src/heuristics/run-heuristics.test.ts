@@ -70,10 +70,22 @@ function makeChainFailReport(sessionId: string, seq: number): ValidationReport {
 // Empty case
 // ---------------------------------------------------------------------------
 
+// Phase 17 note: all test bundles use extension_hash='a'.repeat(64). The default
+// known-good list (placeholder) doesn't include it, so extension_hash_mismatch would
+// fire on every test. Tests that care about flag counts use SNAPSHOT_CONFIG_OVERRIDE
+// defined near the snapshot test block. Tests that only check for specific heuristics
+// use filter() to isolate results.
+
 describe('runHeuristics — empty', () => {
   it('returns an empty array when there are no triggering events', async () => {
     const { index, bundle } = await buildAndIndex({ sessions: [{ eventCount: 3 }] });
-    const flags = runHeuristics(index, bundle, makePassReport());
+    // Use SNAPSHOT_CONFIG_OVERRIDE to suppress extension_hash_mismatch on test bundles.
+    // The constant is defined below near the snapshot tests but hoisted references work
+    // here because the test runs after module load. We inline the override to avoid
+    // forward-reference confusion in this test file.
+    const flags = runHeuristics(index, bundle, makePassReport(), {
+      extensionHashMismatch: { knownGoodHashes: ['a'.repeat(64)] },
+    });
     expect(flags).toHaveLength(0);
   });
 });
@@ -101,7 +113,9 @@ describe('runHeuristics — sort order', () => {
     });
     const sessionId = bundle.sessions[0]!.sessionId;
     const report = makeChainFailReport(sessionId, 1);
-    const flags = runHeuristics(index, bundle, report);
+    const flags = runHeuristics(index, bundle, report, {
+      extensionHashMismatch: { knownGoodHashes: ['a'.repeat(64)] },
+    });
 
     expect(flags.length).toBeGreaterThanOrEqual(2);
     // Verify all high flags come before all medium flags.
@@ -145,7 +159,9 @@ describe('runHeuristics — sort order', () => {
     // First session id from the bundle
     const sessionId = bundle.sessions[0]!.sessionId;
     const chainFailReport = makeChainFailReport(sessionId, 1);
-    const flags = runHeuristics(index, bundle, chainFailReport);
+    const flags = runHeuristics(index, bundle, chainFailReport, {
+      extensionHashMismatch: { knownGoodHashes: ['a'.repeat(64)] },
+    });
     // chain_broken: high, 1.0. large_paste (in anomaly window): high, 0.6.
     const highFlags = flags.filter((f) => f.severity === 'high');
     expect(highFlags.length).toBeGreaterThanOrEqual(2);
@@ -188,14 +204,16 @@ describe('runHeuristics — config override', () => {
         },
       ],
     });
-    // With default config: no flag (100 < 200)
-    const defaultFlags = runHeuristics(index, bundle, makePassReport());
+    // With default config: no flag (100 < 200). Suppress extension_hash_mismatch on test bundles.
+    const knownGoodHashOverride = { extensionHashMismatch: { knownGoodHashes: ['a'.repeat(64)] } };
+    const defaultFlags = runHeuristics(index, bundle, makePassReport(), knownGoodHashOverride);
     const largePasteDefaultFlags = defaultFlags.filter((f) => f.heuristic === 'large_paste');
     expect(largePasteDefaultFlags).toHaveLength(0);
 
     // With custom config: flagged (100 >= 50)
     const customFlags = runHeuristics(index, bundle, makePassReport(), {
       largePaste: { ...DEFAULT_HEURISTIC_CONFIG.largePaste, minChars: 50 },
+      ...knownGoodHashOverride,
     });
     const largePasteCustomFlags = customFlags.filter((f) => f.heuristic === 'large_paste');
     expect(largePasteCustomFlags).toHaveLength(1);
@@ -235,7 +253,18 @@ describe('runHeuristics — integrity flags', () => {
 // We assert structural shape, not exact string values, because the session IDs
 // are randomized by the test helper (ed25519 keypair → random pubkey).
 // Stable properties: heuristic names, severities, count.
+//
+// Phase 17 note: The snapshot config overrides `knownGoodHashes` to include
+// the test bundle's extension_hash ('a'.repeat(64)), preventing
+// extension_hash_mismatch from firing on the test fixture. Real deployments
+// must populate known-good-extension-hashes.json before enabling this heuristic.
 // ---------------------------------------------------------------------------
+
+// The test bundle always uses 'a'.repeat(64) as extension_hash (see build-test-bundle.ts).
+// Add it to the known-good list so extension_hash_mismatch does NOT fire in snapshots.
+const SNAPSHOT_CONFIG_OVERRIDE = {
+  extensionHashMismatch: { knownGoodHashes: ['a'.repeat(64)] },
+};
 
 describe('runHeuristics — snapshot fixture', () => {
   it('produces the expected flag set on a fixture with one of each trigger', async () => {
@@ -300,7 +329,9 @@ describe('runHeuristics — snapshot fixture', () => {
     const sessionId = bundle.sessions[0]!.sessionId;
     const report = makeChainFailReport(sessionId, 2);
 
-    const flags = runHeuristics(index, bundle, report);
+    // Phase 17: override knownGoodHashes to include test bundle's hash so
+    // extension_hash_mismatch does not fire spuriously on this fixture.
+    const flags = runHeuristics(index, bundle, report, SNAPSHOT_CONFIG_OVERRIDE);
 
     // Verify the expected heuristics fired
     const heuristicNames = flags.map((f) => f.heuristic);
@@ -332,21 +363,25 @@ describe('runHeuristics — snapshot fixture', () => {
 
     // Snapshot: assert flag count and heuristic-severity pairs are stable.
     const summary = flags.map((f) => ({ heuristic: f.heuristic, severity: f.severity }));
-    // Verify expected count: chain_broken(1) + large_paste(1) + external_edits(1) +
-    // low_typing_high_output(2: solution.py via large paste + file.py via ratio)
-    // Note: solution.py gets a large paste (tainted), so low_typing is only /test/file.py.
-    // Also large paste on solution.py is inline (< 4KB), so not tainted.
-    // solution.py: charsTyped=0, finalLength=600 → infinite ratio → high!
-    // file.py: charsTyped=1, finalLength=5 → ratio=5 → high!
+    // Verify expected count: 6 total flags
+    // - chain_broken(1): hash chain integrity failure
+    // - large_paste(1): solution.py 600-char paste
+    // - external_edits(1): helper.py external change, unexplained
+    // - low_typing_high_output(1): file.py only (solution.py is tainted by large paste)
+    //   file.py: typed 1 char, pasted 4 chars → ratio=5 → high severity
+    // - paste_is_solution(1): solution.py 600-char paste matches 100% of final content
+    // Phase 17 heuristics do not fire on this fixture (no AI tool events, no clock.skew,
+    // no heartbeats, single session, extension_hash suppressed via config override above).
     expect(summary).toEqual(
       expect.arrayContaining([
         { heuristic: 'chain_broken', severity: 'high' },
         { heuristic: 'large_paste', severity: 'high' },
         { heuristic: 'external_edits', severity: 'medium' },
         { heuristic: 'low_typing_high_output', severity: 'high' },
+        { heuristic: 'paste_is_solution', severity: 'high' },
       ]),
     );
-    expect(flags).toHaveLength(5);
+    expect(flags).toHaveLength(6);
 
     // IDs are all unique
     const ids = flags.map((f) => f.id);
@@ -373,8 +408,9 @@ describe('runHeuristics — snapshot fixture', () => {
       ],
     });
     const report = makePassReport();
-    const flags1 = runHeuristics(index, bundle, report);
-    const flags2 = runHeuristics(index, bundle, report);
+    // Suppress extension_hash_mismatch so the test bundle passes the allowlist check.
+    const flags1 = runHeuristics(index, bundle, report, SNAPSHOT_CONFIG_OVERRIDE);
+    const flags2 = runHeuristics(index, bundle, report, SNAPSHOT_CONFIG_OVERRIDE);
     expect(flags1.map((f) => f.id)).toEqual(flags2.map((f) => f.id));
     expect(flags1.map((f) => f.heuristic)).toEqual(flags2.map((f) => f.heuristic));
   });

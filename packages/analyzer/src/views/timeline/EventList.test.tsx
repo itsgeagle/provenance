@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { EventList, payloadSummary } from './EventList.js';
 import type { IndexedEvent } from '../../index/event-index.js';
 
@@ -221,16 +222,19 @@ describe('EventList', () => {
       scrollToKey?: string | null;
     } = {},
   ) {
-    // jsdom doesn't do layout, so we need a fixed height container
+    // jsdom doesn't do layout, so we need a fixed height container.
+    // EventRow now uses useNavigate(), which requires a Router context.
     return render(
-      <div style={{ height: '600px', width: '800px' }}>
-        <EventList
-          events={events}
-          onSelect={onSelect}
-          selectedKey={selectedKey}
-          scrollToKey={scrollToKey}
-        />
-      </div>,
+      <MemoryRouter>
+        <div style={{ height: '600px', width: '800px' }}>
+          <EventList
+            events={events}
+            onSelect={onSelect}
+            selectedKey={selectedKey}
+            scrollToKey={scrollToKey}
+          />
+        </div>
+      </MemoryRouter>,
     );
   }
 

@@ -1,51 +1,98 @@
 /**
  * BundleContext — provides loaded bundle state to all routes.
  *
- * Design notes:
- * - `bundles` is plural-shaped from v1 (always length 1 in v1) so Phase 11
- *   only changes the loader, not consumers.
+ * v2 Phase 11 changes:
+ * - Per-bundle maps: `indicesByBundle`, `validationReportByBundle`, `flagsByBundle`
+ *   keyed by Bundle.id. These are the sources of truth.
+ * - `selectedBundleId`: the currently "active" bundle for single-bundle consumers.
+ *   Defaults to the first bundle's id when loaded.
+ * - Derived scalar accessors `index`, `validationReport`, `flags` read from the
+ *   maps using `selectedBundleId`. All v1 consumers (OverviewView, TimelineView,
+ *   ExportMarkdownButton, etc.) continue to work with zero changes.
+ * - `loadBundleFile` appends to the existing bundle list (used by the header
+ *   "Load more bundles" button); `loadBundleFiles` is the multi-file fan-out.
+ * - `clearBundle` resets to idle (used by "Load different bundle" which clears all).
+ *
+ * Design notes (A26, A30):
+ * - `bundles` is plural-shaped; v1 always had length 0 or 1.
  * - `loadingStage` advances synchronously between pipeline steps so
  *   LoadingPanel can display coarse progress without a full event emitter.
  * - The provider must sit inside <BrowserRouter> (done in main.tsx) and wraps
  *   <Routes> inside App.tsx.
+ * - Both load callbacks use functional updaters exclusively (A30). Neither
+ *   closes over state snapshots, so concurrent calls cannot drop each other's
+ *   work. `loadBundleFile` has an empty dep array; `loadBundleFiles` likewise.
  */
 
 import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
-import { loadBundle } from '../loader/parse-bundle.js';
+import { loadBundle, parseBundles } from '../loader/parse-bundle.js';
 import { buildIndex } from '../index/build-index.js';
 import { runValidation } from '../validation/run-validation.js';
 import { runHeuristics } from '../heuristics/run-heuristics.js';
 import type { Bundle, LoaderError, SessionParseError } from '../loader/types.js';
+import type { BlobLoadError } from '../loader/parse-bundle.js';
 import type { EventIndex } from '../index/event-index.js';
 import type { ValidationReport } from '../validation/check-types.js';
 import type { Flag } from '../heuristics/types.js';
+import type { CrossFlag } from '../heuristics/cross/types.js';
+import { runCrossHeuristics } from '../heuristics/cross/run-cross-heuristics.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type LoadingStage = 'unzip' | 'parse' | 'index' | 'validate' | 'heuristics' | null;
+export type LoadingStage = 'unzip' | 'index' | 'validate' | 'heuristics' | null;
 
 export type BundleContextValue = {
-  /** Plural-shaped; v1 always has length 0 or 1. */
+  /** All loaded bundles. Empty when idle/error. */
   bundles: Bundle[];
+
+  /** The id of the currently selected bundle. Null when nothing is loaded. */
+  selectedBundleId: string | null;
+  /** Switch the active bundle for all single-bundle consumers. */
+  selectBundle(id: string): void;
+
+  // Per-bundle maps — sources of truth.
+  indicesByBundle: Map<string, EventIndex>;
+  validationReportByBundle: Map<string, ValidationReport>;
+  flagsByBundle: Map<string, Flag[]>;
+
+  // Derived single-bundle scalars — read from maps using selectedBundleId.
+  // These keep v1 consumers working unchanged.
   index: EventIndex | null;
   validationReport: ValidationReport | null;
   flags: Flag[];
+
+  /**
+   * Cross-bundle heuristic findings (Phase 18).
+   * Populated when bundles.length >= 2 by runCrossHeuristics.
+   * Empty when only one bundle is loaded (no cross-bundle analysis possible).
+   */
+  crossFlags: CrossFlag[];
+
   status: 'idle' | 'loading' | 'loaded' | 'error';
   loadingStage: LoadingStage;
   /** The loader error, set when status === 'error'. */
   loadError: LoaderError | SessionParseError | null;
-  /** Load a bundle from a File (e.g. from the drop zone or file picker). */
+  /**
+   * Per-blob errors from the most recent multi-file load.
+   * Non-empty when some files succeeded and some failed (partial load).
+   */
+  partialLoadErrors: BlobLoadError[];
+
+  /** Load a single bundle file (append, not replace). */
   loadBundleFile(file: File): Promise<void>;
-  /** Reset state back to idle; navigate to /load. */
+  /** Load multiple bundle files at once (fan-out, append). */
+  loadBundleFiles(files: File[]): Promise<void>;
+  /** Reset state back to idle. */
   clearBundle(): void;
 };
 
@@ -75,20 +122,31 @@ export function useBundle(): BundleContextValue {
 
 export function BundleProvider({ children }: { children: ReactNode }) {
   const [bundles, setBundles] = useState<Bundle[]>([]);
-  const [index, setIndex] = useState<EventIndex | null>(null);
-  const [validationReport, setValidationReport] = useState<ValidationReport | null>(null);
-  const [flags, setFlags] = useState<Flag[]>([]);
+  const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null);
+  const [indicesByBundle, setIndicesByBundle] = useState<Map<string, EventIndex>>(new Map());
+  const [validationReportByBundle, setValidationReportByBundle] = useState<
+    Map<string, ValidationReport>
+  >(new Map());
+  const [flagsByBundle, setFlagsByBundle] = useState<Map<string, Flag[]>>(new Map());
+
+  const [crossFlags, setCrossFlags] = useState<CrossFlag[]>([]);
+
   const [status, setStatus] = useState<BundleContextValue['status']>('idle');
   const [loadingStage, setLoadingStage] = useState<LoadingStage>(null);
   const [loadError, setLoadError] = useState<LoaderError | SessionParseError | null>(null);
+  const [partialLoadErrors, setPartialLoadErrors] = useState<BlobLoadError[]>([]);
+
+  // ---------------------------------------------------------------------------
+  // loadBundleFile — single file, append
+  // ---------------------------------------------------------------------------
 
   const loadBundleFile = useCallback(async (file: File) => {
     setStatus('loading');
     setLoadError(null);
+    setPartialLoadErrors([]);
     setLoadingStage('unzip');
 
     try {
-      // Step 1 + 2: unzip + parse (loadBundle covers both stages).
       const bundleResult = await loadBundle(file, file.name);
       if (!bundleResult.ok) {
         setLoadError(bundleResult.error);
@@ -98,31 +156,39 @@ export function BundleProvider({ children }: { children: ReactNode }) {
       }
       const bundle = bundleResult.value;
 
-      // Step 2 stage label: parsing is complete inside loadBundle; advance here.
       setLoadingStage('index');
-
-      // Step 3: build index (synchronous, O(N log N)).
       const idx = buildIndex(bundle);
 
       setLoadingStage('validate');
-
-      // Step 4: validation (async — verify-manifest-sig uses WebCrypto).
       const report = await runValidation(bundle);
 
       setLoadingStage('heuristics');
-
-      // Step 5: heuristics (synchronous).
       const heuristicFlags = runHeuristics(idx, bundle, report);
 
-      // Commit all state atomically.
-      setBundles([bundle]);
-      setIndex(idx);
-      setValidationReport(report);
-      setFlags(heuristicFlags);
+      // Use functional updaters so this callback never closes over stale state.
+      // Concurrent calls (from multiple rapid "Load more" clicks) will each read
+      // the latest prev value rather than silently overwriting each other's work.
+      setBundles((prev) => [...prev, bundle]);
+      setIndicesByBundle((prev) => {
+        const m = new Map(prev);
+        m.set(bundle.id, idx);
+        return m;
+      });
+      setValidationReportByBundle((prev) => {
+        const m = new Map(prev);
+        m.set(bundle.id, report);
+        return m;
+      });
+      setFlagsByBundle((prev) => {
+        const m = new Map(prev);
+        m.set(bundle.id, heuristicFlags);
+        return m;
+      });
+      // Default selectedBundleId to first bundle if not yet set.
+      setSelectedBundleId((prev) => prev ?? bundle.id);
       setStatus('loaded');
       setLoadingStage(null);
     } catch (err: unknown) {
-      // Safety net: should not normally trigger since loadBundle returns Result.
       setLoadError({
         kind: 'unknown_failure',
         detail: err instanceof Error ? err.message : 'Unexpected error during load.',
@@ -132,37 +198,197 @@ export function BundleProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // loadBundleFiles — multi-file fan-out, append
+  // ---------------------------------------------------------------------------
+
+  const loadBundleFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    setStatus('loading');
+    setLoadError(null);
+    setPartialLoadErrors([]);
+    setLoadingStage('unzip');
+
+    try {
+      const blobs = files.map((f) => f as Blob);
+      const filenames = files.map((f) => f.name);
+      const { bundles: parsed, errors } = await parseBundles(blobs, filenames);
+
+      // If ALL blobs failed, treat as a hard error.
+      if (parsed.length === 0 && errors.length > 0) {
+        setLoadError(errors[0]!.error);
+        setStatus('error');
+        setLoadingStage(null);
+        return;
+      }
+
+      // Partial failures are surfaced as partialLoadErrors (non-blocking).
+      setPartialLoadErrors(errors);
+
+      // Process each successfully parsed bundle sequentially so stage labels
+      // advance predictably. Order-independent but sequential avoids multiple
+      // concurrent validation calls (WebCrypto) that could interleave stage labels.
+      //
+      // We accumulate results in local variables (not state snapshots) so that
+      // the single functional-updater commit at the end is safe across re-renders.
+      type Accumulated = {
+        bundles: Bundle[];
+        indices: Map<string, EventIndex>;
+        reports: Map<string, ValidationReport>;
+        flags: Map<string, Flag[]>;
+      };
+      const accumulated: Accumulated = {
+        bundles: [],
+        indices: new Map(),
+        reports: new Map(),
+        flags: new Map(),
+      };
+      let firstId: string | null = null;
+
+      for (const bundle of parsed) {
+        setLoadingStage('index');
+        const idx = buildIndex(bundle);
+
+        setLoadingStage('validate');
+        const report = await runValidation(bundle);
+
+        setLoadingStage('heuristics');
+        const heuristicFlags = runHeuristics(idx, bundle, report);
+
+        accumulated.bundles.push(bundle);
+        accumulated.indices.set(bundle.id, idx);
+        accumulated.reports.set(bundle.id, report);
+        accumulated.flags.set(bundle.id, heuristicFlags);
+        if (firstId === null) firstId = bundle.id;
+      }
+
+      // Single functional-updater commit: merges accumulated results with
+      // whatever is currently in state (handles concurrent loadBundleFile calls).
+      setBundles((prev) => [...prev, ...accumulated.bundles]);
+      setIndicesByBundle((prev) => {
+        const m = new Map(prev);
+        for (const [id, idx] of accumulated.indices) m.set(id, idx);
+        return m;
+      });
+      setValidationReportByBundle((prev) => {
+        const m = new Map(prev);
+        for (const [id, report] of accumulated.reports) m.set(id, report);
+        return m;
+      });
+      setFlagsByBundle((prev) => {
+        const m = new Map(prev);
+        for (const [id, flagList] of accumulated.flags) m.set(id, flagList);
+        return m;
+      });
+      setSelectedBundleId((prev) => prev ?? firstId);
+      setStatus('loaded');
+      setLoadingStage(null);
+    } catch (err: unknown) {
+      setLoadError({
+        kind: 'unknown_failure',
+        detail: err instanceof Error ? err.message : 'Unexpected error during load.',
+      });
+      setStatus('error');
+      setLoadingStage(null);
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // clearBundle — reset all state
+  // ---------------------------------------------------------------------------
+
   const clearBundle = useCallback(() => {
     setBundles([]);
-    setIndex(null);
-    setValidationReport(null);
-    setFlags([]);
+    setSelectedBundleId(null);
+    setIndicesByBundle(new Map());
+    setValidationReportByBundle(new Map());
+    setFlagsByBundle(new Map());
+    setCrossFlags([]);
     setStatus('idle');
     setLoadingStage(null);
     setLoadError(null);
+    setPartialLoadErrors([]);
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // selectBundle — switch active bundle
+  // ---------------------------------------------------------------------------
+
+  const selectBundle = useCallback((id: string) => {
+    setSelectedBundleId(id);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Cross-flags — recomputed whenever bundles or indicesByBundle change (Phase 18).
+  //
+  // Using useEffect here rather than computing inside load callbacks is the
+  // correct approach: load callbacks use empty-dep useCallback (they must not
+  // close over state snapshots). After the functional-updater commits settle,
+  // React fires this effect with the final, fully-merged bundles +
+  // indicesByBundle values. runCrossHeuristics is a pure synchronous function —
+  // no async, no I/O, no side effects — so calling it from an effect is safe.
+  //
+  // When bundles.length < 2, runCrossHeuristics returns [] immediately (no-op).
+  // This keeps the single-bundle path identical to Phase 11 behaviour.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const newCrossFlags = runCrossHeuristics(bundles, indicesByBundle);
+    setCrossFlags(newCrossFlags);
+  }, [bundles, indicesByBundle]);
+
+  // ---------------------------------------------------------------------------
+  // Derived scalars — read from maps using selectedBundleId
+  // These keep all v1 consumers working unchanged.
+  // ---------------------------------------------------------------------------
+
+  const index = selectedBundleId !== null ? (indicesByBundle.get(selectedBundleId) ?? null) : null;
+  const validationReport =
+    selectedBundleId !== null ? (validationReportByBundle.get(selectedBundleId) ?? null) : null;
+  const flags = selectedBundleId !== null ? (flagsByBundle.get(selectedBundleId) ?? []) : [];
+
+  // ---------------------------------------------------------------------------
+  // Context value
+  // ---------------------------------------------------------------------------
 
   const value = useMemo<BundleContextValue>(
     () => ({
       bundles,
+      selectedBundleId,
+      selectBundle,
+      indicesByBundle,
+      validationReportByBundle,
+      flagsByBundle,
       index,
       validationReport,
       flags,
+      crossFlags,
       status,
       loadingStage,
       loadError,
+      partialLoadErrors,
       loadBundleFile,
+      loadBundleFiles,
       clearBundle,
     }),
     [
       bundles,
+      selectedBundleId,
+      selectBundle,
+      indicesByBundle,
+      validationReportByBundle,
+      flagsByBundle,
       index,
       validationReport,
       flags,
+      crossFlags,
       status,
       loadingStage,
       loadError,
+      partialLoadErrors,
       loadBundleFile,
+      loadBundleFiles,
       clearBundle,
     ],
   );

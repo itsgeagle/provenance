@@ -1,5 +1,5 @@
 /**
- * Default configuration for the v1 heuristics engine (Phase 4).
+ * Configuration for the v1 + v2 heuristics engine (Phases 4 and 16).
  *
  * All thresholds are configurable — consumers pass a partial override to
  * runHeuristics(); missing fields fall back to the defaults here.
@@ -26,7 +26,62 @@
  *
  *   chain_broken:
  *     - always high, confidence 1.0 (cryptographic check — no ambiguity).
+ *
+ *   paste_is_solution (Phase 16):
+ *     - high: shared lines / paste lines >= lineOverlap threshold (default 0.8)
+ *     - confidence: 0.85.
+ *
+ *   mass_external_replacement (Phase 16):
+ *     - high: shared lines / max(oldLines, newLines) < sharedThreshold (default 0.2)
+ *     - confidence: 0.75.
+ *
+ *   time_to_first_save_anomaly (Phase 16):
+ *     - high: doc.open → doc.save < anomalySeconds (default 30s) AND new content > minChars (default 500).
+ *     - confidence: 0.8.
+ *
+ *   idle_then_complete (Phase 16):
+ *     - high: idle gap > idleGapMs (default 10min) followed by save that brings file
+ *       from skeleton (< sizeRatio of final chars) to final hash match.
+ *     - confidence: 0.8.
+ *
+ *   no_intermediate_errors (Phase 16):
+ *     - medium: file goes from empty to final with no terminal exit_code !== 0.
+ *     - skipped when shell_integration: false (info severity flag with reason).
+ *
+ *   paste_matches_known_source (Phase 16):
+ *     - high: exact hash match against corpus entry.
+ *     - medium: diffLines ratio >= fuzzyThreshold (default 0.7) against corpus fuzzy_lines.
+ *     - confidence: 0.95 (hash match) / 0.8 (fuzzy match).
+ *
+ *   Known-source corpus is passed via knownSourceCorpus in config (optional; empty
+ *   list → heuristic emits 0 flags). PRD §10 Q4: the corpus content is course-staff's;
+ *   this config carries the format. Course staff loads the corpus into config before
+ *   running heuristics (UI hook-up is Phase 16 out-of-scope per task spec).
  */
+
+// ---------------------------------------------------------------------------
+// Known-source corpus type (paste_matches_known_source)
+// ---------------------------------------------------------------------------
+
+// Import default AI extension IDs from the committed JSON list.
+// This is a static import — the list is compiled into the bundle at build time.
+// Consumers can override via HeuristicConfig.aiExtensionActive.knownAiExtensions.
+import defaultAiExtensionList from './config/ai-extension-list.json';
+import defaultKnownGoodHashes from './config/known-good-extension-hashes.json';
+
+/**
+ * A single known-source entry in the course-staff corpus.
+ *
+ * - `name`: human-readable label (e.g. "hw1 solution", "stack overflow snippet A").
+ * - `hashes`: SHA-256 hashes of known source texts. Exact match triggers high flag.
+ * - `fuzzy_lines`: optional list of text blocks; each is compared via diffLines line
+ *   ratio. fuzzyThreshold match triggers medium flag.
+ */
+export type KnownSource = {
+  name: string;
+  hashes: string[];
+  fuzzy_lines?: string[][];
+};
 
 export type HeuristicConfig = {
   largePaste: {
@@ -68,6 +123,109 @@ export type HeuristicConfig = {
      */
     minCharsForConfidence: number;
   };
+  /** Phase 16: paste_is_solution heuristic thresholds. */
+  pasteIsSolution: {
+    /**
+     * Minimum shared-line ratio (sharedLines / pasteLines) to flag.
+     * Default: 0.8 (80%).
+     */
+    lineOverlap: number;
+  };
+  /** Phase 16: mass_external_replacement heuristic thresholds. */
+  massExternalReplacement: {
+    /**
+     * Maximum shared-line ratio (sharedLines / max(oldLines, newLines)) below
+     * which we flag the external change as a mass replacement.
+     * Default: 0.2 (20%).
+     */
+    sharedThreshold: number;
+  };
+  /** Phase 16: time_to_first_save_anomaly heuristic thresholds. */
+  timeToFirstSaveAnomaly: {
+    /**
+     * Maximum seconds between doc.open and the first doc.save to flag.
+     * Default: 30.
+     */
+    anomalySeconds: number;
+    /**
+     * Minimum characters of new content in the save to consider it anomalous.
+     * Default: 500.
+     */
+    minChars: number;
+  };
+  /** Phase 16: idle_then_complete heuristic thresholds. */
+  idleThenComplete: {
+    /**
+     * Minimum idle gap (in ms between heartbeats) to count as "idle".
+     * Default: 600000 (10 minutes).
+     */
+    idleGapMs: number;
+    /**
+     * Ratio: if the prior file size is < sizeRatio × finalSize, it's a skeleton.
+     * Default: 0.5 (50%).
+     */
+    sizeRatio: number;
+    /**
+     * Window (in ms) after idle-gap end within which a save is considered "post-idle".
+     * Default: 60000 (60 seconds).
+     */
+    postIdleWindowMs: number;
+  };
+  /** Phase 17: ai_extension_active + extension_set_changed_mid_assignment. */
+  aiExtensionActive: {
+    /**
+     * List of VS Code extension IDs considered to be AI coding tools.
+     * Defaults to the course-maintained `config/ai-extension-list.json`.
+     * Override in tests or for per-course customization.
+     */
+    knownAiExtensions: string[];
+  };
+  /** Phase 17: extension_hash_mismatch heuristic. */
+  extensionHashMismatch: {
+    /**
+     * List of SHA-256 hashes (64-char lowercase hex) of known-good
+     * Provenance recorder builds. Defaults to `config/known-good-extension-hashes.json`.
+     * Any bundle whose `manifest.extension_hash` is NOT in this list is flagged.
+     */
+    knownGoodHashes: string[];
+  };
+  /** Phase 17: clock_jumps heuristic thresholds. */
+  clockJumps: {
+    /**
+     * delta_ms threshold above which a single clock.skew event is
+     * considered anomalous. Default: 300000 (5 minutes).
+     */
+    singleJumpThresholdMs: number;
+    /**
+     * Minimum number of clock.skew events in a session to flag even if
+     * no single one exceeds singleJumpThresholdMs. Default: 2.
+     */
+    multipleJumpsMin: number;
+  };
+  /** Phase 17: gap_in_heartbeats heuristic thresholds. */
+  gapInHeartbeats: {
+    /**
+     * Minimum gap (in ms) between consecutive session.heartbeat events
+     * (by wall time) to count as a suspicious gap. Default: 300000 (5 min).
+     */
+    gapThresholdMs: number;
+  };
+  /** Phase 16: paste_matches_known_source heuristic. */
+  pasteMatchesKnownSource: {
+    /**
+     * Minimum diffLines line ratio to fire a fuzzy match (medium severity).
+     * Default: 0.7.
+     */
+    fuzzyThreshold: number;
+    /**
+     * Course-staff supplied corpus. Each entry has a name, SHA-256 hashes,
+     * and optional fuzzy_lines blocks. Empty array → heuristic emits 0 flags.
+     *
+     * PRD §10 Q4: the corpus content is course-staff's; the format is ours.
+     * Phase 16 ships the mechanism. Course staff populates this before running.
+     */
+    corpus: KnownSource[];
+  };
 };
 
 export const DEFAULT_HEURISTIC_CONFIG: HeuristicConfig = {
@@ -86,6 +244,38 @@ export const DEFAULT_HEURISTIC_CONFIG: HeuristicConfig = {
     highRatio: 5,
     minCharsForConfidence: 500,
   },
+  pasteIsSolution: {
+    lineOverlap: 0.8,
+  },
+  massExternalReplacement: {
+    sharedThreshold: 0.2,
+  },
+  timeToFirstSaveAnomaly: {
+    anomalySeconds: 30,
+    minChars: 500,
+  },
+  idleThenComplete: {
+    idleGapMs: 600_000, // 10 minutes
+    sizeRatio: 0.5,
+    postIdleWindowMs: 60_000, // 60 seconds
+  },
+  pasteMatchesKnownSource: {
+    fuzzyThreshold: 0.7,
+    corpus: [],
+  },
+  aiExtensionActive: {
+    knownAiExtensions: defaultAiExtensionList.extensionIds as string[],
+  },
+  extensionHashMismatch: {
+    knownGoodHashes: defaultKnownGoodHashes.hashes as string[],
+  },
+  clockJumps: {
+    singleJumpThresholdMs: 300_000, // 5 minutes
+    multipleJumpsMin: 2,
+  },
+  gapInHeartbeats: {
+    gapThresholdMs: 300_000, // 5 minutes
+  },
 };
 
 /**
@@ -100,6 +290,42 @@ export function mergeConfig(override?: Partial<HeuristicConfig>): HeuristicConfi
     lowTypingHighOutput: {
       ...DEFAULT_HEURISTIC_CONFIG.lowTypingHighOutput,
       ...override.lowTypingHighOutput,
+    },
+    pasteIsSolution: {
+      ...DEFAULT_HEURISTIC_CONFIG.pasteIsSolution,
+      ...override.pasteIsSolution,
+    },
+    massExternalReplacement: {
+      ...DEFAULT_HEURISTIC_CONFIG.massExternalReplacement,
+      ...override.massExternalReplacement,
+    },
+    timeToFirstSaveAnomaly: {
+      ...DEFAULT_HEURISTIC_CONFIG.timeToFirstSaveAnomaly,
+      ...override.timeToFirstSaveAnomaly,
+    },
+    idleThenComplete: {
+      ...DEFAULT_HEURISTIC_CONFIG.idleThenComplete,
+      ...override.idleThenComplete,
+    },
+    pasteMatchesKnownSource: {
+      ...DEFAULT_HEURISTIC_CONFIG.pasteMatchesKnownSource,
+      ...override.pasteMatchesKnownSource,
+    },
+    aiExtensionActive: {
+      ...DEFAULT_HEURISTIC_CONFIG.aiExtensionActive,
+      ...override.aiExtensionActive,
+    },
+    extensionHashMismatch: {
+      ...DEFAULT_HEURISTIC_CONFIG.extensionHashMismatch,
+      ...override.extensionHashMismatch,
+    },
+    clockJumps: {
+      ...DEFAULT_HEURISTIC_CONFIG.clockJumps,
+      ...override.clockJumps,
+    },
+    gapInHeartbeats: {
+      ...DEFAULT_HEURISTIC_CONFIG.gapInHeartbeats,
+      ...override.gapInHeartbeats,
     },
   };
 }

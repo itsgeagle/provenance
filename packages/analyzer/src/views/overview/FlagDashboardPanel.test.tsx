@@ -10,11 +10,37 @@
  * - Clicking a flag opens the HeuristicDetailDrawer (content appears in DOM).
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { FlagDashboardPanel } from './FlagDashboardPanel.js';
-import { fixtureFlags } from './test-fixtures.js';
+import { fixtureFlags, makeMinimalIndex } from './test-fixtures.js';
+
+// ---------------------------------------------------------------------------
+// Mock BundleContext — HeuristicDetailDrawer (rendered inside the panel when
+// a flag row is clicked) calls useBundle() to resolve globalIdx for replay links.
+// ---------------------------------------------------------------------------
+
+vi.mock('../../context/BundleContext.js', () => ({
+  useBundle: () => ({
+    index: makeMinimalIndex(),
+    flags: fixtureFlags,
+    bundles: [],
+    selectedBundleId: null,
+    selectBundle: vi.fn(),
+    indicesByBundle: new Map(),
+    validationReportByBundle: new Map(),
+    flagsByBundle: new Map(),
+    validationReport: null,
+    status: 'loaded' as const,
+    loadingStage: null,
+    loadError: null,
+    partialLoadErrors: [],
+    loadBundleFile: vi.fn(),
+    loadBundleFiles: vi.fn(),
+    clearBundle: vi.fn(),
+  }),
+}));
 
 function renderPanel(flags = fixtureFlags) {
   render(

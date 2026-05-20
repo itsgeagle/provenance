@@ -10,11 +10,38 @@
  * - Flags with no detail show no detail-json section.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { HeuristicDetailDrawer } from './HeuristicDetailDrawer.js';
-import { fixtureFlags } from './test-fixtures.js';
+import { fixtureFlags, makeMinimalIndex } from './test-fixtures.js';
+
+// ---------------------------------------------------------------------------
+// Mock BundleContext — DrawerBody calls useBundle() to resolve globalIdx for
+// the "▶ Replay" deep-link. We supply a minimal index so the replay buttons
+// render correctly (disabled when seqKey not in index).
+// ---------------------------------------------------------------------------
+
+vi.mock('../../context/BundleContext.js', () => ({
+  useBundle: () => ({
+    index: makeMinimalIndex(),
+    flags: fixtureFlags,
+    bundles: [],
+    selectedBundleId: null,
+    selectBundle: vi.fn(),
+    indicesByBundle: new Map(),
+    validationReportByBundle: new Map(),
+    flagsByBundle: new Map(),
+    validationReport: null,
+    status: 'loaded' as const,
+    loadingStage: null,
+    loadError: null,
+    partialLoadErrors: [],
+    loadBundleFile: vi.fn(),
+    loadBundleFiles: vi.fn(),
+    clearBundle: vi.fn(),
+  }),
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,6 +69,7 @@ function renderDrawer(flagIndex = 0) {
           }
         />
         <Route path="/timeline" element={<div data-testid="timeline-page" />} />
+        <Route path="/replay/:sessionId" element={<div data-testid="replay-page" />} />
       </Routes>
       <LocationCapture
         onLocation={(l) => {
@@ -132,5 +160,22 @@ describe('HeuristicDetailDrawer', () => {
     const chip = screen.getByTestId('drawer-severity');
     expect(chip.textContent).toBe('MEDIUM');
     expect(chip.className).toContain('bg-amber-100');
+  });
+
+  it('replay button is enabled when globalIdx resolves from index.bySeq', () => {
+    // Flag 0 has supportingSeqs: ['abc:2', 'abc:3']
+    // makeMinimalIndex now populates bySeq with these keys (Phase 15 fix)
+    renderDrawer(0);
+    fireEvent.click(screen.getByTestId('open-btn'));
+    const replayBtn = screen.getByTestId('jump-replay-btn-abc:2');
+    expect(replayBtn).not.toBeDisabled();
+  });
+
+  it('replay button navigates to /replay/:sessionId?event=:globalIdx', () => {
+    // Flag 0: supporting seq abc:2 → globalIdx 2 (from makeMinimalIndex bySeq)
+    const { getLocation } = renderDrawer(0);
+    fireEvent.click(screen.getByTestId('open-btn'));
+    fireEvent.click(screen.getByTestId('jump-replay-btn-abc:2'));
+    expect(getLocation()).toBe('/replay/abc?event=2');
   });
 });

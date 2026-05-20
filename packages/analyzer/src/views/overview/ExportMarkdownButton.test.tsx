@@ -34,27 +34,45 @@ vi.mock('@/context/BundleContext.js', () => ({
 function defaultEmptyValue(): BundleContextValue {
   return {
     bundles: [],
+    selectedBundleId: null,
+    selectBundle: () => {},
+    indicesByBundle: new Map(),
+    validationReportByBundle: new Map(),
+    flagsByBundle: new Map(),
     index: null,
     validationReport: null,
     flags: [],
+    crossFlags: [],
     status: 'idle',
     loadingStage: null,
     loadError: null,
+    partialLoadErrors: [],
     loadBundleFile: async () => {},
+    loadBundleFiles: async () => {},
     clearBundle: () => {},
   };
 }
 
 function loadedValue(): BundleContextValue {
+  const bundle = makeMinimalBundle();
+  const idx = makeMinimalIndex();
   return {
-    bundles: [makeMinimalBundle()],
-    index: makeMinimalIndex(),
+    bundles: [bundle],
+    selectedBundleId: bundle.id,
+    selectBundle: () => {},
+    indicesByBundle: new Map([[bundle.id, idx]]),
+    validationReportByBundle: new Map([[bundle.id, fixtureReport]]),
+    flagsByBundle: new Map([[bundle.id, fixtureFlags]]),
+    index: idx,
     validationReport: fixtureReport,
     flags: fixtureFlags,
+    crossFlags: [],
     status: 'loaded',
     loadingStage: null,
     loadError: null,
+    partialLoadErrors: [],
     loadBundleFile: async () => {},
+    loadBundleFiles: async () => {},
     clearBundle: () => {},
   };
 }

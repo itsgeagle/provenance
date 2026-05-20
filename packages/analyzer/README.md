@@ -4,7 +4,7 @@ A web app for course staff to inspect Provenance Recorder logs: validates tamper
 
 ## What it does
 
-The Analyzer loads a `.zip` bundle produced by the Provenance Recorder (or uploaded alongside a student submission). It validates the bundle's integrity, reconstructs the editing session, and surfaces high-value heuristic flags (large pastes, external edits, suspicious typing patterns, chain breaks) in a dashboard. Staff can drill into the raw timeline to review events in detail, and export findings as a markdown case file.
+The Analyzer loads one or more `.zip` bundles produced by the Provenance Recorder. It validates each bundle's integrity, reconstructs the editing sessions, and surfaces heuristic flags (large pastes, external edits, suspicious typing patterns, chain breaks) in a dashboard. Staff can replay any session in a Monaco-based replay view (`/replay/:sessionId`) with transport controls, speed adjustment, and paste/external-change gutter decorations. Multiple bundles can be loaded simultaneously for cross-submission comparison (`/compare`), which runs cross-bundle heuristics to detect shared paste content and editing-pattern clones. Findings export to Markdown or PDF.
 
 ## Development
 
@@ -50,7 +50,7 @@ To test against a real-recorder session, see `packages/analyzer/test/integration
 - **React 18 + TypeScript** — UI runtime with strict mode.
 - **Vite** — bundler and dev server.
 - **Tailwind + shadcn/ui** — styling and accessible component primitives.
-- **react-router-dom** — routing (`/load`, `/overview`, `/timeline`; `/replay` planned for v2).
+- **react-router-dom** — routing (`/load`, `/overview`, `/timeline`, `/replay/:sessionId`, `/compare`).
 - `@provenance/log-core` — shared event types, validation, and hash chain. Runs unmodified in the browser.
 
 ## Learn more

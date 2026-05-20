@@ -1,5 +1,5 @@
 /**
- * runHeuristics — orchestrator for the v1 heuristics suite (Phase 4).
+ * runHeuristics — orchestrator for the v1 + v2 heuristics suite (Phases 4, 16, 17).
  *
  * Runs each registered heuristic in a fixed order (registry list), collects
  * all flags, adds integrity flags from the validation report, then sorts the
@@ -23,18 +23,51 @@ import { largePasteHeuristic } from './large-paste.js';
 import { externalEditsHeuristic } from './external-edits.js';
 import { lowTypingHighOutputHeuristic } from './low-typing-high-output.js';
 import { integrityFlagsFromReport } from './integrity-flags.js';
+import { pasteIsSolutionHeuristic } from './paste-is-solution.js';
+import { massExternalReplacementHeuristic } from './mass-external-replacement.js';
+import { timeToFirstSaveAnomalyHeuristic } from './time-to-first-save-anomaly.js';
+import { idleThenCompleteHeuristic } from './idle-then-complete.js';
+import { noIntermediateErrorsHeuristic } from './no-intermediate-errors.js';
+import { pasteMatchesKnownSourceHeuristic } from './paste-matches-known-source.js';
+// Phase 17 — environment + integrity heuristics
+import { aiExtensionActiveHeuristic } from './ai-extension-active.js';
+import { shellIntegrationDisabledHeuristic } from './shell-integration-disabled.js';
+import { extensionSetChangedMidAssignmentHeuristic } from './extension-set-changed-mid-assignment.js';
+import { terminalActiveDuringExternalChangeHeuristic } from './terminal-active-during-external-change.js';
+import { clockJumpsHeuristic } from './clock-jumps.js';
+import { gapInHeartbeatsHeuristic } from './gap-in-heartbeats.js';
+import { multipleSessionsOverlapHeuristic } from './multiple-sessions-overlap.js';
+import { extensionHashMismatchHeuristic } from './extension-hash-mismatch.js';
 
 // ---------------------------------------------------------------------------
 // Registry
 //
-// The registry order is the documented evaluation order. Add new heuristics
-// here when extending the suite in v2 (Phases 16/17).
+// The registry order is the documented evaluation order. Phase 17 heuristics
+// follow Phase 16 in the registry (environment before integrity ordering).
 // ---------------------------------------------------------------------------
 
 const HEURISTIC_REGISTRY: Heuristic[] = [
+  // Phase 4 — v1 core
   largePasteHeuristic,
   externalEditsHeuristic,
   lowTypingHighOutputHeuristic,
+  // Phase 16 — process-shape
+  pasteIsSolutionHeuristic,
+  massExternalReplacementHeuristic,
+  timeToFirstSaveAnomalyHeuristic,
+  idleThenCompleteHeuristic,
+  noIntermediateErrorsHeuristic,
+  pasteMatchesKnownSourceHeuristic,
+  // Phase 17 — environment
+  aiExtensionActiveHeuristic,
+  shellIntegrationDisabledHeuristic,
+  extensionSetChangedMidAssignmentHeuristic,
+  terminalActiveDuringExternalChangeHeuristic,
+  // Phase 17 — integrity
+  clockJumpsHeuristic,
+  gapInHeartbeatsHeuristic,
+  multipleSessionsOverlapHeuristic,
+  extensionHashMismatchHeuristic,
 ];
 
 // ---------------------------------------------------------------------------
@@ -57,7 +90,7 @@ function severityRank(flag: Flag): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Run the full v1 heuristic suite and return a sorted flag list.
+ * Run the full v1 + v2 heuristic suite and return a sorted flag list.
  *
  * @param index          - EventIndex built from the bundle (from buildIndex).
  * @param bundle         - The fully-loaded bundle.

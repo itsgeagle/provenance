@@ -62,11 +62,12 @@ describe('integrityFlagsFromReport — negative', () => {
     expect(flags).toHaveLength(0);
   });
 
-  it('produces no flags when only non-chain checks fail', () => {
+  it('produces no flags when only unhandled checks fail (e.g. seq_gaps, doc_save_hashes)', () => {
+    // seq_gaps and doc_save_hashes are NOT in the CHECK_META table → no flags.
     const report: ValidationReport = {
       overall: 'fail',
       checks: makePassReport().checks.map((c) =>
-        c.id === 'manifest_sig' ? { ...c, status: 'fail', detail: 'Bad sig' } : c,
+        c.id === 'seq_gaps' ? { ...c, status: 'fail', detail: 'Gap found' } : c,
       ),
     };
     const flags = integrityFlagsFromReport(report);
@@ -162,5 +163,127 @@ describe('integrityFlagsFromReport — positive', () => {
     const flags = integrityFlagsFromReport(report);
     expect(flags[0]!.detail!['checkId']).toBe('chain_integrity');
     expect(flags[0]!.detail!['entryCount']).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 17: checks 1, 2, 5, 6
+// ---------------------------------------------------------------------------
+
+describe('integrityFlagsFromReport — Phase 17 extended checks', () => {
+  it('surfaces manifest_sig failure as manifest_sig_invalid flag (high)', () => {
+    const report: ValidationReport = {
+      overall: 'fail',
+      checks: makePassReport().checks.map((c) =>
+        c.id === 'manifest_sig'
+          ? {
+              id: 'manifest_sig',
+              label: 'Manifest signature',
+              status: 'fail',
+              detail: 'ed25519 verify returned false',
+            }
+          : c,
+      ),
+    };
+    const flags = integrityFlagsFromReport(report);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.heuristic).toBe('manifest_sig_invalid');
+    expect(flags[0]!.severity).toBe('high');
+    expect(flags[0]!.confidence).toBe(1.0);
+    expect(flags[0]!.description).toBe('ed25519 verify returned false');
+  });
+
+  it('surfaces session_binding failure as session_binding_invalid flag (high)', () => {
+    const report: ValidationReport = {
+      overall: 'fail',
+      checks: makePassReport().checks.map((c) =>
+        c.id === 'session_binding'
+          ? {
+              id: 'session_binding',
+              label: 'Session binding',
+              status: 'fail',
+              detail: 'Session sig does not match manifest_sig',
+              supportingSeqs: [{ sessionId: 'sess-1', seq: 0 }],
+            }
+          : c,
+      ),
+    };
+    const flags = integrityFlagsFromReport(report);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.heuristic).toBe('session_binding_invalid');
+    expect(flags[0]!.severity).toBe('high');
+    expect(flags[0]!.supportingSeqs).toEqual(['sess-1:0']);
+  });
+
+  it('surfaces monotonic_t failure as monotonic_t_regression flag (medium)', () => {
+    const report: ValidationReport = {
+      overall: 'fail',
+      checks: makePassReport().checks.map((c) =>
+        c.id === 'monotonic_t'
+          ? {
+              id: 'monotonic_t',
+              label: 'Monotonic t',
+              status: 'fail',
+              detail: 't went backwards at seq 7',
+              supportingSeqs: [{ sessionId: 'sess-A', seq: 7 }],
+            }
+          : c,
+      ),
+    };
+    const flags = integrityFlagsFromReport(report);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.heuristic).toBe('monotonic_t_regression');
+    expect(flags[0]!.severity).toBe('medium');
+    expect(flags[0]!.id).toBe('monotonic_t_regression-sess-A:7');
+  });
+
+  it('surfaces monotonic_wall failure as monotonic_wall_regression flag (medium)', () => {
+    const report: ValidationReport = {
+      overall: 'fail',
+      checks: makePassReport().checks.map((c) =>
+        c.id === 'monotonic_wall'
+          ? {
+              id: 'monotonic_wall',
+              label: 'Monotonic wall',
+              status: 'fail',
+              supportingSeqs: [{ sessionId: 'sess-B', seq: 3 }],
+            }
+          : c,
+      ),
+    };
+    const flags = integrityFlagsFromReport(report);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.heuristic).toBe('monotonic_wall_regression');
+    expect(flags[0]!.severity).toBe('medium');
+    // Uses fallback description when detail is absent
+    expect(flags[0]!.description).toContain('wall');
+  });
+
+  it('emits multiple flags when multiple checks fail', () => {
+    const report: ValidationReport = {
+      overall: 'fail',
+      checks: makePassReport().checks.map((c) => {
+        if (c.id === 'manifest_sig') return { ...c, status: 'fail' };
+        if (c.id === 'chain_integrity')
+          return { ...c, status: 'fail', supportingSeqs: [{ sessionId: 'x', seq: 1 }] };
+        return c;
+      }),
+    };
+    const flags = integrityFlagsFromReport(report);
+    expect(flags).toHaveLength(2);
+    const heuristics = flags.map((f) => f.heuristic);
+    expect(heuristics).toContain('manifest_sig_invalid');
+    expect(heuristics).toContain('chain_broken');
+  });
+
+  it('uses fallback description when check.detail is absent for new checks', () => {
+    const report: ValidationReport = {
+      overall: 'fail',
+      checks: makePassReport().checks.map((c) =>
+        c.id === 'manifest_sig' ? { id: 'manifest_sig', label: 'Manifest sig', status: 'fail' } : c,
+      ),
+    };
+    const flags = integrityFlagsFromReport(report);
+    expect(flags[0]!.description).toContain('tampered');
   });
 });

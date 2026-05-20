@@ -57,3 +57,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Monaco replay gutter decorations (Phase 14).
+ * These classes are referenced by GutterDecorations.tsx via Monaco's
+ * deltaDecorations API. Monaco injects its DOM outside React's tree, so
+ * standard Tailwind scoping does not apply — these must live in the global
+ * stylesheet.
+ * --------------------------------------------------------------------------- */
+.replay-paste-region {
+  background-color: rgba(251, 146, 60, 0.2);
+}
+.replay-external-region {
+  background-color: rgba(239, 68, 68, 0.2);
+}

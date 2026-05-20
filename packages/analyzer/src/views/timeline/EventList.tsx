@@ -11,6 +11,7 @@
  */
 
 import { useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import type { IndexedEvent } from '../../index/event-index.js';
@@ -165,12 +166,19 @@ interface EventRowProps {
 }
 
 function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
+  const navigate = useNavigate();
   const summary = payloadSummary(event);
   const filePart = event.file
     ? event.file.length > 35
       ? '…' + event.file.slice(-34)
       : event.file
     : '';
+
+  const handleReplayClick = (e: React.MouseEvent) => {
+    // Prevent the row's onClick (select event) from also firing.
+    e.stopPropagation();
+    void navigate(`/replay/${event.sessionId}?event=${event.globalIdx}`);
+  };
 
   return (
     <div
@@ -216,9 +224,21 @@ function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
       {summary && <span className="min-w-0 flex-1 truncate text-foreground/80">{summary}</span>}
       {!summary && <span className="flex-1" />}
 
+      {/* Replay deep-link button */}
+      <button
+        type="button"
+        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        onClick={handleReplayClick}
+        aria-label={`Replay at event ${event.globalIdx}`}
+        data-testid={`replay-btn-${event.globalIdx}`}
+        title="Open replay at this moment"
+      >
+        ▶
+      </button>
+
       {/* session chip */}
       <span
-        className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+        className="ml-1 shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
         data-testid={`session-chip-${event.globalIdx}`}
       >
         {event.sessionId.slice(0, 6)}

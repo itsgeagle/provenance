@@ -24,6 +24,7 @@ import type {
   ValidationCheckId,
 } from '../validation/check-types.js';
 import type { Flag, Severity } from '../heuristics/types.js';
+import type { CrossFlag } from '../heuristics/cross/types.js';
 import type { HashedEnvelope } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,18 @@ export type RenderFindingsOpts = {
    * When absent, the header renders "(not available)" rather than failing.
    */
   bundleSha256?: string;
+  /**
+   * Cross-submission flags from runCrossHeuristics. When non-empty, a
+   * "Cross-submission flags" section is appended after the per-bundle flag
+   * list. When empty or omitted, no section is rendered.
+   */
+  crossFlags?: CrossFlag[];
+  /**
+   * Human-readable filenames keyed by Bundle.id. Used in the cross-flags
+   * section to label each involved bundle by filename rather than UUID.
+   * When a bundleId is not present in the map, the id itself is shown.
+   */
+  bundleNamesById?: Record<string, string>;
 };
 
 /**
@@ -68,6 +81,10 @@ export function renderFindings(
   parts.push(renderHeader(bundle, report, flags, opts));
   parts.push(renderValidationSection(report));
   parts.push(renderFlagsSection(flags));
+  const crossSection = renderCrossFlagsSection(opts.crossFlags ?? [], opts.bundleNamesById ?? {});
+  if (crossSection !== null) {
+    parts.push(crossSection);
+  }
   parts.push(renderAppendix(bundle, flags));
   // Trailing newline so editors / git treat the file cleanly.
   return parts.join('\n\n') + '\n';
@@ -168,6 +185,74 @@ function renderFlagsSection(flags: Flag[]): string {
       lines.push('```');
       lines.push(``);
     }
+  }
+
+  // Drop trailing blank line for stable spacing — outer join adds one.
+  while (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Render the Cross-submission flags section.
+ *
+ * Returns null (not an empty string) when crossFlags is empty so the caller
+ * can skip adding it to the parts array entirely — this keeps the existing
+ * output byte-identical when no cross-flags are present.
+ *
+ * Flags are rendered in severity desc → confidence desc order (matching the
+ * per-bundle flag list convention). Recorder-supplied strings (title,
+ * description, bundle ids/filenames) are passed through escapeInlineMarkdown
+ * per the Phase 8 injection-prevention convention (PRD §6).
+ */
+function renderCrossFlagsSection(
+  crossFlags: CrossFlag[],
+  bundleNamesById: Record<string, string>,
+): string | null {
+  if (crossFlags.length === 0) return null;
+
+  // Sort: severity desc → confidence desc. Reuse the same ordering as
+  // run-heuristics so the human-readable output is stable.
+  const SEVERITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2, info: 3 };
+  const sorted = [...crossFlags].sort((a, b) => {
+    const sa = SEVERITY_ORDER[a.severity] ?? 4;
+    const sb = SEVERITY_ORDER[b.severity] ?? 4;
+    if (sa !== sb) return sa - sb;
+    return b.confidence - a.confidence;
+  });
+
+  const lines: string[] = [];
+  lines.push(`## Cross-submission flags`);
+  lines.push(``);
+
+  for (let i = 0; i < sorted.length; i++) {
+    const flag = sorted[i]!;
+
+    // Bundle name labels: prefer sourceFilename from the map, fall back to id.
+    const bundleLabels = flag.bundleIds
+      .map((id) => escapeInlineMarkdown(bundleNamesById[id] ?? id))
+      .join(', ');
+
+    // Per-bundle supporting events: "bundleId: seq1, seq2, ..."
+    const eventsPerBundleLines = flag.bundleIds
+      .map((id) => {
+        const seqs = flag.eventsPerBundle[id] ?? [];
+        const seqStr = seqs.length > 0 ? seqs.join(', ') : '(none)';
+        return `${escapeInlineMarkdown(bundleNamesById[id] ?? id)}: ${seqStr}`;
+      })
+      .join('; ');
+
+    lines.push(`### ${i + 1}. ${escapeInlineMarkdown(flag.title)}`);
+    lines.push(``);
+    lines.push(`- **Heuristic:** \`${flag.heuristic}\``);
+    lines.push(`- **Severity:** ${severityLabel(flag.severity)}`);
+    lines.push(`- **Confidence:** ${flag.confidence.toFixed(2)}`);
+    lines.push(`- **Bundles involved (${flag.bundleIds.length}):** ${bundleLabels}`);
+    lines.push(`- **Supporting events:** ${eventsPerBundleLines}`);
+    lines.push(``);
+    lines.push(escapeInlineMarkdown(flag.description));
+    lines.push(``);
   }
 
   // Drop trailing blank line for stable spacing — outer join adds one.
