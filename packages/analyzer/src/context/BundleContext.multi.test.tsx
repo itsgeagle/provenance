@@ -170,19 +170,36 @@ describe('BundleProvider multi-bundle (Phase 11)', () => {
     const file1 = new File([blob1], 'a.zip', { type: 'application/zip' });
     const file2 = new File([blob2], 'b.zip', { type: 'application/zip' });
 
-    let bundle2Id = '';
-    function Bundle2IdCapture() {
+    /**
+     * Renders a select button for each bundle in load order.
+     * Clicking select-{idx} calls selectBundle(bundles[idx].id).
+     */
+    function SelectButtons() {
+      const { bundles, selectBundle } = useBundle();
+      return (
+        <div>
+          {bundles.map((b, idx) => (
+            <button key={b.id} data-testid={`select-${idx}`} onClick={() => selectBundle(b.id)}>
+              select {idx}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    /** Captures the id of bundles[1] (b.zip) once both are loaded. */
+    function Bundle1IdDisplay() {
       const { bundles } = useBundle();
-      const b2 = bundles.find((b) => b.sourceFilename === 'b.zip');
-      bundle2Id = b2?.id ?? '';
-      return b2 ? <span data-testid="b2-id">{b2.id}</span> : null;
+      const b2 = bundles[1];
+      return b2 ? <span data-testid="bundle1-id">{b2.id}</span> : null;
     }
 
     render(
       <MemoryRouter>
         <BundleProvider>
           <MultiStatusDisplay />
-          <Bundle2IdCapture />
+          <SelectButtons />
+          <Bundle1IdDisplay />
           <LoadFilesTrigger files={[file1, file2]} />
         </BundleProvider>
       </MemoryRouter>,
@@ -196,20 +213,30 @@ describe('BundleProvider multi-bundle (Phase 11)', () => {
       expect(screen.getByTestId('status').textContent).toBe('loaded');
     });
 
-    // Before selectBundle: selected is first bundle (a.zip), index is non-null.
+    // Before selectBundle: selected defaults to first bundle (a.zip, idx 0).
+    // The derived `index` accessor must be non-null (a.zip was indexed).
     expect(screen.getByTestId('has-index').textContent).toBe('yes');
+    expect(screen.getByTestId('has-report').textContent).toBe('yes');
 
-    // Switch to b.zip bundle.
+    const bundle1Id = screen.getByTestId('bundle1-id').textContent ?? '';
+    expect(bundle1Id.length).toBeGreaterThan(0);
+
+    // selected-id must not already be the second bundle's id.
+    expect(screen.getByTestId('selected-id').textContent).not.toBe(bundle1Id);
+
+    // Click the select button for bundles[1] (b.zip) — this calls selectBundle(b.zip.id).
     act(() => {
-      // bundle2Id set by Bundle2IdCapture render.
-      screen.getByTestId('b2-id').click();
+      screen.getByTestId('select-1').click();
     });
 
-    // The selectBundle call happens via a SelectTrigger, but we test it directly
-    // by having the user click the b2 element which calls selectBundle.
-    // Alternatively, render a SelectTrigger after we know bundle2Id.
-    // Instead, re-read selected-id after we confirm bundle2Id is available.
-    expect(bundle2Id.length).toBeGreaterThan(0);
+    // After selectBundle: selected-id must now be the second bundle.
+    await waitFor(() => {
+      expect(screen.getByTestId('selected-id').textContent).toBe(bundle1Id);
+    });
+
+    // The derived scalar `index` should remain non-null (b.zip also has an index).
+    expect(screen.getByTestId('has-index').textContent).toBe('yes');
+    expect(screen.getByTestId('has-report').textContent).toBe('yes');
   });
 
   it('partialLoadErrors populated when one file is invalid', async () => {

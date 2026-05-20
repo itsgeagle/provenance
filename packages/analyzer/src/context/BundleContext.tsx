@@ -13,12 +13,15 @@
  *   "Load more bundles" button); `loadBundleFiles` is the multi-file fan-out.
  * - `clearBundle` resets to idle (used by "Load different bundle" which clears all).
  *
- * Design notes (A26):
+ * Design notes (A26, A30):
  * - `bundles` is plural-shaped; v1 always had length 0 or 1.
  * - `loadingStage` advances synchronously between pipeline steps so
  *   LoadingPanel can display coarse progress without a full event emitter.
  * - The provider must sit inside <BrowserRouter> (done in main.tsx) and wraps
  *   <Routes> inside App.tsx.
+ * - Both load callbacks use functional updaters exclusively (A30). Neither
+ *   closes over state snapshots, so concurrent calls cannot drop each other's
+ *   work. `loadBundleFile` has an empty dep array; `loadBundleFiles` likewise.
  */
 
 import React, {
@@ -122,181 +125,162 @@ export function BundleProvider({ children }: { children: ReactNode }) {
   const [partialLoadErrors, setPartialLoadErrors] = useState<BlobLoadError[]>([]);
 
   // ---------------------------------------------------------------------------
-  // Internal: process one parsed bundle and add it to state.
-  // Returns the bundle id for selectedBundleId defaulting.
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Given a fully-parsed Bundle, build its index + validation + heuristics,
-   * and merge into the per-bundle maps.
-   *
-   * Returns the bundle's id so callers can update selectedBundleId if needed.
-   */
-  const processBundleResult = useCallback(
-    async (
-      bundle: Bundle,
-      prevBundles: Bundle[],
-      prevIndices: Map<string, EventIndex>,
-      prevReports: Map<string, ValidationReport>,
-      prevFlags: Map<string, Flag[]>,
-      setStage: (s: LoadingStage) => void,
-    ): Promise<{
-      newBundles: Bundle[];
-      newIndices: Map<string, EventIndex>;
-      newReports: Map<string, ValidationReport>;
-      newFlags: Map<string, Flag[]>;
-    }> => {
-      setStage('index');
-      const idx = buildIndex(bundle);
-
-      setStage('validate');
-      const report = await runValidation(bundle);
-
-      setStage('heuristics');
-      const heuristicFlags = runHeuristics(idx, bundle, report);
-
-      const newIndices = new Map(prevIndices);
-      newIndices.set(bundle.id, idx);
-
-      const newReports = new Map(prevReports);
-      newReports.set(bundle.id, report);
-
-      const newFlags = new Map(prevFlags);
-      newFlags.set(bundle.id, heuristicFlags);
-
-      const newBundles = [...prevBundles, bundle];
-
-      return { newBundles, newIndices, newReports, newFlags };
-    },
-    [],
-  );
-
-  // ---------------------------------------------------------------------------
   // loadBundleFile — single file, append
   // ---------------------------------------------------------------------------
 
-  const loadBundleFile = useCallback(
-    async (file: File) => {
-      setStatus('loading');
-      setLoadError(null);
-      setPartialLoadErrors([]);
-      setLoadingStage('unzip');
+  const loadBundleFile = useCallback(async (file: File) => {
+    setStatus('loading');
+    setLoadError(null);
+    setPartialLoadErrors([]);
+    setLoadingStage('unzip');
 
-      try {
-        const bundleResult = await loadBundle(file, file.name);
-        if (!bundleResult.ok) {
-          setLoadError(bundleResult.error);
-          setStatus('error');
-          setLoadingStage(null);
-          return;
-        }
-        const bundle = bundleResult.value;
-
-        // Capture current state for the merge (useState setter gives prev value).
-        // We pass current state snapshots; since this is a sequential async fn,
-        // there's no concurrent write risk.
-        const { newBundles, newIndices, newReports, newFlags } = await processBundleResult(
-          bundle,
-          bundles,
-          indicesByBundle,
-          validationReportByBundle,
-          flagsByBundle,
-          setLoadingStage,
-        );
-
-        setBundles(newBundles);
-        setIndicesByBundle(newIndices);
-        setValidationReportByBundle(newReports);
-        setFlagsByBundle(newFlags);
-        // Default selectedBundleId to first bundle if not yet set.
-        setSelectedBundleId((prev) => prev ?? bundle.id);
-        setStatus('loaded');
-        setLoadingStage(null);
-      } catch (err: unknown) {
-        setLoadError({
-          kind: 'unknown_failure',
-          detail: err instanceof Error ? err.message : 'Unexpected error during load.',
-        });
+    try {
+      const bundleResult = await loadBundle(file, file.name);
+      if (!bundleResult.ok) {
+        setLoadError(bundleResult.error);
         setStatus('error');
         setLoadingStage(null);
+        return;
       }
-    },
-    [bundles, indicesByBundle, validationReportByBundle, flagsByBundle, processBundleResult],
-  );
+      const bundle = bundleResult.value;
+
+      setLoadingStage('index');
+      const idx = buildIndex(bundle);
+
+      setLoadingStage('validate');
+      const report = await runValidation(bundle);
+
+      setLoadingStage('heuristics');
+      const heuristicFlags = runHeuristics(idx, bundle, report);
+
+      // Use functional updaters so this callback never closes over stale state.
+      // Concurrent calls (from multiple rapid "Load more" clicks) will each read
+      // the latest prev value rather than silently overwriting each other's work.
+      setBundles((prev) => [...prev, bundle]);
+      setIndicesByBundle((prev) => {
+        const m = new Map(prev);
+        m.set(bundle.id, idx);
+        return m;
+      });
+      setValidationReportByBundle((prev) => {
+        const m = new Map(prev);
+        m.set(bundle.id, report);
+        return m;
+      });
+      setFlagsByBundle((prev) => {
+        const m = new Map(prev);
+        m.set(bundle.id, heuristicFlags);
+        return m;
+      });
+      // Default selectedBundleId to first bundle if not yet set.
+      setSelectedBundleId((prev) => prev ?? bundle.id);
+      setStatus('loaded');
+      setLoadingStage(null);
+    } catch (err: unknown) {
+      setLoadError({
+        kind: 'unknown_failure',
+        detail: err instanceof Error ? err.message : 'Unexpected error during load.',
+      });
+      setStatus('error');
+      setLoadingStage(null);
+    }
+  }, []);
 
   // ---------------------------------------------------------------------------
   // loadBundleFiles — multi-file fan-out, append
   // ---------------------------------------------------------------------------
 
-  const loadBundleFiles = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return;
+  const loadBundleFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
 
-      setStatus('loading');
-      setLoadError(null);
-      setPartialLoadErrors([]);
-      setLoadingStage('unzip');
+    setStatus('loading');
+    setLoadError(null);
+    setPartialLoadErrors([]);
+    setLoadingStage('unzip');
 
-      try {
-        const blobs = files.map((f) => f as Blob);
-        const filenames = files.map((f) => f.name);
-        const { bundles: parsed, errors } = await parseBundles(blobs, filenames);
+    try {
+      const blobs = files.map((f) => f as Blob);
+      const filenames = files.map((f) => f.name);
+      const { bundles: parsed, errors } = await parseBundles(blobs, filenames);
 
-        // If ALL blobs failed, treat as a hard error.
-        if (parsed.length === 0 && errors.length > 0) {
-          setLoadError(errors[0]!.error);
-          setStatus('error');
-          setLoadingStage(null);
-          return;
-        }
-
-        // Partial failures are surfaced as partialLoadErrors (non-blocking).
-        setPartialLoadErrors(errors);
-
-        // Process each successfully parsed bundle sequentially so stage labels
-        // advance predictably. Order-independent but sequential avoids multiple
-        // concurrent validation calls (WebCrypto) that could interleave stage labels.
-        let currentBundles = bundles;
-        let currentIndices = indicesByBundle;
-        let currentReports = validationReportByBundle;
-        let currentFlags = flagsByBundle;
-        let firstId: string | null = null;
-
-        for (const bundle of parsed) {
-          setLoadingStage('index');
-          const { newBundles, newIndices, newReports, newFlags } = await processBundleResult(
-            bundle,
-            currentBundles,
-            currentIndices,
-            currentReports,
-            currentFlags,
-            setLoadingStage,
-          );
-          currentBundles = newBundles;
-          currentIndices = newIndices;
-          currentReports = newReports;
-          currentFlags = newFlags;
-          if (firstId === null) firstId = bundle.id;
-        }
-
-        setBundles(currentBundles);
-        setIndicesByBundle(currentIndices);
-        setValidationReportByBundle(currentReports);
-        setFlagsByBundle(currentFlags);
-        setSelectedBundleId((prev) => prev ?? firstId);
-        setStatus('loaded');
-        setLoadingStage(null);
-      } catch (err: unknown) {
-        setLoadError({
-          kind: 'unknown_failure',
-          detail: err instanceof Error ? err.message : 'Unexpected error during load.',
-        });
+      // If ALL blobs failed, treat as a hard error.
+      if (parsed.length === 0 && errors.length > 0) {
+        setLoadError(errors[0]!.error);
         setStatus('error');
         setLoadingStage(null);
+        return;
       }
-    },
-    [bundles, indicesByBundle, validationReportByBundle, flagsByBundle, processBundleResult],
-  );
+
+      // Partial failures are surfaced as partialLoadErrors (non-blocking).
+      setPartialLoadErrors(errors);
+
+      // Process each successfully parsed bundle sequentially so stage labels
+      // advance predictably. Order-independent but sequential avoids multiple
+      // concurrent validation calls (WebCrypto) that could interleave stage labels.
+      //
+      // We accumulate results in local variables (not state snapshots) so that
+      // the single functional-updater commit at the end is safe across re-renders.
+      type Accumulated = {
+        bundles: Bundle[];
+        indices: Map<string, EventIndex>;
+        reports: Map<string, ValidationReport>;
+        flags: Map<string, Flag[]>;
+      };
+      const accumulated: Accumulated = {
+        bundles: [],
+        indices: new Map(),
+        reports: new Map(),
+        flags: new Map(),
+      };
+      let firstId: string | null = null;
+
+      for (const bundle of parsed) {
+        setLoadingStage('index');
+        const idx = buildIndex(bundle);
+
+        setLoadingStage('validate');
+        const report = await runValidation(bundle);
+
+        setLoadingStage('heuristics');
+        const heuristicFlags = runHeuristics(idx, bundle, report);
+
+        accumulated.bundles.push(bundle);
+        accumulated.indices.set(bundle.id, idx);
+        accumulated.reports.set(bundle.id, report);
+        accumulated.flags.set(bundle.id, heuristicFlags);
+        if (firstId === null) firstId = bundle.id;
+      }
+
+      // Single functional-updater commit: merges accumulated results with
+      // whatever is currently in state (handles concurrent loadBundleFile calls).
+      setBundles((prev) => [...prev, ...accumulated.bundles]);
+      setIndicesByBundle((prev) => {
+        const m = new Map(prev);
+        for (const [id, idx] of accumulated.indices) m.set(id, idx);
+        return m;
+      });
+      setValidationReportByBundle((prev) => {
+        const m = new Map(prev);
+        for (const [id, report] of accumulated.reports) m.set(id, report);
+        return m;
+      });
+      setFlagsByBundle((prev) => {
+        const m = new Map(prev);
+        for (const [id, flagList] of accumulated.flags) m.set(id, flagList);
+        return m;
+      });
+      setSelectedBundleId((prev) => prev ?? firstId);
+      setStatus('loaded');
+      setLoadingStage(null);
+    } catch (err: unknown) {
+      setLoadError({
+        kind: 'unknown_failure',
+        detail: err instanceof Error ? err.message : 'Unexpected error during load.',
+      });
+      setStatus('error');
+      setLoadingStage(null);
+    }
+  }, []);
 
   // ---------------------------------------------------------------------------
   // clearBundle — reset all state
