@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ai-extension-list",
+  "description": "Course-maintained list of known AI coding-assistant extension IDs. Used by the ai_extension_active and extension_set_changed_mid_assignment heuristics. Extend this list as new tools appear.",
+  "extensionIds": [
+    "GitHub.copilot",
+    "GitHub.copilot-chat",
+    "GitHub.copilot-labs",
+    "Codeium.codeium",
+    "Continue.continue",
+    "TabNine.tabnine-vscode",
+    "TabNine.tabnine-enterprise",
+    "anysphere.cursor-always-local",
+    "sourcegraph.cody-ai",
+    "AmazonWebServices.aws-toolkit-vscode",
+    "AmazonWebServices.amazon-q-vscode",
+    "Blackboxapp.blackbox",
+    "AidaFlow.aida",
+    "mutable-ai.mutable-ai",
+    "WasmCloud.vscode-ai-assistant"
+  ]
+}

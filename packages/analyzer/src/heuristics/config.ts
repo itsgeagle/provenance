@@ -63,6 +63,12 @@
 // Known-source corpus type (paste_matches_known_source)
 // ---------------------------------------------------------------------------
 
+// Import default AI extension IDs from the committed JSON list.
+// This is a static import — the list is compiled into the bundle at build time.
+// Consumers can override via HeuristicConfig.aiExtensionActive.knownAiExtensions.
+import defaultAiExtensionList from './config/ai-extension-list.json';
+import defaultKnownGoodHashes from './config/known-good-extension-hashes.json';
+
 /**
  * A single known-source entry in the course-staff corpus.
  *
@@ -165,6 +171,45 @@ export type HeuristicConfig = {
      */
     postIdleWindowMs: number;
   };
+  /** Phase 17: ai_extension_active + extension_set_changed_mid_assignment. */
+  aiExtensionActive: {
+    /**
+     * List of VS Code extension IDs considered to be AI coding tools.
+     * Defaults to the course-maintained `config/ai-extension-list.json`.
+     * Override in tests or for per-course customization.
+     */
+    knownAiExtensions: string[];
+  };
+  /** Phase 17: extension_hash_mismatch heuristic. */
+  extensionHashMismatch: {
+    /**
+     * List of SHA-256 hashes (64-char lowercase hex) of known-good
+     * Provenance recorder builds. Defaults to `config/known-good-extension-hashes.json`.
+     * Any bundle whose `manifest.extension_hash` is NOT in this list is flagged.
+     */
+    knownGoodHashes: string[];
+  };
+  /** Phase 17: clock_jumps heuristic thresholds. */
+  clockJumps: {
+    /**
+     * delta_ms threshold above which a single clock.skew event is
+     * considered anomalous. Default: 300000 (5 minutes).
+     */
+    singleJumpThresholdMs: number;
+    /**
+     * Minimum number of clock.skew events in a session to flag even if
+     * no single one exceeds singleJumpThresholdMs. Default: 2.
+     */
+    multipleJumpsMin: number;
+  };
+  /** Phase 17: gap_in_heartbeats heuristic thresholds. */
+  gapInHeartbeats: {
+    /**
+     * Minimum gap (in ms) between consecutive session.heartbeat events
+     * (by wall time) to count as a suspicious gap. Default: 300000 (5 min).
+     */
+    gapThresholdMs: number;
+  };
   /** Phase 16: paste_matches_known_source heuristic. */
   pasteMatchesKnownSource: {
     /**
@@ -218,6 +263,19 @@ export const DEFAULT_HEURISTIC_CONFIG: HeuristicConfig = {
     fuzzyThreshold: 0.7,
     corpus: [],
   },
+  aiExtensionActive: {
+    knownAiExtensions: defaultAiExtensionList.extensionIds as string[],
+  },
+  extensionHashMismatch: {
+    knownGoodHashes: defaultKnownGoodHashes.hashes as string[],
+  },
+  clockJumps: {
+    singleJumpThresholdMs: 300_000, // 5 minutes
+    multipleJumpsMin: 2,
+  },
+  gapInHeartbeats: {
+    gapThresholdMs: 300_000, // 5 minutes
+  },
 };
 
 /**
@@ -252,6 +310,22 @@ export function mergeConfig(override?: Partial<HeuristicConfig>): HeuristicConfi
     pasteMatchesKnownSource: {
       ...DEFAULT_HEURISTIC_CONFIG.pasteMatchesKnownSource,
       ...override.pasteMatchesKnownSource,
+    },
+    aiExtensionActive: {
+      ...DEFAULT_HEURISTIC_CONFIG.aiExtensionActive,
+      ...override.aiExtensionActive,
+    },
+    extensionHashMismatch: {
+      ...DEFAULT_HEURISTIC_CONFIG.extensionHashMismatch,
+      ...override.extensionHashMismatch,
+    },
+    clockJumps: {
+      ...DEFAULT_HEURISTIC_CONFIG.clockJumps,
+      ...override.clockJumps,
+    },
+    gapInHeartbeats: {
+      ...DEFAULT_HEURISTIC_CONFIG.gapInHeartbeats,
+      ...override.gapInHeartbeats,
     },
   };
 }
