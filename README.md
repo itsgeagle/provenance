@@ -12,10 +12,10 @@ The full design lives in [`docs/prd.md`](docs/prd.md). Code conventions for work
 ## Status
 
 | Component           | Status                                                                                                                                                                                                                                                               |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
 | `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests.                                                                                            |
 | `packages/recorder` | **v1 complete** — all PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode. 286 unit tests + 3 integration tests against real VS Code. |
-| `packages/analyzer` | **v1 complete** — bundle load + validation, raw timeline (virtualized + filterable), four high-value heuristics (`large_paste`, `external_edits`, `low_typing_high_output`, `chain_broken`), markdown findings export. 408+ unit tests. Static hosting ready. |                                                                                                                                                                                                                             |
+| `packages/analyzer` | **v1 complete** — bundle load + validation, raw timeline (virtualized + filterable), four high-value heuristics (`large_paste`, `external_edits`, `low_typing_high_output`, `chain_broken`), markdown findings export. 408+ unit tests. Static hosting ready.        |     |
 
 See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the phase-by-phase build history.
 
