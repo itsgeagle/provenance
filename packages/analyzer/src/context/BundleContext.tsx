@@ -28,6 +28,7 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -41,6 +42,8 @@ import type { BlobLoadError } from '../loader/parse-bundle.js';
 import type { EventIndex } from '../index/event-index.js';
 import type { ValidationReport } from '../validation/check-types.js';
 import type { Flag } from '../heuristics/types.js';
+import type { CrossFlag } from '../heuristics/cross/types.js';
+import { runCrossHeuristics } from '../heuristics/cross/run-cross-heuristics.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +70,13 @@ export type BundleContextValue = {
   index: EventIndex | null;
   validationReport: ValidationReport | null;
   flags: Flag[];
+
+  /**
+   * Cross-bundle heuristic findings (Phase 18).
+   * Populated when bundles.length >= 2 by runCrossHeuristics.
+   * Empty when only one bundle is loaded (no cross-bundle analysis possible).
+   */
+  crossFlags: CrossFlag[];
 
   status: 'idle' | 'loading' | 'loaded' | 'error';
   loadingStage: LoadingStage;
@@ -118,6 +128,8 @@ export function BundleProvider({ children }: { children: ReactNode }) {
     Map<string, ValidationReport>
   >(new Map());
   const [flagsByBundle, setFlagsByBundle] = useState<Map<string, Flag[]>>(new Map());
+
+  const [crossFlags, setCrossFlags] = useState<CrossFlag[]>([]);
 
   const [status, setStatus] = useState<BundleContextValue['status']>('idle');
   const [loadingStage, setLoadingStage] = useState<LoadingStage>(null);
@@ -292,6 +304,7 @@ export function BundleProvider({ children }: { children: ReactNode }) {
     setIndicesByBundle(new Map());
     setValidationReportByBundle(new Map());
     setFlagsByBundle(new Map());
+    setCrossFlags([]);
     setStatus('idle');
     setLoadingStage(null);
     setLoadError(null);
@@ -305,6 +318,25 @@ export function BundleProvider({ children }: { children: ReactNode }) {
   const selectBundle = useCallback((id: string) => {
     setSelectedBundleId(id);
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Cross-flags — recomputed whenever bundles or indicesByBundle change (Phase 18).
+  //
+  // Using useEffect here rather than computing inside load callbacks is the
+  // correct approach: load callbacks use empty-dep useCallback (they must not
+  // close over state snapshots). After the functional-updater commits settle,
+  // React fires this effect with the final, fully-merged bundles +
+  // indicesByBundle values. runCrossHeuristics is a pure synchronous function —
+  // no async, no I/O, no side effects — so calling it from an effect is safe.
+  //
+  // When bundles.length < 2, runCrossHeuristics returns [] immediately (no-op).
+  // This keeps the single-bundle path identical to Phase 11 behaviour.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    const newCrossFlags = runCrossHeuristics(bundles, indicesByBundle);
+    setCrossFlags(newCrossFlags);
+  }, [bundles, indicesByBundle]);
 
   // ---------------------------------------------------------------------------
   // Derived scalars — read from maps using selectedBundleId
@@ -331,6 +363,7 @@ export function BundleProvider({ children }: { children: ReactNode }) {
       index,
       validationReport,
       flags,
+      crossFlags,
       status,
       loadingStage,
       loadError,
@@ -349,6 +382,7 @@ export function BundleProvider({ children }: { children: ReactNode }) {
       index,
       validationReport,
       flags,
+      crossFlags,
       status,
       loadingStage,
       loadError,

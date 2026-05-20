@@ -1,14 +1,20 @@
 /**
  * CompareView — cross-submission analysis landing page.
  *
- * Phase 11 ships only the shell:
- *   - A route guard handled by App.tsx ensures bundles.length >= 2 before
- *     rendering this component (callers get a redirect to /load otherwise).
- *   - A checkbox list lets the user select which bundles to compare.
- *   - A stub table area reserves space for the Phase 18 heuristic output.
+ * Phase 11 shipped only the shell: bundle selector + placeholder stub.
+ * Phase 18 fills in the cross-submission heuristic table.
  *
- * Phase 18 will fill in the cross-submission heuristics table.
- * This component only needs to select bundles and show the placeholder.
+ * Layout:
+ *   1. Bundle selector — checkbox list (unchanged from Phase 11).
+ *   2. Cross-submission findings table — one row per CrossFlag. Clicking a
+ *      row opens a side-by-side static pane showing, for each involved bundle,
+ *      the seq key list for the supporting events (deep-links into /timeline).
+ *      Animated split-replay is deferred to v2.1 per spec.
+ *   3. "No findings" empty state when crossFlags is empty.
+ *
+ * Cross-flags are computed by BundleContext's useEffect and stored in
+ * `ctx.crossFlags`. This component filters them by the currently-selected
+ * bundle subset (the user's checkbox selection) and renders the result.
  *
  * PRD refs: §7.4 cross-submission heuristics, §8 v2.
  */
@@ -16,13 +22,218 @@
 import { useState } from 'react';
 import { useBundle } from '../../context/BundleContext.js';
 import type { Bundle } from '../../loader/types.js';
+import type { CrossFlag } from '../../heuristics/cross/types.js';
+
+// ---------------------------------------------------------------------------
+// Severity chip colours (same mapping as SeverityChip in overview)
+// ---------------------------------------------------------------------------
+
+const SEVERITY_CLASSES: Record<string, string> = {
+  high: 'bg-red-100 text-red-800 border-red-300',
+  medium: 'bg-amber-100 text-amber-800 border-amber-300',
+  low: 'bg-blue-100 text-blue-800 border-blue-300',
+  info: 'bg-gray-100 text-gray-700 border-gray-300',
+};
+
+function SeverityChip({ severity }: { severity: string }) {
+  const cls = SEVERITY_CLASSES[severity] ?? SEVERITY_CLASSES['info']!;
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium ${cls}`}
+    >
+      {severity}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CrossFlagDetailPane — side-by-side static state for a selected cross-flag.
+//
+// Shows: for each involved bundle, the list of supporting seq keys as
+// deep-links into /timeline?seq=<key>. Animated split-replay is v2.1 polish.
+// ---------------------------------------------------------------------------
+
+type CrossFlagDetailPaneProps = {
+  flag: CrossFlag;
+  bundles: Bundle[];
+  onClose(): void;
+};
+
+function CrossFlagDetailPane({ flag, bundles, onClose }: CrossFlagDetailPaneProps) {
+  const bundleMap = new Map(bundles.map((b) => [b.id, b]));
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      data-testid="cross-flag-detail-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={flag.title}
+    >
+      <div className="bg-background border rounded-lg shadow-lg w-full max-w-3xl mx-4 p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <SeverityChip severity={flag.severity} />
+              <span className="text-xs text-muted-foreground font-mono">{flag.heuristic}</span>
+            </div>
+            <h2 className="text-base font-semibold">{flag.title}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 rounded"
+            aria-label="Close"
+            data-testid="cross-flag-detail-close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Description */}
+        <p className="text-sm text-muted-foreground">{flag.description}</p>
+
+        {/* Side-by-side bundle evidence */}
+        <div
+          className="grid gap-4"
+          style={{ gridTemplateColumns: `repeat(${flag.bundleIds.length}, 1fr)` }}
+          data-testid="cross-flag-bundle-panels"
+        >
+          {flag.bundleIds.map((bundleId) => {
+            const bundle = bundleMap.get(bundleId);
+            const seqKeys = flag.eventsPerBundle[bundleId] ?? [];
+            return (
+              <div key={bundleId} className="rounded border p-3 space-y-2">
+                <p className="text-xs font-semibold truncate" title={bundle?.sourceFilename}>
+                  {bundle?.sourceFilename ?? bundleId}
+                </p>
+                {seqKeys.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No supporting events.</p>
+                ) : (
+                  <ul className="space-y-1" data-testid={`cross-flag-events-${bundleId}`}>
+                    {seqKeys.map((key) => (
+                      <li key={key}>
+                        <a
+                          href={`/timeline?seq=${encodeURIComponent(key)}`}
+                          className="text-xs font-mono text-blue-600 hover:underline"
+                          data-testid={`cross-flag-seq-link-${key}`}
+                        >
+                          {key}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Detail JSON */}
+        {flag.detail !== undefined && (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              Detail
+            </summary>
+            <pre className="mt-2 rounded bg-muted p-3 overflow-x-auto text-xs font-mono">
+              {JSON.stringify(flag.detail, null, 2)}
+            </pre>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CrossFlagTable
+// ---------------------------------------------------------------------------
+
+type CrossFlagTableProps = {
+  flags: CrossFlag[];
+  bundles: Bundle[];
+};
+
+function CrossFlagTable({ flags, bundles }: CrossFlagTableProps) {
+  const [selectedFlag, setSelectedFlag] = useState<CrossFlag | null>(null);
+  const bundleMap = new Map(bundles.map((b) => [b.id, b]));
+
+  if (flags.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground italic" data-testid="cross-flags-empty">
+        No cross-submission findings for the selected bundles.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <div className="overflow-x-auto rounded border" data-testid="cross-flags-table">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50">
+              <th className="px-4 py-2 text-left font-medium text-muted-foreground">Severity</th>
+              <th className="px-4 py-2 text-left font-medium text-muted-foreground">Heuristic</th>
+              <th className="px-4 py-2 text-left font-medium text-muted-foreground">Finding</th>
+              <th className="px-4 py-2 text-left font-medium text-muted-foreground">Bundles</th>
+              <th className="px-4 py-2 text-left font-medium text-muted-foreground">Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {flags.map((flag) => (
+              <tr
+                key={flag.id}
+                className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
+                onClick={() => setSelectedFlag(flag)}
+                data-testid={`cross-flag-row-${flag.id}`}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') setSelectedFlag(flag);
+                }}
+              >
+                <td className="px-4 py-2">
+                  <SeverityChip severity={flag.severity} />
+                </td>
+                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                  {flag.heuristic}
+                </td>
+                <td className="px-4 py-2">{flag.title}</td>
+                <td className="px-4 py-2">
+                  <ul className="space-y-0.5">
+                    {flag.bundleIds.map((id) => (
+                      <li key={id} className="text-xs text-muted-foreground truncate max-w-[160px]">
+                        {bundleMap.get(id)?.sourceFilename ?? id}
+                      </li>
+                    ))}
+                  </ul>
+                </td>
+                <td className="px-4 py-2 text-xs">{(flag.confidence * 100).toFixed(0)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Detail pane overlay (click-a-row → open) */}
+      {selectedFlag !== null && (
+        <CrossFlagDetailPane
+          flag={selectedFlag}
+          bundles={bundles}
+          onClose={() => setSelectedFlag(null)}
+        />
+      )}
+    </>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // CompareView
 // ---------------------------------------------------------------------------
 
 export function CompareView() {
-  const { bundles, selectBundle, selectedBundleId } = useBundle();
+  const { bundles, crossFlags, selectBundle, selectedBundleId } = useBundle();
 
   // Locally track which bundles are selected for comparison (multi-select).
   // Default: all loaded bundles selected.
@@ -44,12 +255,18 @@ export function CompareView() {
 
   const selectedBundles: Bundle[] = bundles.filter((b) => selectedIds.has(b.id));
 
+  // Filter cross-flags to only those where ALL involved bundles are selected.
+  const selectedIdSet = selectedIds;
+  const visibleCrossFlags = crossFlags.filter((f) =>
+    f.bundleIds.every((id) => selectedIdSet.has(id)),
+  );
+
   return (
     <div className="container mx-auto py-8 space-y-8" data-testid="compare-view">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Cross-Submission Comparison</h1>
         <p className="text-muted-foreground mt-1">
-          Select bundles to compare. Cross-submission heuristics will appear here in Phase 18.
+          Select bundles to compare. Cross-submission heuristic findings appear below.
         </p>
       </div>
 
@@ -120,19 +337,18 @@ export function CompareView() {
         </p>
       )}
 
-      {/* Phase 18 stub */}
-      <section
-        aria-labelledby="heuristics-stub-heading"
-        className="rounded-lg border border-dashed border-muted-foreground/30 p-8 text-center"
-        data-testid="compare-heuristics-stub"
-      >
-        <h2 id="heuristics-stub-heading" className="text-base font-semibold text-muted-foreground">
-          Cross-submission heuristics will appear here in Phase 18
+      {/* Cross-submission heuristic findings */}
+      <section aria-labelledby="cross-heuristics-heading">
+        <h2 id="cross-heuristics-heading" className="text-base font-semibold mb-3">
+          Cross-submission findings
         </h2>
-        <p className="text-sm text-muted-foreground mt-2">
-          Shared-paste detection, editing-pattern similarity, and other cross-bundle signals from
-          PRD §7.4 will populate this table.
-        </p>
+        {selectedBundles.length < 2 ? (
+          <p className="text-sm text-muted-foreground italic" data-testid="cross-flags-need-more">
+            Select at least 2 bundles to see cross-submission findings.
+          </p>
+        ) : (
+          <CrossFlagTable flags={visibleCrossFlags} bundles={selectedBundles} />
+        )}
       </section>
     </div>
   );
