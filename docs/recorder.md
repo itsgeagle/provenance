@@ -20,6 +20,35 @@ The status bar always shows "**CS 61A: recording**" while the extension is activ
 
 The extension activates **only** when the workspace root contains a valid `.cs61a` manifest signed by the course's offline key. In any other folder, the extension does nothing — no logging, no UI noise, no `.provenance/` directory.
 
+## Activation manifest (`.cs61a`)
+
+The manifest is a small JSON file at the workspace root. Course staff author it unsigned, then run `tools/sign-cs61a-manifest.ts` to attach an ed25519 `sig` field against the offline course private key (see the repo root [README](../README.md#course-staff-key--manifest-workflow) for the full staff workflow).
+
+**Unsigned shape** (what staff edits by hand):
+
+```json
+{
+  "assignment_id": "hw03",
+  "semester": "fa26",
+  "issued_at": "2026-09-15T00:00:00Z",
+  "files_under_review": ["hw03.py"]
+}
+```
+
+**Signed shape** (what the signer writes back, and what the recorder verifies):
+
+```json
+{
+  "assignment_id": "hw03",
+  "semester": "fa26",
+  "issued_at": "2026-09-15T00:00:00Z",
+  "files_under_review": ["hw03.py"],
+  "sig": "<128-char hex ed25519 signature>"
+}
+```
+
+The `sig` covers the JCS-canonical bytes of the other four fields (PRD §4.1, implemented in `packages/log-core/src/cs61a-manifest.ts`). Changing any field after signing invalidates the signature and the extension silently no-ops on activation. `files_under_review` scopes the external-change detector in §4.5 — files outside this list are still logged for context, but don't get an expected-content model.
+
 ## Privacy
 
 What the recorder **does** record (PRD §4.2 has the full table):

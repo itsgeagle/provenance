@@ -89,6 +89,26 @@ node --experimental-strip-types tools/generate-course-keypair.ts /Volumes/SECURE
 
 The public key is printed to stdout (paste into a clipboard or pipe into the production build). The private key is written to the chosen path with mode `0600`. Back it up to physical media.
 
+**Author the unsigned `.cs61a`** in the assignment starter folder. Drop this file at the workspace root the students will open:
+
+```json
+{
+  "assignment_id": "hw03",
+  "semester": "fa26",
+  "issued_at": "2026-09-15T00:00:00Z",
+  "files_under_review": ["hw03.py"]
+}
+```
+
+Field rules (enforced by `parseManifest` in `packages/log-core/src/cs61a-manifest.ts`):
+
+- `assignment_id` — non-empty string, unique per assignment. Rotating it per assignment is what prevents replay of an old session against a new assignment (PRD §6).
+- `semester` — non-empty string, e.g. `"fa26"`.
+- `issued_at` — non-empty ISO 8601 UTC timestamp.
+- `files_under_review` — array of workspace-relative paths. Only files in this list get the in-memory expected-content model used for external-change detection (PRD §4.5). Other files are still recorded for workspace context.
+
+Omit the `sig` field; the signer adds it. (If you re-sign an already-signed manifest, the old `sig` is stripped first.)
+
 **Sign a per-assignment manifest** (every time a new assignment is released):
 
 ```sh
