@@ -236,4 +236,53 @@ describe('GET /me — authenticated', () => {
       }
     });
   });
+
+  it('returns principal_kind=token with token field when authenticated via bearer', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db, {
+          email: 'bearer@berkeley.edu',
+          display_name: 'Bearer User',
+        });
+
+        const { createToken } = await import('../../../auth/tokens.js');
+        const { secret, token: created } = await createToken(db, {
+          userId: user.id,
+          label: 'Test Bearer Token',
+          scopes: {
+            read_only: true,
+            semester_ids: null,
+            include_blobs: false,
+          },
+        });
+
+        const app = makeMeApp();
+        const res = await app.fetch(
+          new Request('http://localhost/', {
+            headers: { Authorization: `Bearer ${secret}` },
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+
+        expect(body.user.id).toBe(user.id);
+        expect(body.user.email).toBe('bearer@berkeley.edu');
+        expect(body.principal_kind).toBe('token');
+
+        // Token field should be present when using bearer auth
+        expect(body.token).toBeTruthy();
+        expect(body.token.id).toBe(created.id);
+        expect(body.token.label).toBe('Test Bearer Token');
+        expect(body.token.scopes).toEqual({
+          read_only: true,
+          semester_ids: null,
+          include_blobs: false,
+        });
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
 });

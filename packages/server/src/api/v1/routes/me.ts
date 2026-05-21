@@ -1,16 +1,16 @@
 /**
  * GET /api/v1/me — returns the authenticated principal.
  *
- * Phase 2: session-only. Memberships array is empty (wired in Phase 5).
- * Phase 3 adds bearer-token resolution via the `resolvePrincipal` seam.
- *
  * Response shape (PRD §8.1):
  * {
  *   user: { id, email, display_name, is_superadmin, created_at, last_login_at },
  *   memberships: [],
- *   principal_kind: 'session' | 'token'
- *   // token field absent in Phase 2
+ *   principal_kind: 'session' | 'token',
+ *   token?: { id, label, scopes }  // present when principal_kind === 'token'
  * }
+ *
+ * Phase 2: session-only (no token field).
+ * Phase 3: supports bearer tokens (token field included when principal_kind === 'token').
  */
 
 import { Hono } from 'hono';
@@ -20,8 +20,6 @@ export function createMeRouter(): Hono {
   const router = new Hono();
 
   router.get('/', async (c) => {
-    // resolvePrincipal is the structural seam: Phase 3 will extend it to also
-    // try bearer tokens. The route itself doesn't change.
     const principal = await resolvePrincipal(c);
 
     if (principal === null) {
@@ -42,7 +40,7 @@ export function createMeRouter(): Hono {
 
     const { user, principal_kind } = principal;
 
-    return c.json({
+    const response: Record<string, any> = {
       user: {
         id: user.id,
         email: user.email,
@@ -53,7 +51,20 @@ export function createMeRouter(): Hono {
       },
       memberships: [], // Phase 5 will populate this
       principal_kind,
-    });
+    };
+
+    // If authenticated via token, include token info
+    if (principal_kind === 'token') {
+      const token = principal.token;
+      const scopes = typeof token.scopes === 'string' ? JSON.parse(token.scopes) : token.scopes;
+      response.token = {
+        id: token.id,
+        label: token.label,
+        scopes,
+      };
+    }
+
+    return c.json(response);
   });
 
   return router;

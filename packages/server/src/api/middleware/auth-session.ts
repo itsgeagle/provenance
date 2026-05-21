@@ -1,8 +1,8 @@
 /**
- * Auth session middleware.
+ * Auth session middleware and principal types.
  *
- * Reads the session cookie, validates the session in the DB, and binds the
- * resolved principal to `c.var.principal`.
+ * Reads either a bearer token (Authorization: Bearer) or session cookie,
+ * validates it in the DB, and binds the resolved principal to `c.var.principal`.
  *
  * Context variable contract:
  *   c.var.principal — null | Principal
@@ -15,18 +15,14 @@
  * Why `c.var` (Hono context variables) vs middleware injection:
  * - `c.var` is Hono's idiomatic pattern for request-scoped state.
  * - Type-safety is achieved by augmenting the `ContextVariableMap` interface.
- * - The seam for Phase 3 (bearer tokens): `resolvePrincipal(c)` reads
- *   session OR token; only session is implemented here. Phase 3 will extend
- *   `resolvePrincipal` without modifying routes.
+ *
+ * Phase 3 change: resolvePrincipal now reads bearer token (with precedence)
+ * or session cookie, via auth-resolve.ts. Routes remain unchanged.
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
-import { getSessionCookie } from '../../auth/cookies.js';
-import { findSession } from '../../auth/sessions.js';
-import { getDb } from '../../db/client.js';
-import type { Session, User } from '../../db/schema.js';
-import { users } from '../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import type { Session, User, ApiToken } from '../../db/schema.js';
+import { resolvePrincipal } from './auth-resolve.js';
 
 // ---------------------------------------------------------------------------
 // Principal type
@@ -37,15 +33,16 @@ import { eq } from 'drizzle-orm';
  *
  * Discriminated union on `principal_kind`:
  *  - `'session'` — authenticated via session cookie (Phase 2).
- *  - `'token'`   — authenticated via API bearer token (Phase 3; token field TBD).
+ *  - `'token'`   — authenticated via API bearer token (Phase 3).
  *
  * Callers that need `session` must narrow on `principal_kind === 'session'`.
+ * Callers that need `token` must narrow on `principal_kind === 'token'`.
  * The union is fully additive: Phase 3 appends the token branch without
  * modifying existing session-principal consumers.
  */
 export type Principal =
   | { principal_kind: 'session'; session: Session; user: User }
-  | { principal_kind: 'token'; user: User /* token: ApiToken — added in Phase 3 */ };
+  | { principal_kind: 'token'; user: User; token: ApiToken };
 
 // ---------------------------------------------------------------------------
 // Hono context variable augmentation
@@ -61,35 +58,18 @@ declare module 'hono' {
 }
 
 // ---------------------------------------------------------------------------
-// Principal resolution (Phase 2: session only)
+// Principal resolution (Phase 3: bearer + session with precedence)
 // ---------------------------------------------------------------------------
 
 /**
  * Resolves the principal from the request context.
- * Phase 2: reads session cookie only.
- * Phase 3: extend this to also try bearer token before returning null.
+ * Phase 3: reads bearer token (with precedence) or session cookie.
  *
- * This is the structural seam that Phase 3 extends without modifying routes.
+ * resolvePrincipal is imported from auth-resolve.ts (above), which handles
+ * the precedence rule: if Authorization: Bearer is present, use it exclusively;
+ * otherwise use session. Routes use it as before.
  */
-export async function resolvePrincipal(c: Context): Promise<Principal | null> {
-  return resolveSessionPrincipal(c);
-}
-
-async function resolveSessionPrincipal(c: Context): Promise<Principal | null> {
-  const sessionId = getSessionCookie(c);
-  if (sessionId === undefined) return null;
-
-  const db = getDb();
-  const session = await findSession(db, sessionId);
-  if (session === null) return null;
-
-  // Fetch the user row
-  const userRows = await db.select().from(users).where(eq(users.id, session.user_id)).limit(1);
-  const user = userRows[0];
-  if (user === undefined) return null;
-
-  return { principal_kind: 'session', session, user };
-}
+export { resolvePrincipal };
 
 // ---------------------------------------------------------------------------
 // Middleware
