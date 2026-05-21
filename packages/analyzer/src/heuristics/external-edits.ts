@@ -59,6 +59,13 @@ function getFilePath(payload: unknown): string {
   return typeof p['path'] === 'string' ? p['path'] : 'unknown';
 }
 
+function getOperation(payload: unknown): 'modify' | 'delete' | 'create' {
+  if (typeof payload !== 'object' || payload === null) return 'modify';
+  const p = payload as Record<string, unknown>;
+  const op = p['operation'];
+  return op === 'delete' || op === 'create' ? op : 'modify';
+}
+
 function flagId(seqKey: string, index: number): string {
   return `external_edits-${seqKey}-${index}`;
 }
@@ -76,6 +83,8 @@ type CoalescedGroup = {
   events: IndexedEvent[];
   /** Maximum |diff_size| seen in the group. */
   maxDiffSize: number;
+  /** Set of operations seen in the group ('modify' | 'delete' | 'create'). */
+  operations: Set<'modify' | 'delete' | 'create'>;
 };
 
 /**
@@ -96,9 +105,10 @@ function coalesceGroups(events: IndexedEvent[], windowMs: number): CoalescedGrou
   for (const e of events) {
     const diffSize = getDiffSize(e.payload);
     const file = getFilePath(e.payload);
+    const op = getOperation(e.payload);
 
     if (currentGroup === null) {
-      currentGroup = { file, events: [e], maxDiffSize: diffSize };
+      currentGroup = { file, events: [e], maxDiffSize: diffSize, operations: new Set([op]) };
       continue;
     }
 
@@ -109,12 +119,13 @@ function coalesceGroups(events: IndexedEvent[], windowMs: number): CoalescedGrou
 
     if (withinWindow) {
       currentGroup.events.push(e);
+      currentGroup.operations.add(op);
       if (diffSize > currentGroup.maxDiffSize) {
         currentGroup.maxDiffSize = diffSize;
       }
     } else {
       groups.push(currentGroup);
-      currentGroup = { file, events: [e], maxDiffSize: diffSize };
+      currentGroup = { file, events: [e], maxDiffSize: diffSize, operations: new Set([op]) };
     }
   }
 
@@ -162,7 +173,20 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
       const id = flagId(seqKey0, flagIndex++);
 
       const eventCount = group.events.length;
-      const plural = eventCount === 1 ? 'change' : 'changes';
+      // Build operation-aware description. A single-op group says exactly
+      // what happened ("deleted", "created", "modified"); a mixed-op group
+      // (e.g. delete→create from a tool that rewrites by replacing) lists
+      // all observed operations.
+      const ops = [...group.operations];
+      const opLabel =
+        ops.length === 1
+          ? ops[0] === 'delete'
+            ? 'deleted'
+            : ops[0] === 'create'
+              ? 'created'
+              : 'modified'
+          : `affected (${ops.sort().join(', ')})`;
+      const plural = eventCount === 1 ? 'event' : 'events';
 
       flags.push({
         id,
@@ -172,12 +196,13 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
         confidence: CONFIDENCE,
         supportingSeqs,
         description:
-          `${eventCount} unexplained external file ${plural} detected in ${file}` +
+          `${file} was ${opLabel} outside VS Code (${eventCount} unexplained ${plural})` +
           (group.maxDiffSize > 0 ? ` (max ±${group.maxDiffSize} chars).` : '.'),
         detail: {
           file,
           eventCount,
           maxDiffSize: group.maxDiffSize,
+          operations: ops,
           seqs: supportingSeqs,
         },
       });

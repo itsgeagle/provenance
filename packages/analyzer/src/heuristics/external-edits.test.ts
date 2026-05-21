@@ -413,3 +413,120 @@ describe('external_edits — mixed explained/unexplained', () => {
     expect(flags).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Operation-aware description (recorder v1.3+)
+// ---------------------------------------------------------------------------
+
+describe('external_edits — operation discriminator', () => {
+  it('delete operation: description reads "was deleted"', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/test/file.py',
+                operation: 'delete',
+                old_hash: 'aaa',
+                new_hash: '',
+                diff_size: 50,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = externalEditsHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.description).toContain('was deleted outside VS Code');
+    expect((flags[0]!.detail as { operations: string[] }).operations).toEqual(['delete']);
+  });
+
+  it('create operation: description reads "was created"', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/test/fresh.py',
+                operation: 'create',
+                old_hash: '',
+                new_hash: 'bbb',
+                diff_size: 30,
+                new_content: 'def fresh(): pass\n',
+                new_content_size: 18,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = externalEditsHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.description).toContain('was created outside VS Code');
+  });
+
+  it('modify operation (default): description reads "was modified"', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/test/file.py',
+                operation: 'modify',
+                diff_size: 50,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = externalEditsHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.description).toContain('was modified outside VS Code');
+  });
+
+  it('mixed delete+create in the same coalesce window: description lists both', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/test/file.py',
+                operation: 'delete',
+                old_hash: 'aaa',
+                new_hash: '',
+                diff_size: 50,
+              },
+              t: 1000,
+            },
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/test/file.py',
+                operation: 'create',
+                old_hash: '',
+                new_hash: 'bbb',
+                diff_size: 80,
+                new_content: 'rewritten\n',
+                new_content_size: 10,
+              },
+              t: 1500,
+            },
+          ],
+        },
+      ],
+    });
+    const flags = externalEditsHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.description).toContain('was affected (create, delete) outside VS Code');
+  });
+});

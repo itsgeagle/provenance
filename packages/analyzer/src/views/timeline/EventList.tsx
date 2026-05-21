@@ -64,6 +64,7 @@ export function payloadSummary(event: IndexedEvent): string {
       return path;
     }
     case 'fs.external_change': {
+      const operation = typeof p['operation'] === 'string' ? p['operation'] : 'modify';
       const oldHash = typeof p['old_hash'] === 'string' ? p['old_hash'].slice(0, 8) : '?';
       const newHash = typeof p['new_hash'] === 'string' ? p['new_hash'].slice(0, 8) : '?';
       const diffSize = typeof p['diff_size'] === 'number' ? p['diff_size'] : 0;
@@ -77,6 +78,14 @@ export function payloadSummary(event: IndexedEvent): string {
             ? p['new_content']
             : '';
       const snippet = head ? head.replace(/\s+/g, ' ').slice(0, 40) : '';
+      if (operation === 'delete') {
+        return `deleted (was ${oldHash}…, ${diffSize} bytes)`;
+      }
+      if (operation === 'create') {
+        const tail = snippet ? `: ${snippet}${head.length > 40 ? '…' : ''}` : '';
+        return `created (${newHash}…, ${diffSize} bytes)${tail}`;
+      }
+      // modify (default)
       const summary = `${oldHash}… → ${newHash}… (diff_size ${diffSize})`;
       return snippet ? `${summary}: ${snippet}${head.length > 40 ? '…' : ''}` : summary;
     }
