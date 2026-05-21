@@ -20,15 +20,37 @@ import { requestLogger } from '../../logging.js';
 // Middleware
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Request ID validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Allowlist for echoed X-Request-Id values.
+ *
+ * Only printable ASCII characters (0x20–0x7E), max 128 characters.
+ * This prevents header injection (\r\n sequences would allow header splitting
+ * in the echoed X-Request-Id response header) and log injection.
+ *
+ * If the client sends a value that fails validation, a fresh UUID is generated
+ * silently — the middleware should be transparent and never fail a request.
+ */
+const SAFE_REQUEST_ID = /^[\x20-\x7E]{1,128}$/;
+
+// ---------------------------------------------------------------------------
+// Middleware
+// ---------------------------------------------------------------------------
+
 /**
  * Sets X-Request-Id on every response and binds a child logger.
  *
- * Echo rule: if the client sends X-Request-Id, use it verbatim (distributed
- * tracing). Otherwise generate a fresh UUID v4.
+ * Echo rule: if the client sends X-Request-Id AND it passes the safe-ASCII
+ * validation (max 128 printable chars), echo it through for distributed tracing.
+ * Otherwise generate a fresh UUID v4. This prevents header/log injection.
  */
 export const requestId: MiddlewareHandler = async (c, next) => {
   const incoming = c.req.header('x-request-id');
-  const id = incoming !== undefined && incoming.length > 0 ? incoming : crypto.randomUUID();
+  const id =
+    incoming !== undefined && SAFE_REQUEST_ID.test(incoming) ? incoming : crypto.randomUUID();
 
   c.set('requestId', id);
 
