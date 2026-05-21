@@ -15,14 +15,61 @@
 
 import { Hono } from 'hono';
 import { resolvePrincipal } from '../../middleware/auth-session.js';
+import type { TokenScopes } from '../../../auth/tokens.js';
+
+// ---------------------------------------------------------------------------
+// Response shape
+// ---------------------------------------------------------------------------
+
+interface UserSummary {
+  id: string;
+  email: string;
+  display_name: string | null;
+  is_superadmin: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+type MeResponse =
+  | {
+      user: UserSummary;
+      memberships: never[];
+      principal_kind: 'session';
+    }
+  | {
+      user: UserSummary;
+      memberships: never[];
+      principal_kind: 'token';
+      token: { id: string; label: string; scopes: TokenScopes };
+    };
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
 
 export function createMeRouter(): Hono {
   const router = new Hono();
 
   router.get('/', async (c) => {
-    const principal = await resolvePrincipal(c);
+    const result = await resolvePrincipal(c);
 
-    if (principal === null) {
+    if (result.kind === 'invalid_bearer') {
+      const returnTo = encodeURIComponent(c.req.path);
+      const loginUrl = `/api/v1/auth/google/start?return_to=${returnTo}`;
+      return c.json(
+        {
+          error: {
+            code: 'AUTH_REQUIRED',
+            message: 'Authentication required',
+            details: { login_url: loginUrl },
+          },
+        },
+        401,
+        { 'WWW-Authenticate': 'Bearer' },
+      );
+    }
+
+    if (result.kind === 'none') {
       const returnTo = encodeURIComponent(c.req.path);
       const loginUrl = `/api/v1/auth/google/start?return_to=${returnTo}`;
       return c.json(
@@ -38,33 +85,38 @@ export function createMeRouter(): Hono {
       );
     }
 
+    const { principal } = result;
     const { user, principal_kind } = principal;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response: Record<string, any> = {
-      user: {
-        id: user.id,
-        email: user.email,
-        display_name: user.display_name,
-        is_superadmin: user.is_superadmin,
-        created_at: user.created_at.toISOString(),
-        last_login_at: user.last_login_at !== null ? user.last_login_at.toISOString() : null,
-      },
-      memberships: [], // Phase 5 will populate this
-      principal_kind,
+    const userSummary: UserSummary = {
+      id: user.id,
+      email: user.email,
+      display_name: user.display_name,
+      is_superadmin: user.is_superadmin,
+      created_at: user.created_at.toISOString(),
+      last_login_at: user.last_login_at !== null ? user.last_login_at.toISOString() : null,
     };
 
-    // If authenticated via token, include token info
     if (principal_kind === 'token') {
       const token = principal.token;
-      const scopes = typeof token.scopes === 'string' ? JSON.parse(token.scopes) : token.scopes;
-      response.token = {
-        id: token.id,
-        label: token.label,
-        scopes,
+      const scopes: TokenScopes =
+        typeof token.scopes === 'string'
+          ? (JSON.parse(token.scopes) as TokenScopes)
+          : (token.scopes as TokenScopes);
+      const response: MeResponse = {
+        user: userSummary,
+        memberships: [],
+        principal_kind: 'token',
+        token: { id: token.id, label: token.label, scopes },
       };
+      return c.json(response);
     }
 
+    const response: MeResponse = {
+      user: userSummary,
+      memberships: [],
+      principal_kind: 'session',
+    };
     return c.json(response);
   });
 

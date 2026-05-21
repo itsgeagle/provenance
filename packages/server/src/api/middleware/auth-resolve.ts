@@ -26,39 +26,69 @@ import { findSession } from '../../auth/sessions.js';
 import { getSessionCookie } from '../../auth/cookies.js';
 import type { Principal } from './auth-session.js';
 
+// ---------------------------------------------------------------------------
+// ResolveResult sum type
+// ---------------------------------------------------------------------------
+
+/**
+ * Three-way result from resolvePrincipal:
+ *   - 'ok'             — credentials were offered and verified; principal is set.
+ *   - 'none'           — no credentials offered; downstream decides 401 vs 200.
+ *   - 'invalid_bearer' — a Bearer header was offered but is malformed or invalid;
+ *                        callers MUST return 401 immediately (no session fallback).
+ */
+export type ResolveResult =
+  | { kind: 'ok'; principal: Principal }
+  | { kind: 'none' }
+  | { kind: 'invalid_bearer' };
+
+// ---------------------------------------------------------------------------
+// resolvePrincipal
+// ---------------------------------------------------------------------------
+
 /**
  * Resolves the principal from the request, trying bearer token first,
  * then session cookie, with proper precedence handling.
  *
- * Returns:
- *   - A principal if either bearer or session auth succeeds
- *   - null if neither is present (does not throw; routes decide auth requirement)
- *   - Throws 401 if bearer header is present but invalid (no fallback)
+ * Returns a ResolveResult discriminated union:
+ *   - { kind: 'ok', principal }   — authenticated; use principal.
+ *   - { kind: 'none' }            — no credentials; routes decide.
+ *   - { kind: 'invalid_bearer' }  — Bearer was offered but invalid; caller MUST 401.
  *
- * (Throws is a bit of a misnomer here for the error response;
- *  in real usage, auth-session.ts will call buildAuthRequiredResponse.)
+ * Callers must check `kind === 'invalid_bearer'` and return 401 immediately.
+ * They must NOT fall back to session auth when Bearer is present but invalid.
  */
-export async function resolvePrincipal(c: Context): Promise<Principal | null> {
+export async function resolvePrincipal(c: Context): Promise<ResolveResult> {
   const authHeader = c.req.header('authorization');
-  const bearerToken = parseBearerHeader(authHeader);
 
   // Precedence rule: if Authorization header is present, use bearer auth exclusively.
   if (authHeader !== undefined) {
-    // Header is present, so we commit to bearer auth.
-    // This means if the token is invalid, we return null (not 401 here;
-    // the middleware/route will handle 401).
+    const bearerToken = parseBearerHeader(authHeader);
+
     if (bearerToken === null) {
-      // Malformed Authorization header
-      return null;
+      // Authorization header was offered but is malformed (e.g. "Basic ...",
+      // "Bearer" with no token, no space before token).
+      return { kind: 'invalid_bearer' };
     }
 
     const principal = await resolveBearerToken(bearerToken);
-    return principal; // null if invalid, principal if valid
+    if (principal === null) {
+      // Header was well-formed but token is revoked, expired, or not found.
+      return { kind: 'invalid_bearer' };
+    }
+
+    return { kind: 'ok', principal };
   }
 
-  // No Authorization header — try session cookie
-  return resolveSessionPrincipal(c);
+  // No Authorization header — try session cookie.
+  const principal = await resolveSessionPrincipal(c);
+  if (principal === null) return { kind: 'none' };
+  return { kind: 'ok', principal };
 }
+
+// ---------------------------------------------------------------------------
+// resolveSessionPrincipal
+// ---------------------------------------------------------------------------
 
 /**
  * Resolves the principal from the session cookie.

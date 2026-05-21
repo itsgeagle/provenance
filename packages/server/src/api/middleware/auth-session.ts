@@ -22,7 +22,7 @@
 
 import type { Context, MiddlewareHandler } from 'hono';
 import type { Session, User, ApiToken } from '../../db/schema.js';
-import { resolvePrincipal } from './auth-resolve.js';
+import { resolvePrincipal, type ResolveResult } from './auth-resolve.js';
 
 // ---------------------------------------------------------------------------
 // Principal type
@@ -67,9 +67,13 @@ declare module 'hono' {
  *
  * resolvePrincipal is imported from auth-resolve.ts (above), which handles
  * the precedence rule: if Authorization: Bearer is present, use it exclusively;
- * otherwise use session. Routes use it as before.
+ * otherwise use session.
+ *
+ * Returns a ResolveResult discriminated union. Re-exported here so routes that
+ * import from auth-session.ts do not need to reach into auth-resolve.ts directly.
  */
 export { resolvePrincipal };
+export type { ResolveResult };
 
 // ---------------------------------------------------------------------------
 // Middleware
@@ -79,12 +83,30 @@ export { resolvePrincipal };
  * Middleware that resolves the principal and sets `c.var.principal`.
  * Must be mounted before any route that reads `c.var.principal`.
  *
- * Does NOT enforce authentication — routes do that by calling
- * `requirePrincipal(c)` or checking `c.var.principal` directly.
+ * - 'ok'             → sets c.var.principal and calls next().
+ * - 'none'           → sets c.var.principal to null and calls next();
+ *                      protected routes enforce auth via requirePrincipal().
+ * - 'invalid_bearer' → returns 401 immediately with WWW-Authenticate: Bearer.
  */
 export const authSessionMiddleware: MiddlewareHandler = async (c, next) => {
-  const principal = await resolvePrincipal(c);
-  c.set('principal', principal);
+  const result = await resolvePrincipal(c);
+
+  if (result.kind === 'invalid_bearer') {
+    const returnTo = encodeURIComponent(c.req.path);
+    return c.json(
+      {
+        error: {
+          code: 'AUTH_REQUIRED',
+          message: 'Authentication required',
+          details: { login_url: `/api/v1/auth/google/start?return_to=${returnTo}` },
+        },
+      },
+      401,
+      { 'WWW-Authenticate': 'Bearer' },
+    );
+  }
+
+  c.set('principal', result.kind === 'ok' ? result.principal : null);
   await next();
 };
 

@@ -1,5 +1,10 @@
 /**
  * Auth resolution middleware tests — precedence handling.
+ *
+ * Tests the ResolveResult sum type:
+ *   - { kind: 'ok', principal }   — authenticated.
+ *   - { kind: 'none' }            — no credentials offered.
+ *   - { kind: 'invalid_bearer' }  — Bearer was offered but malformed or invalid.
  */
 
 import { vi, describe, it, expect } from 'vitest';
@@ -96,18 +101,19 @@ describe('resolvePrincipal — precedence', () => {
         });
 
         const ctx = createMockContext(`Bearer ${secret}`);
-        const principal = await resolvePrincipal(ctx);
+        const result = await resolvePrincipal(ctx);
 
-        expect(principal).not.toBeNull();
-        expect(principal!.principal_kind).toBe('token');
-        expect(principal!.user.id).toBe(user.id);
+        expect(result.kind).toBe('ok');
+        if (result.kind !== 'ok') throw new Error('Expected ok');
+        expect(result.principal.principal_kind).toBe('token');
+        expect(result.principal.user.id).toBe(user.id);
       } finally {
         _testDb = null;
       }
     });
   });
 
-  it('returns null for malformed Authorization header (no fallback to session)', async () => {
+  it('returns invalid_bearer for malformed Authorization header (no fallback to session)', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
@@ -120,14 +126,13 @@ describe('resolvePrincipal — precedence', () => {
         // Malformed header (not "Bearer <token>")
         const ctx = createMockContext('Invalid xyz');
 
-        // Set the mock session cookie
+        // Set the mock session cookie — must NOT be used when bearer header is present
         _mockSessionCookie = sessionId;
 
-        const principal = await resolvePrincipal(ctx);
+        const result = await resolvePrincipal(ctx);
 
-        // Should return null because header was present but malformed.
-        // No fallback to session cookie.
-        expect(principal).toBeNull();
+        // Bearer header was present but malformed → invalid_bearer, no session fallback.
+        expect(result.kind).toBe('invalid_bearer');
       } finally {
         _testDb = null;
         _mockSessionCookie = undefined;
@@ -135,7 +140,7 @@ describe('resolvePrincipal — precedence', () => {
     });
   });
 
-  it('returns null for invalid bearer token (no fallback to session)', async () => {
+  it('returns invalid_bearer for invalid bearer token (no fallback to session)', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
@@ -147,14 +152,13 @@ describe('resolvePrincipal — precedence', () => {
 
         const ctx = createMockContext('Bearer prov_badprefix_wrongsecret');
 
-        // Set the mock session cookie
+        // Set the mock session cookie — must NOT be used when bearer header is present
         _mockSessionCookie = sessionId;
 
-        const principal = await resolvePrincipal(ctx);
+        const result = await resolvePrincipal(ctx);
 
-        // Header was present (and seemingly valid format), but token invalid.
-        // No fallback to session.
-        expect(principal).toBeNull();
+        // Header was well-formed but token invalid → invalid_bearer, no session fallback.
+        expect(result.kind).toBe('invalid_bearer');
       } finally {
         _testDb = null;
         _mockSessionCookie = undefined;
@@ -177,11 +181,12 @@ describe('resolvePrincipal — precedence', () => {
         // Set the mock session cookie
         _mockSessionCookie = sessionId;
 
-        const principal = await resolvePrincipal(ctx);
+        const result = await resolvePrincipal(ctx);
 
-        expect(principal).not.toBeNull();
-        expect(principal!.principal_kind).toBe('session');
-        expect(principal!.user.id).toBe(user.id);
+        expect(result.kind).toBe('ok');
+        if (result.kind !== 'ok') throw new Error('Expected ok');
+        expect(result.principal.principal_kind).toBe('session');
+        expect(result.principal.user.id).toBe(user.id);
       } finally {
         _testDb = null;
         _mockSessionCookie = undefined;
@@ -189,7 +194,7 @@ describe('resolvePrincipal — precedence', () => {
     });
   });
 
-  it('returns null when neither bearer nor session is present', async () => {
+  it('returns none when neither bearer nor session is present', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
@@ -198,9 +203,9 @@ describe('resolvePrincipal — precedence', () => {
         // No session cookie
         _mockSessionCookie = undefined;
 
-        const principal = await resolvePrincipal(ctx);
+        const result = await resolvePrincipal(ctx);
 
-        expect(principal).toBeNull();
+        expect(result.kind).toBe('none');
       } finally {
         _testDb = null;
         _mockSessionCookie = undefined;
@@ -232,13 +237,14 @@ describe('resolvePrincipal — precedence', () => {
         // Set the mock session cookie
         _mockSessionCookie = sessionId;
 
-        const principal = await resolvePrincipal(ctx);
+        const result = await resolvePrincipal(ctx);
 
         // Should use the bearer token (user1), not the session (user2)
-        expect(principal).not.toBeNull();
-        expect(principal!.principal_kind).toBe('token');
-        expect(principal!.user.id).toBe(user1.id);
-        expect(principal!.user.email).toBe('user1@berkeley.edu');
+        expect(result.kind).toBe('ok');
+        if (result.kind !== 'ok') throw new Error('Expected ok');
+        expect(result.principal.principal_kind).toBe('token');
+        expect(result.principal.user.id).toBe(user1.id);
+        expect(result.principal.user.email).toBe('user1@berkeley.edu');
       } finally {
         _testDb = null;
         _mockSessionCookie = undefined;
