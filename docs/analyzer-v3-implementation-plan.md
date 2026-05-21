@@ -26,45 +26,45 @@ Approved as a single v3.0 bundle by the PRD's §2 + this plan's §0. Adding anyt
 
 **Backend (`packages/server`):**
 
-| Dependency | Version | Used for |
-|---|---|---|
-| `hono` | `^4` | HTTP framework. |
-| `@hono/node-server` | latest | Hono's Node adapter. |
-| `@hono/zod-openapi` | latest | Route handlers with Zod schemas, OpenAPI generation. |
-| `zod` | `^3` | Validation throughout. |
-| `drizzle-orm`, `drizzle-kit` | latest | Postgres ORM + migrations. |
-| `postgres` (porsager) | `^3` | Postgres driver Drizzle wraps. |
-| `pg-boss` | `^10` | Postgres-backed job queue. |
-| `arctic` | latest | OAuth client (Google). |
-| `oslo` | latest | Token + session primitives. |
-| `argon2` | latest | API-token hashing. |
-| `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` | latest | S3-compatible object storage. |
-| `pino`, `pino-http` | latest | Structured JSON logs. |
-| `nodemailer` | latest | Invitation emails. |
-| `papaparse` | `^5` | Roster CSV parsing. |
-| `diff` | `^7` | Already in v2; re-exported for server use. |
-| `puppeteer` | latest | PDF export (see OQ-M; chosen here). |
-| `redoc-cli` (dev) | latest | Render OpenAPI docs to static HTML during build. |
+| Dependency                                            | Version | Used for                                             |
+| ----------------------------------------------------- | ------- | ---------------------------------------------------- |
+| `hono`                                                | `^4`    | HTTP framework.                                      |
+| `@hono/node-server`                                   | latest  | Hono's Node adapter.                                 |
+| `@hono/zod-openapi`                                   | latest  | Route handlers with Zod schemas, OpenAPI generation. |
+| `zod`                                                 | `^3`    | Validation throughout.                               |
+| `drizzle-orm`, `drizzle-kit`                          | latest  | Postgres ORM + migrations.                           |
+| `postgres` (porsager)                                 | `^3`    | Postgres driver Drizzle wraps.                       |
+| `pg-boss`                                             | `^10`   | Postgres-backed job queue.                           |
+| `arctic`                                              | latest  | OAuth client (Google).                               |
+| `oslo`                                                | latest  | Token + session primitives.                          |
+| `argon2`                                              | latest  | API-token hashing.                                   |
+| `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` | latest  | S3-compatible object storage.                        |
+| `pino`, `pino-http`                                   | latest  | Structured JSON logs.                                |
+| `nodemailer`                                          | latest  | Invitation emails.                                   |
+| `papaparse`                                           | `^5`    | Roster CSV parsing.                                  |
+| `diff`                                                | `^7`    | Already in v2; re-exported for server use.           |
+| `puppeteer`                                           | latest  | PDF export (see OQ-M; chosen here).                  |
+| `redoc-cli` (dev)                                     | latest  | Render OpenAPI docs to static HTML during build.     |
 
 **Frontend (`packages/analyzer`):**
 
-| Dependency | Version | Used for |
-|---|---|---|
-| `@tanstack/react-query` | `^5` | Server-state caching. |
-| `@tanstack/react-table` | `^8` | Cohort table primitives. |
-| `react-hook-form` | `^7` | Forms. |
-| `zod` | `^3` | Shared with server via `packages/shared`. |
-| `@hookform/resolvers` | latest | Zod resolver for react-hook-form. |
-| `recharts` | `^2` | Score histogram, sparklines. |
-| `date-fns` | latest | Date formatting. (Already in some v2 surfaces; promote to a direct dep.) |
+| Dependency              | Version | Used for                                                                 |
+| ----------------------- | ------- | ------------------------------------------------------------------------ |
+| `@tanstack/react-query` | `^5`    | Server-state caching.                                                    |
+| `@tanstack/react-table` | `^8`    | Cohort table primitives.                                                 |
+| `react-hook-form`       | `^7`    | Forms.                                                                   |
+| `zod`                   | `^3`    | Shared with server via `packages/shared`.                                |
+| `@hookform/resolvers`   | latest  | Zod resolver for react-hook-form.                                        |
+| `recharts`              | `^2`    | Score histogram, sparklines.                                             |
+| `date-fns`              | latest  | Date formatting. (Already in some v2 surfaces; promote to a direct dep.) |
 
 **Test infrastructure:**
 
-| Dependency | Version | Used for |
-|---|---|---|
-| `testcontainers` | latest | Postgres in integration tests. |
-| `msw` | `^2` | Mock the HTTP API in frontend tests. |
-| `supertest` | latest | HTTP-level server tests. |
+| Dependency       | Version | Used for                             |
+| ---------------- | ------- | ------------------------------------ |
+| `testcontainers` | latest  | Postgres in integration tests.       |
+| `msw`            | `^2`    | Mock the HTTP API in frontend tests. |
+| `supertest`      | latest  | HTTP-level server tests.             |
 
 ### 0.2 Other up-front decisions
 
@@ -101,34 +101,34 @@ Approved as a single v3.0 bundle by the PRD's §2 + this plan's §0. Adding anyt
 
 # Phase index
 
-| # | Phase | PRD §§ | Scale (rough) |
-|---|---|---|---|
-| 0 | Workspace + server scaffold | §2, §3 | Small |
-| 1 | Postgres + Drizzle + identity & structure tables | §5.1 | Small |
-| 2 | Google OAuth + sessions + /me | §4.1–4.2, §8.1 | Medium |
-| 3 | API tokens + bearer middleware | §4.3, §4.5, §8.12 | Small |
-| 4 | authorize() + rate limit + audit middleware + error formatter | §4.5, §7.3, §7.6, §13 | Medium |
-| 5 | Courses + semesters CRUD | §5.1, §8.2 | Small |
-| 6 | Members + invitations | §4.4, §5.1, §8.3 | Medium |
-| 7 | Roster CSV upload + diff preview + commit | §5.2, §8.4 | Medium |
-| 8 | Object storage + signed URLs | §6, §16.3 | Small |
-| 9 | Ingest pipeline I: stage / dedup / parse / match / create submission | §5.3–5.4, §8.6, §9.1–9.4 | Large (likely split) |
-| 10 | Ingest pipeline II: events materialization + per-file stats | §5.4, §9.3 | Medium |
-| 11 | Validation pipeline server-side | §5.4, §11.3 | Small |
-| 12 | Heuristics on server (per-submission suite) | §5.4, §10.1–10.3 | Medium |
-| 13 | Heuristic config table + scoring + dry-run + recompute job | §5.5, §8.11, §10.2–10.5, §12 | Large (likely split) |
-| 14 | Cross-submission heuristics + semester recompute hook | §5.4, §9.5, §10.1 | Medium |
-| 15 | Unmatched tray endpoints + ingest job/files endpoints | §8.6–8.7 | Small |
-| 16 | Cohort list + students + assignments + cross-flags APIs | §8.2 facets, §8.5, §8.8, §8.10, Appx A | Medium |
-| 17 | Per-submission summary/flags/stats/validation/events APIs | §8.9, §11 | Medium |
-| 18 | File reconstruction API + LRU cache + bundle download | §8.9, §11.1, §16.1 | Medium |
-| 19 | OpenAPI spec + Redoc + audit endpoint + observability surfaces | §7.7, §8.13–8.14, §16.4 | Small |
-| 20 | Frontend: login + nav shell + RequireAuth + home | §14.1, §14.3 | Small |
-| 21 | Frontend: cohort list view + filters + URL state | §14.1–14.4, Appx A | Large |
-| 22 | Frontend: ingest + roster + members + assignments + settings | §14.1 | Medium |
-| 23 | Frontend: per-submission drill-in via SubmissionDataProvider | §14.2, Appx C | Large (likely split) |
-| 24 | Frontend: heuristic tuning + recompute progress + cross-flags + exports | §10.5, §14.1 | Medium |
-| 25 | Standalone SPA at /local + retention sweep + admin docs + release | §15, §12.2, §14 | Medium |
+| #   | Phase                                                                   | PRD §§                                 | Scale (rough)        |
+| --- | ----------------------------------------------------------------------- | -------------------------------------- | -------------------- |
+| 0   | Workspace + server scaffold                                             | §2, §3                                 | Small                |
+| 1   | Postgres + Drizzle + identity & structure tables                        | §5.1                                   | Small                |
+| 2   | Google OAuth + sessions + /me                                           | §4.1–4.2, §8.1                         | Medium               |
+| 3   | API tokens + bearer middleware                                          | §4.3, §4.5, §8.12                      | Small                |
+| 4   | authorize() + rate limit + audit middleware + error formatter           | §4.5, §7.3, §7.6, §13                  | Medium               |
+| 5   | Courses + semesters CRUD                                                | §5.1, §8.2                             | Small                |
+| 6   | Members + invitations                                                   | §4.4, §5.1, §8.3                       | Medium               |
+| 7   | Roster CSV upload + diff preview + commit                               | §5.2, §8.4                             | Medium               |
+| 8   | Object storage + signed URLs                                            | §6, §16.3                              | Small                |
+| 9   | Ingest pipeline I: stage / dedup / parse / match / create submission    | §5.3–5.4, §8.6, §9.1–9.4               | Large (likely split) |
+| 10  | Ingest pipeline II: events materialization + per-file stats             | §5.4, §9.3                             | Medium               |
+| 11  | Validation pipeline server-side                                         | §5.4, §11.3                            | Small                |
+| 12  | Heuristics on server (per-submission suite)                             | §5.4, §10.1–10.3                       | Medium               |
+| 13  | Heuristic config table + scoring + dry-run + recompute job              | §5.5, §8.11, §10.2–10.5, §12           | Large (likely split) |
+| 14  | Cross-submission heuristics + semester recompute hook                   | §5.4, §9.5, §10.1                      | Medium               |
+| 15  | Unmatched tray endpoints + ingest job/files endpoints                   | §8.6–8.7                               | Small                |
+| 16  | Cohort list + students + assignments + cross-flags APIs                 | §8.2 facets, §8.5, §8.8, §8.10, Appx A | Medium               |
+| 17  | Per-submission summary/flags/stats/validation/events APIs               | §8.9, §11                              | Medium               |
+| 18  | File reconstruction API + LRU cache + bundle download                   | §8.9, §11.1, §16.1                     | Medium               |
+| 19  | OpenAPI spec + Redoc + audit endpoint + observability surfaces          | §7.7, §8.13–8.14, §16.4                | Small                |
+| 20  | Frontend: login + nav shell + RequireAuth + home                        | §14.1, §14.3                           | Small                |
+| 21  | Frontend: cohort list view + filters + URL state                        | §14.1–14.4, Appx A                     | Large                |
+| 22  | Frontend: ingest + roster + members + assignments + settings            | §14.1                                  | Medium               |
+| 23  | Frontend: per-submission drill-in via SubmissionDataProvider            | §14.2, Appx C                          | Large (likely split) |
+| 24  | Frontend: heuristic tuning + recompute progress + cross-flags + exports | §10.5, §14.1                           | Medium               |
+| 25  | Standalone SPA at /local + retention sweep + admin docs + release       | §15, §12.2, §14                        | Medium               |
 
 ---
 
@@ -497,7 +497,7 @@ Approved as a single v3.0 bundle by the PRD's §2 + this plan's §0. Adding anyt
 
 **Exit gate.** Full per-submission heuristic + score row present after ingest. Cross-flags still empty.
 
-**Notes.** This phase introduces a *temporary* hard-coded config used during compute. Phase 13 makes config a DB row and starts populating `heuristic_config_version`. To avoid a rewrite, this phase already writes `weight_at_compute` and `score_contribution` columns; the only future change is the source of `weight`.
+**Notes.** This phase introduces a _temporary_ hard-coded config used during compute. Phase 13 makes config a DB row and starts populating `heuristic_config_version`. To avoid a rewrite, this phase already writes `weight_at_compute` and `score_contribution` columns; the only future change is the source of `weight`.
 
 ---
 
@@ -881,16 +881,16 @@ Approved as a single v3.0 bundle by the PRD's §2 + this plan's §0. Adding anyt
 
 ## Documentation cross-reference
 
-| Doc | Role |
-|---|---|
-| `docs/prd.md` | Product PRD — behavior, log format, heuristics catalog. Source of truth for product behavior. |
-| `docs/analyzer-v3-design.md` | v3 design + architecture + locked brainstorm decisions. |
-| `docs/analyzer-v3-prd.md` | v3 technical PRD — contracts for DB, API, errors, perf, security. |
-| `docs/analyzer-v3-implementation-plan.md` | THIS doc — phased build. |
-| `docs/heuristics.md` | Live, code-linked catalog of heuristics with thresholds. Updated as Phase 12 / 14 land. |
-| `docs/analyzer-implementation-plan.md` | v2 plan (reference for past phasing decisions). |
-| `docs/implementation-plan.md` | Recorder plan (reference). |
-| `docs/recorder.md` | Recorder ops/security doc. |
-| `CLAUDE.md` | Repo conventions; wins on code-style disputes. |
+| Doc                                       | Role                                                                                          |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `docs/prd.md`                             | Product PRD — behavior, log format, heuristics catalog. Source of truth for product behavior. |
+| `docs/analyzer-v3-design.md`              | v3 design + architecture + locked brainstorm decisions.                                       |
+| `docs/analyzer-v3-prd.md`                 | v3 technical PRD — contracts for DB, API, errors, perf, security.                             |
+| `docs/analyzer-v3-implementation-plan.md` | THIS doc — phased build.                                                                      |
+| `docs/heuristics.md`                      | Live, code-linked catalog of heuristics with thresholds. Updated as Phase 12 / 14 land.       |
+| `docs/analyzer-implementation-plan.md`    | v2 plan (reference for past phasing decisions).                                               |
+| `docs/implementation-plan.md`             | Recorder plan (reference).                                                                    |
+| `docs/recorder.md`                        | Recorder ops/security doc.                                                                    |
+| `CLAUDE.md`                               | Repo conventions; wins on code-style disputes.                                                |
 
 The v3 implementation completes when every phase in this file has its status flipped to ✅ in `.notes/v3-progress.md` and `v3.0.0-analyzer` is tagged on `main`.

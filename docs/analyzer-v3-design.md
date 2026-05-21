@@ -2,7 +2,7 @@
 
 **Status:** Design draft (pre-technical-PRD)
 **Audience:** Engineering (Aaryan + Claude), course staff stakeholders for review
-**Supersedes:** PRD §7.1 ("future v3 might add a server-side bulk-review mode for staff. That's a separate design."). This document *is* that separate design.
+**Supersedes:** PRD §7.1 ("future v3 might add a server-side bulk-review mode for staff. That's a separate design."). This document _is_ that separate design.
 **Companion:** PRD `docs/prd.md` (product behavior, log format, heuristics catalog), `CLAUDE.md` (code conventions).
 **Working title:** Provenance Analyzer v3 — "Cohort."
 
@@ -20,7 +20,7 @@ Together those two pieces of feedback force a structural change in the analyzer,
 - A **batch ingest** pipeline: roster CSV + bulk-upload of bundles, idempotent on bundle hash, with an unmatched tray for filename mismatches.
 - A **tunable scoring layer** that lets course staff weight heuristics per semester and recompute.
 
-The existing v2 SPA is preserved in two roles: (a) its overview / replay / timeline / validation / export modules are *reused* inside the cohort app as the per-submission drill-in, now reading from the API instead of an in-memory bundle; (b) the standalone single-bundle "drop a `.zip` and look at it" experience is retained as a sibling route at `/local`, no auth, no DB — an escape hatch for ad-hoc off-cohort review.
+The existing v2 SPA is preserved in two roles: (a) its overview / replay / timeline / validation / export modules are _reused_ inside the cohort app as the per-submission drill-in, now reading from the API instead of an in-memory bundle; (b) the standalone single-bundle "drop a `.zip` and look at it" experience is retained as a sibling route at `/local`, no auth, no DB — an escape hatch for ad-hoc off-cohort review.
 
 This document does not specify implementation. It specifies the design we will hand off to the technical PRD (next step), which will then drive an implementation plan (the step after that).
 
@@ -62,7 +62,7 @@ Three architectures were viable; one was picked. Documenting all three so future
 - The server doesn't materialize events. On first per-submission API request it parses the blob into v2's `EventIndex` and caches it (Redis or on-disk JSON).
 - Cohort queries fan out to N submissions' caches.
 
-**Why rejected.** The documented API has to answer cross-submission queries like *"give me every `fs.external_change` event with `new_content_size > 4 KB` across fa26-hw03"* — that's the kind of question a course-staff script will reasonably ask. With this model that's a fan-out over hundreds of submissions on cold cache, and the SQL would have to be implemented as application code over cached JSON. The pricing is wrong: ingest is rare (once per submission), queries are frequent, so paying once at ingest is correct.
+**Why rejected.** The documented API has to answer cross-submission queries like _"give me every `fs.external_change` event with `new_content_size > 4 KB` across fa26-hw03"_ — that's the kind of question a course-staff script will reasonably ask. With this model that's a fan-out over hundreds of submissions on cold cache, and the SQL would have to be implemented as application code over cached JSON. The pricing is wrong: ingest is rare (once per submission), queries are frequent, so paying once at ingest is correct.
 
 ### 3.3 Rejected: "Replace v2 viz entirely; rebuild inside cohort app"
 
@@ -127,7 +127,7 @@ The API is the contract. Visualizations are clients. Schema definitions are defe
 
 - All routes are namespaced under `/api/v1`. Breaking changes move to `/api/v2` with a deprecation window.
 - Two auth modes share a single principal model:
-  - **Cookie session** (UI): set by the Google OAuth login flow. Short-lived access token + rotating refresh. The OAuth callback verifies the returned ID token's `hd` claim equals `berkeley.edu` *and* the `email_verified` claim is true; anything else is rejected at the callback with a clear error.
+  - **Cookie session** (UI): set by the Google OAuth login flow. Short-lived access token + rotating refresh. The OAuth callback verifies the returned ID token's `hd` claim equals `berkeley.edu` _and_ the `email_verified` claim is true; anything else is rejected at the callback with a clear error.
   - **Bearer token** (scripts): per-user API tokens with optional scope reduction (read-only, semester-scoped, time-boxed). Tokens are issued only to users who have completed a successful Google login at least once.
 - Every endpoint resolves to a principal, then to an authorization decision against (principal, target semester, role).
 - Rate limits are applied per (principal, route-class). Cohort-list reads get a higher ceiling than ingest.
@@ -189,7 +189,7 @@ The mental model is RESTful with one deliberate exception (the events query, whi
 **Heuristic config & recompute**
 
 - `GET    /api/v1/semesters/{semesterId}/heuristic-config` — current per-flag weights + thresholds + on/off bits + the active config's version number.
-- `PUT    /api/v1/semesters/{semesterId}/heuristic-config` — new version. Body returns a *preview diff* (which submissions move which way) before commit when called with `?dryRun=true`.
+- `PUT    /api/v1/semesters/{semesterId}/heuristic-config` — new version. Body returns a _preview diff_ (which submissions move which way) before commit when called with `?dryRun=true`.
 - `POST   /api/v1/semesters/{semesterId}/recompute` — enqueue a recompute job. Returns `job_id`.
 - `GET    /api/v1/semesters/{semesterId}/recompute/{jobId}` — recompute status.
 
@@ -205,7 +205,7 @@ The mental model is RESTful with one deliberate exception (the events query, whi
 
 - `GET    /api/v1/audit?semester_id=…&actor=…&since=…` — append-only audit log. Superadmin sees all; semester admin sees their own semester.
 
-### 5.3 What the API deliberately does *not* expose
+### 5.3 What the API deliberately does _not_ expose
 
 - No bulk write endpoints (other than ingest and roster upload). All other writes are per-resource.
 - No "raw row" endpoint that bypasses the resource model.
@@ -225,7 +225,7 @@ The mental model is RESTful with one deliberate exception (the events query, whi
 
 ### 6.2 Postgres schema sketch
 
-This is a *shape sketch* for design review; the technical PRD will pin every column type, constraint, and index.
+This is a _shape sketch_ for design review; the technical PRD will pin every column type, constraint, and index.
 
 ```
 courses (id, name, slug, created_at, archived_at)
@@ -334,7 +334,7 @@ Cross-submission heuristics do not run per-file. They are enqueued once per inge
 ### 7.4 Idempotency
 
 - `(semester, blob_sha256)` is the natural idempotency key. Re-uploading the same bytes never creates a second submission.
-- A file matched to (assignment, student) that was previously matched to a *different* (assignment, student) is treated as a content collision and flagged for admin attention; this catches roster errors.
+- A file matched to (assignment, student) that was previously matched to a _different_ (assignment, student) is treated as a content collision and flagged for admin attention; this catches roster errors.
 
 ---
 
@@ -450,16 +450,16 @@ Failure semantics: a per-submission failure leaves the row at the old config ver
 - The OAuth callback enforces two gates before any session is issued:
   1. `id_token.hd === 'berkeley.edu'` — the user's account is a member of the Berkeley Workspace, not a personal `@gmail.com` or another Workspace tenant.
   2. `id_token.email_verified === true`.
-  Either check failing returns the user to `/login` with an explicit error explaining that only Berkeley accounts can sign in.
+     Either check failing returns the user to `/login` with an explicit error explaining that only Berkeley accounts can sign in.
 - The `hd` allowlist is a single-entry list in config (`AUTH_ALLOWED_HOSTED_DOMAINS=["berkeley.edu"]`) so a future need (e.g. piloting at another institution) is a config change, not a code change.
-- First successful login of a new user creates a `users` row with no memberships. Superadmin or a semester admin must explicitly invite them. The Workspace check authenticates *who you are*; membership grants *what you can see*. There is no auto-claim by email pattern.
+- First successful login of a new user creates a `users` row with no memberships. Superadmin or a semester admin must explicitly invite them. The Workspace check authenticates _who you are_; membership grants _what you can see_. There is no auto-claim by email pattern.
 - Invitations are stored as pending memberships keyed by email; on first login matching the email, the membership flips active.
 - No CalNet/SAML, no GitHub, no magic links, no password fallback. Lost-access recovery is "the superadmin re-invites you" or "fix your Google account."
 
 ### 11.2 Tokens
 
 - Per-user API tokens via `/api/v1/me/tokens`. Each token has a label, a hashed value (never stored in plaintext), optional scope reduction, optional expiry.
-- Tokens scope to *the user's existing memberships*; a token can't grant access the user doesn't have. Reducing scope on a token can narrow further (read-only, single semester, etc.).
+- Tokens scope to _the user's existing memberships_; a token can't grant access the user doesn't have. Reducing scope on a token can narrow further (read-only, single semester, etc.).
 - Public docs (§14) include an SDK-quality "how to call the API from Python" page using tokens.
 
 ### 11.3 Authorization decisions
@@ -469,7 +469,7 @@ A single `authorize(principal, action, target)` function. `action ∈ {'read', '
 - Superadmin: yes.
 - Else, find principal's membership on the target's semester. If none, deny.
 - Role check: `admin` actions require `admin`; `write` requires `admin`; `read` allowed for `admin` or `grader`.
-- Token scope reductions apply *after* the role check (intersection).
+- Token scope reductions apply _after_ the role check (intersection).
 
 ### 11.4 Audit
 
@@ -516,13 +516,13 @@ These numbers are speculative until Open Question B is answered.
 
 ---
 
-## 13. What v3 explicitly does *not* include
+## 13. What v3 explicitly does _not_ include
 
 - **LLM-assisted review (PRD §7.6).** Out of scope for this transition. The API surface exposes everything an LLM client would need (events, flags, stats, file content, provenance), so v3.x can layer it on without further server changes.
 - **Student-facing accounts.** No student login, no in-product right-of-review flow. Continues to be handled out-of-band via the markdown/PDF export.
 - **LMS / Gradescope pull integration.** The filename-convention design is deliberately compatible with a future API-pull source, but the integration itself is not v3.
 - **Real-time collaboration.** No multi-user cursors on the cohort list, no concurrent tuning. Last-write-wins on heuristic config with a version conflict warning.
-- **Custom heuristics by end users.** Heuristics remain code-defined. Per-semester *config* (weights/thresholds/on-off) is the tuning surface, not new logic.
+- **Custom heuristics by end users.** Heuristics remain code-defined. Per-semester _config_ (weights/thresholds/on-off) is the tuning surface, not new logic.
 - **Mobile UI.** Cohort review is a desktop activity.
 
 ---
@@ -567,19 +567,19 @@ J. **The "no student login" decision** is reversible — could add later without
 
 Each decision below was made during brainstorm or in this doc; reference the question or section in parentheses.
 
-| # | Decision | Alternatives considered | Why |
-|---|----------|-------------------------|-----|
-| 1 | Single Berkeley-hosted shared instance | self-hosted per course, local-only desktop app, cloud SaaS multi-tenant | Centralized review matches the PI directive; SaaS overkill; local-only blocks TA collaboration |
-| 2 | Course → Semester → Assignment → Submission hierarchy with per-semester access grants and a Superadmin tier | Assignment-scoped, course-scoped | Matches user's stated delegation model; per-semester is the natural grant boundary |
-| 3 | Roster CSV + filename convention regex + unmatched tray | Sidecar manifest in each bundle, manual mapping only, LMS pull | Lowest-friction for course staff; PRD §4.1 doesn't add anything to the bundle; LMS pull deferred |
-| 4 | Score = per-submission weighted Σ(severity×confidence); student-level sum default, max alt | per-submission only, two scores (heuristic + LLM), full custom rubric | Matches user's "overall score + tune the heuristics" framing; LLM split deferred to v3.x |
-| 5 | Bundle blob in object storage; **events materialized into Postgres at ingest**; flags/stats/score derived in Postgres | events stay in blob with lazy index, hybrid, derived-only | API-first directive demands cheap cross-submission event queries; materializing is the only way |
-| 6 | Google OAuth only, restricted to `berkeley.edu` Workspace (`hd` claim) | Pluggable OIDC, CalNet/SAML, GitHub, magic links | All real users are on bConnected anyway; Workspace `hd` check is a one-line guarantee that beats trusting `email.endsWith('@berkeley.edu')`; removes IdP-integration scope from launch |
-| 7 | API-first; documented public surface; per-user API tokens; OpenAPI spec; rate limits | internal-only, internal-now-public-later | PI feedback was unambiguous; the cost is real but matched to the directive |
-| 8 | Keep v2 viz modules; replace v2's data-source with API client; standalone drop-a-zip SPA preserved at `/local` | Replace v2 entirely; standalone separate origin | v2 modules are tested and the data shapes already line up; `/local` preserves ad-hoc workflow |
-| 9 | Heuristic config is semester-scoped; tuning generates a new version; recompute is a background job | per-assignment config, global config, in-place mutation | Matches user's stated tuning scope; versioning preserves audit history |
-| 10 | Re-uploads create a new submission version; old rows kept as `superseded_by_submission_id` | overwrite, reject | Preserves history without complicating queries; default for cohort view excludes superseded |
-| 11 | Cross-submission heuristics run per ingest job at semester scope | per-pair on demand, scheduled batch | Need fresh results after every ingest; lazy on-demand makes cohort flags unreliable |
+| #   | Decision                                                                                                              | Alternatives considered                                                 | Why                                                                                                                                                                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Single Berkeley-hosted shared instance                                                                                | self-hosted per course, local-only desktop app, cloud SaaS multi-tenant | Centralized review matches the PI directive; SaaS overkill; local-only blocks TA collaboration                                                                                         |
+| 2   | Course → Semester → Assignment → Submission hierarchy with per-semester access grants and a Superadmin tier           | Assignment-scoped, course-scoped                                        | Matches user's stated delegation model; per-semester is the natural grant boundary                                                                                                     |
+| 3   | Roster CSV + filename convention regex + unmatched tray                                                               | Sidecar manifest in each bundle, manual mapping only, LMS pull          | Lowest-friction for course staff; PRD §4.1 doesn't add anything to the bundle; LMS pull deferred                                                                                       |
+| 4   | Score = per-submission weighted Σ(severity×confidence); student-level sum default, max alt                            | per-submission only, two scores (heuristic + LLM), full custom rubric   | Matches user's "overall score + tune the heuristics" framing; LLM split deferred to v3.x                                                                                               |
+| 5   | Bundle blob in object storage; **events materialized into Postgres at ingest**; flags/stats/score derived in Postgres | events stay in blob with lazy index, hybrid, derived-only               | API-first directive demands cheap cross-submission event queries; materializing is the only way                                                                                        |
+| 6   | Google OAuth only, restricted to `berkeley.edu` Workspace (`hd` claim)                                                | Pluggable OIDC, CalNet/SAML, GitHub, magic links                        | All real users are on bConnected anyway; Workspace `hd` check is a one-line guarantee that beats trusting `email.endsWith('@berkeley.edu')`; removes IdP-integration scope from launch |
+| 7   | API-first; documented public surface; per-user API tokens; OpenAPI spec; rate limits                                  | internal-only, internal-now-public-later                                | PI feedback was unambiguous; the cost is real but matched to the directive                                                                                                             |
+| 8   | Keep v2 viz modules; replace v2's data-source with API client; standalone drop-a-zip SPA preserved at `/local`        | Replace v2 entirely; standalone separate origin                         | v2 modules are tested and the data shapes already line up; `/local` preserves ad-hoc workflow                                                                                          |
+| 9   | Heuristic config is semester-scoped; tuning generates a new version; recompute is a background job                    | per-assignment config, global config, in-place mutation                 | Matches user's stated tuning scope; versioning preserves audit history                                                                                                                 |
+| 10  | Re-uploads create a new submission version; old rows kept as `superseded_by_submission_id`                            | overwrite, reject                                                       | Preserves history without complicating queries; default for cohort view excludes superseded                                                                                            |
+| 11  | Cross-submission heuristics run per ingest job at semester scope                                                      | per-pair on demand, scheduled batch                                     | Need fresh results after every ingest; lazy on-demand makes cohort flags unreliable                                                                                                    |
 
 ---
 

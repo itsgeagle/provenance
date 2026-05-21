@@ -54,7 +54,7 @@
 - Student-facing accounts.
 - LMS / Gradescope pull integration.
 - Real-time collaboration / websockets.
-- User-defined heuristics (config is tunable; the heuristic *logic* is code-only).
+- User-defined heuristics (config is tunable; the heuristic _logic_ is code-only).
 - Mobile UI.
 - Multi-institution tenants (the `hd` allowlist is single-entry by config but no UI for multi-tenant data isolation).
 
@@ -64,31 +64,31 @@
 
 ### 2.1 Backend
 
-| Concern | Choice | Why / notes |
-|---|---|---|
-| Runtime | Node ≥ 22 (LTS; matches existing recorder/analyzer requirement) | ESM throughout. `--experimental-strip-types` not used in server build. |
-| Language | TypeScript 5.6+, `strict: true`, `exactOptionalPropertyTypes: true` | Matches CLAUDE.md. |
-| HTTP framework | **Hono** | ESM-first; Zod-OpenAPI plugin (`@hono/zod-openapi`) gives us request/response validation and the OpenAPI spec for free. Fastify alternative noted but rejected: heavier, OpenAPI tooling less polished for our Zod-first style. |
-| Database | **Postgres ≥ 16** | Stable. JSONB + GIN where needed. |
-| ORM / query | **Drizzle** | TS-native schema + migrations + queries with full inference. Migrations live in `packages/server/db/migrations/`. Prisma alternative rejected (runtime overhead, less control over migrations). |
-| Background jobs | **pg-boss** | Postgres-backed queue; no Redis dependency; ESM-friendly; durable. BullMQ alternative rejected (Redis dependency adds an op surface). |
-| Object storage | **S3-compatible** via `@aws-sdk/client-s3` | Default proposed provider: Cloudflare R2 (no egress fees). AWS S3 fully supported; provider is config. |
-| OAuth | **`arctic`** (lightweight OAuth-only library) + **`oslo`** for token/session primitives | No Lucia (deprecated as a library), no Auth.js (heavier, not Hono-native). Direct OAuth gives us tight control over the `hd` gate. |
-| Validation | **Zod** | Already implied by Hono Zod-OpenAPI. |
-| Logging | **pino** (JSON) | Standard for Hono. |
-| Email (invitations) | **`nodemailer`** with SMTP relay | Used only to send membership-invite notifications. Magic-link login is NOT supported (see §4). |
-| Process management | systemd unit on the host VM | No Docker required for v3.0; can be added later. |
+| Concern             | Choice                                                                                  | Why / notes                                                                                                                                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime             | Node ≥ 22 (LTS; matches existing recorder/analyzer requirement)                         | ESM throughout. `--experimental-strip-types` not used in server build.                                                                                                                                                          |
+| Language            | TypeScript 5.6+, `strict: true`, `exactOptionalPropertyTypes: true`                     | Matches CLAUDE.md.                                                                                                                                                                                                              |
+| HTTP framework      | **Hono**                                                                                | ESM-first; Zod-OpenAPI plugin (`@hono/zod-openapi`) gives us request/response validation and the OpenAPI spec for free. Fastify alternative noted but rejected: heavier, OpenAPI tooling less polished for our Zod-first style. |
+| Database            | **Postgres ≥ 16**                                                                       | Stable. JSONB + GIN where needed.                                                                                                                                                                                               |
+| ORM / query         | **Drizzle**                                                                             | TS-native schema + migrations + queries with full inference. Migrations live in `packages/server/db/migrations/`. Prisma alternative rejected (runtime overhead, less control over migrations).                                 |
+| Background jobs     | **pg-boss**                                                                             | Postgres-backed queue; no Redis dependency; ESM-friendly; durable. BullMQ alternative rejected (Redis dependency adds an op surface).                                                                                           |
+| Object storage      | **S3-compatible** via `@aws-sdk/client-s3`                                              | Default proposed provider: Cloudflare R2 (no egress fees). AWS S3 fully supported; provider is config.                                                                                                                          |
+| OAuth               | **`arctic`** (lightweight OAuth-only library) + **`oslo`** for token/session primitives | No Lucia (deprecated as a library), no Auth.js (heavier, not Hono-native). Direct OAuth gives us tight control over the `hd` gate.                                                                                              |
+| Validation          | **Zod**                                                                                 | Already implied by Hono Zod-OpenAPI.                                                                                                                                                                                            |
+| Logging             | **pino** (JSON)                                                                         | Standard for Hono.                                                                                                                                                                                                              |
+| Email (invitations) | **`nodemailer`** with SMTP relay                                                        | Used only to send membership-invite notifications. Magic-link login is NOT supported (see §4).                                                                                                                                  |
+| Process management  | systemd unit on the host VM                                                             | No Docker required for v3.0; can be added later.                                                                                                                                                                                |
 
 ### 2.2 Frontend
 
 Reuses the existing `packages/analyzer` Vite + React 18 + Tailwind 3 + shadcn stack. New runtime additions:
 
-| Library | Purpose |
-|---|---|
+| Library                 | Purpose                                                                  |
+| ----------------------- | ------------------------------------------------------------------------ |
 | `@tanstack/react-query` | Server-state caching for API calls. Replaces ad-hoc `useEffect` fetches. |
-| `@tanstack/react-table` | Cohort-list virtualized table with sorting/filtering primitives. |
-| `react-hook-form` | Forms (roster upload, member invite, heuristic tuning, settings). |
-| `zod` | Shared schemas between server and client. |
+| `@tanstack/react-table` | Cohort-list virtualized table with sorting/filtering primitives.         |
+| `react-hook-form`       | Forms (roster upload, member invite, heuristic tuning, settings).        |
+| `zod`                   | Shared schemas between server and client.                                |
 
 No new shadcn primitives required beyond what v2 already scaffolds.
 
@@ -145,33 +145,33 @@ packages/
 
 All env vars are loaded once at process start via a Zod schema (`packages/server/src/config/env.ts`); missing or malformed values cause an early, loud crash.
 
-| Variable | Type / format | Required | Default | Notes |
-|---|---|---|---|---|
-| `NODE_ENV` | `'development' \| 'production' \| 'test'` | yes | `'development'` | Used for cookie `Secure` flag, log verbosity. |
-| `PORT` | int | no | `3000` | HTTP listen port. |
-| `PUBLIC_BASE_URL` | URL | yes | — | Origin used for OAuth callbacks and CORS allowlist. Example: `https://provenance.cs61a.org`. |
-| `DATABASE_URL` | Postgres URL | yes | — | Pooler-safe URL (e.g. PgBouncer transaction mode). |
-| `DATABASE_POOL_MAX` | int | no | `10` | Per-process connection cap. |
-| `OBJECT_STORAGE_ENDPOINT` | URL | yes | — | S3 endpoint. R2 example: `https://<account>.r2.cloudflarestorage.com`. |
-| `OBJECT_STORAGE_REGION` | string | yes | `auto` | R2 uses `auto`; AWS uses real region. |
-| `OBJECT_STORAGE_BUCKET` | string | yes | — | Single bucket for all bundles + exports. |
-| `OBJECT_STORAGE_ACCESS_KEY_ID` | string | yes | — | |
-| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | string | yes | — | |
-| `GOOGLE_OAUTH_CLIENT_ID` | string | yes | — | From a CS 61A–owned Google Cloud project. |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | string | yes | — | |
-| `AUTH_ALLOWED_HOSTED_DOMAINS` | JSON array of strings | yes | `["berkeley.edu"]` | The `hd` claim allowlist. Must be non-empty. |
-| `AUTH_SUPERADMIN_EMAILS` | JSON array of strings | yes | `[]` | Bootstrap superadmin list; matched against verified email at login. Loaded once at boot; changes require restart. Empty array is allowed only when `NODE_ENV=development`. |
-| `SESSION_COOKIE_NAME` | string | no | `__Host-prov_sess` | Must start with `__Host-` in production. |
-| `SESSION_TTL_DAYS` | int | no | `14` | Session sliding expiry. |
-| `SMTP_URL` | URL | no | `''` (disabled) | If empty, invitations log to stderr instead of sending mail (dev mode). |
-| `SMTP_FROM` | email | no | `noreply@<derived>` | |
-| `RATE_LIMIT_REDIS_URL` | URL | no | `''` (disabled, in-memory only) | Optional; production should set this. v3.0 ships with a Postgres-backed fallback if both Redis and in-memory are unavailable. |
-| `LOG_LEVEL` | `'trace' \| 'debug' \| 'info' \| 'warn' \| 'error'` | no | `'info'` | |
-| `INGEST_MAX_BUNDLE_BYTES` | int (bytes) | no | `52428800` (50 MB) | Single-bundle upload cap. Matches v2 PRD §7.3 performance target. |
-| `INGEST_MAX_BATCH_BYTES` | int (bytes) | no | `5368709120` (5 GB) | Total upload size per ingest job. |
-| `INGEST_MAX_BATCH_FILES` | int | no | `10000` | Hard ceiling on files per job. |
-| `RECOMPUTE_MAX_PARALLEL` | int | no | `4` | Worker concurrency. |
-| `BLOB_DOWNLOAD_URL_TTL_SECONDS` | int | no | `300` | Signed-URL expiry for blob downloads. |
+| Variable                           | Type / format                                       | Required | Default                         | Notes                                                                                                                                                                      |
+| ---------------------------------- | --------------------------------------------------- | -------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                         | `'development' \| 'production' \| 'test'`           | yes      | `'development'`                 | Used for cookie `Secure` flag, log verbosity.                                                                                                                              |
+| `PORT`                             | int                                                 | no       | `3000`                          | HTTP listen port.                                                                                                                                                          |
+| `PUBLIC_BASE_URL`                  | URL                                                 | yes      | —                               | Origin used for OAuth callbacks and CORS allowlist. Example: `https://provenance.cs61a.org`.                                                                               |
+| `DATABASE_URL`                     | Postgres URL                                        | yes      | —                               | Pooler-safe URL (e.g. PgBouncer transaction mode).                                                                                                                         |
+| `DATABASE_POOL_MAX`                | int                                                 | no       | `10`                            | Per-process connection cap.                                                                                                                                                |
+| `OBJECT_STORAGE_ENDPOINT`          | URL                                                 | yes      | —                               | S3 endpoint. R2 example: `https://<account>.r2.cloudflarestorage.com`.                                                                                                     |
+| `OBJECT_STORAGE_REGION`            | string                                              | yes      | `auto`                          | R2 uses `auto`; AWS uses real region.                                                                                                                                      |
+| `OBJECT_STORAGE_BUCKET`            | string                                              | yes      | —                               | Single bucket for all bundles + exports.                                                                                                                                   |
+| `OBJECT_STORAGE_ACCESS_KEY_ID`     | string                                              | yes      | —                               |                                                                                                                                                                            |
+| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | string                                              | yes      | —                               |                                                                                                                                                                            |
+| `GOOGLE_OAUTH_CLIENT_ID`           | string                                              | yes      | —                               | From a CS 61A–owned Google Cloud project.                                                                                                                                  |
+| `GOOGLE_OAUTH_CLIENT_SECRET`       | string                                              | yes      | —                               |                                                                                                                                                                            |
+| `AUTH_ALLOWED_HOSTED_DOMAINS`      | JSON array of strings                               | yes      | `["berkeley.edu"]`              | The `hd` claim allowlist. Must be non-empty.                                                                                                                               |
+| `AUTH_SUPERADMIN_EMAILS`           | JSON array of strings                               | yes      | `[]`                            | Bootstrap superadmin list; matched against verified email at login. Loaded once at boot; changes require restart. Empty array is allowed only when `NODE_ENV=development`. |
+| `SESSION_COOKIE_NAME`              | string                                              | no       | `__Host-prov_sess`              | Must start with `__Host-` in production.                                                                                                                                   |
+| `SESSION_TTL_DAYS`                 | int                                                 | no       | `14`                            | Session sliding expiry.                                                                                                                                                    |
+| `SMTP_URL`                         | URL                                                 | no       | `''` (disabled)                 | If empty, invitations log to stderr instead of sending mail (dev mode).                                                                                                    |
+| `SMTP_FROM`                        | email                                               | no       | `noreply@<derived>`             |                                                                                                                                                                            |
+| `RATE_LIMIT_REDIS_URL`             | URL                                                 | no       | `''` (disabled, in-memory only) | Optional; production should set this. v3.0 ships with a Postgres-backed fallback if both Redis and in-memory are unavailable.                                              |
+| `LOG_LEVEL`                        | `'trace' \| 'debug' \| 'info' \| 'warn' \| 'error'` | no       | `'info'`                        |                                                                                                                                                                            |
+| `INGEST_MAX_BUNDLE_BYTES`          | int (bytes)                                         | no       | `52428800` (50 MB)              | Single-bundle upload cap. Matches v2 PRD §7.3 performance target.                                                                                                          |
+| `INGEST_MAX_BATCH_BYTES`           | int (bytes)                                         | no       | `5368709120` (5 GB)             | Total upload size per ingest job.                                                                                                                                          |
+| `INGEST_MAX_BATCH_FILES`           | int                                                 | no       | `10000`                         | Hard ceiling on files per job.                                                                                                                                             |
+| `RECOMPUTE_MAX_PARALLEL`           | int                                                 | no       | `4`                             | Worker concurrency.                                                                                                                                                        |
+| `BLOB_DOWNLOAD_URL_TTL_SECONDS`    | int                                                 | no       | `300`                           | Signed-URL expiry for blob downloads.                                                                                                                                      |
 
 ### 3.2 Process model
 
@@ -276,10 +276,10 @@ Open invitations can be revoked by deleting the row; once consumed, removal happ
 
 Role enum (used in `memberships.role` and `pending_invitations.role`):
 
-| Value | Meaning |
-|---|---|
-| `admin` | Course-staff admin. Can read everything in the semester, invite/remove other members, edit roster, edit assignments, edit heuristic config, trigger recompute, run exports, delete submissions, view audit log for this semester. |
-| `grader` | Read everything in the semester. Run exports. Cannot edit any config or roster, cannot delete anything. |
+| Value    | Meaning                                                                                                                                                                                                                           |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin`  | Course-staff admin. Can read everything in the semester, invite/remove other members, edit roster, edit assignments, edit heuristic config, trigger recompute, run exports, delete submissions, view audit log for this semester. |
+| `grader` | Read everything in the semester. Run exports. Cannot edit any config or roster, cannot delete anything.                                                                                                                           |
 
 Token scope shape (`api_tokens.scopes`):
 
@@ -309,7 +309,7 @@ function authorize(p, action, target):
   return ALLOW
 ```
 
-A separate `authorizeBlob(p, submission)` check applies on `GET /api/v1/submissions/:id/bundle`: requires `action='read'` *and* (for tokens) `scopes.include_blobs === true`. Reason: bundle download is the most-sensitive operation; default-deny on tokens forces explicit opt-in when issuing a script token.
+A separate `authorizeBlob(p, submission)` check applies on `GET /api/v1/submissions/:id/bundle`: requires `action='read'` _and_ (for tokens) `scopes.include_blobs === true`. Reason: bundle download is the most-sensitive operation; default-deny on tokens forces explicit opt-in when issuing a script token.
 
 ### 4.6 CSRF
 
@@ -711,19 +711,19 @@ All error responses have the same shape:
 
 HTTP status codes used:
 
-| Status | Meaning |
-|---|---|
-| 400 | Validation error or malformed request. |
-| 401 | Not authenticated. |
-| 403 | Authenticated but not authorized. |
-| 404 | Resource not found *or* not visible to the principal (we don't leak existence). |
-| 409 | Conflict (idempotency, version mismatch, optimistic lock). |
-| 413 | Payload too large. |
-| 415 | Unsupported media type. |
-| 422 | Semantic validation failure (request was well-formed but referenced invalid state). |
-| 429 | Rate-limited. |
-| 500 | Internal error; carries a request id but never a stack trace. |
-| 503 | Dependency unavailable (DB, object store, queue). |
+| Status | Meaning                                                                             |
+| ------ | ----------------------------------------------------------------------------------- |
+| 400    | Validation error or malformed request.                                              |
+| 401    | Not authenticated.                                                                  |
+| 403    | Authenticated but not authorized.                                                   |
+| 404    | Resource not found _or_ not visible to the principal (we don't leak existence).     |
+| 409    | Conflict (idempotency, version mismatch, optimistic lock).                          |
+| 413    | Payload too large.                                                                  |
+| 415    | Unsupported media type.                                                             |
+| 422    | Semantic validation failure (request was well-formed but referenced invalid state). |
+| 429    | Rate-limited.                                                                       |
+| 500    | Internal error; carries a request id but never a stack trace.                       |
+| 503    | Dependency unavailable (DB, object store, queue).                                   |
 
 The full error code catalog is §17.
 
@@ -743,15 +743,15 @@ Cursor-based pagination on all list endpoints:
 
 Token-bucket per (principal, route class). Defaults:
 
-| Route class | Bucket size | Refill rate |
-|---|---|---|
-| `auth` (login/callback/logout) | 30 | 30 / 5 min |
-| `read.cohort` (cohort lists) | 600 | 600 / min |
-| `read.detail` (per-submission and event endpoints) | 1200 | 1200 / min |
-| `write.config` (heuristic config, semester settings) | 60 | 60 / min |
-| `write.ingest` (ingest start, unmatched edit) | 30 | 30 / 5 min |
-| `write.misc` | 120 | 120 / min |
-| `blob.download` | 30 | 30 / min |
+| Route class                                          | Bucket size | Refill rate |
+| ---------------------------------------------------- | ----------- | ----------- |
+| `auth` (login/callback/logout)                       | 30          | 30 / 5 min  |
+| `read.cohort` (cohort lists)                         | 600         | 600 / min   |
+| `read.detail` (per-submission and event endpoints)   | 1200        | 1200 / min  |
+| `write.config` (heuristic config, semester settings) | 60          | 60 / min    |
+| `write.ingest` (ingest start, unmatched edit)        | 30          | 30 / 5 min  |
+| `write.misc`                                         | 120         | 120 / min   |
+| `blob.download`                                      | 30          | 30 / min    |
 
 Exceeded → 429 with `Retry-After` and `X-RateLimit-Reset` headers.
 
@@ -764,11 +764,11 @@ Exceeded → 429 with `Retry-After` and `X-RateLimit-Reset` headers.
 ### 7.8 Common scalar types
 
 ```ts
-type UUID = string;                 // canonical lower-hex with dashes
-type ISODate = string;              // RFC 3339, e.g. "2026-09-15T18:42:11.034Z"
-type Severity = 'info'|'low'|'medium'|'high';
-type ValidationStatus = 'pending'|'pass'|'warn'|'fail';
-type Role = 'admin'|'grader';
+type UUID = string; // canonical lower-hex with dashes
+type ISODate = string; // RFC 3339, e.g. "2026-09-15T18:42:11.034Z"
+type Severity = 'info' | 'low' | 'medium' | 'high';
+type ValidationStatus = 'pending' | 'pass' | 'warn' | 'fail';
+type Role = 'admin' | 'grader';
 ```
 
 ---
@@ -780,6 +780,7 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 ### 8.1 Auth
 
 **`POST /api/v1/auth/google/start`**
+
 - Auth: none.
 - Query: `return_to?: string` — defaults to `/`. Must be a same-origin path.
 - Response: 302 to Google authorize URL, sets `__Host-prov_oauth` cookie.
@@ -787,6 +788,7 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 - Rate: `auth`.
 
 **`GET /api/v1/auth/google/callback`**
+
 - Auth: none.
 - Query: `code: string`, `state: string`.
 - Response: 302 to `return_to` from the oauth cookie; sets session cookie.
@@ -794,13 +796,16 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 - Rate: `auth`.
 
 **`POST /api/v1/auth/logout`**
+
 - Auth: session.
 - Response: 204.
 - Rate: `auth`.
 
 **`GET /api/v1/me`**
+
 - Auth: session or token.
 - Response:
+
 ```ts
 {
   user: {
@@ -815,33 +820,41 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
   token?: { id: UUID, label: string, scopes: { read_only: boolean, semester_ids: UUID[] | null, include_blobs: boolean } }
 }
 ```
+
 - Rate: `read.detail`.
 
 ### 8.2 Courses & semesters
 
 **`GET /api/v1/courses`**
+
 - Auth: any authenticated principal. Returns courses the principal can see (superadmin: all; others: courses containing at least one semester they're a member of).
 - Response: `{ courses: { id: UUID, name: string, slug: string, archived: boolean, semesters_count: int }[] }`.
 - Rate: `read.cohort`.
 
-**`POST /api/v1/courses`** *(superadmin only)*
+**`POST /api/v1/courses`** _(superadmin only)_
+
 - Body: `{ name: string, slug: string }`.
 - Response: 201, full course object.
 - Errors: `VALIDATION`, `COURSE_SLUG_TAKEN`.
 - Rate: `write.misc`.
 
 **`GET /api/v1/courses/{courseId}`**
+
 - Response: `{ id, name, slug, archived, created_at }`.
 
-**`PATCH /api/v1/courses/{courseId}`** *(superadmin only)*
+**`PATCH /api/v1/courses/{courseId}`** _(superadmin only)_
+
 - Body: `{ name?: string }`.
 
-**`POST /api/v1/courses/{courseId}/archive`** *(superadmin only)*
+**`POST /api/v1/courses/{courseId}/archive`** _(superadmin only)_
+
 - Response: 204; flips `archived_at`. Existing semesters remain accessible but read-only.
 
 **`GET /api/v1/courses/{courseId}/semesters`**
+
 - Response: `{ semesters: SemesterSummary[] }`.
 - `SemesterSummary`:
+
 ```ts
 {
   id: UUID, course_id: UUID, slug: string, term: 'fa'|'sp'|'su'|'wi', year: int,
@@ -851,24 +864,29 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 }
 ```
 
-**`POST /api/v1/courses/{courseId}/semesters`** *(superadmin only)*
+**`POST /api/v1/courses/{courseId}/semesters`** _(superadmin only)_
+
 - Body: `{ term, year, slug, display_name, filename_convention, blob_retention_days?, derived_retention_days? }`.
 - Errors: `VALIDATION_REGEX` (filename_convention fails to compile), `SEMESTER_SLUG_TAKEN`.
 
 **`GET /api/v1/semesters/{semesterId}`**
+
 - Response: SemesterSummary + `filename_convention: string`, `blob_retention_days: int`, `derived_retention_days: int`.
 
-**`PATCH /api/v1/semesters/{semesterId}`** *(semester admin)*
+**`PATCH /api/v1/semesters/{semesterId}`** _(semester admin)_
+
 - Body: `{ display_name?, filename_convention?, blob_retention_days?, derived_retention_days? }`.
 - Changing `filename_convention` does not retroactively re-match prior ingest_files; admin can re-run match from the unmatched tray.
 
-**`POST /api/v1/semesters/{semesterId}/archive`** *(superadmin only)*
+**`POST /api/v1/semesters/{semesterId}/archive`** _(superadmin only)_
 
 ### 8.3 Members
 
 **`GET /api/v1/semesters/{semesterId}/members`**
+
 - Auth: semester member.
 - Response:
+
 ```ts
 {
   members: { user_id: UUID, email: string, display_name: string, role: Role, granted_at: ISODate, granted_by_email: string }[],
@@ -876,32 +894,38 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 }
 ```
 
-**`POST /api/v1/semesters/{semesterId}/members`** *(semester admin)*
+**`POST /api/v1/semesters/{semesterId}/members`** _(semester admin)_
+
 - Body: `{ email: string, role: Role }`.
 - Behavior: if a user with that verified email already exists, creates the membership directly. Otherwise inserts a `pending_invitations` row and sends an email.
 - Errors: `MEMBER_ALREADY`, `INVITATION_ALREADY_OPEN`, `EMAIL_DOMAIN_NOT_ALLOWED` (warn-level — invitations to non-allowed domains succeed since the user might be added to the allowlist later, but the response carries a `warning` field).
 
-**`PATCH /api/v1/semesters/{semesterId}/members/{userId}`** *(semester admin)*
+**`PATCH /api/v1/semesters/{semesterId}/members/{userId}`** _(semester admin)_
+
 - Body: `{ role: Role }`.
 - Errors: `CANNOT_DEMOTE_SELF`, `LAST_ADMIN_REQUIRED`.
 
-**`DELETE /api/v1/semesters/{semesterId}/members/{userId}`** *(semester admin)*
+**`DELETE /api/v1/semesters/{semesterId}/members/{userId}`** _(semester admin)_
+
 - Errors: `LAST_ADMIN_REQUIRED`.
 
-**`DELETE /api/v1/semesters/{semesterId}/invitations/{invitationId}`** *(semester admin)*
+**`DELETE /api/v1/semesters/{semesterId}/invitations/{invitationId}`** _(semester admin)_
 
 ### 8.4 Roster
 
 **`GET /api/v1/semesters/{semesterId}/roster`**
+
 - Auth: semester member.
 - Query: `cursor?`, `limit?`, `q?` (free text on display_name or email).
 - Response: `{ entries: RosterEntry[], next_cursor: string | null, total_count: int }`.
 - `RosterEntry`: `{ id, sid, display_name, email: string | null, extras: jsonb }`.
 
-**`POST /api/v1/semesters/{semesterId}/roster:upload`** *(semester admin)*
+**`POST /api/v1/semesters/{semesterId}/roster:upload`** _(semester admin)_
+
 - Multipart, single field `file` (CSV).
 - Required columns: `sid`, `display_name`. Optional: `email`. Additional columns stored as `extras` (object with one key per extra column).
-- Response: a *diff preview* without committing:
+- Response: a _diff preview_ without committing:
+
 ```ts
 {
   upload_id: UUID,           // server-cached preview; expires in 30 min
@@ -912,22 +936,27 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
   errors: { row: int, message: string }[]
 }
 ```
+
 - Errors: `ROSTER_CSV_MISSING_REQUIRED_COLUMN`, `ROSTER_CSV_TOO_LARGE`, `ROSTER_CSV_PARSE`.
 
-**`POST /api/v1/semesters/{semesterId}/roster:commit`** *(semester admin)*
+**`POST /api/v1/semesters/{semesterId}/roster:commit`** _(semester admin)_
+
 - Body: `{ upload_id: UUID, accept_deletions: boolean }`.
 - Commits the diff to `roster_entries`. If `accept_deletions=false`, missing rows are kept (additive-only). `accept_deletions=true` deletes rows not present in the CSV; this is the destructive option that must be intentional.
 - Response: 200 with applied counts.
 
-**`PATCH /api/v1/semesters/{semesterId}/roster/{rosterEntryId}`** *(semester admin)*
+**`PATCH /api/v1/semesters/{semesterId}/roster/{rosterEntryId}`** _(semester admin)_
+
 - Body: `{ display_name?, email?, extras? }`. `sid` is immutable.
 
 ### 8.5 Assignments
 
 **`GET /api/v1/semesters/{semesterId}/assignments`**
+
 - Auth: semester member.
 - Response: `{ assignments: AssignmentSummary[] }`.
 - `AssignmentSummary`:
+
 ```ts
 {
   id, semester_id, assignment_id_str, label, sort_order,
@@ -937,12 +966,14 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 }
 ```
 
-**`PATCH /api/v1/semesters/{semesterId}/assignments/{assignmentId}`** *(semester admin)*
+**`PATCH /api/v1/semesters/{semesterId}/assignments/{assignmentId}`** _(semester admin)_
+
 - Body: `{ label?: string, sort_order?: int }`.
 
 ### 8.6 Ingest
 
-**`POST /api/v1/semesters/{semesterId}/ingest`** *(semester admin)*
+**`POST /api/v1/semesters/{semesterId}/ingest`** _(semester admin)_
+
 - Multipart. Either:
   - `files[]` — multiple `.zip` bundles, OR
   - `archive` — a single `.zip` containing many bundles.
@@ -952,11 +983,14 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 - Rate: `write.ingest`.
 
 **`GET /api/v1/semesters/{semesterId}/ingest/jobs`**
+
 - Query: `status?`, `cursor?`, `limit?`.
 - Response: paginated `IngestJobSummary[]`.
 
 **`GET /api/v1/semesters/{semesterId}/ingest/jobs/{jobId}`**
+
 - Response:
+
 ```ts
 {
   id, semester_id, status: 'queued'|'running'|'succeeded'|'partial'|'failed'|'cancelled',
@@ -969,8 +1003,10 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 ```
 
 **`GET /api/v1/semesters/{semesterId}/ingest/jobs/{jobId}/files`**
+
 - Paginated `IngestFileSummary[]`.
 - `IngestFileSummary`:
+
 ```ts
 {
   id, original_filename, size_bytes, blob_sha256, status,
@@ -982,29 +1018,35 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 }
 ```
 
-**`POST /api/v1/semesters/{semesterId}/ingest/jobs/{jobId}/cancel`** *(semester admin)*
+**`POST /api/v1/semesters/{semesterId}/ingest/jobs/{jobId}/cancel`** _(semester admin)_
+
 - Cancels remaining work; files already processed are kept. 202.
 
 ### 8.7 Unmatched tray
 
 **`GET /api/v1/semesters/{semesterId}/unmatched`**
+
 - Auth: semester member.
 - Query: `cursor?`, `limit?`.
 - Response: `{ items: IngestFileSummary[], next_cursor }`.
 
-**`PATCH /api/v1/semesters/{semesterId}/unmatched/{ingestFileId}`** *(semester admin)*
+**`PATCH /api/v1/semesters/{semesterId}/unmatched/{ingestFileId}`** _(semester admin)_
+
 - Body: `{ student_id: UUID, assignment_id_str: string }`.
 - Server creates the submission as if the original ingest match had succeeded (validation + heuristics + scoring). Returns 200 with the new `IngestFileSummary`.
 - Errors: `INGEST_FILE_NOT_UNMATCHED`, `ROSTER_ENTRY_NOT_FOUND`, `ASSIGNMENT_ID_MISMATCH_BUNDLE` (warn — bundle's signed manifest disagrees; UI must confirm).
 
-**`POST /api/v1/semesters/{semesterId}/unmatched/{ingestFileId}/discard`** *(semester admin)*
+**`POST /api/v1/semesters/{semesterId}/unmatched/{ingestFileId}/discard`** _(semester admin)_
+
 - Body: `{ reason?: string }`. Marks `status='discarded'`; blob remains until retention sweep.
 
 ### 8.8 Cohort
 
-**`GET /api/v1/semesters/{semesterId}/submissions`** — *the workhorse*
+**`GET /api/v1/semesters/{semesterId}/submissions`** — _the workhorse_
+
 - Auth: semester member.
 - Query:
+
 ```
 assignment_id?: UUID
 student_id?: UUID
@@ -1022,7 +1064,9 @@ sort?: 'score_desc'|'score_asc'|'ingested_desc'|'student_asc'|'student_desc'|'as
 cursor?: string
 limit?: int                        // default 50, max 500
 ```
+
 - Response:
+
 ```ts
 {
   items: SubmissionRow[],
@@ -1035,7 +1079,9 @@ limit?: int                        // default 50, max 500
   }
 }
 ```
+
 - `SubmissionRow`:
+
 ```ts
 {
   id: UUID,
@@ -1053,12 +1099,15 @@ limit?: int                        // default 50, max 500
   recompute_status: 'fresh'|'stale'|'recomputing'|'error'
 }
 ```
+
 - Rate: `read.cohort`.
 
 **`GET /api/v1/semesters/{semesterId}/students`**
+
 - Auth: semester member.
 - Query: same filter set where it makes sense + `sort ∈ {'score_sum_desc','score_max_desc','student_asc'}`.
 - Response: items shaped as:
+
 ```ts
 {
   student: { id, sid, display_name, email? },
@@ -1073,8 +1122,10 @@ limit?: int                        // default 50, max 500
 ### 8.9 Per-submission
 
 **`GET /api/v1/submissions/{submissionId}`**
+
 - Auth: read on submission's semester.
 - Response:
+
 ```ts
 {
   id, semester_id, assignment, student,
@@ -1092,9 +1143,11 @@ limit?: int                        // default 50, max 500
 }
 ```
 
-**`GET /api/v1/submissions/{submissionId}/events`** — *the process-log query endpoint*
+**`GET /api/v1/submissions/{submissionId}/events`** — _the process-log query endpoint_
+
 - Auth: read.
 - Query:
+
 ```
 kind?: string                   // repeated key for multi
 seq_from?: int
@@ -1109,8 +1162,10 @@ order?: 'seq_asc'|'seq_desc'    // default seq_asc
 cursor?: string
 limit?: int                     // default 200, max 2000
 ```
+
 - Response: `{ items: EventRow[], next_cursor: string | null, total_count?: int }`.
 - `EventRow`:
+
 ```ts
 {
   submission_id: UUID,
@@ -1124,17 +1179,21 @@ limit?: int                     // default 200, max 2000
   hash: string
 }
 ```
+
 - `total_count` is included only if the query has at least one of `kind` / `file` / `session_id` (cheap with indexes). Otherwise the response omits it.
 - Errors: `EVENT_QUERY_LIMIT_EXCEEDED` (limit > 2000), `EVENT_QUERY_RANGE_INVALID`.
 - Rate: `read.detail`.
 
 **`GET /api/v1/submissions/{submissionId}/events/{seq}`**
+
 - Auth: read.
 - Response: a single `EventRow` or 404.
 
 **`GET /api/v1/submissions/{submissionId}/flags`**
+
 - Response: `{ flags: FlagRow[] }`.
 - `FlagRow`:
+
 ```ts
 {
   id, heuristic_id, severity, confidence, weight_at_compute, score_contribution,
@@ -1143,7 +1202,9 @@ limit?: int                     // default 200, max 2000
 ```
 
 **`GET /api/v1/submissions/{submissionId}/stats`**
+
 - Response:
+
 ```ts
 {
   per_file: { path, chars_typed, chars_pasted, chars_external_change_delta, saves, final_length, start_length, reconstruction_tainted }[],
@@ -1152,20 +1213,25 @@ limit?: int                     // default 200, max 2000
 ```
 
 **`GET /api/v1/submissions/{submissionId}/validation`**
+
 - Response: the validation_results row (PRD §5.4 — the 8 checks each as `pass|fail|warn|skipped`) plus the structured detail object.
 
 **`GET /api/v1/submissions/{submissionId}/files`**
+
 - Response: `{ files: { path, final_length, saves }[] }`.
 
 **`GET /api/v1/submissions/{submissionId}/files/{path}/content`**
+
 - Query: `at_seq?: int` (default = the last save's seq for that file; `0` means starting content).
 - Response: `{ submission_id, path, at_seq, content: string, computed_at_ms: int }`.
 - Caching: `Cache-Control: max-age=60, private`. The cache key includes `at_seq`.
 - Errors: `FILE_NOT_FOUND`, `FILE_RECONSTRUCTION_TAINTED` (returns 200 with `content: ""` and a `warning` field; clients can choose to show a placeholder).
 
 **`GET /api/v1/submissions/{submissionId}/files/{path}/provenance`**
+
 - Query: `at_seq?`.
 - Response:
+
 ```ts
 {
   submission_id, path, at_seq,
@@ -1176,30 +1242,36 @@ limit?: int                     // default 200, max 2000
 ```
 
 **`GET /api/v1/submissions/{submissionId}/bundle`**
+
 - Auth: read + (for tokens) `scopes.include_blobs=true`.
 - Response: 302 to a short-lived signed object-storage URL. Logged in audit (`bundle.download`).
 - Rate: `blob.download`.
 
 **`POST /api/v1/submissions/{submissionId}/export`**
+
 - Auth: read.
 - Body: `{ format: 'markdown' | 'pdf' }`.
 - Response (synchronous for markdown, async for pdf if estimated render > 5s):
+
 ```ts
 // sync:
 { artifact_id: UUID, format, expires_at: ISODate, download_url: string }
 // async:
 { job_id: UUID, status: 'queued' }
 ```
+
 - Errors: `EXPORT_FORMAT_UNSUPPORTED`, `EXPORT_RENDER_FAILED`.
 - Rate: `write.misc`.
 
 ### 8.10 Cross-submission
 
 **`GET /api/v1/semesters/{semesterId}/cross-flags`**
+
 - Auth: semester member.
 - Query: `heuristic_id?`, `severity_min?`, `submission_id?` (filter to flags involving a specific submission), `cursor?`, `limit?`.
 - Response: `{ items: CrossFlagSummary[], next_cursor }`.
 - `CrossFlagSummary`:
+
 ```ts
 {
   id, heuristic_id, severity, confidence,
@@ -1214,15 +1286,18 @@ limit?: int                     // default 200, max 2000
 ### 8.11 Heuristic config & recompute
 
 **`GET /api/v1/semesters/{semesterId}/heuristic-config`**
+
 - Auth: semester member.
 - Response: the active `heuristic_configs` row with `version` and `config` (see §10.2).
 
 **`GET /api/v1/semesters/{semesterId}/heuristic-configs`** — version history.
 
-**`PUT /api/v1/semesters/{semesterId}/heuristic-config`** *(semester admin)*
+**`PUT /api/v1/semesters/{semesterId}/heuristic-config`** _(semester admin)_
+
 - Query: `dryRun?: boolean` (default false).
 - Body: the full config object (full-document update; deltas computed server-side).
 - Response (dryRun):
+
 ```ts
 {
   candidate_version: int,
@@ -1234,27 +1309,34 @@ limit?: int                     // default 200, max 2000
   }
 }
 ```
+
 - Response (commit, dryRun=false):
+
 ```ts
 {
   new_config: { id, version, set_at, ... },
   recompute_job: { id, status: 'queued' }
 }
 ```
+
 - Errors: `HEURISTIC_CONFIG_INVALID`, `CONFIG_VERSION_CONFLICT` (if header `If-Match: <currentVersion>` doesn't match — used to prevent concurrent admin edits).
 
-**`POST /api/v1/semesters/{semesterId}/recompute`** *(semester admin)*
-- Body: `{ note?: string }`. Triggers a recompute against the *current* active config (no config change).
+**`POST /api/v1/semesters/{semesterId}/recompute`** _(semester admin)_
+
+- Body: `{ note?: string }`. Triggers a recompute against the _current_ active config (no config change).
 
 **`GET /api/v1/semesters/{semesterId}/recompute/{jobId}`**
+
 - Response: full job row.
 
 ### 8.12 User tokens
 
 **`GET /api/v1/me/tokens`**
+
 - Response: `{ tokens: { id, label, prefix, scopes, last_used_at, expires_at?, revoked_at?, created_at }[] }`.
 
 **`POST /api/v1/me/tokens`**
+
 - Body: `{ label: string, scopes?: TokenScopes, expires_at?: ISODate }`.
 - Response: `{ token: TokenSummary, secret: string }` — `secret` is the full token shown once.
 
@@ -1263,6 +1345,7 @@ limit?: int                     // default 200, max 2000
 ### 8.13 Audit
 
 **`GET /api/v1/audit`**
+
 - Auth: semester admin (sees their semester) or superadmin (sees all).
 - Query: `semester_id?`, `actor_user_id?`, `action?`, `since?`, `until?`, `cursor?`, `limit?`.
 - Response: `{ items: AuditLogRow[], next_cursor }`.
@@ -1312,9 +1395,9 @@ Default convention shipped by the superadmin tooling (suggested): `^(?<assignmen
 Implemented in `packages/server/src/services/ingest/`. Each phase is a pure function with explicit inputs and outputs; the worker glues them and persists between phases.
 
 1. **`stageBlob(file)`** — Stream the upload to `ingest-staging/{job}/{file}`. Compute `sha256` incrementally. Resulting `blob_sha256` recorded on `ingest_files`.
-2. **`dedup(semesterId, sha256)`** — Lookup existing `submissions` row with the same `(semester_id, blob_sha256)`. If found: status=`duplicate`, link `submission_id`, *skip remaining phases*.
+2. **`dedup(semesterId, sha256)`** — Lookup existing `submissions` row with the same `(semester_id, blob_sha256)`. If found: status=`duplicate`, link `submission_id`, _skip remaining phases_.
 3. **`parseBundle(blob)`** — Read manifest + sessions via `packages/log-core`. Verify session signatures. Walk events. Failure → status=`failed`, `error` populated.
-4. **`matchStudent(filename_convention, original_filename, manifest)`** — Apply regex. If `sid` resolves to a roster entry, capture matched student. Determine assignment from `assignment_id` group or fall back to manifest `assignment.id`. If `sid` group present but unknown to roster, or if regex fails: status=`unmatched`; *skip remaining phases*.
+4. **`matchStudent(filename_convention, original_filename, manifest)`** — Apply regex. If `sid` resolves to a roster entry, capture matched student. Determine assignment from `assignment_id` group or fall back to manifest `assignment.id`. If `sid` group present but unknown to roster, or if regex fails: status=`unmatched`; _skip remaining phases_.
 5. **`createSubmission(semesterId, assignmentId, studentId, blob)`** — Move blob from staging to `semesters/.../submissions/.../bundle.zip`. Allocate `version_index`. Existing matching submissions (older `version_index`) get `superseded_by_submission_id` updated to this new row.
 6. **`materializeEvents(submissionId, parsedSessions)`** — Insert event rows in bulk (`COPY` or chunked multi-row insert; 1000 events per chunk).
 7. **`computeStats(submissionId)`** — Compute and insert `per_file_stats`.
@@ -1399,7 +1482,7 @@ score_contribution = severity_weights[flag.severity]
                    * config.per_flag[flag.heuristic_id].weight
 ```
 
-Disabled heuristics contribute zero. Cross-submission flags contribute to *every* participant's submission with the same formula. `score_max_severity` is the highest severity among enabled-and-fired flags (no contribution if all disabled). `submissions.score_total` is the sum.
+Disabled heuristics contribute zero. Cross-submission flags contribute to _every_ participant's submission with the same formula. `score_max_severity` is the highest severity among enabled-and-fired flags (no contribution if all disabled). `submissions.score_total` is the sum.
 
 ### 10.4 Recompute lifecycle
 
@@ -1465,20 +1548,20 @@ The reconstructor is unchanged from v2. The only adapter work is the data source
 
 ### 12.1 Job table
 
-pg-boss owns its own queue tables (e.g. `pgboss.job`); we do NOT mirror status into our domain tables. Our `ingest_jobs` and `recompute_jobs` track *domain-level* job state (totals, per-file outcomes); the queue is for delivery.
+pg-boss owns its own queue tables (e.g. `pgboss.job`); we do NOT mirror status into our domain tables. Our `ingest_jobs` and `recompute_jobs` track _domain-level_ job state (totals, per-file outcomes); the queue is for delivery.
 
 ### 12.2 Job kinds
 
-| Kind | Trigger | Worker action | Singleton key |
-|---|---|---|---|
-| `ingest_file` | per ingest_files row | runs §9.3 phases | none |
-| `ingest_finalize` | last `ingest_file` of a job completes | aggregate ingest_files into ingest_jobs.summary; set terminal status | `${ingest_job_id}` |
-| `recompute_submission` | recompute job enumeration | runs §10.4 step 4 for one submission | none |
-| `recompute_finalize` | last `recompute_submission` of a job completes | sets terminal status; enqueues `recompute_cross_flags` | `${recompute_job_id}` |
-| `recompute_cross_flags` | end of ingest job OR end of recompute job | per §9.5 / §10.4 | `${semester_id}` |
-| `purge_expired_exports` | daily cron | delete `export_artifacts` rows + blobs where `expires_at < now()` | `daily-expires` |
-| `purge_expired_sessions` | hourly cron | delete `sessions` rows where `expires_at < now()` | `hourly-sessions` |
-| `retention_sweep` | daily cron | for each semester, delete blobs of submissions older than `blob_retention_days`; nothing deleted from DB | `daily-retention` |
+| Kind                     | Trigger                                        | Worker action                                                                                            | Singleton key         |
+| ------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------- |
+| `ingest_file`            | per ingest_files row                           | runs §9.3 phases                                                                                         | none                  |
+| `ingest_finalize`        | last `ingest_file` of a job completes          | aggregate ingest_files into ingest_jobs.summary; set terminal status                                     | `${ingest_job_id}`    |
+| `recompute_submission`   | recompute job enumeration                      | runs §10.4 step 4 for one submission                                                                     | none                  |
+| `recompute_finalize`     | last `recompute_submission` of a job completes | sets terminal status; enqueues `recompute_cross_flags`                                                   | `${recompute_job_id}` |
+| `recompute_cross_flags`  | end of ingest job OR end of recompute job      | per §9.5 / §10.4                                                                                         | `${semester_id}`      |
+| `purge_expired_exports`  | daily cron                                     | delete `export_artifacts` rows + blobs where `expires_at < now()`                                        | `daily-expires`       |
+| `purge_expired_sessions` | hourly cron                                    | delete `sessions` rows where `expires_at < now()`                                                        | `hourly-sessions`     |
+| `retention_sweep`        | daily cron                                     | for each semester, delete blobs of submissions older than `blob_retention_days`; nothing deleted from DB | `daily-retention`     |
 
 ### 12.3 Retry policy
 
@@ -1502,25 +1585,25 @@ All write actions and all blob downloads. Reads of individual submissions are lo
 
 ### 13.2 Action catalog
 
-| `action` | `target_type` | When |
-|---|---|---|
-| `user.login` | `user` | OAuth callback success |
-| `user.logout` | `user` | logout endpoint |
-| `user.token.create` | `api_token` | token created |
-| `user.token.revoke` | `api_token` | token revoked |
-| `course.create`, `course.update`, `course.archive` | `course` | superadmin actions |
-| `semester.create`, `semester.update`, `semester.archive` | `semester` | superadmin / admin |
-| `member.invite`, `member.update`, `member.remove` | `semester` (with detail) | admin actions |
-| `roster.upload`, `roster.commit`, `roster.update_entry` | `semester` | admin |
-| `assignment.update` | `assignment` | admin |
-| `ingest.start`, `ingest.cancel` | `ingest_job` | admin |
-| `ingest.unmatched.attach`, `ingest.unmatched.discard` | `ingest_file` | admin |
-| `heuristic_config.commit` | `semester` | admin |
-| `recompute.trigger` | `semester` | admin |
-| `submission.view` | `submission` | any read of the detail endpoint |
-| `submission.bundle.download` | `submission` | bundle endpoint |
-| `submission.export.create` | `submission` | export endpoint |
-| `submission.delete` | `submission` | manual deletion (admin) |
+| `action`                                                 | `target_type`            | When                            |
+| -------------------------------------------------------- | ------------------------ | ------------------------------- |
+| `user.login`                                             | `user`                   | OAuth callback success          |
+| `user.logout`                                            | `user`                   | logout endpoint                 |
+| `user.token.create`                                      | `api_token`              | token created                   |
+| `user.token.revoke`                                      | `api_token`              | token revoked                   |
+| `course.create`, `course.update`, `course.archive`       | `course`                 | superadmin actions              |
+| `semester.create`, `semester.update`, `semester.archive` | `semester`               | superadmin / admin              |
+| `member.invite`, `member.update`, `member.remove`        | `semester` (with detail) | admin actions                   |
+| `roster.upload`, `roster.commit`, `roster.update_entry`  | `semester`               | admin                           |
+| `assignment.update`                                      | `assignment`             | admin                           |
+| `ingest.start`, `ingest.cancel`                          | `ingest_job`             | admin                           |
+| `ingest.unmatched.attach`, `ingest.unmatched.discard`    | `ingest_file`            | admin                           |
+| `heuristic_config.commit`                                | `semester`               | admin                           |
+| `recompute.trigger`                                      | `semester`               | admin                           |
+| `submission.view`                                        | `submission`             | any read of the detail endpoint |
+| `submission.bundle.download`                             | `submission`             | bundle endpoint                 |
+| `submission.export.create`                               | `submission`             | export endpoint                 |
+| `submission.delete`                                      | `submission`             | manual deletion (admin)         |
 
 ### 13.3 Retention
 
@@ -1568,6 +1651,7 @@ React Router v6, declarative routes.
 - React Query for all API calls. Query keys derive from the URL path + relevant filters.
 - A single typed API client in `packages/analyzer/src/api/client.ts` generated from the shared Zod schemas (in `packages/shared`). No hand-written fetch calls.
 - The per-submission viz modules consume a `SubmissionDataProvider` interface:
+
 ```ts
 interface SubmissionDataProvider {
   getSummary(): Promise<SubmissionSummary>;
@@ -1576,9 +1660,13 @@ interface SubmissionDataProvider {
   getStats(): Promise<StatsResult>;
   getValidation(): Promise<ValidationReport>;
   getFiles(): Promise<FileSummary[]>;
-  getFileContent(path: string, atSeq?: number): Promise<{ content: string; provenance: ProvenanceRun[] }>;
+  getFileContent(
+    path: string,
+    atSeq?: number,
+  ): Promise<{ content: string; provenance: ProvenanceRun[] }>;
 }
 ```
+
 Two implementations: `ApiSubmissionDataProvider` (cohort app) and `InMemorySubmissionDataProvider` (standalone SPA).
 
 ### 14.3 Auth gating
@@ -1608,17 +1696,17 @@ A `<RequireAuth>` wrapper at the route level redirects to `/login` on 401 from `
 
 ### 16.1 Performance budgets
 
-| Operation | Budget | Notes |
-|---|---|---|
-| Cohort list (500 rows, no filters) | p95 < 300ms server-side | Cold cache. |
-| Cohort list with score-range + 1 filter (5000 rows total, 500 returned) | p95 < 500ms | |
-| Per-submission summary | p95 < 150ms | Single-row reads + counts. |
-| Events query (single submission, 10k events filtered to ~1k) | p95 < 400ms | |
-| File reconstruction cold (one file, average bundle) | p95 < 800ms | Subsequent reads on the same `(submission,file,at_seq)` < 20ms. |
-| Heuristic dry-run (1k submissions) | p95 < 800ms | |
-| Full-semester recompute (1k submissions, 1 worker) | p95 < 5 min | Scales linearly with workers. |
-| Ingest one bundle (5 MB, ~10k events) | p95 < 8s | |
-| Login round-trip (Google included) | p95 < 4s | |
+| Operation                                                               | Budget                  | Notes                                                           |
+| ----------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------- |
+| Cohort list (500 rows, no filters)                                      | p95 < 300ms server-side | Cold cache.                                                     |
+| Cohort list with score-range + 1 filter (5000 rows total, 500 returned) | p95 < 500ms             |                                                                 |
+| Per-submission summary                                                  | p95 < 150ms             | Single-row reads + counts.                                      |
+| Events query (single submission, 10k events filtered to ~1k)            | p95 < 400ms             |                                                                 |
+| File reconstruction cold (one file, average bundle)                     | p95 < 800ms             | Subsequent reads on the same `(submission,file,at_seq)` < 20ms. |
+| Heuristic dry-run (1k submissions)                                      | p95 < 800ms             |                                                                 |
+| Full-semester recompute (1k submissions, 1 worker)                      | p95 < 5 min             | Scales linearly with workers.                                   |
+| Ingest one bundle (5 MB, ~10k events)                                   | p95 < 8s                |                                                                 |
+| Login round-trip (Google included)                                      | p95 < 4s                |                                                                 |
 
 ### 16.2 Scale targets
 
@@ -1655,50 +1743,50 @@ A `<RequireAuth>` wrapper at the route level redirects to `/login` on 401 from `
 
 Codes are UPPER_SNAKE_CASE strings. The same code may appear at different HTTP statuses; consumers should match on code, not status.
 
-| Code | Status | Where |
-|---|---|---|
-| `VALIDATION` | 400 | request schema invalid; `details.issues` carries Zod issues |
-| `BAD_REQUEST_RETURN_TO_INVALID` | 400 | auth start |
-| `AUTH_REQUIRED` | 401 | no session/token on a protected route |
-| `AUTH_OAUTH_STATE_MISMATCH` | 400 | OAuth callback |
-| `AUTH_OAUTH_CODE_EXCHANGE_FAILED` | 502 | Google token endpoint |
-| `AUTH_DOMAIN_NOT_ALLOWED` | 403 | OAuth callback `hd` mismatch |
-| `AUTH_EMAIL_NOT_VERIFIED` | 403 | OAuth callback |
-| `TOKEN_READ_ONLY` | 403 | token write attempt |
-| `TOKEN_SCOPE_OUT_OF_BAND` | 403 | token semester scope mismatch |
-| `TOKEN_BLOB_NOT_PERMITTED` | 403 | token blob download without `include_blobs` |
-| `NOT_A_MEMBER` | 403 | non-member access |
-| `INSUFFICIENT_ROLE` | 403 | grader attempting admin action |
-| `NOT_FOUND` | 404 | resource not found (or not visible) |
-| `COURSE_SLUG_TAKEN` | 409 | |
-| `SEMESTER_SLUG_TAKEN` | 409 | |
-| `VALIDATION_REGEX` | 400 | filename_convention parse |
-| `MEMBER_ALREADY` | 409 | |
-| `INVITATION_ALREADY_OPEN` | 409 | |
-| `EMAIL_DOMAIN_NOT_ALLOWED` | 200 (warn) | invitation to non-allowlisted domain |
-| `CANNOT_DEMOTE_SELF` | 409 | |
-| `LAST_ADMIN_REQUIRED` | 409 | removing the only admin |
-| `ROSTER_CSV_MISSING_REQUIRED_COLUMN` | 400 | |
-| `ROSTER_CSV_TOO_LARGE` | 413 | |
-| `ROSTER_CSV_PARSE` | 400 | |
-| `ROSTER_REQUIRED` | 422 | ingest without roster |
-| `INGEST_BATCH_TOO_LARGE` | 413 | |
-| `INGEST_FILE_TOO_LARGE` | 413 | |
-| `INGEST_TOO_MANY_FILES` | 400 | |
-| `INGEST_FILE_NOT_UNMATCHED` | 409 | unmatched-tray edit on a different status |
-| `ASSIGNMENT_ID_MISMATCH_BUNDLE` | 200 (warn) | unmatched-tray attach disagreement |
-| `EVENT_QUERY_LIMIT_EXCEEDED` | 400 | |
-| `EVENT_QUERY_RANGE_INVALID` | 400 | |
-| `FILE_NOT_FOUND` | 404 | per-submission file |
-| `FILE_RECONSTRUCTION_TAINTED` | 200 (warn) | reconstruction can't proceed |
-| `EXPORT_FORMAT_UNSUPPORTED` | 400 | |
-| `EXPORT_RENDER_FAILED` | 500 | |
-| `HEURISTIC_CONFIG_INVALID` | 422 | unknown id, weight out of range, etc. |
-| `CONFIG_VERSION_CONFLICT` | 409 | If-Match version mismatch |
-| `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD` | 409 | |
-| `RATE_LIMITED` | 429 | with `Retry-After` |
-| `INTERNAL` | 500 | catch-all; `details` empty in production |
-| `DEPENDENCY_UNAVAILABLE` | 503 | DB / object store / queue down |
+| Code                                            | Status     | Where                                                       |
+| ----------------------------------------------- | ---------- | ----------------------------------------------------------- |
+| `VALIDATION`                                    | 400        | request schema invalid; `details.issues` carries Zod issues |
+| `BAD_REQUEST_RETURN_TO_INVALID`                 | 400        | auth start                                                  |
+| `AUTH_REQUIRED`                                 | 401        | no session/token on a protected route                       |
+| `AUTH_OAUTH_STATE_MISMATCH`                     | 400        | OAuth callback                                              |
+| `AUTH_OAUTH_CODE_EXCHANGE_FAILED`               | 502        | Google token endpoint                                       |
+| `AUTH_DOMAIN_NOT_ALLOWED`                       | 403        | OAuth callback `hd` mismatch                                |
+| `AUTH_EMAIL_NOT_VERIFIED`                       | 403        | OAuth callback                                              |
+| `TOKEN_READ_ONLY`                               | 403        | token write attempt                                         |
+| `TOKEN_SCOPE_OUT_OF_BAND`                       | 403        | token semester scope mismatch                               |
+| `TOKEN_BLOB_NOT_PERMITTED`                      | 403        | token blob download without `include_blobs`                 |
+| `NOT_A_MEMBER`                                  | 403        | non-member access                                           |
+| `INSUFFICIENT_ROLE`                             | 403        | grader attempting admin action                              |
+| `NOT_FOUND`                                     | 404        | resource not found (or not visible)                         |
+| `COURSE_SLUG_TAKEN`                             | 409        |                                                             |
+| `SEMESTER_SLUG_TAKEN`                           | 409        |                                                             |
+| `VALIDATION_REGEX`                              | 400        | filename_convention parse                                   |
+| `MEMBER_ALREADY`                                | 409        |                                                             |
+| `INVITATION_ALREADY_OPEN`                       | 409        |                                                             |
+| `EMAIL_DOMAIN_NOT_ALLOWED`                      | 200 (warn) | invitation to non-allowlisted domain                        |
+| `CANNOT_DEMOTE_SELF`                            | 409        |                                                             |
+| `LAST_ADMIN_REQUIRED`                           | 409        | removing the only admin                                     |
+| `ROSTER_CSV_MISSING_REQUIRED_COLUMN`            | 400        |                                                             |
+| `ROSTER_CSV_TOO_LARGE`                          | 413        |                                                             |
+| `ROSTER_CSV_PARSE`                              | 400        |                                                             |
+| `ROSTER_REQUIRED`                               | 422        | ingest without roster                                       |
+| `INGEST_BATCH_TOO_LARGE`                        | 413        |                                                             |
+| `INGEST_FILE_TOO_LARGE`                         | 413        |                                                             |
+| `INGEST_TOO_MANY_FILES`                         | 400        |                                                             |
+| `INGEST_FILE_NOT_UNMATCHED`                     | 409        | unmatched-tray edit on a different status                   |
+| `ASSIGNMENT_ID_MISMATCH_BUNDLE`                 | 200 (warn) | unmatched-tray attach disagreement                          |
+| `EVENT_QUERY_LIMIT_EXCEEDED`                    | 400        |                                                             |
+| `EVENT_QUERY_RANGE_INVALID`                     | 400        |                                                             |
+| `FILE_NOT_FOUND`                                | 404        | per-submission file                                         |
+| `FILE_RECONSTRUCTION_TAINTED`                   | 200 (warn) | reconstruction can't proceed                                |
+| `EXPORT_FORMAT_UNSUPPORTED`                     | 400        |                                                             |
+| `EXPORT_RENDER_FAILED`                          | 500        |                                                             |
+| `HEURISTIC_CONFIG_INVALID`                      | 422        | unknown id, weight out of range, etc.                       |
+| `CONFIG_VERSION_CONFLICT`                       | 409        | If-Match version mismatch                                   |
+| `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD` | 409        |                                                             |
+| `RATE_LIMITED`                                  | 429        | with `Retry-After`                                          |
+| `INTERNAL`                                      | 500        | catch-all; `details` empty in production                    |
+| `DEPENDENCY_UNAVAILABLE`                        | 503        | DB / object store / queue down                              |
 
 All warn-level codes (HTTP 200) carry a `warning` field in the response body in addition to the normal payload.
 
@@ -1741,7 +1829,7 @@ These need answers before or during implementation:
 - **OQ-L.** Cross-flag scaling: `editing_pattern_clone` is O(N²) per assignment; v2 has early-termination but is unmeasured at scale. Confirm during ingest-pipeline implementation; if it blows the budget, add an LSH bucketing pass.
 - **OQ-M.** PDF rendering on the server: `jspdf` + `html2canvas` is browser-native. Implementation can either (a) move to Puppeteer rendering of an HTML report, or (b) keep `jspdf` plus a Node-canvas polyfill. Decision deferred to the implementation plan; both produce identical content.
 - **OQ-N.** Roster size limits: this PRD has none. Should there be a per-row count cap or per-CSV byte cap?
-- **OQ-O.** Subdomain emails in the `hd` check: Berkeley uses `berkeley.edu` for the Workspace `hd` value, but some accounts have `@<sub>.berkeley.edu` *email* with `hd: 'berkeley.edu'`. This PRD relies only on `hd`, not on email suffix, so subdomain emails are accepted as long as `hd` matches. Confirm.
+- **OQ-O.** Subdomain emails in the `hd` check: Berkeley uses `berkeley.edu` for the Workspace `hd` value, but some accounts have `@<sub>.berkeley.edu` _email_ with `hd: 'berkeley.edu'`. This PRD relies only on `hd`, not on email suffix, so subdomain emails are accepted as long as `hd` matches. Confirm.
 
 ---
 
@@ -1813,24 +1901,24 @@ This is the partitioning revisit noted in the design doc §6.2.
 
 ## Appendix C — Reused v2 modules and their adapters
 
-| v2 module | Reuse | Adapter needed |
-|---|---|---|
-| `analyzer/src/index/parse-bundle.ts` + `parse-session.ts` | Yes — server ingest | No adapter; pure functions over Uint8Array. |
-| `analyzer/src/index/build-index.ts` | Partial | Server reads events from DB and re-builds `EventIndex` for heuristics. Same shape. |
-| `analyzer/src/index/reconstruct-file.ts` | Partial | Replaced in API by `reconstruct-file-provenance.ts` (the v2 default for replay). |
-| `analyzer/src/index/reconstruct-file-provenance.ts` | Yes | Wrapper at `server/src/services/reconstruction.ts` adds caching. |
-| `analyzer/src/index/stats.ts` | Yes | Wrapped during ingest. |
-| `analyzer/src/heuristics/*.ts` | Yes (all) | Wrapper threads per-semester config. |
-| `analyzer/src/heuristics/run-heuristics.ts` | Yes | Wrapped. |
-| `analyzer/src/heuristics/cross/*` | Yes | Wrapped as a semester-scoped job. |
-| `analyzer/src/validation/*` | Yes | Wrapped at ingest. |
-| `analyzer/src/export/findings-markdown.ts` | Yes | Wrapped at server. |
-| `analyzer/src/export/findings-pdf.ts` | Yes (with OQ-M decision) | TBD. |
-| `analyzer/src/views/overview/*` | Yes | Data fetched via `SubmissionDataProvider`. |
-| `analyzer/src/views/replay/*` | Yes | Same. |
-| `analyzer/src/views/timeline/*` | Yes | Same. |
-| `analyzer/src/views/compare/*` | Yes | Repurposed for cross-flag side-by-side. |
-| `analyzer/src/views/load/*` | Yes — only on `/local` route. | None. |
+| v2 module                                                 | Reuse                         | Adapter needed                                                                     |
+| --------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------- |
+| `analyzer/src/index/parse-bundle.ts` + `parse-session.ts` | Yes — server ingest           | No adapter; pure functions over Uint8Array.                                        |
+| `analyzer/src/index/build-index.ts`                       | Partial                       | Server reads events from DB and re-builds `EventIndex` for heuristics. Same shape. |
+| `analyzer/src/index/reconstruct-file.ts`                  | Partial                       | Replaced in API by `reconstruct-file-provenance.ts` (the v2 default for replay).   |
+| `analyzer/src/index/reconstruct-file-provenance.ts`       | Yes                           | Wrapper at `server/src/services/reconstruction.ts` adds caching.                   |
+| `analyzer/src/index/stats.ts`                             | Yes                           | Wrapped during ingest.                                                             |
+| `analyzer/src/heuristics/*.ts`                            | Yes (all)                     | Wrapper threads per-semester config.                                               |
+| `analyzer/src/heuristics/run-heuristics.ts`               | Yes                           | Wrapped.                                                                           |
+| `analyzer/src/heuristics/cross/*`                         | Yes                           | Wrapped as a semester-scoped job.                                                  |
+| `analyzer/src/validation/*`                               | Yes                           | Wrapped at ingest.                                                                 |
+| `analyzer/src/export/findings-markdown.ts`                | Yes                           | Wrapped at server.                                                                 |
+| `analyzer/src/export/findings-pdf.ts`                     | Yes (with OQ-M decision)      | TBD.                                                                               |
+| `analyzer/src/views/overview/*`                           | Yes                           | Data fetched via `SubmissionDataProvider`.                                         |
+| `analyzer/src/views/replay/*`                             | Yes                           | Same.                                                                              |
+| `analyzer/src/views/timeline/*`                           | Yes                           | Same.                                                                              |
+| `analyzer/src/views/compare/*`                            | Yes                           | Repurposed for cross-flag side-by-side.                                            |
+| `analyzer/src/views/load/*`                               | Yes — only on `/local` route. | None.                                                                              |
 
 ---
 
