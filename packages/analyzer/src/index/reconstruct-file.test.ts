@@ -490,6 +490,80 @@ describe('reconstructFile — fs.external_change with new_content (recorder v1.3
     expect(recon.content).toBe('def foo(): return 42\n# more\n');
   });
 
+  it('operation:delete clears content + taints, even when no new_content', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'original',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/app.py',
+                operation: 'delete',
+                old_hash: 'aaa',
+                new_hash: '',
+                diff_size: 8,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.content).toBe('');
+    expect(recon.taintReasons[0]?.reason).toBe('fs_external_change');
+  });
+
+  it('operation:create seeds content from new_content without tainting', async () => {
+    const newContent = 'def fresh(): return 1\n';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/app.py',
+                operation: 'create',
+                old_hash: '',
+                new_hash: 'bbb',
+                diff_size: newContent.length,
+                new_content: newContent,
+                new_content_size: newContent.length,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(false);
+    expect(recon.content).toBe(newContent);
+    expect(recon.taintReasons[0]?.reason).toBe('fs_external_change');
+  });
+
   it('falls back to taint-empty when new_content is absent (pre-v1.3 bundle)', async () => {
     const { zipBuffer } = await buildTestBundle({
       sessions: [

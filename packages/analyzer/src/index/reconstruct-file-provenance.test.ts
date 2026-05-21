@@ -313,7 +313,154 @@ describe('reconstructFileWithProvenance — fs.external_change', () => {
     expect(state.kindByGlobalIdx.get(ext.globalIdx)).toBe('external_change');
   });
 
-  it('reseeds content + provenance from new_content (recorder v1.3+); every char attributed to the event', async () => {
+  it('operation:delete clears content + provenance even when new_content would otherwise be inlined', async () => {
+    const original = 'def foo(): pass\n';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/x.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: original,
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/x.py',
+                operation: 'delete',
+                old_hash: 'aaa',
+                new_hash: '',
+                diff_size: original.length,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const state = reconstructFileWithProvenance(index, '/src/x.py');
+
+    expect(state.content).toBe('');
+    expect(state.provenance.length).toBe(0);
+
+    const ext = (index.byKind.get('fs.external_change') ?? [])[0]!;
+    expect(state.kindByGlobalIdx.get(ext.globalIdx)).toBe('external_change');
+  });
+
+  it('operation:create attributes every char to the event (pre-state was empty)', async () => {
+    const newContent = 'def fresh(): return 1\n';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/x.py',
+                operation: 'create',
+                old_hash: '',
+                new_hash: 'bbb',
+                diff_size: newContent.length,
+                new_content: newContent,
+                new_content_size: newContent.length,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const state = reconstructFileWithProvenance(index, '/src/x.py');
+
+    expect(state.content).toBe(newContent);
+    expect(state.provenance.length).toBe(newContent.length);
+
+    const ext = (index.byKind.get('fs.external_change') ?? [])[0]!;
+    for (let i = 0; i < state.provenance.length; i++) {
+      expect(state.provenance[i]).toBe(ext.globalIdx);
+    }
+  });
+
+  it('granular line-diff: only changed lines attributed to the event, unchanged lines keep prior provenance', async () => {
+    // Start: 4 lines typed. External tool replaces line 2 only.
+    // Expected: lines 1, 3, 4 keep their original 'typed' provenance,
+    // line 2's chars are attributed to the fs.external_change event.
+    const original = 'line one\nline two\nline three\nline four\n';
+    const modified = 'line one\nLINE TWO (rewritten)\nline three\nline four\n';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/x.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: original,
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/x.py',
+                old_hash: 'aaa',
+                new_hash: 'bbb',
+                diff_size: modified.length - original.length,
+                new_content: modified,
+                new_content_size: modified.length,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const state = reconstructFileWithProvenance(index, '/src/x.py');
+
+    expect(state.content).toBe(modified);
+    expect(state.provenance.length).toBe(modified.length);
+
+    const typedEvent = (index.byKind.get('doc.change') ?? [])[0]!;
+    const extEvent = (index.byKind.get('fs.external_change') ?? [])[0]!;
+
+    // Lines 1, 3, 4 should keep the typed-event globalIdx.
+    // Line 2 ('LINE TWO (rewritten)\n') should be attributed to the external_change event.
+    // Find the byte range of line 2 in `modified`:
+    const line2Start = 'line one\n'.length;
+    const line2End = line2Start + 'LINE TWO (rewritten)\n'.length;
+
+    // Line 1 chars → typed
+    for (let i = 0; i < line2Start; i++) {
+      expect(state.provenance[i]).toBe(typedEvent.globalIdx);
+    }
+    // Line 2 chars → external_change
+    for (let i = line2Start; i < line2End; i++) {
+      expect(state.provenance[i]).toBe(extEvent.globalIdx);
+    }
+    // Lines 3+4 chars → typed
+    for (let i = line2End; i < modified.length; i++) {
+      expect(state.provenance[i]).toBe(typedEvent.globalIdx);
+    }
+  });
+
+  it('whole-file replacement: every char attributed to the event (back-compat with v1.3 initial behavior)', async () => {
     const after = 'def foo(): return 42\n';
     const { zipBuffer } = await buildTestBundle({
       sessions: [

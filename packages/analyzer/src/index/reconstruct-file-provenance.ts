@@ -26,6 +26,7 @@
  * given the splice-heavy mutation pattern.
  */
 
+import { diffLines } from 'diff';
 import type { DocChangeDelta, Range } from '@provenance/log-core';
 import type { EventIndex } from './event-index.js';
 
@@ -328,23 +329,64 @@ export function reconstructFileWithProvenance(
       }
 
       case 'fs.external_change': {
-        // Recorder v1.3+ inlines the post-change content (≤ 4 KB) on the
-        // payload's `new_content` field — PRD §4.5. When present, reseed
-        // `content` + `provenance` so replay shows the file after the
-        // external write; every character is attributed to this event's
-        // globalIdx with kind `'external_change'`. Without `new_content`
-        // (large file or pre-v1.3 bundle) we fall back to the v1 behavior:
-        // clear both, leaving the kindByGlobalIdx entry as a sentinel.
+        // PRD §4.5. The payload carries an optional `operation` field
+        // ('modify' | 'delete' | 'create', default 'modify' when absent).
+        //
+        // For 'delete' or a missing-content modify (large file / pre-v1.3
+        // bundle): clear content + provenance and leave the
+        // kindByGlobalIdx entry as a sentinel.
+        //
+        // For 'create' or any 'modify' that arrives with new_content:
+        // reseed content from new_content. To keep replay readable, only
+        // attribute the *changed* lines to this event — preserve the
+        // existing provenance for any line that survived unchanged. Uses
+        // jsdiff's diffLines so unchanged regions in the middle of an
+        // otherwise-rewritten file keep their original author attribution
+        // (typed / paste / preexisting), and the gutter paints only the
+        // lines the external tool actually touched.
         const p = e.payload as Record<string, unknown> | null;
+        const operation =
+          typeof p?.['operation'] === 'string' ? (p['operation'] as string) : 'modify';
         const newContent = typeof p?.['new_content'] === 'string' ? p['new_content'] : null;
         kindByGlobalIdx.set(e.globalIdx, 'external_change');
-        if (newContent !== null) {
-          content = newContent;
-          provenance = Array.from({ length: newContent.length }, () => e.globalIdx);
-        } else {
+
+        if (operation === 'delete' || newContent === null) {
           content = '';
           provenance = [];
+          break;
         }
+
+        // 'modify' or 'create' with content available. Diff the prior
+        // reconstructed state against new_content; attribute only added
+        // hunks to this event, keep prior provenance for unchanged hunks.
+        // (For 'create' the prior state is typically '', so diffLines
+        // yields a single added hunk → whole file attributed to the
+        // event, which is the right semantic.)
+        const hunks = diffLines(content, newContent);
+        const newProv: number[] = [];
+        let oldOffset = 0;
+        for (const hunk of hunks) {
+          const len = hunk.value.length;
+          if (hunk.removed) {
+            // Characters removed from the old state — skip them in old prov.
+            oldOffset += len;
+          } else if (hunk.added) {
+            // New characters — attribute to this event.
+            for (let i = 0; i < len; i++) newProv.push(e.globalIdx);
+          } else {
+            // Unchanged characters — copy provenance verbatim. Defensive
+            // bounds guard: if `provenance` is shorter than expected
+            // (shouldn't happen given the invariant content.length ===
+            // provenance.length, but cheap to handle), fall back to the
+            // event's globalIdx for any tail positions.
+            for (let i = 0; i < len; i++) {
+              newProv.push(provenance[oldOffset + i] ?? e.globalIdx);
+            }
+            oldOffset += len;
+          }
+        }
+        content = newContent;
+        provenance = newProv;
         break;
       }
 

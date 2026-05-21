@@ -231,24 +231,25 @@ export function reconstructFile(
       }
 
       case 'fs.external_change': {
-        // Recorder v1.3+ inlines the post-change content (≤ 4 KB) on the
-        // payload's `new_content` field — PRD §4.5. When present, reseed
-        // `content` so reconstruction stays accurate across the external
-        // edit and the replay UI shows the post-change file. When absent
-        // (large file, head/tail-only payload, or pre-v1.3 bundle), fall
-        // back to the original taint-empty behavior.
+        // PRD §4.5. Recorder v1.3+ inlines the post-change content (≤ 4 KB)
+        // and an optional `operation` discriminator ('modify' | 'delete' |
+        // 'create', default 'modify' when absent).
+        //
+        // 'delete' or modify-without-content (large file / pre-v1.3
+        // bundle) → clear content + taint. 'modify' or 'create' with
+        // content → reseed; reconstruction stays valid (no taint).
         const p = e.payload as Record<string, unknown> | null;
+        const operation =
+          typeof p?.['operation'] === 'string' ? (p['operation'] as string) : 'modify';
         const newContent = typeof p?.['new_content'] === 'string' ? p['new_content'] : null;
-        // taintReasons stays populated either way so consumers that want a
+        // taintReasons stays populated regardless so consumers that want a
         // "this file had an external edit at globalIdx N" signal still see it.
         taintReasons.push({ globalIdx: e.globalIdx, reason: 'fs_external_change' });
-        if (newContent !== null) {
-          content = newContent;
-          // Reconstruction IS valid post-reseed — subsequent doc.change /
-          // paste events apply cleanly on top. Leave `tainted` unchanged.
-        } else {
+        if (operation === 'delete' || newContent === null) {
           tainted = true;
           content = '';
+        } else {
+          content = newContent;
         }
         break;
       }
