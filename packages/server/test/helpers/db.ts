@@ -38,9 +38,7 @@ const MIGRATIONS_DIR = path.resolve(__dirname, '../../db/migrations');
  *
  * Isolation level: per-call (one container per `withTestDb` invocation).
  */
-export async function withTestDb(
-  fn: (db: DrizzleDb) => Promise<void>,
-): Promise<void> {
+export async function withTestDb(fn: (db: DrizzleDb) => Promise<void>): Promise<void> {
   const container = await new PostgreSqlContainer('postgres:16-alpine')
     .withDatabase('provenance_test')
     .withUsername('test')

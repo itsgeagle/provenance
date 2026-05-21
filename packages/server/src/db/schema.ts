@@ -37,7 +37,9 @@ import { sql } from 'drizzle-orm';
 export const users = pgTable(
   'users',
   {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
     google_subject: text('google_subject').notNull().unique(),
     email: text('email').notNull(),
     display_name: text('display_name').notNull().default(''),
@@ -83,7 +85,9 @@ export const sessions = pgTable(
 // ---------------------------------------------------------------------------
 
 export const courses = pgTable('courses', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: uuid('id')
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   name: text('name').notNull(),
   slug: text('slug').notNull().unique(),
   created_at: timestamp('created_at', { withTimezone: true })
@@ -99,7 +103,9 @@ export const courses = pgTable('courses', {
 export const semesters = pgTable(
   'semesters',
   {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
     course_id: uuid('course_id')
       .notNull()
       .references(() => courses.id, { onDelete: 'restrict' }),
@@ -109,9 +115,7 @@ export const semesters = pgTable(
     display_name: text('display_name').notNull(),
     filename_convention: text('filename_convention').notNull(),
     blob_retention_days: integer('blob_retention_days').notNull().default(540),
-    derived_retention_days: integer('derived_retention_days')
-      .notNull()
-      .default(1825),
+    derived_retention_days: integer('derived_retention_days').notNull().default(1825),
     archived_at: timestamp('archived_at', { withTimezone: true }),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -121,10 +125,7 @@ export const semesters = pgTable(
     unique('semesters_course_id_slug_key').on(t.course_id, t.slug),
     check('semesters_term_check', sql`${t.term} IN ('fa','sp','su','wi')`),
     check('semesters_year_check', sql`${t.year} BETWEEN 2000 AND 2100`),
-    check(
-      'semesters_blob_retention_check',
-      sql`${t.blob_retention_days} >= 30`,
-    ),
+    check('semesters_blob_retention_check', sql`${t.blob_retention_days} >= 30`),
     check(
       'semesters_derived_retention_check',
       sql`${t.derived_retention_days} >= ${t.blob_retention_days}`,
@@ -167,7 +168,9 @@ export const memberships = pgTable(
 export const pending_invitations = pgTable(
   'pending_invitations',
   {
-    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
     email: text('email').notNull(),
     semester_id: uuid('semester_id')
       .notNull()
@@ -182,10 +185,7 @@ export const pending_invitations = pgTable(
     consumed_at: timestamp('consumed_at', { withTimezone: true }),
   },
   (t) => [
-    check(
-      'pending_invitations_role_check',
-      sql`${t.role} IN ('admin','grader')`,
-    ),
+    check('pending_invitations_role_check', sql`${t.role} IN ('admin','grader')`),
     // pending_invitations_unique_open is a partial unique index on
     // (LOWER(email), semester_id) WHERE consumed_at IS NULL.
     // Drizzle cannot express partial indexes in the schema; it is created

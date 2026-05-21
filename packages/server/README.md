@@ -86,9 +86,11 @@ directly (no drizzle-kit CLI needed at runtime).
 > workspaces, but `drizzle-orm` lives in `packages/server/node_modules/`.
 > If `npm run db:generate` errors with "Please install latest version of
 > drizzle-orm", create a temporary symlink in the repo-root `node_modules/`:
+>
 > ```bash
 > ln -s packages/server/node_modules/drizzle-orm node_modules/drizzle-orm
 > ```
+>
 > Remove it after generating the migration. A permanent fix is to move
 > `drizzle-kit` to the root `devDependencies` alongside `drizzle-orm`.
 > (Tracked in TODO — needs approval per CLAUDE.md.)
@@ -105,16 +107,16 @@ isolated with no shared state.
 
 ## Scripts
 
-| Script              | Description                                   |
-| ------------------- | --------------------------------------------- |
-| `npm run dev`       | Dev server with file-watching via tsx         |
-| `npm run build`     | Bundle to `dist/index.js` via esbuild         |
-| `npm run start`     | Run the production bundle                     |
-| `npm run test`      | Run unit + integration tests (vitest)         |
-| `npm run typecheck` | Type-check without emit                       |
-| `npm run lint`      | ESLint                                        |
-| `npm run db:migrate`| Apply pending migrations to DATABASE_URL      |
-| `npm run db:generate`| Generate new migration from schema changes   |
+| Script                | Description                                |
+| --------------------- | ------------------------------------------ |
+| `npm run dev`         | Dev server with file-watching via tsx      |
+| `npm run build`       | Bundle to `dist/index.js` via esbuild      |
+| `npm run start`       | Run the production bundle                  |
+| `npm run test`        | Run unit + integration tests (vitest)      |
+| `npm run typecheck`   | Type-check without emit                    |
+| `npm run lint`        | ESLint                                     |
+| `npm run db:migrate`  | Apply pending migrations to DATABASE_URL   |
+| `npm run db:generate` | Generate new migration from schema changes |
 
 ## Environment variables
 

@@ -28,10 +28,7 @@ export type DrizzleDb = PostgresJsDatabase<typeof schema>;
  * Returns both the raw postgres.js client (for lifecycle management) and the
  * Drizzle wrapper (for queries and transactions).
  */
-export function createDb(
-  url: string,
-  poolMax = 10,
-): { sql: postgres.Sql; db: DrizzleDb } {
+export function createDb(url: string, poolMax = 10): { sql: postgres.Sql; db: DrizzleDb } {
   const sql = postgres(url, {
     max: poolMax,
   });
@@ -86,8 +83,12 @@ export async function closeDb(): Promise<void> {
 
 /**
  * Reset the singleton for tests that need a fresh connection.
+ * Properly closes the pool to avoid event-loop leaks.
  * @internal
  */
-export function _resetDbForTest(): void {
-  _instance = undefined;
+export async function _resetDbForTest(): Promise<void> {
+  if (_instance !== undefined) {
+    await _instance.sql.end();
+    _instance = undefined;
+  }
 }

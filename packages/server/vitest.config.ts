@@ -4,8 +4,9 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
     environment: 'node',
-    // Integration tests that spawn containers can take a while.
-    testTimeout: 120_000,
-    hookTimeout: 120_000,
+    // Default timeout for unit tests. Integration tests that use testcontainers
+    // override this to 120s per-file using vi.setConfig().
+    testTimeout: 10_000,
+    hookTimeout: 10_000,
   },
 });

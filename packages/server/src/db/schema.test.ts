@@ -4,10 +4,13 @@
  * Requires Docker (testcontainers).
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { withTestDb } from '../../test/helpers/db.js';
 import { users, courses, semesters, memberships, pending_invitations } from './schema.js';
 import { sql } from 'drizzle-orm';
+
+// testcontainers needs a long startup budget
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,10 +34,7 @@ function makeCourse(overrides: Partial<typeof courses.$inferInsert> = {}) {
   };
 }
 
-function makeSemester(
-  courseId: string,
-  overrides: Partial<typeof semesters.$inferInsert> = {},
-) {
+function makeSemester(courseId: string, overrides: Partial<typeof semesters.$inferInsert> = {}) {
   return {
     course_id: courseId,
     term: 'fa' as const,
@@ -59,10 +59,7 @@ describe('happy-path insertions', () => {
       expect(course!.id).toBeTruthy();
 
       // Semester
-      const [semester] = await db
-        .insert(semesters)
-        .values(makeSemester(course!.id))
-        .returning();
+      const [semester] = await db.insert(semesters).values(makeSemester(course!.id)).returning();
       expect(semester).toBeDefined();
       expect(semester!.id).toBeTruthy();
 
@@ -98,10 +95,7 @@ describe('FK constraints', () => {
   it('rejects membership with non-existent user_id', async () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
-      const [semester] = await db
-        .insert(semesters)
-        .values(makeSemester(course!.id))
-        .returning();
+      const [semester] = await db.insert(semesters).values(makeSemester(course!.id)).returning();
       const [granter] = await db.insert(users).values(makeUser()).returning();
 
       await expect(
@@ -134,9 +128,7 @@ describe('FK constraints', () => {
   it('rejects semester with non-existent course_id', async () => {
     await withTestDb(async (db) => {
       await expect(
-        db
-          .insert(semesters)
-          .values(makeSemester(crypto.randomUUID())), // course doesn't exist
+        db.insert(semesters).values(makeSemester(crypto.randomUUID())), // course doesn't exist
       ).rejects.toThrow();
     });
   });
@@ -151,9 +143,7 @@ describe('CHECK constraints — semesters', () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
       await expect(
-        db
-          .insert(semesters)
-          .values(makeSemester(course!.id, { term: 'xx' })),
+        db.insert(semesters).values(makeSemester(course!.id, { term: 'xx' })),
       ).rejects.toThrow();
     });
   });
@@ -162,14 +152,10 @@ describe('CHECK constraints — semesters', () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
       await expect(
-        db
-          .insert(semesters)
-          .values(makeSemester(course!.id, { year: 1999 })),
+        db.insert(semesters).values(makeSemester(course!.id, { year: 1999 })),
       ).rejects.toThrow();
       await expect(
-        db
-          .insert(semesters)
-          .values(makeSemester(course!.id, { year: 2101 })),
+        db.insert(semesters).values(makeSemester(course!.id, { year: 2101 })),
       ).rejects.toThrow();
     });
   });
@@ -178,9 +164,7 @@ describe('CHECK constraints — semesters', () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
       await expect(
-        db
-          .insert(semesters)
-          .values(makeSemester(course!.id, { blob_retention_days: 29 })),
+        db.insert(semesters).values(makeSemester(course!.id, { blob_retention_days: 29 })),
       ).rejects.toThrow();
     });
   });
@@ -204,10 +188,7 @@ describe('CHECK constraints — memberships', () => {
   it('rejects invalid role', async () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
-      const [semester] = await db
-        .insert(semesters)
-        .values(makeSemester(course!.id))
-        .returning();
+      const [semester] = await db.insert(semesters).values(makeSemester(course!.id)).returning();
       const [user] = await db.insert(users).values(makeUser()).returning();
       const [granter] = await db.insert(users).values(makeUser()).returning();
 
@@ -231,10 +212,7 @@ describe('pending_invitations_unique_open partial unique index', () => {
   it('prevents two open invitations for the same email+semester', async () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
-      const [semester] = await db
-        .insert(semesters)
-        .values(makeSemester(course!.id))
-        .returning();
+      const [semester] = await db.insert(semesters).values(makeSemester(course!.id)).returning();
       const [inviter] = await db.insert(users).values(makeUser()).returning();
 
       const invitation = {
@@ -247,19 +225,14 @@ describe('pending_invitations_unique_open partial unique index', () => {
       await db.insert(pending_invitations).values(invitation);
 
       // Second open invitation for the same email+semester should fail.
-      await expect(
-        db.insert(pending_invitations).values(invitation),
-      ).rejects.toThrow();
+      await expect(db.insert(pending_invitations).values(invitation)).rejects.toThrow();
     });
   });
 
   it('allows a second invitation once the first is consumed (consumed_at set)', async () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
-      const [semester] = await db
-        .insert(semesters)
-        .values(makeSemester(course!.id))
-        .returning();
+      const [semester] = await db.insert(semesters).values(makeSemester(course!.id)).returning();
       const [inviter] = await db.insert(users).values(makeUser()).returning();
 
       const invitationData = {
@@ -270,29 +243,21 @@ describe('pending_invitations_unique_open partial unique index', () => {
       };
 
       // Insert first invitation and mark it consumed.
-      const [first] = await db
-        .insert(pending_invitations)
-        .values(invitationData)
-        .returning();
+      const [first] = await db.insert(pending_invitations).values(invitationData).returning();
       await db
         .update(pending_invitations)
         .set({ consumed_at: sql`now()` })
         .where(sql`id = ${first!.id}`);
 
       // Now a second open invitation for the same email+semester is allowed.
-      await expect(
-        db.insert(pending_invitations).values(invitationData),
-      ).resolves.not.toThrow();
+      await expect(db.insert(pending_invitations).values(invitationData)).resolves.not.toThrow();
     });
   });
 
   it('partial index is case-insensitive on email', async () => {
     await withTestDb(async (db) => {
       const [course] = await db.insert(courses).values(makeCourse()).returning();
-      const [semester] = await db
-        .insert(semesters)
-        .values(makeSemester(course!.id))
-        .returning();
+      const [semester] = await db.insert(semesters).values(makeSemester(course!.id)).returning();
       const [inviter] = await db.insert(users).values(makeUser()).returning();
 
       await db.insert(pending_invitations).values({
