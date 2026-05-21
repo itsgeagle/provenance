@@ -12,7 +12,10 @@ import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
 import { createAuthRouter } from './auth.js';
 import { FakeGoogleOAuthClient } from '../../../../test/helpers/fake-google-client.js';
-import type { GoogleOAuthClient } from '../../../auth/google.js';
+import type { GoogleOAuthClient, IdTokenClaims } from '../../../auth/google.js';
+import { verifyIdToken } from '../../../auth/verify-id-token.js';
+import { generateTestKeyPair, mintJwt, validPayload, jwksFromPair } from '../../../../test/helpers/mint-jwt.js';
+import type { JwkSet } from '../../../auth/jwks.js';
 import { users, sessions } from '../../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import type { DrizzleDb } from '../../../db/client.js';
@@ -507,6 +510,103 @@ describe('POST /logout (DB injected)', () => {
         // Cookie cleared.
         const logoutCookieHeader = logoutRes.headers.get('set-cookie') ?? '';
         expect(logoutCookieHeader).toContain('Max-Age=0');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real verifyIdToken path wired through the route (DB injected)
+//
+// This test proves that the route → RealGoogleOAuthClient → verifyIdToken
+// chain is correctly wired end-to-end. It uses a custom GoogleOAuthClient that
+// calls verifyIdToken directly (injecting a fake JWKs fetcher) so we don't
+// need to mock arctic's HTTP layer.
+//
+// Without this test, verifyIdToken could be silently removed from
+// RealGoogleOAuthClient.exchangeCodeAndVerify and all other route tests
+// (which use FakeGoogleOAuthClient) would still pass.
+// ---------------------------------------------------------------------------
+
+describe('GET /google/callback — real verifyIdToken path wired through route (DB injected)', () => {
+  // Key pair + fake JWKs reused across the single test below.
+  const pair = generateTestKeyPair('route-integration-kid');
+  const fakeJwks = jwksFromPair(pair) as JwkSet;
+
+  /**
+   * A GoogleOAuthClient that calls verifyIdToken with an injected fetchJwks,
+   * letting us test the cryptographic verification path through the route handler
+   * without needing to mock arctic's network layer.
+   */
+  class RealVerifyOAuthClient implements GoogleOAuthClient {
+    private readonly jwt: string;
+    constructor(jwt: string) {
+      this.jwt = jwt;
+    }
+    generatePkceParams() {
+      return { state: 'route-integ-state', codeVerifier: 'route-integ-cv' };
+    }
+    createAuthorizeUrl(args: { state: string; codeVerifier: string; redirectUri: string }): string {
+      const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      url.searchParams.set('state', args.state);
+      url.searchParams.set('hd', 'berkeley.edu');
+      url.searchParams.set('code_challenge_method', 'S256');
+      url.searchParams.set('code_challenge', args.codeVerifier);
+      url.searchParams.set('redirect_uri', args.redirectUri);
+      return url.toString();
+    }
+    async exchangeCodeAndVerify(_args: {
+      code: string;
+      codeVerifier: string;
+      redirectUri: string;
+    }): Promise<IdTokenClaims> {
+      // Call the real verifyIdToken with our injected fake JWKs fetcher.
+      const verified = await verifyIdToken(this.jwt, 'client-id', {
+        fetchJwks: async () => fakeJwks,
+      });
+      return {
+        sub: verified.sub,
+        email: verified.email,
+        email_verified: verified.email_verified,
+        hd: verified.hd,
+        name: verified.name,
+      };
+    }
+  }
+
+  it('302 + session created when verifyIdToken succeeds with a valid signed JWT', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const payload = validPayload('client-id', {
+          sub: 'route-integ-sub',
+          email: 'routetest@berkeley.edu',
+          email_verified: true,
+          hd: 'berkeley.edu',
+          name: 'Route Test User',
+          iat: nowSec,
+          exp: nowSec + 3600,
+        });
+        const jwt = mintJwt(pair, payload);
+        const client = new RealVerifyOAuthClient(jwt);
+        const app = makeApp(client);
+
+        const { oauthCookie } = await doStart(app, '/dashboard');
+        const res = await doCallback(app, oauthCookie, 'code', 'route-integ-state');
+
+        expect(res.status).toBe(302);
+        expect(res.headers.get('location')).toBe('/dashboard');
+
+        // User row created.
+        const userRows = await db
+          .select()
+          .from(users)
+          .where(eq(users.google_subject, 'route-integ-sub'));
+        expect(userRows).toHaveLength(1);
+        expect(userRows[0]!.email).toBe('routetest@berkeley.edu');
       } finally {
         _testDb = null;
       }

@@ -8,27 +8,16 @@
  * `RealGoogleOAuthClient` uses arctic v3:
  * - `Google.createAuthorizationURL(state, codeVerifier, scopes)` → URL
  * - `Google.validateAuthorizationCode(code, codeVerifier)` → OAuth2Tokens
- * - `decodeIdToken(tokens.idToken())` → verified claims object
+ * - `verifyIdToken(tokens.idToken(), audience)` → cryptographically verified claims
  *
- * Note: arctic's `decodeIdToken` (via @oslojs/jwt) decodes the ID token's
- * payload WITHOUT performing JWK signature verification — it only base64-
- * decodes the claims. Arctic v3 does not expose a JWK verification helper;
- * full JWK verification would require `jose`, which is not in the dep bundle.
- * The current implementation decodes the token but does not verify the
- * signature cryptographically in Phase 2. This is a known deviation noted
- * in DONE_WITH_CONCERNS: the `hd`, `email_verified`, and `sub` gates are
- * still enforced; what's missing is that a sophisticated attacker who can
- * intercept the token-exchange response could forge claims. In a production
- * deployment behind HTTPS this threat is low, but the TODO below marks where
- * full JWK verification should go.
- *
- * TODO(phase-2-security): Add JWK signature verification for the ID token.
- * Options: (a) add `jose` to the dep bundle (requires controller approval),
- * (b) make an explicit HTTP call to Google's JWKS URI and verify manually.
+ * The ID token is verified against Google's JWKs using Node's built-in
+ * `node:crypto` (RS256). See `verify-id-token.ts` and `jwks.ts` for details.
  */
 
-import { Google, generateState, generateCodeVerifier, decodeIdToken } from 'arctic';
+import { Google, generateState, generateCodeVerifier } from 'arctic';
 import { getConfig } from '../config/index.js';
+import { verifyIdToken, type VerifyIdTokenOptions } from './verify-id-token.js';
+import type { JwkSet } from './jwks.js';
 
 // ---------------------------------------------------------------------------
 // Public seam interface
@@ -80,6 +69,18 @@ export interface GoogleOAuthClient {
 // ---------------------------------------------------------------------------
 
 export class RealGoogleOAuthClient implements GoogleOAuthClient {
+  /**
+   * Optional JWKs fetcher override — for integration tests only.
+   * Production callers always use the module-level `getGoogleJwks` default.
+   */
+  private readonly _verifyOpts: VerifyIdTokenOptions;
+
+  constructor(opts: { fetchJwks?: () => Promise<JwkSet> } = {}) {
+    // Conditionally include fetchJwks to satisfy exactOptionalPropertyTypes:
+    // the property must be absent (not undefined) when not provided.
+    this._verifyOpts = opts.fetchJwks !== undefined ? { fetchJwks: opts.fetchJwks } : {};
+  }
+
   private makeGoogle(redirectUri: string): Google {
     const cfg = getConfig();
     return new Google(cfg.GOOGLE_OAUTH_CLIENT_ID, cfg.GOOGLE_OAUTH_CLIENT_SECRET, redirectUri);
@@ -111,15 +112,17 @@ export class RealGoogleOAuthClient implements GoogleOAuthClient {
     codeVerifier: string;
     redirectUri: string;
   }): Promise<IdTokenClaims> {
+    const cfg = getConfig();
     const google = this.makeGoogle(args.redirectUri);
     const tokens = await google.validateAuthorizationCode(args.code, args.codeVerifier);
     const idToken = tokens.idToken();
 
-    // decodeIdToken decodes the JWT payload without signature verification.
-    // See module-level JSDoc for the security note and TODO.
-    const claims = decodeIdToken(idToken) as Record<string, unknown>;
+    // Cryptographically verify the ID token against Google's JWKs (RS256).
+    // verifyIdToken also checks iss, aud, exp, and iat before returning claims.
+    const verified = await verifyIdToken(idToken, cfg.GOOGLE_OAUTH_CLIENT_ID, this._verifyOpts);
 
-    return narrowClaims(claims);
+    // narrowClaims expects Record<string, unknown>; spread to satisfy the index signature.
+    return narrowClaims({ ...verified } as Record<string, unknown>);
   }
 }
 

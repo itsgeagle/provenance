@@ -4,6 +4,10 @@
  * Tests the seam and URL construction. No network access.
  * FakeGoogleOAuthClient lives in test/helpers/fake-google-client.ts
  * and is imported there (and in auth.test.ts) to avoid cross-test-file imports.
+ *
+ * Integration tests for RealGoogleOAuthClient.exchangeCodeAndVerify (which
+ * require mocking arctic) live in google-integration.test.ts so the
+ * vi.mock('arctic') there doesn't pollute these URL-construction tests.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
