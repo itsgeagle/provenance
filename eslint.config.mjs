@@ -52,4 +52,24 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // The server is a Node process — forbid vscode and DOM-related imports.
+    // vscode is a VS Code extension API and has no meaning in a server context.
+    // DOM globals (document, window, etc.) are not available in Node; importing
+    // DOM-only libs here would silently break at runtime.
+    files: ['packages/server/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            'vscode',
+            // DOM-only libraries (not exhaustive; add as encountered)
+            'jsdom',
+            'canvas',
+          ],
+        },
+      ],
+    },
+  },
 );

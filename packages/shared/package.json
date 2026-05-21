@@ -1,0 +1,16 @@
+{
+  "name": "@provenance/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./api-schemas": {
+      "types": "./dist/api-schemas.d.ts",
+      "import": "./dist/api-schemas.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
