@@ -208,7 +208,7 @@ export const api_tokens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     label: text('label').notNull(),
-    prefix: text('prefix').notNull(),
+    prefix: text('prefix').notNull().unique(),
     hashed_token: text('hashed_token').notNull(),
     scopes: jsonb('scopes').notNull().default(sql`'{}'`),
     last_used_at: timestamp('last_used_at', { withTimezone: true }),
@@ -218,10 +218,7 @@ export const api_tokens = pgTable(
       .notNull()
       .default(sql`now()`),
   },
-  (t) => [
-    index('api_tokens_prefix_idx').on(t.prefix).unique(),
-    index('api_tokens_user_id_idx').on(t.user_id),
-  ],
+  (t) => [index('api_tokens_user_id_idx').on(t.user_id)],
 );
 
 // ---------------------------------------------------------------------------
