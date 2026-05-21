@@ -57,16 +57,53 @@ node dist/index.js --mode=all
 node dist/index.js --mode=worker
 ```
 
+## Database migrations
+
+### Apply migrations
+
+```bash
+# Run all pending migrations against DATABASE_URL
+npm run db:migrate --workspace=packages/server
+```
+
+### Generate a new migration after editing the schema
+
+```bash
+# 1. Edit packages/server/src/db/schema.ts
+# 2. Run drizzle-kit to generate the migration SQL:
+npm run db:generate --workspace=packages/server
+# 3. Review the generated file in packages/server/db/migrations/.
+#    If the generated SQL differs from the intended DDL (e.g. missing partial
+#    unique index, wrong expression default), hand-edit it to match.
+# 4. Commit both schema.ts and the new .sql file together.
+```
+
+Migrations are stored in `packages/server/db/migrations/` and tracked by
+`meta/_journal.json`. The `db:migrate` script runs `drizzle-orm`'s migrator
+directly (no drizzle-kit CLI needed at runtime).
+
+### Testcontainers requirement
+
+Integration tests (`src/db/*.test.ts`, `test/helpers/*.test.ts`) spawn a
+real Postgres 16 container via testcontainers. **Docker must be running** on
+the host when you run `npm run test`. Tests are skipped (with a clear error)
+if Docker is unavailable.
+
+Each test case gets its own container and database, so tests are fully
+isolated with no shared state.
+
 ## Scripts
 
-| Script              | Description                           |
-| ------------------- | ------------------------------------- |
-| `npm run dev`       | Dev server with file-watching via tsx |
-| `npm run build`     | Bundle to `dist/index.js` via esbuild |
-| `npm run start`     | Run the production bundle             |
-| `npm run test`      | Run unit tests (vitest)               |
-| `npm run typecheck` | Type-check without emit               |
-| `npm run lint`      | ESLint                                |
+| Script              | Description                                   |
+| ------------------- | --------------------------------------------- |
+| `npm run dev`       | Dev server with file-watching via tsx         |
+| `npm run build`     | Bundle to `dist/index.js` via esbuild         |
+| `npm run start`     | Run the production bundle                     |
+| `npm run test`      | Run unit + integration tests (vitest)         |
+| `npm run typecheck` | Type-check without emit                       |
+| `npm run lint`      | ESLint                                        |
+| `npm run db:migrate`| Apply pending migrations to DATABASE_URL      |
+| `npm run db:generate`| Generate new migration from schema changes   |
 
 ## Environment variables
 
