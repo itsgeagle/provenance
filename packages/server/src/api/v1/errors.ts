@@ -212,7 +212,7 @@ export const Errors = {
     return new ApiError('NOT_A_MEMBER', 403, 'You are not a member of this semester');
   },
 
-  insufficientRole(required: 'admin'): ApiError {
+  insufficientRole(required: 'admin' | 'grader'): ApiError {
     return new ApiError('INSUFFICIENT_ROLE', 403, `This action requires the '${required}' role`, {
       required_role: required,
     });
