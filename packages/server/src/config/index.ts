@@ -18,3 +18,13 @@ export function getConfig(): Env {
 export function _resetConfigForTest(): void {
   _config = undefined;
 }
+
+/**
+ * Set the config singleton to a known value for testing.
+ * This avoids mutating process.env and ensures tests are isolated.
+ * Must be called before any code reads getConfig().
+ * Not part of the public API for production code.
+ */
+export function _setConfigForTest(env: Env): void {
+  _config = env;
+}

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createApp } from './start.js';
-import { _resetConfigForTest } from '../config/index.js';
+import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
+import { parseEnv } from '../config/env.js';
 
 // ---------------------------------------------------------------------------
 // Provide minimal valid env before each test so the config singleton resolves
@@ -23,12 +24,11 @@ const TEST_ENV: Record<string, string> = {
 };
 
 beforeEach(() => {
-  // Reset singletons and inject a known env
+  // Reset singletons and inject a known env without mutating process.env
   _resetConfigForTest();
   _resetLoggerForTest();
-  for (const [k, v] of Object.entries(TEST_ENV)) {
-    process.env[k] = v;
-  }
+  const config = parseEnv(TEST_ENV);
+  _setConfigForTest(config);
 });
 
 // ---------------------------------------------------------------------------
