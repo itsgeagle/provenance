@@ -66,6 +66,14 @@ const rawEnvSchema = z.object({
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
   AUTH_ALLOWED_HOSTED_DOMAINS: jsonStringArray.default('["berkeley.edu"]'),
   AUTH_SUPERADMIN_EMAILS: jsonStringArray.default('[]'),
+  // Phase 2 addition: signing secret for the __Host-prov_oauth cookie.
+  // Required in production (enforced in cross-field validation below).
+  // Defaults to a fixed dev-only value when NODE_ENV !== 'production'.
+  // See .notes/v3-progress.md §V14 for design decision.
+  AUTH_COOKIE_SIGNING_SECRET: z
+    .string()
+    .optional()
+    .transform((v) => v ?? 'dev-only-insecure-signing-secret-change-in-prod'),
   SESSION_COOKIE_NAME: z.string().min(1).default('__Host-prov_sess'),
   SESSION_TTL_DAYS: intStr(14),
   SMTP_URL: optionalUrlStr,
@@ -121,6 +129,18 @@ export const envSchema = rawEnvSchema.superRefine((data, ctx) => {
         code: z.ZodIssueCode.custom,
         path: ['AUTH_SUPERADMIN_EMAILS'],
         message: 'AUTH_SUPERADMIN_EMAILS must be non-empty in production',
+      });
+    }
+
+    // AUTH_COOKIE_SIGNING_SECRET must be explicitly set in production
+    // (the transform default is the dev-only sentinel; check for it)
+    if (
+      data.AUTH_COOKIE_SIGNING_SECRET === 'dev-only-insecure-signing-secret-change-in-prod'
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AUTH_COOKIE_SIGNING_SECRET'],
+        message: 'AUTH_COOKIE_SIGNING_SECRET must be set explicitly in production',
       });
     }
   }

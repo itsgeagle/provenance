@@ -73,6 +73,8 @@ describe('parseEnv — happy path', () => {
         NODE_ENV: 'production',
         SESSION_COOKIE_NAME: '__Host-prov_sess_prod',
         AUTH_SUPERADMIN_EMAILS: '["admin@berkeley.edu"]',
+        // Phase 2: AUTH_COOKIE_SIGNING_SECRET required in production.
+        AUTH_COOKIE_SIGNING_SECRET: 'a-secure-signing-secret-that-is-long-enough-for-prod',
       }),
     );
     expect(cfg.NODE_ENV).toBe('production');
