@@ -133,9 +133,20 @@ function fakeChangeEvent(
     endChar: number;
     text: string;
   }>,
+  options: {
+    /** Post-event buffer state. Default: dirty (normal typing). */
+    isDirty?: boolean;
+    /** TextDocumentChangeReason. Default: undefined (typing/paste/programmatic edit). */
+    reason?: number | undefined;
+    /** Post-event document text (for reload-from-disk tests). */
+    bufferText?: string;
+  } = {},
 ) {
+  const doc = fakeDoc(
+    options.bufferText !== undefined ? { path, text: options.bufferText } : { path },
+  );
   return {
-    document: fakeDoc({ path }),
+    document: { ...doc, isDirty: options.isDirty ?? true },
     contentChanges: changes.map((c) => ({
       range: {
         start: { line: c.startLine, character: c.startChar },
@@ -145,6 +156,7 @@ function fakeChangeEvent(
       rangeOffset: 0,
       rangeLength: c.text.length,
     })),
+    reason: options.reason,
   };
 }
 
@@ -772,6 +784,8 @@ describe('startDocWiring', () => {
     expect(extPayload.path).toBe('src/foo.py');
     expect(extPayload.old_hash).toBe(sha256Hex(expectedContent));
     expect(extPayload.new_hash).toBe(sha256Hex(onDiskContent));
+    // Recorder v1.3+: payload carries the on-disk content.
+    expect(extPayload.new_content).toBe(onDiskContent);
 
     const savePayload = emitters.emitDocSave.mock.calls[0]![0] as Record<string, unknown>;
     expect(savePayload.sha256).toBe(sha256Hex(onDiskContent));
@@ -803,6 +817,175 @@ describe('startDocWiring', () => {
     const ec = registry.get('src/foo.py');
     expect(ec?.content).toBe(onDiskContent);
     expect(ec?.hash).toBe(sha256Hex(onDiskContent));
+  });
+
+  // -------------------------------------------------------------------------
+  // Reload-from-disk detection (PRD §4.5)
+  //
+  // VS Code auto-reloads a clean buffer when its file changes on disk. The
+  // resulting onDidChangeTextDocument has reason === undefined and
+  // document.isDirty === false — a combination that typed/programmatic edits
+  // never produce. Route it to fs.external_change.
+  // -------------------------------------------------------------------------
+
+  it('reload-from-disk (reason=undefined, isDirty=false): emits fs.external_change, NOT doc.change', () => {
+    setMockWindowState({ focused: true });
+    const before = 'def foo(): pass\n';
+    const after = 'def foo(): return 42  # written by external tool\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    // Seed expected content via doc.open
+    openSub.handler!(fakeDoc({ path: 'src/foo.py', text: before, lineCount: 1 }));
+
+    // Simulate VS Code auto-reloading the buffer after an external write.
+    const reloadEvent = fakeChangeEvent(
+      'src/foo.py',
+      [{ startLine: 0, startChar: 0, endLine: 1, endChar: 0, text: after }],
+      { isDirty: false, reason: undefined, bufferText: after },
+    );
+    changeSub.handler!(reloadEvent);
+
+    expect(emitters.emitFsExternalChange).toHaveBeenCalledOnce();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+
+    const payload = emitters.emitFsExternalChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.path).toBe('src/foo.py');
+    expect(payload.old_hash).toBe(sha256Hex(before));
+    expect(payload.new_hash).toBe(sha256Hex(after));
+    expect(payload.diff_size).toBe(Math.abs(after.length - before.length));
+    // Recorder v1.3+: payload carries the post-change content so the analyzer
+    // can reseed reconstruction for replay.
+    expect(payload.new_content).toBe(after);
+    expect(payload.new_content_size).toBe(after.length);
+
+    // Expected-content registry must be reset so the next save's hash matches reality.
+    const ec = registry.get('src/foo.py');
+    expect(ec?.content).toBe(after);
+    expect(ec?.hash).toBe(sha256Hex(after));
+  });
+
+  it('normal typing (isDirty=true): emits doc.change, NOT fs.external_change', () => {
+    setMockWindowState({ focused: true });
+    const before = 'hello\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    openSub.handler!(fakeDoc({ path: 'src/foo.py', text: before, lineCount: 1 }));
+
+    const typedEvent = fakeChangeEvent(
+      'src/foo.py',
+      [{ startLine: 0, startChar: 5, endLine: 0, endChar: 5, text: '!' }],
+      { isDirty: true },
+    );
+    changeSub.handler!(typedEvent);
+
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+  });
+
+  it('undo to saved state (reason=Undo, isDirty=false): emits doc.change, NOT fs.external_change', () => {
+    // TextDocumentChangeReason.Undo === 1 in VS Code's enum. We only treat
+    // reason === undefined as a reload candidate; Undo/Redo are user actions.
+    setMockWindowState({ focused: true });
+    const before = 'x\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    openSub.handler!(fakeDoc({ path: 'src/foo.py', text: before, lineCount: 1 }));
+
+    const undoEvent = fakeChangeEvent(
+      'src/foo.py',
+      [{ startLine: 0, startChar: 1, endLine: 0, endChar: 1, text: 'y' }],
+      { isDirty: false, reason: 1 /* TextDocumentChangeReason.Undo */ },
+    );
+    changeSub.handler!(undoEvent);
+
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+    // Either doc.change or paste depending on size; for this single small
+    // typed-shape delta, it's doc.change.
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+  });
+
+  it('reload with identical content (touched, content same): emits nothing', () => {
+    setMockWindowState({ focused: true });
+    const content = 'unchanged\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    openSub.handler!(fakeDoc({ path: 'src/foo.py', text: content, lineCount: 1 }));
+
+    // VS Code reload with no actual change (e.g. mtime touch). contentChanges
+    // would be empty in this case; covered by the empty-delta path. But guard
+    // against the unusual case where contentChanges replay identical text.
+    const reloadEvent = fakeChangeEvent(
+      'src/foo.py',
+      [{ startLine: 0, startChar: 0, endLine: 1, endChar: 0, text: content }],
+      { isDirty: false, reason: undefined, bufferText: content },
+    );
+    changeSub.handler!(reloadEvent);
+
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+  });
+
+  it('reload on unwatched file: falls through to doc.change path', () => {
+    // Files not in files_under_review have no expected-content baseline, so
+    // we cannot emit a meaningful fs.external_change. Fall through.
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/watched.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/watched.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    const reloadEvent = fakeChangeEvent(
+      'src/other.py',
+      [{ startLine: 0, startChar: 0, endLine: 0, endChar: 0, text: 'x' }],
+      { isDirty: false, reason: undefined },
+    );
+    changeSub.handler!(reloadEvent);
+
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
   });
 
   it('getLastDocChangeAt returns -Infinity for unseen path, then updates on doc.change', () => {

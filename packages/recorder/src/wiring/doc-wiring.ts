@@ -37,6 +37,7 @@ import { buildPastePayload } from '../events/paste-payload.js';
 import { ExpectedContentRegistry } from '../state/expected-content-registry.js';
 import type { PasteIntercept } from './paste-command-intercept.js';
 import { compareSavedContent } from '../events/external-change-detector.js';
+import { buildExternalChangeContent } from '../events/external-change-content.js';
 import type { ExplanationTagger } from '../events/explanation-tags.js';
 
 // ---------------------------------------------------------------------------
@@ -216,6 +217,46 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
       return;
     }
 
+    // ---------------------------------------------------------------------
+    // Reload-from-disk detection (PRD §4.5).
+    //
+    // When an external tool writes a watched file while VS Code has it
+    // open with a clean buffer (e.g. a student runs `claude` in a separate
+    // terminal), VS Code auto-reloads the buffer from disk. The reload
+    // surfaces here as onDidChangeTextDocument with reason === undefined
+    // and document.isDirty === false. Typed edits and programmatic
+    // WorkspaceEdits always leave the buffer dirty, so the combination is
+    // a strong discriminator for "the disk wrote first and VS Code
+    // mirrored it." Route this to fs.external_change so external-edit
+    // heuristics fire and the analyzer correctly taints the file.
+    //
+    // The fs-watcher path (fs-watcher.ts) covers the other half of §4.5:
+    // writes that happen with no buffer open at all.
+    // ---------------------------------------------------------------------
+    const isReloadFromDisk = event.reason === undefined && !event.document.isDirty;
+    if (isReloadFromDisk && expectedContent.isWatched(relativePath)) {
+      const ec = expectedContent.get(relativePath);
+      if (ec !== undefined) {
+        const oldHash = ec.hash;
+        const oldLength = ec.content.length;
+        const newContent = event.document.getText();
+        const newHash = computeHash(newContent);
+        if (newHash !== oldHash) {
+          const explanation = explanationTagger?.consume();
+          emitFsExternalChange({
+            path: relativePath,
+            old_hash: oldHash,
+            new_hash: newHash,
+            diff_size: Math.abs(newContent.length - oldLength),
+            ...buildExternalChangeContent(newContent),
+            ...(explanation !== undefined ? { explanation } : {}),
+          });
+          ec.reset(newContent);
+        }
+        return;
+      }
+    }
+
     // Build log-core delta representation
     const deltas = event.contentChanges.map((c) => ({
       range: {
@@ -311,6 +352,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
                 old_hash: result.old_hash,
                 new_hash: result.new_hash,
                 diff_size: result.diff_size,
+                ...buildExternalChangeContent(onDiskContent),
                 ...(explanation !== undefined ? { explanation } : {}),
               });
               // Reset expected content to the on-disk reality before emitting doc.save.

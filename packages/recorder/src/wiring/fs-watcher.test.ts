@@ -192,11 +192,16 @@ describe('startFsWatcher', () => {
       old_hash: string;
       new_hash: string;
       diff_size: number;
+      new_content?: string;
+      new_content_size?: number;
     };
     expect(payload.path).toBe('hw.py');
     expect(payload.old_hash).toBe(sha256Hex(originalContent));
     expect(payload.new_hash).toBe(sha256Hex(newContent));
     expect(payload.diff_size).toBe(Math.abs(newContent.length - originalContent.length));
+    // Recorder v1.3+: payload carries the on-disk content for analyzer replay.
+    expect(payload.new_content).toBe(newContent);
+    expect(payload.new_content_size).toBe(newContent.length);
   });
 
   it('resets registry expected content after emitting', async () => {

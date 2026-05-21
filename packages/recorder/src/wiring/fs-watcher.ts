@@ -29,6 +29,7 @@ import type { FsExternalChangePayload } from '@provenance/log-core';
 import { sha256Hex } from '@provenance/log-core';
 import type { ExpectedContentRegistry } from '../state/expected-content-registry.js';
 import type { ExplanationTagger } from '../events/explanation-tags.js';
+import { buildExternalChangeContent } from '../events/external-change-content.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,6 +115,7 @@ export function startFsWatcher(deps: FsWatcherDeps): vscode.Disposable {
             old_hash: oldHash,
             new_hash: newHash,
             diff_size,
+            ...buildExternalChangeContent(onDiskContent),
             ...(explanation !== undefined ? { explanation } : {}),
           };
 
