@@ -174,4 +174,95 @@ describe('consumeTokenPg (Postgres backend)', () => {
       expect(result.resetAt).toBeGreaterThan(Math.floor(fakeNow / 1000));
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Important 3: post-deny token value matches in-memory backend semantics
+  //
+  // After a deny, Postgres must store the actual refilled amount (not 0),
+  // so that both backends have identical post-deny state. This makes the
+  // next-token-available time consistent regardless of which backend is used.
+  // -------------------------------------------------------------------------
+
+  it('post-deny bucket stores refilled value (not zero), symmetric with in-memory backend', async () => {
+    await withTestDb(async (db) => {
+      // Use a fixed epoch for reproducibility.
+      let fakeNow = 1_000_000_000_000; // ms (year 2001 – avoids Date.now() drift)
+      const principalId = `user:${crypto.randomUUID()}`;
+
+      // Strategy: exhaust the bucket, advance by a small amount (less than one
+      // full token refill period), trigger a deny, then advance by a further
+      // small amount that is enough to get to ≥1 token when accumulated on top
+      // of the partial refill from the deny — but NOT enough if starting from 0.
+      //
+      // testConfig: bucketSize=5, refillCount=5, windowMs=60_000.
+      // One token refills every 12 seconds (60s / 5 tokens).
+      //
+      // Step 1: exhaust the bucket.
+      for (let i = 0; i < 5; i++) {
+        const r = await consumeTokenPg(db, principalId, 'test.class', testConfig, () => fakeNow);
+        expect(r.allowed).toBe(true);
+      }
+      // Row now: tokens=0, last_refill_at=T0.
+
+      // Step 2: advance 5 seconds → 0.4167 tokens refilled (< 1 → deny).
+      fakeNow += 5_000;
+      const deniedResult = await consumeTokenPg(
+        db,
+        principalId,
+        'test.class',
+        testConfig,
+        () => fakeNow,
+      );
+      expect(deniedResult.allowed).toBe(false);
+      expect(deniedResult.remaining).toBe(0); // floor of 0.4167
+      // Row now (with the fix): tokens=0.4167, last_refill_at=T0+5s.
+      // Row (without fix, old bug): tokens=0, last_refill_at=T0+5s.
+
+      // Step 3: advance another 10 seconds (total 15s from T0, but 10s from deny).
+      // - With fix: 0.4167 + 10s * (5/60000ms) = 0.4167 + 0.8333 = 1.25 ≥ 1 → ALLOW.
+      // - Without fix: 0 + 10s * (5/60000ms) = 0.8333 < 1 → DENY.
+      fakeNow += 10_000;
+      const allowedResult = await consumeTokenPg(
+        db,
+        principalId,
+        'test.class',
+        testConfig,
+        () => fakeNow,
+      );
+      // With the fix, the post-deny value accumulated correctly → allowed.
+      // Without the fix, 10s from a 0 baseline gives 0.833 tokens → still denied.
+      expect(allowedResult.allowed).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Important 4: concurrent first requests for new principal do not double-spend
+  //
+  // The pre-seed INSERT prevents the FOR UPDATE no-op when the row doesn't exist.
+  // Both concurrent first-requests should serialize, not both see an empty bucket.
+  // -------------------------------------------------------------------------
+
+  it('concurrent first requests for new principal do not double-spend', async () => {
+    await withTestDb(async (db) => {
+      const fakeNow = Date.now();
+      const principalId = `user:${crypto.randomUUID()}`;
+
+      // Fire N concurrent requests against a fresh principal (no existing row).
+      // With a 5-token bucket and 6 requests, exactly 5 should be allowed (not 6).
+      const N = 6;
+      const results = await Promise.all(
+        Array.from({ length: N }).map(() =>
+          consumeTokenPg(db, principalId, 'test.class', testConfig, () => fakeNow),
+        ),
+      );
+
+      const allowedCount = results.filter((r) => r.allowed).length;
+      const deniedCount = results.filter((r) => !r.allowed).length;
+
+      // Without the pre-seed fix, at most 6 might be "allowed" due to the race.
+      // With the fix, exactly bucketSize (5) are allowed.
+      expect(allowedCount).toBe(testConfig.bucketSize); // exactly 5, not 5 or 6
+      expect(deniedCount).toBe(N - testConfig.bucketSize); // exactly 1
+    });
+  });
 });
