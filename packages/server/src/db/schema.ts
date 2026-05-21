@@ -27,6 +27,7 @@ import {
   inet,
   check,
   unique,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -194,6 +195,36 @@ export const pending_invitations = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// api_tokens  (PRD §4.3)
+// ---------------------------------------------------------------------------
+
+export const api_tokens = pgTable(
+  'api_tokens',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    user_id: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    prefix: text('prefix').notNull(),
+    hashed_token: text('hashed_token').notNull(),
+    scopes: jsonb('scopes').notNull().default(sql`'{}'`),
+    last_used_at: timestamp('last_used_at', { withTimezone: true }),
+    expires_at: timestamp('expires_at', { withTimezone: true }),
+    revoked_at: timestamp('revoked_at', { withTimezone: true }),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    index('api_tokens_prefix_idx').on(t.prefix).unique(),
+    index('api_tokens_user_id_idx').on(t.user_id),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -209,3 +240,5 @@ export type Membership = typeof memberships.$inferSelect;
 export type NewMembership = typeof memberships.$inferInsert;
 export type PendingInvitation = typeof pending_invitations.$inferSelect;
 export type NewPendingInvitation = typeof pending_invitations.$inferInsert;
+export type ApiToken = typeof api_tokens.$inferSelect;
+export type NewApiToken = typeof api_tokens.$inferInsert;
