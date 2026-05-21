@@ -36,21 +36,60 @@ import { getLogger } from '../../logging.js';
 // audit middleware factory
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// AuditOptions
+// ---------------------------------------------------------------------------
+
+/**
+ * Options for the audit middleware factory.
+ *
+ * The `onInsertComplete` callback is a test-only seam. In production it is
+ * left undefined (fire-and-forget). In tests, passing a callback lets callers
+ * await the in-flight insert promise before making assertions — no setTimeout
+ * heuristics required.
+ */
+export interface AuditOptions {
+  /**
+   * Clock injection for tests. Defaults to `() => new Date()`.
+   */
+  nowFn?: () => Date;
+
+  /**
+   * @internal Test-only seam.
+   *
+   * When set, the audit handler calls this with the insert promise immediately
+   * after firing it. Tests can capture the promise and await it before asserting
+   * on DB state.
+   *
+   * In production, leave undefined. Fires-and-forgets as before.
+   */
+  onInsertComplete?: (result: Promise<void>) => void;
+}
+
 /**
  * Creates an audit middleware for a specific action.
  *
  * @param action            The action string from PRD §13.2 catalog (e.g. 'heuristic_config.commit').
  * @param targetType        The target entity type (e.g. 'semester', 'submission', 'api_token').
  * @param targetIdFromContext  Function that extracts the target entity ID from the context.
- *
- * @param nowFn             Clock injection for tests. Defaults to `() => new Date()`.
+ * @param nowFnOrOptions    Either a clock function (legacy positional arg for backwards compat)
+ *                          or an AuditOptions object.
  */
 export function audit(
   action: string,
   targetType: string,
   targetIdFromContext: (c: Context) => string,
-  nowFn: () => Date = () => new Date(),
+  nowFnOrOptions: (() => Date) | AuditOptions = () => new Date(),
 ): MiddlewareHandler {
+  // Normalise the 4th argument — accept both the legacy `() => Date` form and
+  // the new AuditOptions object so existing call-sites don't need to change.
+  const nowFn =
+    typeof nowFnOrOptions === 'function'
+      ? nowFnOrOptions
+      : (nowFnOrOptions.nowFn ?? (() => new Date()));
+  const onInsertComplete =
+    typeof nowFnOrOptions === 'function' ? undefined : nowFnOrOptions.onInsertComplete;
+
   return async (c, next) => {
     await next();
 
@@ -82,7 +121,7 @@ export function audit(
     const at = nowFn();
 
     // Fire-and-forget: never block or alter the response.
-    insertAuditRow({
+    const insertPromise = insertAuditRow({
       actorUserId,
       actorTokenId,
       semesterId,
@@ -100,6 +139,12 @@ export function audit(
         // If logger is not available, silently ignore.
       }
     });
+
+    // Test-only seam: let tests await the insert instead of using setTimeout.
+    // In production onInsertComplete is undefined so this is a no-op.
+    if (onInsertComplete !== undefined) {
+      onInsertComplete(insertPromise as Promise<void>);
+    }
   };
 }
 

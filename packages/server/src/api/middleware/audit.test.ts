@@ -103,12 +103,25 @@ async function insertUser(db: DrizzleDb): Promise<{ id: string }> {
   return row;
 }
 
+/**
+ * Returns a Hono app wired with the audit middleware.
+ *
+ * The returned `waitForInsert` function can be awaited after a request to let
+ * the fire-and-forget audit insert complete before making DB assertions — no
+ * setTimeout heuristics needed.
+ */
 function makeApp(
   principal: Principal | null,
   responseStatus: number,
   targetId: string,
   nowFn?: () => Date,
-): Hono {
+): { app: Hono; waitForInsert: () => Promise<void> } {
+  let _insertPromise: Promise<void> | undefined;
+
+  const onInsertComplete = (p: Promise<void>) => {
+    _insertPromise = p;
+  };
+
   const app = new Hono();
   // Set principal on the context
   // Note: target.semesterId is set to null so we don't require a real semester FK.
@@ -117,17 +130,26 @@ function makeApp(
     c.set('target', null); // null means global route; no semester FK needed
     await next();
   });
+  const opts: import('./audit.js').AuditOptions =
+    nowFn !== undefined ? { nowFn, onInsertComplete } : { onInsertComplete };
+
   app.post(
     '/test',
-    audit('test.action', 'test_target', () => targetId, nowFn),
+    audit('test.action', 'test_target', () => targetId, opts),
     (c) => c.json({ ok: true }, responseStatus as 200 | 201),
   );
   app.post(
     '/test-fail',
-    audit('test.action', 'test_target', () => targetId, nowFn),
+    audit('test.action', 'test_target', () => targetId, opts),
     (c) => c.json({ error: 'bad' }, 400),
   );
-  return app;
+
+  return {
+    app,
+    waitForInsert: async () => {
+      if (_insertPromise !== undefined) await _insertPromise;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -143,12 +165,12 @@ describe('audit middleware', () => {
         const principal = makeSessionPrincipal(user.id);
         const targetId = 'target-entity-id-1';
 
-        const app = makeApp(principal, 200, targetId);
+        const { app, waitForInsert } = makeApp(principal, 200, targetId);
         const res = await app.fetch(new Request('http://localhost/test', { method: 'POST' }));
         expect(res.status).toBe(200);
 
-        // Wait briefly for the fire-and-forget insert to complete
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // Await the fire-and-forget insert via the test seam.
+        await waitForInsert();
 
         const rows = await db.select().from(audit_log);
         expect(rows.length).toBe(1);
@@ -172,11 +194,12 @@ describe('audit middleware', () => {
         const user = await insertUser(db);
         const principal = makeSessionPrincipal(user.id);
 
-        const app = makeApp(principal, 400, 'target-1');
+        const { app, waitForInsert } = makeApp(principal, 400, 'target-1');
         const res = await app.fetch(new Request('http://localhost/test-fail', { method: 'POST' }));
         expect(res.status).toBe(400);
 
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // No insert fires on 4xx; waitForInsert is a no-op here.
+        await waitForInsert();
 
         const rows = await db.select().from(audit_log);
         expect(rows.length).toBe(0);
@@ -194,10 +217,11 @@ describe('audit middleware', () => {
         const principal = makeSessionPrincipal(user.id);
         const fixedDate = new Date('2026-01-15T10:00:00.000Z');
 
-        const app = makeApp(principal, 200, 'some-id', () => fixedDate);
+        const { app, waitForInsert } = makeApp(principal, 200, 'some-id', () => fixedDate);
         await app.fetch(new Request('http://localhost/test', { method: 'POST' }));
 
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // Await the fire-and-forget insert via the test seam.
+        await waitForInsert();
 
         const rows = await db.select().from(audit_log);
         expect(rows.length).toBe(1);
@@ -216,6 +240,8 @@ describe('audit middleware', () => {
         const user = await insertUser(db);
         const principal = makeSessionPrincipal(user.id);
 
+        let _insertPromise: Promise<void> | undefined;
+
         // App that sets auditDetail before responding
         const app = new Hono();
         app.use('*', async (c, next) => {
@@ -225,7 +251,11 @@ describe('audit middleware', () => {
         });
         app.post(
           '/test',
-          audit('test.action', 'user', () => user.id),
+          audit('test.action', 'user', () => user.id, {
+            onInsertComplete: (p) => {
+              _insertPromise = p;
+            },
+          }),
           (c) => {
             c.set('auditDetail', { extra_field: 'extra_value', count: 42 });
             return c.json({ ok: true });
@@ -233,7 +263,8 @@ describe('audit middleware', () => {
         );
 
         await app.fetch(new Request('http://localhost/test', { method: 'POST' }));
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // Await the fire-and-forget insert via the test seam.
+        if (_insertPromise !== undefined) await _insertPromise;
 
         const rows = await db.select().from(audit_log);
         expect(rows.length).toBe(1);
