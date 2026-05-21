@@ -82,6 +82,17 @@ Migrations are stored in `packages/server/db/migrations/` and tracked by
 `meta/_journal.json`. The `db:migrate` script runs `drizzle-orm`'s migrator
 directly (no drizzle-kit CLI needed at runtime).
 
+> **npm workspaces note:** `drizzle-kit` is hoisted to the repo root by npm
+> workspaces, but `drizzle-orm` lives in `packages/server/node_modules/`.
+> If `npm run db:generate` errors with "Please install latest version of
+> drizzle-orm", create a temporary symlink in the repo-root `node_modules/`:
+> ```bash
+> ln -s packages/server/node_modules/drizzle-orm node_modules/drizzle-orm
+> ```
+> Remove it after generating the migration. A permanent fix is to move
+> `drizzle-kit` to the root `devDependencies` alongside `drizzle-orm`.
+> (Tracked in TODO — needs approval per CLAUDE.md.)
+
 ### Testcontainers requirement
 
 Integration tests (`src/db/*.test.ts`, `test/helpers/*.test.ts`) spawn a
