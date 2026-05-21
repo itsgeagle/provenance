@@ -136,21 +136,44 @@ export type ExtActivatePayload = {
 
 export type FsExternalChangePayload = {
   path: string;
+  /**
+   * sha256 of the file content immediately before the external change.
+   * For `operation: 'create'` (the file did not exist before), this is
+   * the empty string `''`.
+   */
   old_hash: string;
+  /**
+   * sha256 of the file content immediately after the external change.
+   * For `operation: 'delete'` (the file no longer exists), this is the
+   * empty string `''`.
+   */
   new_hash: string;
   diff_size: number;
   explanation?: 'formatter' | 'git';
   /**
+   * What kind of external change this was. Default `'modify'` when
+   * absent (pre-v1.3 bundles only emitted modifies, and old analyzers
+   * reading new bundles can treat unknown operations as a modify).
+   *
+   *   'modify' — file existed before and after; content changed.
+   *   'delete' — file existed before, gone after. `new_hash === ''`,
+   *              no `new_content` field.
+   *   'create' — file didn't exist before, exists after. `old_hash === ''`,
+   *              `new_content` populated as for modify.
+   */
+  operation?: 'modify' | 'delete' | 'create';
+  /**
    * UTF-8 byte length of the post-change file content. Populated whenever
-   * the recorder had the new content in hand (which is always: every emit
-   * site either holds the buffer text or has just read it from disk).
-   * Optional for backwards-compatibility with pre-v1.3 bundles.
+   * the recorder had the new content in hand (which is `'modify'` and
+   * `'create'` operations on files small enough to read at emit time).
+   * Absent for `'delete'`.
    */
   new_content_size?: number;
   /**
    * Full post-change content if `new_content_size <= 4096`. Lets the
    * analyzer reseed reconstruction so replay shows the file after the
-   * external write. Absent when content was too large to inline.
+   * external write. Absent when content was too large to inline, or for
+   * `'delete'` operations.
    */
   new_content?: string;
   /**
