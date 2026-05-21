@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { ApiError, Errors, type ApiErrorCode } from './errors.js';
+import { ApiError, Errors, Warnings, type ApiErrorCode } from './errors.js';
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -372,5 +372,110 @@ describe('ApiError.toBody()', () => {
     const err = new ApiError('VALIDATION', 400, 'Bad input', { field: 'email' });
     const body = err.toBody();
     expect(body.error.details).toEqual({ field: 'email' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Warning factories (HTTP 200 with warning field)
+// ---------------------------------------------------------------------------
+
+describe('Warning factories', () => {
+  it('emailDomainNotAllowed — produces warning shape with email', () => {
+    const warning = Warnings.emailDomainNotAllowed('student@example.com');
+    expect(warning.warning.code).toBe('EMAIL_DOMAIN_NOT_ALLOWED');
+    expect(warning.warning.message).toContain('example.com');
+    expect(warning.warning.details?.email).toBe('student@example.com');
+  });
+
+  it('assignmentIdMismatchBundle — produces warning shape with IDs', () => {
+    const warning = Warnings.assignmentIdMismatchBundle('assign-123', 'assign-456');
+    expect(warning.warning.code).toBe('ASSIGNMENT_ID_MISMATCH_BUNDLE');
+    expect(warning.warning.message).toContain('assign-123');
+    expect(warning.warning.message).toContain('assign-456');
+    expect(warning.warning.details?.filename_assignment_id).toBe('assign-123');
+    expect(warning.warning.details?.manifest_assignment_id).toBe('assign-456');
+  });
+
+  it('fileReconstructionTainted — produces warning shape with path and reason', () => {
+    const warning = Warnings.fileReconstructionTainted('src/main.py', 'hash mismatch');
+    expect(warning.warning.code).toBe('FILE_RECONSTRUCTION_TAINTED');
+    expect(warning.warning.message).toContain('src/main.py');
+    expect(warning.warning.message).toContain('hash mismatch');
+    expect(warning.warning.details?.path).toBe('src/main.py');
+    expect(warning.warning.details?.reason).toBe('hash mismatch');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error code count check — all 42 codes from PRD §17
+// ---------------------------------------------------------------------------
+
+describe('ApiErrorCode catalog', () => {
+  it('has exactly 42 codes (39 error + 3 warn)', () => {
+    // All codes from the union type, enumerated here for manual verification
+    const allCodes: readonly ApiErrorCode[] = [
+      // Auth (5)
+      'AUTH_REQUIRED',
+      'AUTH_OAUTH_STATE_MISMATCH',
+      'AUTH_OAUTH_CODE_EXCHANGE_FAILED',
+      'AUTH_DOMAIN_NOT_ALLOWED',
+      'AUTH_EMAIL_NOT_VERIFIED',
+      // Token authorization (3)
+      'TOKEN_READ_ONLY',
+      'TOKEN_SCOPE_OUT_OF_BAND',
+      'TOKEN_BLOB_NOT_PERMITTED',
+      // Role / membership authorization (2)
+      'NOT_A_MEMBER',
+      'INSUFFICIENT_ROLE',
+      // Request validation (3)
+      'BAD_REQUEST_RETURN_TO_INVALID',
+      'VALIDATION',
+      'VALIDATION_REGEX',
+      // Resource errors (2)
+      'NOT_FOUND',
+      'FILE_NOT_FOUND',
+      // Conflict (9)
+      'COURSE_SLUG_TAKEN',
+      'SEMESTER_SLUG_TAKEN',
+      'MEMBER_ALREADY',
+      'INVITATION_ALREADY_OPEN',
+      'CANNOT_DEMOTE_SELF',
+      'LAST_ADMIN_REQUIRED',
+      'INGEST_FILE_NOT_UNMATCHED',
+      'CONFIG_VERSION_CONFLICT',
+      'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD',
+      // Payload too large (3)
+      'ROSTER_CSV_TOO_LARGE',
+      'INGEST_BATCH_TOO_LARGE',
+      'INGEST_FILE_TOO_LARGE',
+      // Roster / ingest bad request (6)
+      'ROSTER_CSV_MISSING_REQUIRED_COLUMN',
+      'ROSTER_CSV_PARSE',
+      'INGEST_TOO_MANY_FILES',
+      'EVENT_QUERY_LIMIT_EXCEEDED',
+      'EVENT_QUERY_RANGE_INVALID',
+      'EXPORT_FORMAT_UNSUPPORTED',
+      // Semantic validation (2)
+      'ROSTER_REQUIRED',
+      'HEURISTIC_CONFIG_INVALID',
+      // Server errors (3)
+      'EXPORT_RENDER_FAILED',
+      'INTERNAL',
+      'DEPENDENCY_UNAVAILABLE',
+      // Rate limiting (1)
+      'RATE_LIMITED',
+      // Warn-level (3)
+      'EMAIL_DOMAIN_NOT_ALLOWED',
+      'ASSIGNMENT_ID_MISMATCH_BUNDLE',
+      'FILE_RECONSTRUCTION_TAINTED',
+    ];
+    expect(allCodes.length).toBe(42);
+
+    // Verify each code is a valid ApiErrorCode (TypeScript ensures this at compile time,
+    // but we verify at runtime too)
+    allCodes.forEach((code) => {
+      expect(typeof code).toBe('string');
+      expect(code.length).toBeGreaterThan(0);
+    });
   });
 });

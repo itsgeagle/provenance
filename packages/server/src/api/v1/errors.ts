@@ -65,7 +65,11 @@ export type ApiErrorCode =
   | 'INTERNAL'
   | 'DEPENDENCY_UNAVAILABLE'
   // Rate limiting
-  | 'RATE_LIMITED';
+  | 'RATE_LIMITED'
+  // Warn-level (HTTP 200 with warning field)
+  | 'EMAIL_DOMAIN_NOT_ALLOWED'
+  | 'ASSIGNMENT_ID_MISMATCH_BUNDLE'
+  | 'FILE_RECONSTRUCTION_TAINTED';
 
 // ---------------------------------------------------------------------------
 // ApiError class
@@ -119,6 +123,20 @@ interface ErrorObject {
 
 export interface ErrorResponseBody {
   error: ErrorObject;
+}
+
+/**
+ * Warning response body for warn-level codes (HTTP 200 with `warning` field).
+ * Intended to be spread into a normal response body alongside data.
+ */
+interface WarningObject {
+  code: ApiErrorCode;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface WarningBody {
+  warning: WarningObject;
 }
 
 // ---------------------------------------------------------------------------
@@ -468,5 +486,45 @@ export const Errors = {
       retry_after_seconds: retryAfterSeconds,
       reset_at: resetAt,
     });
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Warning factories — warn-level responses (HTTP 200 with warning field)
+// ---------------------------------------------------------------------------
+
+/**
+ * Factory helpers for warn-level codes from PRD §17.
+ * These produce a WarningBody shape suitable for spreading into a 200-OK response.
+ */
+export const Warnings = {
+  emailDomainNotAllowed(email: string): WarningBody {
+    return {
+      warning: {
+        code: 'EMAIL_DOMAIN_NOT_ALLOWED',
+        message: `Email domain not in allowed hosted domains: ${email}`,
+        details: { email },
+      },
+    };
+  },
+
+  assignmentIdMismatchBundle(filenameId: string, manifestId: string): WarningBody {
+    return {
+      warning: {
+        code: 'ASSIGNMENT_ID_MISMATCH_BUNDLE',
+        message: `Filename assignment_id (${filenameId}) does not match bundle manifest (${manifestId})`,
+        details: { filename_assignment_id: filenameId, manifest_assignment_id: manifestId },
+      },
+    };
+  },
+
+  fileReconstructionTainted(path: string, reason: string): WarningBody {
+    return {
+      warning: {
+        code: 'FILE_RECONSTRUCTION_TAINTED',
+        message: `Reconstruction tainted for file ${path}: ${reason}`,
+        details: { path, reason },
+      },
+    };
   },
 } as const;
