@@ -28,6 +28,8 @@ import {
   check,
   unique,
   jsonb,
+  bigserial,
+  doublePrecision,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -224,6 +226,67 @@ export const api_tokens = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// rate_limit_buckets  (PRD §7.6 / migration 0003)
+// ---------------------------------------------------------------------------
+
+/**
+ * Postgres-backed rate limit bucket state.
+ *
+ * Used only when RATE_LIMIT_BACKEND=postgres (production multi-process).
+ * The in-memory backend does not touch this table.
+ *
+ * `principal_id` format:
+ *   "user:<uuid>"   — session-authenticated user
+ *   "token:<uuid>"  — token-authenticated principal
+ *   "anon:<ip>"     — unauthenticated, keyed by IP address
+ */
+export const rate_limit_buckets = pgTable('rate_limit_buckets', {
+  principal_id: text('principal_id').notNull(),
+  route_class: text('route_class').notNull(),
+  tokens: doublePrecision('tokens').notNull(),
+  last_refill_at: timestamp('last_refill_at', { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.principal_id, t.route_class] }),
+]);
+
+// ---------------------------------------------------------------------------
+// audit_log  (PRD §5.7 / migration 0004)
+// ---------------------------------------------------------------------------
+
+/**
+ * Append-only audit trail of all write actions and sensitive read actions.
+ * See PRD §13 for the action catalog and retention policy.
+ *
+ * Rows are NEVER deleted by application code; only the retention sweep removes
+ * them after max(semester.derived_retention_days, 1825) days.
+ */
+export const audit_log = pgTable(
+  'audit_log',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    actor_user_id: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    actor_token_id: uuid('actor_token_id').references(() => api_tokens.id, {
+      onDelete: 'set null',
+    }),
+    semester_id: uuid('semester_id').references(() => semesters.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    target_type: text('target_type').notNull(),
+    target_id: text('target_id').notNull(),
+    detail: jsonb('detail').notNull().default(sql`'{}'`),
+    ip: inet('ip'),
+    user_agent: text('user_agent'),
+    at: timestamp('at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    index('audit_log_semester_at_idx').on(t.semester_id, t.at),
+    index('audit_log_actor_at_idx').on(t.actor_user_id, t.at),
+    index('audit_log_action_at_idx').on(t.action, t.at),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -241,3 +304,7 @@ export type PendingInvitation = typeof pending_invitations.$inferSelect;
 export type NewPendingInvitation = typeof pending_invitations.$inferInsert;
 export type ApiToken = typeof api_tokens.$inferSelect;
 export type NewApiToken = typeof api_tokens.$inferInsert;
+export type RateLimitBucket = typeof rate_limit_buckets.$inferSelect;
+export type NewRateLimitBucket = typeof rate_limit_buckets.$inferInsert;
+export type AuditLog = typeof audit_log.$inferSelect;
+export type NewAuditLog = typeof audit_log.$inferInsert;
