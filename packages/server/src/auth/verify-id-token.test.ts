@@ -214,10 +214,12 @@ describe('verifyIdToken — alg: "none" rejection', () => {
     // Build a JWT manually with header { "alg": "none" } and empty signature.
     // This is the canonical algorithm-confusion attack; the code must reject
     // it at the alg check (before any key lookup or signature verification).
+    // A `kid` is included so the header passes `parseHeader`; the alg check
+    // happens immediately after header parsing.
     function b64url(s: string): string {
       return Buffer.from(s, 'utf8').toString('base64url');
     }
-    const header = b64url(JSON.stringify({ alg: 'none', typ: 'JWT' }));
+    const header = b64url(JSON.stringify({ alg: 'none', kid: 'test-kid', typ: 'JWT' }));
     const payloadB64 = b64url(JSON.stringify(validPayload(AUDIENCE)));
     const jwt = `${header}.${payloadB64}.`; // empty signature segment
 
@@ -252,9 +254,12 @@ describe('verifyIdToken — JWKs cache retry on kid miss', () => {
 
     const claims = await verifyIdToken(jwt, AUDIENCE, { fetchJwks: mockFetchJwks });
 
-    // Should have been called exactly twice: once for initial lookup, once force-refreshed.
+    // Should have been called exactly twice: once for initial lookup (no opts),
+    // once with force: true for the key-rotation retry.
     expect(mockFetchJwks).toHaveBeenCalledTimes(2);
-    expect(mockFetchJwks).toHaveBeenNthCalledWith(1, undefined);
+    // First call has no arguments (cache-hit path, no force).
+    expect(mockFetchJwks.mock.calls[0]).toEqual([]);
+    // Second call explicitly passes { force: true }.
     expect(mockFetchJwks).toHaveBeenNthCalledWith(2, { force: true });
     expect(claims.sub).toBe(payload.sub);
   });
