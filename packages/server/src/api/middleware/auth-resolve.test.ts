@@ -1,0 +1,243 @@
+/**
+ * Auth resolution middleware tests — precedence handling.
+ */
+
+import { vi, describe, it, expect } from 'vitest';
+import { withTestDb } from '../../../test/helpers/db.js';
+import { resolvePrincipal } from './auth-resolve.js';
+import { createToken } from '../../auth/tokens.js';
+import { createSession, sessionExpiresAt } from '../../auth/sessions.js';
+import { users, sessions } from '../../db/schema.js';
+import type { DrizzleDb } from '../../db/client.js';
+
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
+
+// ---------------------------------------------------------------------------
+// Mock DB setup
+// ---------------------------------------------------------------------------
+
+let _testDb: DrizzleDb | null = null;
+
+vi.mock('../../db/client.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../db/client.js')>();
+  return {
+    ...original,
+    getDb: () => {
+      if (_testDb !== null) return _testDb;
+      return original.getDb();
+    },
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Mock cookies helper
+// ---------------------------------------------------------------------------
+
+vi.mock('../../auth/cookies.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../auth/cookies.js')>();
+  let sessionCookie: string | undefined;
+
+  return {
+    ...original,
+    getSessionCookie: (c: any) => sessionCookie,
+    // Add setter for tests
+    __setSessionCookie: (cookie: string | undefined) => {
+      sessionCookie = cookie;
+    },
+  };
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function insertUser(db: DrizzleDb, overrides?: Partial<typeof users.$inferInsert>) {
+  const rows = await db
+    .insert(users)
+    .values({
+      google_subject: `sub-${Math.random()}`,
+      email: 'test@berkeley.edu',
+      display_name: 'Test User',
+      is_superadmin: false,
+      ...overrides,
+    })
+    .returning();
+  const row = rows[0];
+  if (row === undefined) throw new Error('User insert returned no rows');
+  return row;
+}
+
+function createMockContext(authHeader?: string) {
+  const ctx: any = {
+    req: {
+      header: (name: string) => {
+        if (name === 'authorization') return authHeader;
+        return undefined;
+      },
+    },
+  };
+  return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('resolvePrincipal — precedence', () => {
+  it('uses bearer token when Authorization header is present and valid', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db);
+        const { secret, token: created } = await createToken(db, {
+          userId: user.id,
+          label: 'Test Token',
+        });
+
+        const ctx = createMockContext(`Bearer ${secret}`);
+        const principal = await resolvePrincipal(ctx);
+
+        expect(principal).not.toBeNull();
+        expect(principal!.principal_kind).toBe('token');
+        expect(principal!.user.id).toBe(user.id);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns null for malformed Authorization header (no fallback to session)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db);
+        const sessionId = await createSession(db, {
+          userId: user.id,
+          expiresAt: sessionExpiresAt(14),
+        });
+
+        // Malformed header (not "Bearer <token>")
+        const ctx = createMockContext('Invalid xyz');
+
+        // Get access to the mock function
+        const { __setSessionCookie } = await import('../../auth/cookies.js');
+        __setSessionCookie(sessionId);
+
+        const principal = await resolvePrincipal(ctx);
+
+        // Should return null because header was present but malformed.
+        // No fallback to session cookie.
+        expect(principal).toBeNull();
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns null for invalid bearer token (no fallback to session)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db);
+        const sessionId = await createSession(db, {
+          userId: user.id,
+          expiresAt: sessionExpiresAt(14),
+        });
+
+        const ctx = createMockContext('Bearer prov_badprefix_wrongsecret');
+
+        const { __setSessionCookie } = await import('../../auth/cookies.js');
+        __setSessionCookie(sessionId);
+
+        const principal = await resolvePrincipal(ctx);
+
+        // Header was present (and seemingly valid format), but token invalid.
+        // No fallback to session.
+        expect(principal).toBeNull();
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('uses session cookie when Authorization header is absent', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db);
+        const sessionId = await createSession(db, {
+          userId: user.id,
+          expiresAt: sessionExpiresAt(14),
+        });
+
+        const ctx = createMockContext(); // No Authorization header
+
+        const { __setSessionCookie } = await import('../../auth/cookies.js');
+        __setSessionCookie(sessionId);
+
+        const principal = await resolvePrincipal(ctx);
+
+        expect(principal).not.toBeNull();
+        expect(principal!.principal_kind).toBe('session');
+        expect(principal!.user.id).toBe(user.id);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns null when neither bearer nor session is present', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const ctx = createMockContext(); // No Authorization header
+
+        const { __setSessionCookie } = await import('../../auth/cookies.js');
+        __setSessionCookie(undefined); // No session cookie
+
+        const principal = await resolvePrincipal(ctx);
+
+        expect(principal).toBeNull();
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('bearer token takes precedence over session cookie when both present', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user1 = await insertUser(db, { email: 'user1@berkeley.edu' });
+        const user2 = await insertUser(db, { email: 'user2@berkeley.edu' });
+
+        // Create a token for user1
+        const { secret: token1 } = await createToken(db, {
+          userId: user1.id,
+          label: 'Token for User1',
+        });
+
+        // Create a session for user2
+        const sessionId = await createSession(db, {
+          userId: user2.id,
+          expiresAt: sessionExpiresAt(14),
+        });
+
+        const ctx = createMockContext(`Bearer ${token1}`);
+
+        const { __setSessionCookie } = await import('../../auth/cookies.js');
+        __setSessionCookie(sessionId);
+
+        const principal = await resolvePrincipal(ctx);
+
+        // Should use the bearer token (user1), not the session (user2)
+        expect(principal).not.toBeNull();
+        expect(principal!.principal_kind).toBe('token');
+        expect(principal!.user.id).toBe(user1.id);
+        expect(principal!.user.email).toBe('user1@berkeley.edu');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
