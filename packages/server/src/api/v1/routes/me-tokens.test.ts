@@ -76,7 +76,8 @@ function makeMeTokensApp(principal: Principal | null): Hono {
   });
   app.route('/', createMeTokensRouter());
   // Error handler: catch thrown Responses (from requirePrincipal)
-  app.onError((err, c) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.onError((err, _c) => {
     if (err instanceof Response) {
       return err;
     }
@@ -116,6 +117,7 @@ describe('GET /me/tokens', () => {
           label: 'Some Token',
         });
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
         const res = await app.fetch(new Request('http://localhost/'));
@@ -150,6 +152,7 @@ describe('GET /me/tokens', () => {
           label: 'Second Token',
         });
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
         const res = await app.fetch(new Request('http://localhost/'));
@@ -177,6 +180,7 @@ describe('POST /me/tokens', () => {
       _testDb = db;
       try {
         const user = await insertUser(db);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
 
@@ -218,6 +222,7 @@ describe('POST /me/tokens', () => {
       _testDb = db;
       try {
         const user = await insertUser(db);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
 
@@ -248,6 +253,7 @@ describe('POST /me/tokens', () => {
       _testDb = db;
       try {
         const user = await insertUser(db);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
 
@@ -282,6 +288,7 @@ describe('POST /me/tokens', () => {
       try {
         const user = await insertUser(db);
         const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
 
@@ -323,6 +330,7 @@ describe('DELETE /me/tokens/:id', () => {
           label: 'Token to Delete',
         });
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
         const res = await app.fetch(
@@ -379,6 +387,7 @@ describe('DELETE /me/tokens/:id', () => {
           label: 'Token to Delete',
         });
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user, session: {} as any };
         const app = makeMeTokensApp(principal);
 

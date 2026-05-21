@@ -33,17 +33,14 @@ vi.mock('../../db/client.js', async (importOriginal) => {
 // Mock cookies helper
 // ---------------------------------------------------------------------------
 
+let _mockSessionCookie: string | undefined;
+
 vi.mock('../../auth/cookies.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../auth/cookies.js')>();
-  let sessionCookie: string | undefined;
 
   return {
     ...original,
-    getSessionCookie: (c: any) => sessionCookie,
-    // Add setter for tests
-    __setSessionCookie: (cookie: string | undefined) => {
-      sessionCookie = cookie;
-    },
+    getSessionCookie: (c: any) => _mockSessionCookie,
   };
 });
 
@@ -119,9 +116,8 @@ describe('resolvePrincipal — precedence', () => {
         // Malformed header (not "Bearer <token>")
         const ctx = createMockContext('Invalid xyz');
 
-        // Get access to the mock function
-        const { __setSessionCookie } = await import('../../auth/cookies.js');
-        __setSessionCookie(sessionId);
+        // Set the mock session cookie
+        _mockSessionCookie = sessionId;
 
         const principal = await resolvePrincipal(ctx);
 
@@ -130,6 +126,7 @@ describe('resolvePrincipal — precedence', () => {
         expect(principal).toBeNull();
       } finally {
         _testDb = null;
+        _mockSessionCookie = undefined;
       }
     });
   });
@@ -146,8 +143,8 @@ describe('resolvePrincipal — precedence', () => {
 
         const ctx = createMockContext('Bearer prov_badprefix_wrongsecret');
 
-        const { __setSessionCookie } = await import('../../auth/cookies.js');
-        __setSessionCookie(sessionId);
+        // Set the mock session cookie
+        _mockSessionCookie = sessionId;
 
         const principal = await resolvePrincipal(ctx);
 
@@ -156,6 +153,7 @@ describe('resolvePrincipal — precedence', () => {
         expect(principal).toBeNull();
       } finally {
         _testDb = null;
+        _mockSessionCookie = undefined;
       }
     });
   });
@@ -172,8 +170,8 @@ describe('resolvePrincipal — precedence', () => {
 
         const ctx = createMockContext(); // No Authorization header
 
-        const { __setSessionCookie } = await import('../../auth/cookies.js');
-        __setSessionCookie(sessionId);
+        // Set the mock session cookie
+        _mockSessionCookie = sessionId;
 
         const principal = await resolvePrincipal(ctx);
 
@@ -182,6 +180,7 @@ describe('resolvePrincipal — precedence', () => {
         expect(principal!.user.id).toBe(user.id);
       } finally {
         _testDb = null;
+        _mockSessionCookie = undefined;
       }
     });
   });
@@ -192,14 +191,15 @@ describe('resolvePrincipal — precedence', () => {
       try {
         const ctx = createMockContext(); // No Authorization header
 
-        const { __setSessionCookie } = await import('../../auth/cookies.js');
-        __setSessionCookie(undefined); // No session cookie
+        // No session cookie
+        _mockSessionCookie = undefined;
 
         const principal = await resolvePrincipal(ctx);
 
         expect(principal).toBeNull();
       } finally {
         _testDb = null;
+        _mockSessionCookie = undefined;
       }
     });
   });
@@ -225,8 +225,8 @@ describe('resolvePrincipal — precedence', () => {
 
         const ctx = createMockContext(`Bearer ${token1}`);
 
-        const { __setSessionCookie } = await import('../../auth/cookies.js');
-        __setSessionCookie(sessionId);
+        // Set the mock session cookie
+        _mockSessionCookie = sessionId;
 
         const principal = await resolvePrincipal(ctx);
 
@@ -237,6 +237,7 @@ describe('resolvePrincipal — precedence', () => {
         expect(principal!.user.email).toBe('user1@berkeley.edu');
       } finally {
         _testDb = null;
+        _mockSessionCookie = undefined;
       }
     });
   });

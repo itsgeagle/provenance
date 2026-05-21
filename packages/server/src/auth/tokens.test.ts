@@ -319,7 +319,7 @@ describe('verifyToken', () => {
       const { secret, token } = await createToken(db, {
         userId,
         label: 'No Expiry',
-        expiresAt: undefined,
+        expiresAt: null,
       });
 
       expect(token.expires_at).toBeNull();
@@ -362,8 +362,7 @@ describe('revokeToken', () => {
       });
 
       await revokeToken(db, created.id);
-      const revokedOnce = await findTokenByPrefix(db, created.prefix);
-      const firstRevokedAt = revokedOnce!.revoked_at;
+      await findTokenByPrefix(db, created.prefix);
 
       // Small delay to ensure time difference if it were to change
       await new Promise((r) => setTimeout(r, 50));

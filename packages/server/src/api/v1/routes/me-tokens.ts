@@ -46,6 +46,7 @@ interface TokenSummary {
   id: string;
   label: string;
   prefix: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   scopes: any;
   last_used_at: string | null;
   expires_at: string | null;
@@ -83,6 +84,7 @@ export function createMeTokensRouter(): Hono {
     const userId = principal.user.id;
     const db = getDb();
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tokens = await db
       .select()
       .from(api_tokens)
@@ -135,13 +137,13 @@ export function createMeTokensRouter(): Hono {
     const { label, scopes, expires_at } = parseResult.data;
     const db = getDb();
 
-    const expiresAtDate = expires_at ? new Date(expires_at) : undefined;
+    const expiresAtDate = expires_at ? new Date(expires_at) : null;
 
     try {
-      const { prefix, secret, token } = await createToken(db, {
+      const { secret, token } = await createToken(db, {
         userId,
         label,
-        scopes,
+        scopes: scopes || null,
         expiresAt: expiresAtDate,
       });
 

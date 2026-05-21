@@ -34,10 +34,10 @@ import type { Principal } from './auth-session.js';
  * Parses the Authorization header to extract the Bearer token.
  * Returns the token string or null if the header is missing or malformed.
  */
-export function parseBearerHeader(authHeader: string | undefined): string | null {
-  if (authHeader === undefined) return null;
+export function parseBearerHeader(authHeader: string | undefined | null): string | null {
+  if (authHeader === undefined || authHeader === null) return null;
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 // ---------------------------------------------------------------------------

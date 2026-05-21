@@ -40,6 +40,7 @@ export function createMeRouter(): Hono {
 
     const { user, principal_kind } = principal;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response: Record<string, any> = {
       user: {
         id: user.id,

@@ -13,8 +13,8 @@ import { hash, verify } from 'argon2';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import type { DrizzleDb } from '../db/client.js';
-import { api_tokens, users } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { api_tokens } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 import type { ApiToken } from '../db/schema.js';
 
 // ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ export function generateToken(): GeneratedToken {
  */
 export function extractPrefix(token: string): string | null {
   const match = token.match(/^prov_([a-zA-Z0-9]+)_/);
-  return match ? match[1] : null;
+  return match?.[1] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +114,8 @@ export async function verifyTokenHash(hash: string, secret: string): Promise<boo
 export interface CreateTokenInput {
   userId: string;
   label: string;
-  scopes?: Partial<TokenScopes>;
-  expiresAt?: Date;
+  scopes?: Partial<TokenScopes> | null;
+  expiresAt?: Date | null;
 }
 
 export interface TokenInfo {
@@ -142,7 +142,7 @@ export async function createToken(
   input: CreateTokenInput,
 ): Promise<{ prefix: string; secret: string; token: ApiToken }> {
   // Validate and apply defaults to scopes
-  const scopes = tokenScopesSchema.parse(input.scopes ?? {});
+  const scopes = tokenScopesSchema.parse(input.scopes === null ? {} : input.scopes || {});
 
   const maxRetries = 3;
   let lastError: Error | null = null;
@@ -152,6 +152,7 @@ export async function createToken(
     const hashedToken = await hashToken(secret);
 
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rows = await db
         .insert(api_tokens)
         .values({
@@ -173,6 +174,7 @@ export async function createToken(
     } catch (err) {
       // If it's a unique constraint violation on prefix, retry.
       // Otherwise, propagate.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const error = err as any;
       if (error?.code === '23505' && error?.constraint === 'api_tokens_prefix_idx') {
         lastError = error;
@@ -233,6 +235,7 @@ export async function verifyToken(token: ApiToken, secret: string): Promise<bool
  * Idempotent: revoking an already-revoked token succeeds.
  */
 export async function revokeToken(db: DrizzleDb, tokenId: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db
     .update(api_tokens)
     .set({ revoked_at: new Date() })
@@ -244,6 +247,7 @@ export async function revokeToken(db: DrizzleDb, tokenId: string): Promise<void>
  * Called by middleware after successful verification to track usage.
  */
 export async function updateTokenLastUsed(db: DrizzleDb, tokenId: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await db
     .update(api_tokens)
     .set({ last_used_at: new Date() })
