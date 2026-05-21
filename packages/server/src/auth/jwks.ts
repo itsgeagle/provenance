@@ -113,14 +113,27 @@ async function fetchJwksFromGoogle(): Promise<JwkSet> {
  *
  * Concurrent callers during a cache miss share a single in-flight Promise
  * (no stampede).
+ *
+ * When `opts.force` is `true` the cache is bypassed: any in-flight request is
+ * abandoned and a fresh HTTP fetch is initiated. This is used exclusively by
+ * `verifyIdToken`'s `selectKey` retry path when a `kid` is not found in the
+ * cached key set (Google has rotated keys). Forced refreshes are rare in
+ * practice (at most once per key rotation event).
  */
-export async function getGoogleJwks(): Promise<JwkSet> {
-  // Cache hit.
-  if (_cache !== undefined && Date.now() < _cache.expiresAt) {
+export async function getGoogleJwks(opts?: { force?: boolean }): Promise<JwkSet> {
+  const force = opts?.force === true;
+
+  // Cache hit (only when not forcing).
+  if (!force && _cache !== undefined && Date.now() < _cache.expiresAt) {
     return _cache.keys;
   }
 
-  // Cache miss — share one in-flight fetch.
+  // Force: drop any existing in-flight and start a fresh fetch.
+  if (force) {
+    _inflight = undefined;
+  }
+
+  // Cache miss or forced refresh — share one in-flight fetch.
   if (_inflight !== undefined) {
     return _inflight;
   }

@@ -108,21 +108,19 @@ function parsePayload(raw: unknown): RawPayload {
 
 async function selectKey(
   kid: string,
-  fetchJwks: () => Promise<JwkSet>,
+  fetchJwks: (opts?: { force?: boolean }) => Promise<JwkSet>,
 ): Promise<Jwk> {
   // First attempt using (potentially cached) JWKs.
   const firstSet = await fetchJwks();
   const found = findKeyByKid(firstSet, kid);
   if (found !== undefined) return found;
 
-  // kid not found — Google may have rotated; bust cache and retry once.
-  // We bypass the module-level cache by calling the injected fetchJwks again.
-  // In production fetchJwks === getGoogleJwks, which will refetch on the
-  // second call because the cache entry was set for the previous keyset.
-  // For that second call we explicitly bypass by requesting a fresh fetch.
-  // Because the injected fetchJwks is tested independently, in tests the
-  // injected function can handle retries however it needs to.
-  const secondSet = await fetchJwks();
+  // kid not found — Google may have rotated keys since the last cache fill.
+  // Force a fresh HTTP fetch (bypassing the in-memory cache) and retry once.
+  // `force: true` is what distinguishes this from the first call — without it
+  // getGoogleJwks would return the same cached set again and the retry would
+  // be a no-op.
+  const secondSet = await fetchJwks({ force: true });
   const retry = findKeyByKid(secondSet, kid);
   if (retry !== undefined) return retry;
 
@@ -135,7 +133,7 @@ async function selectKey(
 
 export interface VerifyIdTokenOptions {
   /** Override the JWKs fetcher for testing. Defaults to `getGoogleJwks`. */
-  fetchJwks?: () => Promise<JwkSet>;
+  fetchJwks?: (opts?: { force?: boolean }) => Promise<JwkSet>;
 }
 
 const VALID_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
