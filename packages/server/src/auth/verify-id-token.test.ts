@@ -166,6 +166,46 @@ describe('verifyIdToken — claims failures', () => {
 });
 
 // ---------------------------------------------------------------------------
+// aud claim: string or array per RFC 7519 §4.1.3 (Issue 2)
+// ---------------------------------------------------------------------------
+
+describe('verifyIdToken — aud claim variations', () => {
+  it('accepts aud as a single-element array containing the correct audience', async () => {
+    const payload = validPayload(AUDIENCE, { aud: [AUDIENCE] as unknown as string });
+    const jwt = mintJwt(pair, payload);
+    await expect(verifyIdToken(jwt, AUDIENCE, { fetchJwks })).resolves.toBeDefined();
+  });
+
+  it('accepts aud as a multi-element array when audience is present', async () => {
+    const payload = validPayload(AUDIENCE, { aud: [AUDIENCE, 'other-client'] as unknown as string });
+    const jwt = mintJwt(pair, payload);
+    await expect(verifyIdToken(jwt, AUDIENCE, { fetchJwks })).resolves.toBeDefined();
+  });
+
+  it('rejects aud array that does not contain the expected audience', async () => {
+    const payload = validPayload(AUDIENCE, { aud: ['other-client'] as unknown as string });
+    const jwt = mintJwt(pair, payload);
+    await expect(verifyIdToken(jwt, AUDIENCE, { fetchJwks })).rejects.toThrow(/Invalid JWT aud/i);
+  });
+
+  it('rejects aud array with non-string elements', async () => {
+    const payload = validPayload(AUDIENCE, { aud: [1, 2] as unknown as string });
+    const jwt = mintJwt(pair, payload);
+    await expect(verifyIdToken(jwt, AUDIENCE, { fetchJwks })).rejects.toThrow(
+      /Invalid JWT aud: must be string or string\[\]/i,
+    );
+  });
+
+  it('rejects aud that is an object (not string or array)', async () => {
+    const payload = validPayload(AUDIENCE, { aud: { client: AUDIENCE } as unknown as string });
+    const jwt = mintJwt(pair, payload);
+    await expect(verifyIdToken(jwt, AUDIENCE, { fetchJwks })).rejects.toThrow(
+      /Invalid JWT aud: must be string or string\[\]/i,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // alg: 'none' attack rejection (Issue 5)
 // ---------------------------------------------------------------------------
 

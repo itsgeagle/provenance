@@ -202,9 +202,19 @@ export async function verifyIdToken(
     throw new Error(`Invalid JWT iss: ${String(rawPayload.iss)}`);
   }
 
-  // aud
-  if (rawPayload.aud !== audience) {
-    throw new Error(`Invalid JWT aud: expected "${audience}", got "${String(rawPayload.aud)}"`);
+  // aud — RFC 7519 §4.1.3 allows a single string OR an array of strings.
+  // Google emits arrays in some contexts (e.g. when azp is present).
+  const aud = rawPayload.aud;
+  if (typeof aud === 'string') {
+    if (aud !== audience) {
+      throw new Error(`Invalid JWT aud: expected "${audience}", got "${aud}"`);
+    }
+  } else if (Array.isArray(aud) && aud.every((v) => typeof v === 'string')) {
+    if (!(aud as string[]).includes(audience)) {
+      throw new Error(`Invalid JWT aud: "${audience}" not found in [${(aud as string[]).join(', ')}]`);
+    }
+  } else {
+    throw new Error('Invalid JWT aud: must be string or string[]');
   }
 
   // exp
