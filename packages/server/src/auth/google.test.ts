@@ -14,10 +14,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
 import { parseEnv } from '../config/env.js';
-import {
-  RealGoogleOAuthClient,
-  narrowClaims,
-} from './google.js';
+import { RealGoogleOAuthClient, narrowClaims } from './google.js';
 import { FakeGoogleOAuthClient } from '../../test/helpers/fake-google-client.js';
 
 // ---------------------------------------------------------------------------

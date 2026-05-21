@@ -134,9 +134,7 @@ export const envSchema = rawEnvSchema.superRefine((data, ctx) => {
 
     // AUTH_COOKIE_SIGNING_SECRET must be explicitly set in production
     // (the transform default is the dev-only sentinel; check for it)
-    if (
-      data.AUTH_COOKIE_SIGNING_SECRET === 'dev-only-insecure-signing-secret-change-in-prod'
-    ) {
+    if (data.AUTH_COOKIE_SIGNING_SECRET === 'dev-only-insecure-signing-secret-change-in-prod') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['AUTH_COOKIE_SIGNING_SECRET'],

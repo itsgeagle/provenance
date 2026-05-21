@@ -102,11 +102,7 @@ export const Errors = {
   },
 
   domainNotAllowed(): ApiError {
-    return new ApiError(
-      'AUTH_DOMAIN_NOT_ALLOWED',
-      403,
-      'Google Workspace domain not permitted',
-    );
+    return new ApiError('AUTH_DOMAIN_NOT_ALLOWED', 403, 'Google Workspace domain not permitted');
   },
 
   emailNotVerified(): ApiError {

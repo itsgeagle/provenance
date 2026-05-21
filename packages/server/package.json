@@ -20,6 +20,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "@hono/zod-openapi": "^0.19.4",
+    "argon2": "^0.31.2",
     "arctic": "^3.7.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.7.11",

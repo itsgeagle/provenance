@@ -94,7 +94,9 @@ async function insertSession(
 ): Promise<string> {
   const id = 'a'.repeat(43); // deterministic for ease; not from generateSessionId to avoid entropy
   // Use a unique id to avoid conflicts between tests.
-  const uniqueId = `${id.slice(0, 10)}${Math.random().toString(36).slice(2)}`.padEnd(43, 'x').slice(0, 43);
+  const uniqueId = `${id.slice(0, 10)}${Math.random().toString(36).slice(2)}`
+    .padEnd(43, 'x')
+    .slice(0, 43);
   await db.insert(sessions).values({
     id: uniqueId,
     user_id: userId,

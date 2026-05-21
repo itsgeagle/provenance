@@ -49,11 +49,7 @@ export class FakeGoogleOAuthClient implements GoogleOAuthClient {
     return { state: this.fixedState, codeVerifier: this.fixedCodeVerifier };
   }
 
-  createAuthorizeUrl(args: {
-    state: string;
-    codeVerifier: string;
-    redirectUri: string;
-  }): string {
+  createAuthorizeUrl(args: { state: string; codeVerifier: string; redirectUri: string }): string {
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     url.searchParams.set('client_id', 'fake-client-id');
     url.searchParams.set('redirect_uri', args.redirectUri);

@@ -69,11 +69,7 @@ export interface MintJwtOptions {
  * @param opts    Optional overrides for header fields and signing key.
  * @returns       A raw JWT string (three base64url segments joined by '.').
  */
-export function mintJwt(
-  pair: TestKeyPair,
-  payload: JwtPayload,
-  opts: MintJwtOptions = {},
-): string {
+export function mintJwt(pair: TestKeyPair, payload: JwtPayload, opts: MintJwtOptions = {}): string {
   const alg = opts.alg ?? 'RS256';
   const kid = opts.kid ?? pair.kid;
   const signingKey = opts.signWithKey ?? pair.privateKey;

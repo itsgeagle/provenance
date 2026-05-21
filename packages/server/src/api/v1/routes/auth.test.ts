@@ -14,7 +14,12 @@ import { createAuthRouter } from './auth.js';
 import { FakeGoogleOAuthClient } from '../../../../test/helpers/fake-google-client.js';
 import type { GoogleOAuthClient, IdTokenClaims } from '../../../auth/google.js';
 import { verifyIdToken } from '../../../auth/verify-id-token.js';
-import { generateTestKeyPair, mintJwt, validPayload, jwksFromPair } from '../../../../test/helpers/mint-jwt.js';
+import {
+  generateTestKeyPair,
+  mintJwt,
+  validPayload,
+  jwksFromPair,
+} from '../../../../test/helpers/mint-jwt.js';
 import type { JwkSet } from '../../../auth/jwks.js';
 import { users, sessions } from '../../../db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -168,8 +173,7 @@ describe('POST /google/start — invalid return_to', () => {
 
     const res = await app.fetch(
       new Request(
-        'http://localhost/google/start?return_to=' +
-          encodeURIComponent('https://evil.com/steal'),
+        'http://localhost/google/start?return_to=' + encodeURIComponent('https://evil.com/steal'),
         { method: 'POST' },
       ),
     );
@@ -183,10 +187,9 @@ describe('POST /google/start — invalid return_to', () => {
     const fake = new FakeGoogleOAuthClient();
     const app = makeApp(fake);
     const res = await app.fetch(
-      new Request(
-        'http://localhost/google/start?return_to=' + encodeURIComponent('//evil.com/'),
-        { method: 'POST' },
-      ),
+      new Request('http://localhost/google/start?return_to=' + encodeURIComponent('//evil.com/'), {
+        method: 'POST',
+      }),
     );
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -214,9 +217,7 @@ describe('GET /google/callback — state mismatch', () => {
   it('returns 400 AUTH_OAUTH_STATE_MISMATCH when oauth cookie is absent', async () => {
     const fake = new FakeGoogleOAuthClient();
     const app = makeApp(fake);
-    const res = await app.fetch(
-      new Request('http://localhost/google/callback?code=c&state=s'),
-    );
+    const res = await app.fetch(new Request('http://localhost/google/callback?code=c&state=s'));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.code).toBe('AUTH_OAUTH_STATE_MISMATCH');
@@ -362,8 +363,7 @@ describe('GET /google/callback — new user (DB injected)', () => {
         expect(userRows[0]!.last_login_at).not.toBeNull();
 
         // Session row in DB.
-        const sessionCookieValue =
-          extractCookieValue(setCookieHeader, '__Host-prov_sess') ?? '';
+        const sessionCookieValue = extractCookieValue(setCookieHeader, '__Host-prov_sess') ?? '';
         expect(sessionCookieValue).toBeTruthy();
 
         const sessionRows = await db

@@ -46,11 +46,7 @@ export interface GoogleOAuthClient {
    * Builds the Google authorize URL with PKCE + state + hd hint.
    * Does NOT store state — caller is responsible for persistence.
    */
-  createAuthorizeUrl(args: {
-    state: string;
-    codeVerifier: string;
-    redirectUri: string;
-  }): string;
+  createAuthorizeUrl(args: { state: string; codeVerifier: string; redirectUri: string }): string;
 
   /**
    * Exchanges the authorization code for tokens and decodes the ID token.

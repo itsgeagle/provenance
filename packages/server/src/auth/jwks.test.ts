@@ -5,7 +5,13 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getGoogleJwks, findKeyByKid, _resetJwksCacheForTest, _expireCacheForTest, type JwkSet } from './jwks.js';
+import {
+  getGoogleJwks,
+  findKeyByKid,
+  _resetJwksCacheForTest,
+  _expireCacheForTest,
+  type JwkSet,
+} from './jwks.js';
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -19,9 +25,7 @@ const FAKE_JWKS: JwkSet = {
 };
 
 const FAKE_JWKS_V2: JwkSet = {
-  keys: [
-    { kty: 'RSA', kid: 'key-3', alg: 'RS256', use: 'sig', n: 'ghi', e: 'AQAB' },
-  ],
+  keys: [{ kty: 'RSA', kid: 'key-3', alg: 'RS256', use: 'sig', n: 'ghi', e: 'AQAB' }],
 };
 
 function makeFetchMock(jwks: JwkSet, maxAgeSec = 3600): ReturnType<typeof vi.fn> {

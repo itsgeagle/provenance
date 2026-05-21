@@ -14,7 +14,12 @@ import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
 import { parseEnv } from '../config/env.js';
 import { RealGoogleOAuthClient } from './google.js';
-import { generateTestKeyPair, mintJwt, validPayload, jwksFromPair } from '../../test/helpers/mint-jwt.js';
+import {
+  generateTestKeyPair,
+  mintJwt,
+  validPayload,
+  jwksFromPair,
+} from '../../test/helpers/mint-jwt.js';
 import * as nodeCrypto from 'node:crypto';
 import type { JwkSet } from './jwks.js';
 
