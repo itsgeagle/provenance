@@ -72,6 +72,13 @@ describe('parseBearerHeader', () => {
     expect(parseBearerHeader('Basic xyz')).toBeNull();
     expect(parseBearerHeader('prov_token')).toBeNull();
   });
+
+  it('returns null for double-space between Bearer and token (exact-one-space rule)', () => {
+    // "Bearer  prov_xxx" (two spaces) must be rejected as malformed, not silently
+    // extracted with a leading space that downstream code then quietly rejects.
+    const result = parseBearerHeader('Bearer  prov_abcd1234_xyz789');
+    expect(result).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

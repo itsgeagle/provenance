@@ -30,6 +30,7 @@ import {
   updateTokenLastUsed,
 } from '../../auth/tokens.js';
 import type { Principal } from './auth-session.js';
+import { getLogger } from '../../logging.js';
 
 // ---------------------------------------------------------------------------
 // Bearer token parsing
@@ -41,7 +42,12 @@ import type { Principal } from './auth-session.js';
  */
 export function parseBearerHeader(authHeader: string | undefined | null): string | null {
   if (authHeader === undefined || authHeader === null) return null;
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  // Exactly one space between "Bearer" and the token; the token must start with
+  // a non-space character. This rejects "Bearer  prov_xxx" (two spaces), which
+  // with \s+ would silently extract " prov_xxx" (leading space) and then fail
+  // downstream as a silent "no token found" rather than an explicit invalid_bearer.
+  // RFC 6750 form: Authorization: Bearer <token> (single space, no leading space in token).
+  const match = authHeader.match(/^Bearer ([^ ].*)$/i);
   return match?.[1] ?? null;
 }
 
@@ -76,9 +82,10 @@ export async function resolveBearerToken(secret: string): Promise<Principal | nu
   const user = userRows[0];
   if (user === undefined) return null;
 
-  // Update last_used_at (fire-and-forget to avoid blocking the request)
-  updateTokenLastUsed(db, token.id).catch((_err) => {
-    // Log in production; silently ignore in tests
+  // Update last_used_at (fire-and-forget to avoid blocking the request).
+  // Errors are logged as warnings; a failure here is observable but not fatal.
+  updateTokenLastUsed(db, token.id).catch((err: unknown) => {
+    getLogger().warn({ err, tokenId: token.id }, 'updateTokenLastUsed failed');
   });
 
   return { principal_kind: 'token', user, token };
