@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import type { DrizzleDb } from '../db/client.js';
 import { api_tokens } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { ApiToken } from '../db/schema.js';
 
 // ---------------------------------------------------------------------------
@@ -54,13 +54,25 @@ export interface GeneratedToken {
   secret: string;
 }
 
-export function generateToken(): GeneratedToken {
-  // 8 alphanumeric chars for prefix
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/**
+ * Generates a cryptographically random 8-character alphanumeric prefix.
+ * Uses randomBytes (CSPRNG) to index into a 62-char alphabet.
+ * Acceptable modulo bias: 256 % 62 = 8, so chars 0–7 have probability
+ * 5/256 vs 4/256 for others — ~0.4 bits bias, acceptable for a lookup key.
+ */
+function generatePrefix(): string {
+  const bytes = randomBytes(8);
   let prefix = '';
   for (let i = 0; i < 8; i++) {
-    prefix += chars[Math.floor(Math.random() * chars.length)];
+    prefix += ALPHA[bytes[i]! % ALPHA.length];
   }
+  return prefix;
+}
+
+export function generateToken(): GeneratedToken {
+  const prefix = generatePrefix();
 
   // 32 bytes encoded as base64url (no padding)
   const random = randomBytes(32).toString('base64url');
@@ -229,10 +241,15 @@ export async function verifyToken(token: ApiToken, secret: string): Promise<bool
 
 /**
  * Marks a token as revoked by setting revoked_at to now().
- * Idempotent: revoking an already-revoked token succeeds.
+ * Idempotent: revoking an already-revoked token succeeds but preserves the
+ * original revoked_at timestamp. The WHERE guard (revoked_at IS NULL) ensures
+ * subsequent calls are no-ops, maintaining the audit trail.
  */
 export async function revokeToken(db: DrizzleDb, tokenId: string): Promise<void> {
-  await db.update(api_tokens).set({ revoked_at: new Date() }).where(eq(api_tokens.id, tokenId));
+  await db
+    .update(api_tokens)
+    .set({ revoked_at: new Date() })
+    .where(and(eq(api_tokens.id, tokenId), isNull(api_tokens.revoked_at)));
 }
 
 /**

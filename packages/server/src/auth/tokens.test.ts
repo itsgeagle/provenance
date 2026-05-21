@@ -63,6 +63,28 @@ describe('generateToken', () => {
     const tokens = new Set(Array.from({ length: 20 }, () => generateToken().secret));
     expect(tokens.size).toBe(20);
   });
+
+  it('prefix uses only the 62-char alphanumeric alphabet (crypto.randomBytes, not Math.random)', () => {
+    // Generate a large sample to verify the charset coverage and confirm no
+    // symbols, no whitespace, and no characters outside [A-Za-z0-9] appear.
+    // This would fail if Math.random() were used with a different alphabet.
+    const ALPHA = new Set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
+    const seenChars = new Set<string>();
+
+    for (let i = 0; i < 200; i++) {
+      const { prefix } = generateToken();
+      expect(prefix).toHaveLength(8);
+      for (const ch of prefix) {
+        expect(ALPHA.has(ch), `Unexpected char '${ch}' in prefix '${prefix}'`).toBe(true);
+        seenChars.add(ch);
+      }
+    }
+
+    // With 200 tokens × 8 chars = 1600 samples from a 62-char alphabet,
+    // the probability of missing any single character is astronomically low.
+    // This ensures we haven't accidentally restricted the charset.
+    expect(seenChars.size).toBeGreaterThan(40);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -353,7 +375,7 @@ describe('revokeToken', () => {
     });
   });
 
-  it('is idempotent — revoking an already-revoked token succeeds', async () => {
+  it('is idempotent — revoking an already-revoked token preserves the original revoked_at', async () => {
     await withTestDb(async (db) => {
       const userId = await insertTestUser(db);
       const { token: created } = await createToken(db, {
@@ -361,17 +383,21 @@ describe('revokeToken', () => {
         label: 'Revoke Twice',
       });
 
+      // First revoke: sets revoked_at.
       await revokeToken(db, created.id);
-      await findTokenByPrefix(db, created.prefix);
+      const revokedOnce = await findTokenByPrefix(db, created.prefix);
+      const firstRevokedAt = revokedOnce!.revoked_at!.getTime();
 
-      // Small delay to ensure time difference if it were to change
+      // Small delay so a second write (if it happened) would produce a measurably
+      // different timestamp.
       await new Promise((r) => setTimeout(r, 50));
 
+      // Second revoke: must be a no-op; revoked_at IS NULL guard prevents overwrite.
       await revokeToken(db, created.id);
       const revokedTwice = await findTokenByPrefix(db, created.prefix);
 
-      // revoked_at should not have changed (or changed minimally)
-      expect(revokedTwice!.revoked_at!.getTime()).toBeLessThanOrEqual(new Date().getTime() + 100);
+      // revoked_at must not have changed — audit trail is preserved.
+      expect(revokedTwice!.revoked_at!.getTime()).toBe(firstRevokedAt);
     });
   });
 });
