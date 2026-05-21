@@ -29,8 +29,10 @@ import {
   getOAuthStateCookie,
   clearOAuthStateCookie,
   setSessionCookie,
+  getSessionCookie,
+  clearSessionCookie,
 } from '../../../auth/cookies.js';
-import { createSession, sessionExpiresAt } from '../../../auth/sessions.js';
+import { createSession, deleteSession, sessionExpiresAt } from '../../../auth/sessions.js';
 import { getRealGoogleOAuthClient, type GoogleOAuthClient } from '../../../auth/google.js';
 import { Errors } from '../errors.js';
 
@@ -144,8 +146,7 @@ export function createAuthRouter(): Hono {
     }
 
     // Enforce domain gate.
-    const domainOk =
-      claims.hd !== undefined && cfg.AUTH_ALLOWED_HOSTED_DOMAINS.includes(claims.hd);
+    const domainOk = claims.hd !== undefined && cfg.AUTH_ALLOWED_HOSTED_DOMAINS.includes(claims.hd);
     if (!domainOk) {
       const err = Errors.domainNotAllowed();
       return c.json(err.toBody(), err.status as 403);
@@ -230,10 +231,6 @@ export function createAuthRouter(): Hono {
   // -------------------------------------------------------------------------
 
   router.post('/logout', async (c) => {
-    // Import inline to avoid circular dependency with middleware.
-    const { getSessionCookie, clearSessionCookie } = await import('../../../auth/cookies.js');
-    const { deleteSession } = await import('../../../auth/sessions.js');
-
     const sessionId = getSessionCookie(c);
     if (sessionId !== undefined) {
       try {

@@ -35,14 +35,17 @@ import { eq } from 'drizzle-orm';
 /**
  * A resolved, authenticated principal for a request.
  *
- * `principal_kind: 'session'` is the only kind in Phase 2.
- * Phase 3 adds `'token'`.
+ * Discriminated union on `principal_kind`:
+ *  - `'session'` — authenticated via session cookie (Phase 2).
+ *  - `'token'`   — authenticated via API bearer token (Phase 3; token field TBD).
+ *
+ * Callers that need `session` must narrow on `principal_kind === 'session'`.
+ * The union is fully additive: Phase 3 appends the token branch without
+ * modifying existing session-principal consumers.
  */
-export interface Principal {
-  principal_kind: 'session' | 'token';
-  session: Session;
-  user: User;
-}
+export type Principal =
+  | { principal_kind: 'session'; session: Session; user: User }
+  | { principal_kind: 'token'; user: User /* token: ApiToken — added in Phase 3 */ };
 
 // ---------------------------------------------------------------------------
 // Hono context variable augmentation
