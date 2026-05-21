@@ -48,9 +48,7 @@
         "courses_slug_unique": {
           "name": "courses_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -115,12 +113,8 @@
           "name": "memberships_user_id_users_id_fk",
           "tableFrom": "memberships",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -128,12 +122,8 @@
           "name": "memberships_semester_id_semesters_id_fk",
           "tableFrom": "memberships",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -141,12 +131,8 @@
           "name": "memberships_granted_by_users_id_fk",
           "tableFrom": "memberships",
           "tableTo": "users",
-          "columnsFrom": [
-            "granted_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["granted_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -154,10 +140,7 @@
       "compositePrimaryKeys": {
         "memberships_user_id_semester_id_pk": {
           "name": "memberships_user_id_semester_id_pk",
-          "columns": [
-            "user_id",
-            "semester_id"
-          ]
+          "columns": ["user_id", "semester_id"]
         }
       },
       "uniqueConstraints": {},
@@ -225,12 +208,8 @@
           "name": "pending_invitations_semester_id_semesters_id_fk",
           "tableFrom": "pending_invitations",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -238,12 +217,8 @@
           "name": "pending_invitations_invited_by_users_id_fk",
           "tableFrom": "pending_invitations",
           "tableTo": "users",
-          "columnsFrom": [
-            "invited_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["invited_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -340,12 +315,8 @@
           "name": "semesters_course_id_courses_id_fk",
           "tableFrom": "semesters",
           "tableTo": "courses",
-          "columnsFrom": [
-            "course_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["course_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -355,10 +326,7 @@
         "semesters_course_id_slug_key": {
           "name": "semesters_course_id_slug_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "course_id",
-            "slug"
-          ]
+          "columns": ["course_id", "slug"]
         }
       },
       "policies": {},
@@ -468,12 +436,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -542,9 +506,7 @@
         "users_google_subject_unique": {
           "name": "users_google_subject_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "google_subject"
-          ]
+          "columns": ["google_subject"]
         }
       },
       "policies": {},
@@ -656,12 +618,8 @@
           "name": "api_tokens_user_id_users_id_fk",
           "tableFrom": "api_tokens",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -671,9 +629,7 @@
         "api_tokens_prefix_unique": {
           "name": "api_tokens_prefix_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "prefix"
-          ]
+          "columns": ["prefix"]
         }
       },
       "policies": {},

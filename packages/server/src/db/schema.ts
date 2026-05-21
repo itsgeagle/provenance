@@ -210,7 +210,9 @@ export const api_tokens = pgTable(
     label: text('label').notNull(),
     prefix: text('prefix').notNull().unique(),
     hashed_token: text('hashed_token').notNull(),
-    scopes: jsonb('scopes').notNull().default(sql`'{}'`),
+    scopes: jsonb('scopes')
+      .notNull()
+      .default(sql`'{}'`),
     last_used_at: timestamp('last_used_at', { withTimezone: true }),
     expires_at: timestamp('expires_at', { withTimezone: true }),
     revoked_at: timestamp('revoked_at', { withTimezone: true }),

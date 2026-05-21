@@ -211,7 +211,9 @@ export async function verifyIdToken(
     }
   } else if (Array.isArray(aud) && aud.every((v) => typeof v === 'string')) {
     if (!(aud as string[]).includes(audience)) {
-      throw new Error(`Invalid JWT aud: "${audience}" not found in [${(aud as string[]).join(', ')}]`);
+      throw new Error(
+        `Invalid JWT aud: "${audience}" not found in [${(aud as string[]).join(', ')}]`,
+      );
     }
   } else {
     throw new Error('Invalid JWT aud: must be string or string[]');

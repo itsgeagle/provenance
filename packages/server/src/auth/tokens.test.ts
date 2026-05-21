@@ -371,9 +371,7 @@ describe('revokeToken', () => {
       const revokedTwice = await findTokenByPrefix(db, created.prefix);
 
       // revoked_at should not have changed (or changed minimally)
-      expect(revokedTwice!.revoked_at!.getTime()).toBeLessThanOrEqual(
-        new Date().getTime() + 100,
-      );
+      expect(revokedTwice!.revoked_at!.getTime()).toBeLessThanOrEqual(new Date().getTime() + 100);
     });
   });
 });

@@ -177,7 +177,9 @@ describe('verifyIdToken — aud claim variations', () => {
   });
 
   it('accepts aud as a multi-element array when audience is present', async () => {
-    const payload = validPayload(AUDIENCE, { aud: [AUDIENCE, 'other-client'] as unknown as string });
+    const payload = validPayload(AUDIENCE, {
+      aud: [AUDIENCE, 'other-client'] as unknown as string,
+    });
     const jwt = mintJwt(pair, payload);
     await expect(verifyIdToken(jwt, AUDIENCE, { fetchJwks })).resolves.toBeDefined();
   });

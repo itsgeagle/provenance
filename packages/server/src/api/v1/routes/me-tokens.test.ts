@@ -134,7 +134,7 @@ describe('GET /me/tokens', () => {
     });
   });
 
-  it('returns list of tokens sorted by created_at ASC (oldest first)', async () => {
+  it('returns list of tokens sorted by created_at DESC (newest first)', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
@@ -159,9 +159,9 @@ describe('GET /me/tokens', () => {
         expect(res.status).toBe(200);
         const body = await res.json();
         expect(body.tokens.length).toBe(2);
-        // The route sorts by created_at (without DESC), so oldest first
-        expect(body.tokens[0].label).toBe('First Token');
-        expect(body.tokens[1].label).toBe('Second Token');
+        // The route sorts by created_at DESC, so newest first
+        expect(body.tokens[0].label).toBe('Second Token');
+        expect(body.tokens[1].label).toBe('First Token');
       } finally {
         _testDb = null;
       }

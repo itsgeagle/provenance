@@ -19,7 +19,8 @@ import { requirePrincipal } from '../../middleware/auth-session.js';
 import { getDb } from '../../../db/client.js';
 import { api_tokens } from '../../../db/schema.js';
 import { createToken, revokeToken, tokenScopesSchema } from '../../../auth/tokens.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
+import { Errors } from '../errors.js';
 
 // ---------------------------------------------------------------------------
 // Input validation
@@ -87,7 +88,7 @@ export function createMeTokensRouter(): Hono {
       .select()
       .from(api_tokens)
       .where(eq(api_tokens.user_id, userId))
-      .orderBy(api_tokens.created_at);
+      .orderBy(desc(api_tokens.created_at));
 
     return c.json({
       tokens: tokens.map(tokenToSummary),
@@ -184,15 +185,8 @@ export function createMeTokensRouter(): Hono {
 
     if (tokens.length === 0) {
       // Don't leak whether the token exists; return 404 either way
-      return c.json(
-        {
-          error: {
-            code: 'NOT_FOUND',
-            message: 'Token not found',
-          },
-        },
-        404,
-      );
+      const err = Errors.notFound();
+      return c.json(err.toBody(), 404);
     }
 
     // Revoke the token

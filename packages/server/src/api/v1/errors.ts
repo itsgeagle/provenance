@@ -20,7 +20,9 @@ export type ApiErrorCode =
   | 'AUTH_EMAIL_NOT_VERIFIED'
   // Request validation
   | 'BAD_REQUEST_RETURN_TO_INVALID'
-  | 'VALIDATION';
+  | 'VALIDATION'
+  // Resource errors
+  | 'NOT_FOUND';
 
 // ---------------------------------------------------------------------------
 // ApiError class
@@ -115,5 +117,9 @@ export const Errors = {
       400,
       'return_to must be a same-origin path starting with /',
     );
+  },
+
+  notFound(): ApiError {
+    return new ApiError('NOT_FOUND', 404, 'Resource not found (or not visible)');
   },
 } as const;
