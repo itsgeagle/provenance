@@ -9,7 +9,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import { sessions } from '../db/schema.js';
 import type { DrizzleDb } from '../db/client.js';
 import type { Session } from '../db/schema.js';
@@ -55,18 +55,21 @@ export async function createSession(db: DrizzleDb, args: CreateSessionArgs): Pro
 /**
  * Looks up a session by id.
  * Returns `null` if the session does not exist or is expired.
+ *
+ * Expiry is enforced in the DB WHERE clause (`expires_at > now()`) rather than
+ * in JS, so: (a) the sessions_expires_at_idx index is used, (b) expiry is
+ * measured by the DB clock (consistent with row creation), and (c) expired rows
+ * are never transferred over the wire.
  */
 export async function findSession(db: DrizzleDb, sessionId: string): Promise<Session | null> {
-  const now = new Date();
   const rows = await db
     .select()
     .from(sessions)
-    .where(eq(sessions.id, sessionId))
+    .where(and(eq(sessions.id, sessionId), gt(sessions.expires_at, sql`now()`)))
     .limit(1);
 
   const row = rows[0];
   if (row === undefined) return null;
-  if (row.expires_at <= now) return null;
   return row;
 }
 
