@@ -140,6 +140,26 @@ export type FsExternalChangePayload = {
   new_hash: string;
   diff_size: number;
   explanation?: 'formatter' | 'git';
+  /**
+   * UTF-8 byte length of the post-change file content. Populated whenever
+   * the recorder had the new content in hand (which is always: every emit
+   * site either holds the buffer text or has just read it from disk).
+   * Optional for backwards-compatibility with pre-v1.3 bundles.
+   */
+  new_content_size?: number;
+  /**
+   * Full post-change content if `new_content_size <= 4096`. Lets the
+   * analyzer reseed reconstruction so replay shows the file after the
+   * external write. Absent when content was too large to inline.
+   */
+  new_content?: string;
+  /**
+   * First 512 chars of the post-change content if it was too large to
+   * inline. Hash + head/tail mirrors the paste-payload truncation pattern.
+   */
+  new_content_head?: string;
+  /** Last 512 chars of the post-change content if it was too large to inline. */
+  new_content_tail?: string;
 };
 
 export type GitEventPayload = {
