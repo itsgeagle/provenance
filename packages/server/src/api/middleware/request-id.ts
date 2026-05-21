@@ -9,20 +9,12 @@
  *
  * Also binds a child pino logger to `c.var.logger` so all downstream code
  * can use a logger that automatically includes `request_id` in every line.
+ *
+ * Context variables are declared in ../hono-context.d.ts.
  */
 
 import type { MiddlewareHandler } from 'hono';
 import { requestLogger } from '../../logging.js';
-
-// ---------------------------------------------------------------------------
-// Hono context variable augmentation
-// ---------------------------------------------------------------------------
-
-declare module 'hono' {
-  interface ContextVariableMap {
-    requestId: string;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Middleware
@@ -45,11 +37,7 @@ export const requestId: MiddlewareHandler = async (c, next) => {
   // requestLogger which calls getLogger() internally.
   try {
     const logger = requestLogger(id);
-    // Hono's ContextVariableMap is extensible; `logger` is declared elsewhere
-    // if needed. We avoid re-declaring it here since logging.ts owns that type.
-    // The variable is available as c.get('logger') once we set it below.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- logger is not in base ContextVariableMap yet; will be added when Phase 5 wires pino-http
-    (c as any).set('logger', logger);
+    c.set('logger', logger);
   } catch {
     // Config may not be ready in certain test paths; skip logger binding.
   }

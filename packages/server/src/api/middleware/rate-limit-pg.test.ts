@@ -61,7 +61,13 @@ describe('consumeTokenPg (Postgres backend)', () => {
       const principalId = `user:${crypto.randomUUID()}`;
 
       for (let i = 0; i < 5; i++) {
-        const result = await consumeTokenPg(db, principalId, 'test.class', testConfig, () => fakeNow);
+        const result = await consumeTokenPg(
+          db,
+          principalId,
+          'test.class',
+          testConfig,
+          () => fakeNow,
+        );
         expect(result.allowed).toBe(true);
       }
 
@@ -115,11 +121,23 @@ describe('consumeTokenPg (Postgres backend)', () => {
       for (let i = 0; i < 5; i++) {
         await consumeTokenPg(db, principalId1, 'test.class', testConfig, () => fakeNow);
       }
-      const denied = await consumeTokenPg(db, principalId1, 'test.class', testConfig, () => fakeNow);
+      const denied = await consumeTokenPg(
+        db,
+        principalId1,
+        'test.class',
+        testConfig,
+        () => fakeNow,
+      );
       expect(denied.allowed).toBe(false);
 
       // Principal 2 should have its own full bucket
-      const allowed = await consumeTokenPg(db, principalId2, 'test.class', testConfig, () => fakeNow);
+      const allowed = await consumeTokenPg(
+        db,
+        principalId2,
+        'test.class',
+        testConfig,
+        () => fakeNow,
+      );
       expect(allowed.allowed).toBe(true);
     });
   });

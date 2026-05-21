@@ -9,6 +9,8 @@
  * Why not a WeakMap on the Context object? Hono Context objects are
  * not guaranteed to be stable across middleware for cache keying; a
  * per-request Map set on `c.var` is clearer and equally isolated.
+ *
+ * Context variables are declared in api/hono-context.d.ts.
  */
 
 import type { MiddlewareHandler } from 'hono';
@@ -27,16 +29,6 @@ export interface CachedMembership {
 
 /** Per-request cache: `"userId:semesterId"` → CachedMembership | null */
 export type MembershipCache = Map<string, CachedMembership | null>;
-
-// ---------------------------------------------------------------------------
-// Hono context variable augmentation
-// ---------------------------------------------------------------------------
-
-declare module 'hono' {
-  interface ContextVariableMap {
-    membershipCache: MembershipCache;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Cache key

@@ -240,14 +240,16 @@ export const api_tokens = pgTable(
  *   "token:<uuid>"  — token-authenticated principal
  *   "anon:<ip>"     — unauthenticated, keyed by IP address
  */
-export const rate_limit_buckets = pgTable('rate_limit_buckets', {
-  principal_id: text('principal_id').notNull(),
-  route_class: text('route_class').notNull(),
-  tokens: doublePrecision('tokens').notNull(),
-  last_refill_at: timestamp('last_refill_at', { withTimezone: true }).notNull(),
-}, (t) => [
-  primaryKey({ columns: [t.principal_id, t.route_class] }),
-]);
+export const rate_limit_buckets = pgTable(
+  'rate_limit_buckets',
+  {
+    principal_id: text('principal_id').notNull(),
+    route_class: text('route_class').notNull(),
+    tokens: doublePrecision('tokens').notNull(),
+    last_refill_at: timestamp('last_refill_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.principal_id, t.route_class] })],
+);
 
 // ---------------------------------------------------------------------------
 // audit_log  (PRD §5.7 / migration 0004)
@@ -272,7 +274,9 @@ export const audit_log = pgTable(
     action: text('action').notNull(),
     target_type: text('target_type').notNull(),
     target_id: text('target_id').notNull(),
-    detail: jsonb('detail').notNull().default(sql`'{}'`),
+    detail: jsonb('detail')
+      .notNull()
+      .default(sql`'{}'`),
     ip: inet('ip'),
     user_agent: text('user_agent'),
     at: timestamp('at', { withTimezone: true })

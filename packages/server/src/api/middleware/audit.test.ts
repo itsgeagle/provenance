@@ -122,7 +122,8 @@ function makeApp(
     audit('test.action', 'test_target', () => targetId, nowFn),
     (c) => c.json({ ok: true }, responseStatus as 200 | 201),
   );
-  app.post('/test-fail',
+  app.post(
+    '/test-fail',
     audit('test.action', 'test_target', () => targetId, nowFn),
     (c) => c.json({ error: 'bad' }, 400),
   );
@@ -143,9 +144,7 @@ describe('audit middleware', () => {
         const targetId = 'target-entity-id-1';
 
         const app = makeApp(principal, 200, targetId);
-        const res = await app.fetch(
-          new Request('http://localhost/test', { method: 'POST' }),
-        );
+        const res = await app.fetch(new Request('http://localhost/test', { method: 'POST' }));
         expect(res.status).toBe(200);
 
         // Wait briefly for the fire-and-forget insert to complete
@@ -174,9 +173,7 @@ describe('audit middleware', () => {
         const principal = makeSessionPrincipal(user.id);
 
         const app = makeApp(principal, 400, 'target-1');
-        const res = await app.fetch(
-          new Request('http://localhost/test-fail', { method: 'POST' }),
-        );
+        const res = await app.fetch(new Request('http://localhost/test-fail', { method: 'POST' }));
         expect(res.status).toBe(400);
 
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -226,10 +223,14 @@ describe('audit middleware', () => {
           c.set('target', null); // null = global route, no semester FK
           await next();
         });
-        app.post('/test', audit('test.action', 'user', () => user.id), (c) => {
-          c.set('auditDetail', { extra_field: 'extra_value', count: 42 });
-          return c.json({ ok: true });
-        });
+        app.post(
+          '/test',
+          audit('test.action', 'user', () => user.id),
+          (c) => {
+            c.set('auditDetail', { extra_field: 'extra_value', count: 42 });
+            return c.json({ ok: true });
+          },
+        );
 
         await app.fetch(new Request('http://localhost/test', { method: 'POST' }));
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -265,7 +266,9 @@ describe('audit middleware', () => {
         });
         app.post(
           '/test',
-          audit('action', 'type', () => { throw new Error('targetId extraction failed'); }),
+          audit('action', 'type', () => {
+            throw new Error('targetId extraction failed');
+          }),
           (c) => c.json({ ok: true }),
         );
 

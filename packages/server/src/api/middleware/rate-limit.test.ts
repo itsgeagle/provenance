@@ -52,9 +52,13 @@ function makeApp(): Hono {
   // authSessionMiddleware sets c.var.principal; since there's no session/token
   // in these requests, it will be null (anon). The rate limiter uses anon:<ip>.
   app.use('*', authSessionMiddleware);
-  app.get('/protected', rateLimit('auth', () => _fakeNow), (c) => {
-    return c.json({ ok: true });
-  });
+  app.get(
+    '/protected',
+    rateLimit('auth', () => _fakeNow),
+    (c) => {
+      return c.json({ ok: true });
+    },
+  );
   return app;
 }
 

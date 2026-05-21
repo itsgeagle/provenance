@@ -14,7 +14,7 @@
  *
  * Why `c.var` (Hono context variables) vs middleware injection:
  * - `c.var` is Hono's idiomatic pattern for request-scoped state.
- * - Type-safety is achieved by augmenting the `ContextVariableMap` interface.
+ * - Type-safety is achieved by augmenting the `ContextVariableMap` interface (see ../hono-context.d.ts).
  *
  * Phase 3 change: resolvePrincipal now reads bearer token (with precedence)
  * or session cookie, via auth-resolve.ts. Routes remain unchanged.
@@ -43,19 +43,6 @@ import { resolvePrincipal, type ResolveResult } from './auth-resolve.js';
 export type Principal =
   | { principal_kind: 'session'; session: Session; user: User }
   | { principal_kind: 'token'; user: User; token: ApiToken };
-
-// ---------------------------------------------------------------------------
-// Hono context variable augmentation
-// ---------------------------------------------------------------------------
-
-// Augment Hono's ContextVariableMap so TypeScript knows about `principal`.
-declare module 'hono' {
-  interface ContextVariableMap {
-    principal: Principal | null;
-    // Phase 3 seam: googleOAuthClient can be injected per-request in tests.
-    // In production routes, the module-level singleton is used instead.
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Principal resolution (Phase 3: bearer + session with precedence)

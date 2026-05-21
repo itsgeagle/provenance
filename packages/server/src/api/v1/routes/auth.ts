@@ -37,16 +37,6 @@ import { getRealGoogleOAuthClient, type GoogleOAuthClient } from '../../../auth/
 import { Errors } from '../errors.js';
 
 // ---------------------------------------------------------------------------
-// Hono context variable for the OAuth client
-// ---------------------------------------------------------------------------
-
-declare module 'hono' {
-  interface ContextVariableMap {
-    googleOAuthClient: GoogleOAuthClient;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
 

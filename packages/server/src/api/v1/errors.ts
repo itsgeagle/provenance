@@ -195,12 +195,9 @@ export const Errors = {
   },
 
   insufficientRole(required: 'admin'): ApiError {
-    return new ApiError(
-      'INSUFFICIENT_ROLE',
-      403,
-      `This action requires the '${required}' role`,
-      { required_role: required },
-    );
+    return new ApiError('INSUFFICIENT_ROLE', 403, `This action requires the '${required}' role`, {
+      required_role: required,
+    });
   },
 
   // -------------------------------------------------------------------------
@@ -265,12 +262,10 @@ export const Errors = {
   },
 
   memberAlready(userId: string, semesterId: string): ApiError {
-    return new ApiError(
-      'MEMBER_ALREADY',
-      409,
-      'User is already a member of this semester',
-      { user_id: userId, semester_id: semesterId },
-    );
+    return new ApiError('MEMBER_ALREADY', 409, 'User is already a member of this semester', {
+      user_id: userId,
+      semester_id: semesterId,
+    });
   },
 
   invitationAlreadyOpen(email: string, semesterId: string): ApiError {
@@ -291,11 +286,7 @@ export const Errors = {
   },
 
   lastAdminRequired(): ApiError {
-    return new ApiError(
-      'LAST_ADMIN_REQUIRED',
-      409,
-      'Cannot remove the last admin from a semester',
-    );
+    return new ApiError('LAST_ADMIN_REQUIRED', 409, 'Cannot remove the last admin from a semester');
   },
 
   ingestFileNotUnmatched(fileId: string): ApiError {
@@ -427,11 +418,7 @@ export const Errors = {
   },
 
   heuristicConfigInvalid(detail?: string): ApiError {
-    return new ApiError(
-      'HEURISTIC_CONFIG_INVALID',
-      422,
-      detail ?? 'Heuristic config is invalid',
-    );
+    return new ApiError('HEURISTIC_CONFIG_INVALID', 422, detail ?? 'Heuristic config is invalid');
   },
 
   // -------------------------------------------------------------------------

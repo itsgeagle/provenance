@@ -235,10 +235,7 @@ export function _resetBackendForTest(): void {
  * Example:
  *   router.post('/auth/google/start', rateLimit('auth'), handler)
  */
-export function rateLimit(
-  routeClass: RouteClass,
-  now: () => number = Date.now,
-): MiddlewareHandler {
+export function rateLimit(routeClass: RouteClass, now: () => number = Date.now): MiddlewareHandler {
   const config = BUCKET_CONFIGS[routeClass];
 
   return async (c, next) => {

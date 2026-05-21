@@ -23,26 +23,14 @@
  * Routes can add structured detail by calling:
  *   c.set('auditDetail', { previous_version: 3 });
  * before returning their response.
+ *
+ * Context variables are declared in hono-context.d.ts.
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
 import { audit_log } from '../../db/schema.js';
 import { getDb } from '../../db/client.js';
 import { getLogger } from '../../logging.js';
-
-// ---------------------------------------------------------------------------
-// Hono context variable augmentation
-// ---------------------------------------------------------------------------
-
-declare module 'hono' {
-  interface ContextVariableMap {
-    /**
-     * Optional arbitrary detail object that routes populate before responding.
-     * The audit middleware reads this after next() and includes it in the audit row.
-     */
-    auditDetail: Record<string, unknown>;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // audit middleware factory
@@ -77,12 +65,9 @@ export function audit(
     const target = c.var.target ?? null;
     const detail = c.var.auditDetail ?? {};
 
-    const actorUserId =
-      principal !== null ? principal.user.id : null;
+    const actorUserId = principal !== null ? principal.user.id : null;
     const actorTokenId =
-      principal !== null && principal.principal_kind === 'token'
-        ? principal.token.id
-        : null;
+      principal !== null && principal.principal_kind === 'token' ? principal.token.id : null;
     const semesterId = target?.semesterId ?? null;
 
     let targetId: string;
@@ -92,8 +77,7 @@ export function audit(
       targetId = 'unknown';
     }
 
-    const ip =
-      c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null;
+    const ip = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null;
     const userAgent = c.req.header('user-agent') ?? null;
     const at = nowFn();
 

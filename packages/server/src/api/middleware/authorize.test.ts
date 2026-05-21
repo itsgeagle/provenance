@@ -155,10 +155,8 @@ function makeApp(_semesterId: string): Hono {
   );
 
   // Global (superadmin-only) route
-  app.post(
-    '/admin/courses',
-    requireAuth({ action: 'admin', target: 'global' }),
-    (c) => c.json({ created: true }),
+  app.post('/admin/courses', requireAuth({ action: 'admin', target: 'global' }), (c) =>
+    c.json({ created: true }),
   );
 
   return app;
@@ -437,7 +435,10 @@ describe('requireAuth middleware', () => {
         app.use('*', initMembershipCache);
         app.post(
           '/semesters/:id/config',
-          requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('id') as string }) }),
+          requireAuth({
+            action: 'write',
+            target: (c) => ({ semesterId: c.req.param('id') as string }),
+          }),
           (c) => {
             const target = c.var.target;
             return c.json({ target });

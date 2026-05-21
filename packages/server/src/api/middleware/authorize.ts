@@ -20,6 +20,8 @@
  * Prerequisite middlewares (must run upstream):
  *   - authSessionMiddleware (sets c.var.principal)
  *   - initMembershipCache (sets c.var.membershipCache)
+ *
+ * Context variables are declared in hono-context.d.ts.
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
@@ -28,20 +30,6 @@ import { findMembership } from '../../auth/membership-cache.js';
 import { getDb } from '../../db/client.js';
 import { Errors } from '../v1/errors.js';
 import type { ApiErrorCode } from '../v1/errors.js';
-
-// ---------------------------------------------------------------------------
-// Context variable augmentation
-// ---------------------------------------------------------------------------
-
-declare module 'hono' {
-  interface ContextVariableMap {
-    /**
-     * Resolved authorization target set by requireAuth, consumed by audit middleware.
-     * Null when the route is global-only (superadmin).
-     */
-    target: Target | null;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // RequireAuthOptions

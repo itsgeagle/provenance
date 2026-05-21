@@ -129,7 +129,13 @@ describe('errorFormatter', () => {
   it('does NOT include stack in production mode', async () => {
     _resetConfigForTest();
     _resetLoggerForTest();
-    _setConfigForTest(parseEnv({ ...BASE_ENV, NODE_ENV: 'production', AUTH_SUPERADMIN_EMAILS: '["admin@berkeley.edu"]' }));
+    _setConfigForTest(
+      parseEnv({
+        ...BASE_ENV,
+        NODE_ENV: 'production',
+        AUTH_SUPERADMIN_EMAILS: '["admin@berkeley.edu"]',
+      }),
+    );
 
     const app = makeApp(() => {
       throw new Error('An error in production');

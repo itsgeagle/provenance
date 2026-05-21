@@ -13,9 +13,7 @@ import type { MembershipRow } from './authorize.js';
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-function makeSessionPrincipal(overrides?: {
-  is_superadmin?: boolean;
-}): Principal {
+function makeSessionPrincipal(overrides?: { is_superadmin?: boolean }): Principal {
   return {
     principal_kind: 'session',
     user: {
