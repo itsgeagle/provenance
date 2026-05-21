@@ -160,7 +160,11 @@ export function applyPaste(
  *  - `doc.close`  — ignored; content keeps accumulating (we want final state).
  *  - `doc.change` — apply deltas via applyDocChange.
  *  - `paste`      — apply via applyPaste if inline; otherwise taint.
- *  - `fs.external_change` — reset content to '' and taint the file.
+ *  - `fs.external_change` — if the payload carries `new_content` (recorder
+ *                            v1.3+), reseed `content` from it and continue
+ *                            reconstruction unimpeded; `taintReasons` still
+ *                            records the event. Without `new_content`, reset
+ *                            content to '' and taint the file.
  *  - `doc.save`   — record sha256 in hashBySaveSeq; verify vs computed hash
  *                   in the perf/exit-gate test (see build-index.test.ts).
  *
@@ -226,12 +230,28 @@ export function reconstructFile(
         break;
       }
 
-      case 'fs.external_change':
-        // Content changed outside VS Code — reconstruction is no longer valid.
-        tainted = true;
+      case 'fs.external_change': {
+        // Recorder v1.3+ inlines the post-change content (≤ 4 KB) on the
+        // payload's `new_content` field — PRD §4.5. When present, reseed
+        // `content` so reconstruction stays accurate across the external
+        // edit and the replay UI shows the post-change file. When absent
+        // (large file, head/tail-only payload, or pre-v1.3 bundle), fall
+        // back to the original taint-empty behavior.
+        const p = e.payload as Record<string, unknown> | null;
+        const newContent = typeof p?.['new_content'] === 'string' ? p['new_content'] : null;
+        // taintReasons stays populated either way so consumers that want a
+        // "this file had an external edit at globalIdx N" signal still see it.
         taintReasons.push({ globalIdx: e.globalIdx, reason: 'fs_external_change' });
-        content = '';
+        if (newContent !== null) {
+          content = newContent;
+          // Reconstruction IS valid post-reseed — subsequent doc.change /
+          // paste events apply cleanly on top. Leave `tainted` unchanged.
+        } else {
+          tainted = true;
+          content = '';
+        }
         break;
+      }
 
       case 'doc.save': {
         // Always record the save hash; it comes directly from the recorder.

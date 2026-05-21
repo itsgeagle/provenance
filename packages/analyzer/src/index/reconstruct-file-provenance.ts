@@ -41,8 +41,12 @@ import type { EventIndex } from './event-index.js';
  * `'preexisting'` is set for `doc.open` events whose payload carries a
  * `content` field (recorder v1.1+). Every position in `provenance` seeded
  * from that initial content is attributed to the doc.open event's globalIdx.
- * Unlike `'external_change'`, preexisting entries DO have characters mapped
- * to them in the provenance array.
+ *
+ * `'external_change'` is set for `fs.external_change` events. When the
+ * payload carries `new_content` (recorder v1.3+), every character in the
+ * reseeded file is attributed to that event's globalIdx. When it doesn't
+ * (>4 KB file, pre-v1.3 bundle), the entry is a sentinel — no provenance
+ * position references it and downstream UI sees an empty region.
  *
  * Future UI work (Phase 14 gutter coloring) could render preexisting
  * characters in a distinct color (e.g. greyed-out to indicate "not written
@@ -70,11 +74,15 @@ export type FileReplayState = {
   /**
    * Maps a writing event's `globalIdx` to the kind of write it performed.
    * For `'typed'`, `'paste'`, and `'preexisting'` entries, at least one
-   * position in `provenance` will equal that `globalIdx`. For
-   * `'external_change'` entries, the event cleared the file's content; no
-   * character in `provenance` will equal that `globalIdx` (the entry is a
-   * sentinel). Do not assume bijection in either direction when building
-   * Phase 14 gutter/hover decoration logic.
+   * position in `provenance` will equal that `globalIdx`.
+   *
+   * For `'external_change'` entries: when the payload carries `new_content`
+   * (recorder v1.3+), every character in the reseeded content is attributed
+   * to that globalIdx — so `provenance` positions DO reference it. When the
+   * payload lacks `new_content` (pre-v1.3 bundle, or a >4 KB file with only
+   * head/tail), the entry is a sentinel and no provenance position
+   * references it. Do not assume bijection in either direction when building
+   * gutter/hover decoration logic.
    */
   kindByGlobalIdx: Map<number, ProvenanceKind>;
   /** Maps `${sessionId}:${seq}` to the sha256 recorded at that save event. */
@@ -223,9 +231,11 @@ function applyPasteWithProvenance(
  *  - `doc.change` — splice deltas; attribute inserted chars to the event.
  *  - `paste` (inline) — splice; attribute inserted chars to the event.
  *  - `paste` (large, no inline content) — clear content + provenance.
- *  - `fs.external_change` — clear content + provenance (the payload only
- *    carries `old_hash`/`new_hash`/`diff_size`, never the new full content,
- *    so we cannot attribute the post-change state to anything meaningful).
+ *  - `fs.external_change` — if the payload carries `new_content` (recorder
+ *    v1.3+), reseed `content` from it and attribute every character to the
+ *    event's globalIdx with kind `'external_change'`. Without `new_content`
+ *    (large file or pre-v1.3 bundle), clear content + provenance and leave
+ *    `kindByGlobalIdx[globalIdx] = 'external_change'` as a sentinel.
  *  - `doc.save` — record sha256 in hashBySaveSeq.
  *
  * Provenance is built as a `number[]` for cheap dynamic growth and frozen
@@ -318,13 +328,23 @@ export function reconstructFileWithProvenance(
       }
 
       case 'fs.external_change': {
-        // PRD §4.5: the payload only carries hashes + diff_size, never the
-        // post-change content. Clear both for parity with v1's taint reset.
-        // Phase 16's `mass-external-replacement` heuristic needs to know the
-        // old content was discarded; the empty state encodes that.
-        content = '';
-        provenance = [];
+        // Recorder v1.3+ inlines the post-change content (≤ 4 KB) on the
+        // payload's `new_content` field — PRD §4.5. When present, reseed
+        // `content` + `provenance` so replay shows the file after the
+        // external write; every character is attributed to this event's
+        // globalIdx with kind `'external_change'`. Without `new_content`
+        // (large file or pre-v1.3 bundle) we fall back to the v1 behavior:
+        // clear both, leaving the kindByGlobalIdx entry as a sentinel.
+        const p = e.payload as Record<string, unknown> | null;
+        const newContent = typeof p?.['new_content'] === 'string' ? p['new_content'] : null;
         kindByGlobalIdx.set(e.globalIdx, 'external_change');
+        if (newContent !== null) {
+          content = newContent;
+          provenance = Array.from({ length: newContent.length }, () => e.globalIdx);
+        } else {
+          content = '';
+          provenance = [];
+        }
         break;
       }
 

@@ -40,14 +40,14 @@ export type DecorationRun = {
  * whenever the kind changes. Only paste and external_change runs are returned;
  * typed regions produce no decoration.
  *
- * Invariant (from reconstruct-file-provenance, A33):
- *   `external_change` entries in `kindByGlobalIdx` are sentinels — no character
- *   in `provenance` will equal that globalIdx (the file was cleared). So runs
- *   with kind=external_change will never appear here (provenance chars reference
- *   typed/paste events). This function handles the mapping correctly: if
- *   `kindByGlobalIdx.get(gi)` returns `'external_change'`, we still emit the
- *   run — but in practice that path is unreachable for non-empty files, because
- *   external_change clears `provenance`. The function is correct regardless.
+ * Invariant (from reconstruct-file-provenance):
+ *   `external_change` entries in `kindByGlobalIdx` reference characters when
+ *   the recorder inlined `new_content` on the payload (recorder v1.3+) — every
+ *   reseeded char is attributed to that globalIdx, so runs with kind
+ *   `'external_change'` will appear and the gutter paints them. For pre-v1.3
+ *   bundles, or files too large to inline, the entry is a sentinel (no
+ *   provenance positions reference it) and no run is emitted; the file
+ *   reconstructs as empty. This function handles both cases correctly.
  *
  * @param state   FileReplayState at the current engine position.
  * @returns       Array of DecorationRun (may be empty if file is empty or all typed).

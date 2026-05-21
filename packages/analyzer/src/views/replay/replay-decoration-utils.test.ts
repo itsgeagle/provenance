@@ -142,11 +142,32 @@ describe('runsFromProvenance', () => {
   });
 
   it('external_change sentinel — content is empty after clear', () => {
-    // After fs.external_change, content and provenance are cleared (A33).
-    // The state has an external_change entry in kindByGlobalIdx but the
-    // content/provenance are empty.
+    // Pre-v1.3 bundle: fs.external_change had no new_content, so content
+    // and provenance are cleared. The state has an external_change entry in
+    // kindByGlobalIdx but the content/provenance are empty.
     const state = makeState('', [], new Map([[5, 'external_change']]));
     expect(runsFromProvenance(state)).toEqual([]);
+  });
+
+  it('external_change reseeded — paints a run over the reseeded content (recorder v1.3+)', () => {
+    // Recorder v1.3+: fs.external_change carries new_content, so the
+    // reconstructor reseeds and attributes every char to the event's
+    // globalIdx with kind 'external_change'. The decoration painter should
+    // emit one run covering the whole reseeded region.
+    const state = makeState(
+      'def x(): return 1',
+      [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7],
+      new Map([[7, 'external_change']]),
+    );
+    const runs = runsFromProvenance(state);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      kind: 'external_change',
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 1,
+      endColumn: 18,
+    });
   });
 
   it('multi-line paste → run spans lines correctly', () => {

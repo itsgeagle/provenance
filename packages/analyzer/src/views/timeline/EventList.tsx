@@ -67,7 +67,18 @@ export function payloadSummary(event: IndexedEvent): string {
       const oldHash = typeof p['old_hash'] === 'string' ? p['old_hash'].slice(0, 8) : '?';
       const newHash = typeof p['new_hash'] === 'string' ? p['new_hash'].slice(0, 8) : '?';
       const diffSize = typeof p['diff_size'] === 'number' ? p['diff_size'] : 0;
-      return `${oldHash}… → ${newHash}… (diff_size ${diffSize})`;
+      // Recorder v1.3+ inlines new_content (≤ 4 KB) or new_content_head (larger).
+      // Surface a short snippet so staff can see what the external tool wrote
+      // without having to jump to replay.
+      const head =
+        typeof p['new_content_head'] === 'string'
+          ? p['new_content_head']
+          : typeof p['new_content'] === 'string'
+            ? p['new_content']
+            : '';
+      const snippet = head ? head.replace(/\s+/g, ' ').slice(0, 40) : '';
+      const summary = `${oldHash}… → ${newHash}… (diff_size ${diffSize})`;
+      return snippet ? `${summary}: ${snippet}${head.length > 40 ? '…' : ''}` : summary;
     }
     case 'terminal.command': {
       const cmd = typeof p['command'] === 'string' ? p['command'] : '';

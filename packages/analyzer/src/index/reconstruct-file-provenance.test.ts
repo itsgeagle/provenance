@@ -312,6 +312,55 @@ describe('reconstructFileWithProvenance — fs.external_change', () => {
     const ext = (index.byKind.get('fs.external_change') ?? [])[0]!;
     expect(state.kindByGlobalIdx.get(ext.globalIdx)).toBe('external_change');
   });
+
+  it('reseeds content + provenance from new_content (recorder v1.3+); every char attributed to the event', async () => {
+    const after = 'def foo(): return 42\n';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/x.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'original',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/x.py',
+                old_hash: 'aaa',
+                new_hash: 'bbb',
+                diff_size: after.length,
+                new_content: after,
+                new_content_size: after.length,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const state = reconstructFileWithProvenance(index, '/src/x.py');
+
+    expect(state.content).toBe(after);
+    expect(state.provenance.length).toBe(after.length);
+
+    const ext = (index.byKind.get('fs.external_change') ?? [])[0]!;
+    expect(state.kindByGlobalIdx.get(ext.globalIdx)).toBe('external_change');
+    // Every character in the reseeded content references the external_change event.
+    for (let i = 0; i < state.provenance.length; i++) {
+      expect(state.provenance[i]).toBe(ext.globalIdx);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
