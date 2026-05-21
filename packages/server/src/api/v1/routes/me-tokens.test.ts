@@ -76,7 +76,6 @@ function makeMeTokensApp(principal: Principal | null): Hono {
   });
   app.route('/', createMeTokensRouter());
   // Error handler: catch thrown Responses (from requirePrincipal)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.onError((err, _c) => {
     if (err instanceof Response) {
       return err;
@@ -141,13 +140,13 @@ describe('GET /me/tokens', () => {
       try {
         const user = await insertUser(db);
 
-        const token1 = await createToken(db, {
+        await createToken(db, {
           userId: user.id,
           label: 'First Token',
         });
         // Small delay to ensure different timestamps
         await new Promise((r) => setTimeout(r, 50));
-        const token2 = await createToken(db, {
+        await createToken(db, {
           userId: user.id,
           label: 'Second Token',
         });
@@ -320,7 +319,7 @@ describe('POST /me/tokens', () => {
 // ---------------------------------------------------------------------------
 
 describe('DELETE /me/tokens/:id', () => {
-  it('revokes a user\'s own token', async () => {
+  it("revokes a user's own token", async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
@@ -358,6 +357,7 @@ describe('DELETE /me/tokens/:id', () => {
           label: 'User2 Token',
         });
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const principal: Principal = { principal_kind: 'session', user: user1, session: {} as any };
         const app = makeMeTokensApp(principal);
 

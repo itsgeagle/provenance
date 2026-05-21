@@ -152,15 +152,14 @@ export async function createToken(
     const hashedToken = await hashToken(secret);
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rows = await db
         .insert(api_tokens)
         .values({
-          user_id: input.userId as any,
+          user_id: input.userId,
           label: input.label,
           prefix,
           hashed_token: hashedToken,
-          scopes: scopes as any,
+          scopes: scopes,
           expires_at: input.expiresAt,
         })
         .returning();
@@ -174,10 +173,12 @@ export async function createToken(
     } catch (err) {
       // If it's a unique constraint violation on prefix, retry.
       // Otherwise, propagate.
+      // The postgres driver returns error objects with code/constraint properties
+      // that aren't well-typed, so we use 'any' to inspect them.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const error = err as any;
       if (error?.code === '23505' && error?.constraint === 'api_tokens_prefix_idx') {
-        lastError = error;
+        lastError = error instanceof Error ? error : new Error(String(error));
         // Continue to next iteration
       } else {
         throw err;
@@ -193,11 +194,7 @@ export async function createToken(
  * Returns the token row or null.
  */
 export async function findTokenByPrefix(db: DrizzleDb, prefix: string): Promise<ApiToken | null> {
-  const rows = await db
-    .select()
-    .from(api_tokens)
-    .where(eq(api_tokens.prefix, prefix))
-    .limit(1);
+  const rows = await db.select().from(api_tokens).where(eq(api_tokens.prefix, prefix)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -235,11 +232,7 @@ export async function verifyToken(token: ApiToken, secret: string): Promise<bool
  * Idempotent: revoking an already-revoked token succeeds.
  */
 export async function revokeToken(db: DrizzleDb, tokenId: string): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await db
-    .update(api_tokens)
-    .set({ revoked_at: new Date() })
-    .where(eq(api_tokens.id, tokenId as any));
+  await db.update(api_tokens).set({ revoked_at: new Date() }).where(eq(api_tokens.id, tokenId));
 }
 
 /**
@@ -247,9 +240,5 @@ export async function revokeToken(db: DrizzleDb, tokenId: string): Promise<void>
  * Called by middleware after successful verification to track usage.
  */
 export async function updateTokenLastUsed(db: DrizzleDb, tokenId: string): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await db
-    .update(api_tokens)
-    .set({ last_used_at: new Date() })
-    .where(eq(api_tokens.id, tokenId as any));
+  await db.update(api_tokens).set({ last_used_at: new Date() }).where(eq(api_tokens.id, tokenId));
 }

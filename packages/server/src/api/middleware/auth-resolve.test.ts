@@ -7,7 +7,7 @@ import { withTestDb } from '../../../test/helpers/db.js';
 import { resolvePrincipal } from './auth-resolve.js';
 import { createToken } from '../../auth/tokens.js';
 import { createSession, sessionExpiresAt } from '../../auth/sessions.js';
-import { users, sessions } from '../../db/schema.js';
+import { users } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -40,7 +40,10 @@ vi.mock('../../auth/cookies.js', async (importOriginal) => {
 
   return {
     ...original,
-    getSessionCookie: (c: any) => _mockSessionCookie,
+    // Mock implementation of getSessionCookie: ignores the context parameter
+    // and returns the test-injected session cookie value
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getSessionCookie: (_c: any) => _mockSessionCookie,
   };
 });
 
@@ -65,6 +68,7 @@ async function insertUser(db: DrizzleDb, overrides?: Partial<typeof users.$infer
 }
 
 function createMockContext(authHeader?: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctx: any = {
     req: {
       header: (name: string) => {
@@ -86,7 +90,7 @@ describe('resolvePrincipal — precedence', () => {
       _testDb = db;
       try {
         const user = await insertUser(db);
-        const { secret, token: created } = await createToken(db, {
+        const { secret } = await createToken(db, {
           userId: user.id,
           label: 'Test Token',
         });

@@ -19,11 +19,16 @@
  * 6. Attach principal with kind='token' to c.var
  */
 
-import type { Context, MiddlewareHandler } from 'hono';
+import type { Context } from 'hono';
 import { getDb } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { extractPrefix, findTokenByPrefix, verifyToken, updateTokenLastUsed } from '../../auth/tokens.js';
+import {
+  extractPrefix,
+  findTokenByPrefix,
+  verifyToken,
+  updateTokenLastUsed,
+} from '../../auth/tokens.js';
 import type { Principal } from './auth-session.js';
 
 // ---------------------------------------------------------------------------

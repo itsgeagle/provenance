@@ -46,8 +46,7 @@ interface TokenSummary {
   id: string;
   label: string;
   prefix: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  scopes: any;
+  scopes: unknown;
   last_used_at: string | null;
   expires_at: string | null;
   revoked_at: string | null;
@@ -84,11 +83,10 @@ export function createMeTokensRouter(): Hono {
     const userId = principal.user.id;
     const db = getDb();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tokens = await db
       .select()
       .from(api_tokens)
-      .where(eq(api_tokens.user_id, userId as any))
+      .where(eq(api_tokens.user_id, userId))
       .orderBy(api_tokens.created_at);
 
     return c.json({
@@ -154,7 +152,7 @@ export function createMeTokensRouter(): Hono {
         },
         201,
       );
-    } catch (err) {
+    } catch {
       return c.json(
         {
           error: {
@@ -181,12 +179,7 @@ export function createMeTokensRouter(): Hono {
     const tokens = await db
       .select()
       .from(api_tokens)
-      .where(
-        and(
-          eq(api_tokens.id, tokenId as any),
-          eq(api_tokens.user_id, userId as any),
-        ),
-      )
+      .where(and(eq(api_tokens.id, tokenId), eq(api_tokens.user_id, userId)))
       .limit(1);
 
     if (tokens.length === 0) {

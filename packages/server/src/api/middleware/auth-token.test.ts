@@ -3,7 +3,6 @@
  */
 
 import { vi, describe, it, expect } from 'vitest';
-import { Hono } from 'hono';
 import { withTestDb } from '../../../test/helpers/db.js';
 import { parseBearerHeader, resolveBearerTokenPrincipal } from './auth-token.js';
 import { createToken, revokeToken } from '../../auth/tokens.js';
@@ -81,6 +80,7 @@ describe('parseBearerHeader', () => {
 
 describe('resolveBearerTokenPrincipal', () => {
   function createMockContext(authHeader?: string) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ctx: any = {
       req: {
         header: (name: string) => {
@@ -109,6 +109,7 @@ describe('resolveBearerTokenPrincipal', () => {
         expect(principal!.principal_kind).toBe('token');
         expect(principal!.user.id).toBe(user.id);
         expect(principal!.user.email).toBe('test@berkeley.edu');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         expect((principal as any).token.id).toBe(created.id);
       } finally {
         _testDb = null;
