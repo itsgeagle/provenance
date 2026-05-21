@@ -245,6 +245,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
           const explanation = explanationTagger?.consume();
           emitFsExternalChange({
             path: relativePath,
+            operation: 'modify',
             old_hash: oldHash,
             new_hash: newHash,
             diff_size: Math.abs(newContent.length - oldLength),
@@ -349,6 +350,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
               const explanation = explanationTagger?.consume();
               emitFsExternalChange({
                 path: relativePath,
+                operation: 'modify',
                 old_hash: result.old_hash,
                 new_hash: result.new_hash,
                 diff_size: result.diff_size,

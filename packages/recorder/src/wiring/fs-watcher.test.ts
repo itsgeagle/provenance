@@ -15,6 +15,8 @@ const { capturedWatchers, getWatchers } = vi.hoisted(() => {
   const _watchers: Array<{
     pattern: unknown;
     changeHandler: ChangeHandler | null;
+    createHandler: ChangeHandler | null;
+    deleteHandler: ChangeHandler | null;
     disposed: boolean;
     dispose: () => void;
   }> = [];
@@ -40,9 +42,19 @@ vi.mock('vscode', () => {
         const w = {
           pattern,
           changeHandler: null as ChangeHandler | null,
+          createHandler: null as ChangeHandler | null,
+          deleteHandler: null as ChangeHandler | null,
           disposed: false,
           onDidChange(handler: ChangeHandler) {
             this.changeHandler = handler;
+            return { dispose: () => undefined };
+          },
+          onDidCreate(handler: ChangeHandler) {
+            this.createHandler = handler;
+            return { dispose: () => undefined };
+          },
+          onDidDelete(handler: ChangeHandler) {
+            this.deleteHandler = handler;
             return { dispose: () => undefined };
           },
           dispose() {
@@ -360,5 +372,252 @@ describe('startFsWatcher', () => {
     expect(emit).toHaveBeenCalledOnce();
     const payload = emit.mock.calls[0]![0] as { explanation?: string };
     expect(payload.explanation).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // onDidCreate / onDidDelete (recorder v1.3+, PRD §4.5)
+  // -------------------------------------------------------------------------
+
+  it('onDidCreate: file appears with no prior baseline → emits operation:create + seeds registry', async () => {
+    capturedWatchers.length = 0;
+    const newContent = 'def fresh(): return 1\n';
+    const registry = new ExpectedContentRegistry(['hw.py']);
+    const emit = vi.fn();
+
+    startFsWatcher({
+      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      getLastDocChangeAt: () => -Infinity,
+      getNow: () => 1000,
+      readFile: vi.fn().mockResolvedValue(newContent),
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    watcher?.createHandler?.({ fsPath: '/workspace/hw.py' });
+
+    await flushPromises();
+    expect(emit).toHaveBeenCalledOnce();
+    const payload = emit.mock.calls[0]![0] as {
+      operation: string;
+      old_hash: string;
+      new_hash: string;
+      diff_size: number;
+      new_content?: string;
+    };
+    expect(payload.operation).toBe('create');
+    expect(payload.old_hash).toBe('');
+    expect(payload.new_hash).toBe(sha256Hex(newContent));
+    expect(payload.diff_size).toBe(newContent.length);
+    expect(payload.new_content).toBe(newContent);
+
+    // Registry is seeded so subsequent edits chain from this baseline.
+    const ec = registry.get('hw.py');
+    expect(ec?.content).toBe(newContent);
+    expect(ec?.hash).toBe(sha256Hex(newContent));
+  });
+
+  it('onDidCreate: file already in registry with same hash → no emit (race with doc.open)', async () => {
+    capturedWatchers.length = 0;
+    const content = 'already there\n';
+    const registry = new ExpectedContentRegistry(['hw.py']);
+    registry.getOrCreate('hw.py', content);
+    const emit = vi.fn();
+
+    startFsWatcher({
+      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      getLastDocChangeAt: () => -Infinity,
+      getNow: () => 1000,
+      readFile: vi.fn().mockResolvedValue(content),
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    watcher?.createHandler?.({ fsPath: '/workspace/hw.py' });
+
+    await flushPromises();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('onDidCreate: registry exists but disk content differs → emits operation:modify', async () => {
+    capturedWatchers.length = 0;
+    const seeded = 'old skeleton\n';
+    const disk = 'completely different content\n';
+    const registry = new ExpectedContentRegistry(['hw.py']);
+    registry.getOrCreate('hw.py', seeded);
+    const emit = vi.fn();
+
+    startFsWatcher({
+      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      getLastDocChangeAt: () => -Infinity,
+      getNow: () => 1000,
+      readFile: vi.fn().mockResolvedValue(disk),
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    watcher?.createHandler?.({ fsPath: '/workspace/hw.py' });
+
+    await flushPromises();
+    expect(emit).toHaveBeenCalledOnce();
+    const payload = emit.mock.calls[0]![0] as { operation: string; old_hash: string };
+    expect(payload.operation).toBe('modify');
+    expect(payload.old_hash).toBe(sha256Hex(seeded));
+  });
+
+  it('onDidDelete: registered file → emits operation:delete + clears registry', () => {
+    capturedWatchers.length = 0;
+    const content = 'about to vanish\n';
+    const registry = new ExpectedContentRegistry(['hw.py']);
+    registry.getOrCreate('hw.py', content);
+    const emit = vi.fn();
+
+    startFsWatcher({
+      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      getLastDocChangeAt: () => -Infinity,
+      getNow: () => 1000,
+      readFile: vi.fn().mockResolvedValue(''),
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    watcher?.deleteHandler?.({ fsPath: '/workspace/hw.py' });
+
+    expect(emit).toHaveBeenCalledOnce();
+    const payload = emit.mock.calls[0]![0] as {
+      operation: string;
+      old_hash: string;
+      new_hash: string;
+      diff_size: number;
+      new_content?: string;
+    };
+    expect(payload.operation).toBe('delete');
+    expect(payload.old_hash).toBe(sha256Hex(content));
+    expect(payload.new_hash).toBe('');
+    expect(payload.diff_size).toBe(content.length);
+    expect(payload.new_content).toBeUndefined();
+
+    // Registry entry should be gone.
+    expect(registry.get('hw.py')).toBeUndefined();
+  });
+
+  it('onDidDelete: untracked file → still emits delete with empty old_hash', () => {
+    capturedWatchers.length = 0;
+    const registry = new ExpectedContentRegistry(['hw.py']);
+    // No getOrCreate — file was never opened in VS Code.
+    const emit = vi.fn();
+
+    startFsWatcher({
+      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      getLastDocChangeAt: () => -Infinity,
+      getNow: () => 1000,
+      readFile: vi.fn().mockResolvedValue(''),
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    watcher?.deleteHandler?.({ fsPath: '/workspace/hw.py' });
+
+    expect(emit).toHaveBeenCalledOnce();
+    const payload = emit.mock.calls[0]![0] as {
+      operation: string;
+      old_hash: string;
+      new_hash: string;
+    };
+    expect(payload.operation).toBe('delete');
+    expect(payload.old_hash).toBe('');
+    expect(payload.new_hash).toBe('');
+  });
+
+  it('delete then create: registry is cleared by delete, then re-seeded by the subsequent create', async () => {
+    capturedWatchers.length = 0;
+    const original = 'original\n';
+    const replacement = 'replacement\n';
+    const registry = new ExpectedContentRegistry(['hw.py']);
+    registry.getOrCreate('hw.py', original);
+    const emit = vi.fn();
+
+    const readFile = vi.fn().mockResolvedValue(replacement);
+
+    startFsWatcher({
+      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      getLastDocChangeAt: () => -Infinity,
+      getNow: () => 1000,
+      readFile,
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+
+    // 1. Delete fires.
+    watcher?.deleteHandler?.({ fsPath: '/workspace/hw.py' });
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect((emit.mock.calls[0]![0] as { operation: string }).operation).toBe('delete');
+    expect(registry.get('hw.py')).toBeUndefined();
+
+    // 2. Create fires (e.g. tool finished writing).
+    watcher?.createHandler?.({ fsPath: '/workspace/hw.py' });
+    await flushPromises();
+    expect(emit).toHaveBeenCalledTimes(2);
+    const createPayload = emit.mock.calls[1]![0] as {
+      operation: string;
+      old_hash: string;
+      new_content?: string;
+    };
+    expect(createPayload.operation).toBe('create');
+    expect(createPayload.old_hash).toBe('');
+    expect(createPayload.new_content).toBe(replacement);
+    expect(registry.get('hw.py')?.content).toBe(replacement);
+  });
+
+  it('existing modify path now emits operation:modify explicitly', async () => {
+    capturedWatchers.length = 0;
+    const originalContent = 'def hello(): pass\n';
+    const newContent = 'def hello(): return 42\n';
+    const registry = new ExpectedContentRegistry(['hw.py']);
+    registry.getOrCreate('hw.py', originalContent);
+    const emit = vi.fn();
+
+    startFsWatcher({
+      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      getLastDocChangeAt: () => -Infinity,
+      getNow: () => 10_000,
+      readFile: vi.fn().mockResolvedValue(newContent),
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    watcher?.changeHandler?.({ fsPath: '/workspace/hw.py' });
+
+    await flushPromises();
+    expect(emit).toHaveBeenCalledOnce();
+    expect((emit.mock.calls[0]![0] as { operation: string }).operation).toBe('modify');
   });
 });
