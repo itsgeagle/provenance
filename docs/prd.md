@@ -386,7 +386,7 @@ Heuristics are deterministic rules over the event stream. Each produces a flag w
 - A list of supporting event `seq` numbers.
 - A jump-to-replay link.
 
-The v1 heuristic suite below is a starting set. We expect to add and tune.
+The v1 heuristic suite below is a starting set. We expect to add and tune. For the live, code-linked catalog of what's currently implemented (with configurable thresholds and source-file pointers), see [`docs/heuristics.md`](./heuristics.md).
 
 **Process-shape heuristics:**
 

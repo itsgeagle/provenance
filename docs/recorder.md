@@ -2,7 +2,7 @@
 
 VS Code extension that records a tamper-evident log of editing activity while a student works on a CS 61A assignment. Produces a `.slog` file (JCS-canonical, hash-chained, ed25519-signed checkpoints) that course staff loads into the Provenance Analyzer for review.
 
-This document covers the extension's design and internals — the student-facing README lives in [`packages/recorder/README.md`](../packages/recorder/README.md). For the overall project, see the [repo root README](../README.md). For the full product spec, see [`prd.md`](./prd.md).
+This document covers the extension's design and internals — the student-facing README lives in [`packages/recorder/README.md`](../packages/recorder/README.md). For the overall project, see the [repo root README](../README.md). For the full product spec, see [`prd.md`](./prd.md). For the catalog of analyzer heuristics that consume what the recorder produces, see [`heuristics.md`](./heuristics.md).
 
 ## What it does
 
