@@ -191,14 +191,21 @@ This matters because students who use Claude Code or Codex from a terminal are a
 
 This is one of the most important detection capabilities and worth describing in detail.
 
-For each file in the assignment's `files_under_review` list, the extension keeps an in-memory model of what the file's content _should_ be, based on the sum of `doc.change` events we've recorded since the last save. When a `doc.save` fires, we compute the on-disk sha256 and compare it to our expected hash:
+For each file in the assignment's `files_under_review` list, the extension keeps an in-memory model of what the file's content _should_ be, based on the sum of `doc.change` events we've recorded since the last save. External edits show up via three detection paths, each catching a different scenario; all three emit the same `fs.external_change` event so downstream consumers see one uniform signal.
 
-- **Match:** normal save. Record `doc.save` with the hash.
-- **Mismatch:** something edited the file between our last observed change and the save. Record `fs.external_change` with both hashes and the diff size.
+1. **Save-time hash check.** When a `doc.save` fires for a watched file, we read the on-disk content and compute its sha256, comparing against our expected hash:
+   - **Match:** normal save. Record `doc.save` with the hash.
+   - **Mismatch:** something edited the file between our last observed change and the save. Record `fs.external_change`, then `doc.save` with the post-mismatch hash. Reset the expected-content model from the on-disk content so subsequent edits chain from reality.
 
-Separately, we use a `FileSystemWatcher` on `files_under_review` to detect changes that happen with no surrounding VS Code editor activity at all (file edited while VS Code was unfocused, file replaced by a CLI tool, etc.). These also produce `fs.external_change` events.
+2. **`FileSystemWatcher`.** A `vscode.workspace.createFileSystemWatcher` is registered for each file in `files_under_review`. Its `onDidChange` callback fires for any disk-level write — including writes that happen when VS Code is unfocused or has the file closed entirely. We compare the on-disk hash against our expected hash and emit `fs.external_change` on mismatch. A 250 ms tolerance window suppresses the duplicate notification VS Code's watcher inevitably fires for the same write that just round-tripped through `doc.save`.
 
-This is the primary signal for Claude Code / Codex CLI use: those tools edit files directly on disk, not through VS Code's text editor API, so they produce `fs.external_change` events with no corresponding `doc.change` history. A student who writes code by prompting Claude Code in a terminal and then opens the file in VS Code to read it will have a log full of `fs.external_change` events and almost no `doc.change` events — a very clean signal.
+3. **Reload-from-disk detection in the `doc.change` handler.** When an external tool writes a watched file while VS Code has a clean buffer open on it, VS Code auto-reloads the buffer from disk. The reload fires `onDidChangeTextDocument` with `event.reason === undefined` and `event.document.isDirty === false` — a combination typed edits and programmatic `WorkspaceEdit`s never produce (both leave the buffer dirty). When the recorder sees this combination on a watched file, it emits `fs.external_change` directly from the doc handler, resets the expected-content model, and suppresses the would-be `doc.change` for the reload. Without this path the auto-reload looks indistinguishable from an AI assistant's "Apply" — that's the §4.3 paste classifier's domain, not ours — and the external edit is silently mis-classified.
+
+The combined paths cover the three meaningful states VS Code can be in relative to a watched file: file closed (path 2), file open but buffer dirty/being-saved (path 1), file open with a clean buffer (path 3).
+
+This is the primary signal for Claude Code / Codex CLI use from outside VS Code: those tools edit files directly on disk, not through VS Code's text editor API, so they produce `fs.external_change` events with no corresponding `doc.change` history. A student who writes code by prompting Claude Code in a separate terminal will leave a log full of `fs.external_change` events and almost no `doc.change` events — a very clean signal regardless of whether VS Code was looking at the file at the time.
+
+The payload carries `old_hash`, `new_hash`, `diff_size`, and (recorder v1.3+) the post-change content: full text inline if ≤ 4 KB, otherwise `new_content_head` + `new_content_tail` truncations plus `new_content_size`. The content is what lets the analyzer reseed reconstruction and paint the affected region in replay — without it the file would have to be tainted at the external-edit point.
 
 False positives to handle: linters/formatters that rewrite files on save (Black, Prettier), and Git operations. We special-case these by checking whether the change was preceded by a known formatter command or a `git.event`. Anything we can't explain stays flagged.
 
