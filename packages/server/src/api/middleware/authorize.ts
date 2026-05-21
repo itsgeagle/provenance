@@ -10,7 +10,7 @@
  *
  * The factory:
  *   1. Reads `c.var.principal` (set by authSessionMiddleware upstream).
- *   2. If `target === 'global'`, only superadmins are allowed.
+ *   2. If `target === 'global'`, token scope checks run first, then superadmin check.
  *   3. Otherwise resolves target via the factory function.
  *   4. Looks up membership via `findMembership` (request-scoped cache).
  *   5. Calls `authorize(principal, action, target, membership)`.
@@ -25,11 +25,13 @@
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
-import { authorize, type Action, type Target } from '../../auth/authorize.js';
+import { authorize, type Action, type Target, type AuthorizeResult } from '../../auth/authorize.js';
+import { tokenScopesSchema } from '../../auth/tokens.js';
 import { findMembership } from '../../auth/membership-cache.js';
 import { getDb } from '../../db/client.js';
 import { Errors } from '../v1/errors.js';
 import type { ApiErrorCode } from '../v1/errors.js';
+import type { Principal } from './auth-session.js';
 
 // ---------------------------------------------------------------------------
 // RequireAuthOptions
@@ -52,6 +54,49 @@ export type RequireAuthOptions = {
    */
   target: 'global' | ((c: Context) => Target);
 };
+
+// ---------------------------------------------------------------------------
+// checkTokenScopes — steps 1–3 of the decision tree for global routes
+// ---------------------------------------------------------------------------
+
+/**
+ * Checks token scope constraints for global routes (PRD §4.5 steps 1–3).
+ *
+ * Rules for target === 'global':
+ *   - Null principal  → DENY AUTH_REQUIRED
+ *   - Token with read_only=true AND action !== 'read' → DENY TOKEN_READ_ONLY
+ *   - Token with semester_ids !== null → DENY TOKEN_SCOPE_OUT_OF_BAND
+ *     Rationale: global resources are not tied to any semester. A token scoped
+ *     to specific semesters should never be able to access global resources,
+ *     even if the user is superadmin, because the token scope is more restrictive
+ *     than the user's role. The only exception would be if semester_ids === null
+ *     (an unrestricted token), which we allow through.
+ *
+ * Returns { ok: true } to proceed, or a deny result.
+ */
+function checkTokenScopes(principal: Principal, action: Action): AuthorizeResult {
+  if (principal.principal_kind !== 'token') {
+    // Session principals have no token scope restrictions.
+    return { ok: true };
+  }
+
+  const raw = principal.token.scopes;
+  const value = typeof raw === 'string' ? (JSON.parse(raw) as unknown) : raw;
+  const scopes = tokenScopesSchema.parse(value);
+
+  // Step 2: read-only token attempting a non-read action
+  if (scopes.read_only && action !== 'read') {
+    return { ok: false, code: 'TOKEN_READ_ONLY' };
+  }
+
+  // Step 3 (global variant): token scoped to specific semesters cannot access
+  // global resources — global resources are not in any semester scope.
+  if (scopes.semester_ids !== null) {
+    return { ok: false, code: 'TOKEN_SCOPE_OUT_OF_BAND' };
+  }
+
+  return { ok: true };
+}
 
 // ---------------------------------------------------------------------------
 // requireAuth
@@ -80,9 +125,18 @@ export function requireAuth(opts: RequireAuthOptions): MiddlewareHandler {
     }
 
     // -----------------------------------------------------------------------
-    // Step 2: global target — superadmin only
+    // Step 2: global target — token scope checks FIRST, then superadmin check.
+    //
+    // PRD §4.5 specifies token scope checks precede the superadmin check.
+    // A superadmin token with read_only=true must still be denied on a write
+    // global route. A superadmin token scoped to specific semesters must still
+    // be denied from global routes.
     // -----------------------------------------------------------------------
     if (opts.target === 'global') {
+      const scopeResult = checkTokenScopes(principal, opts.action);
+      if (!scopeResult.ok) {
+        return denyGlobalResponse(c, scopeResult.code);
+      }
       if (!principal.user.is_superadmin) {
         const err = Errors.insufficientRole('admin');
         return c.json(err.toBody(), 403);
@@ -93,9 +147,15 @@ export function requireAuth(opts: RequireAuthOptions): MiddlewareHandler {
     }
 
     // -----------------------------------------------------------------------
-    // Step 3: semester-scoped target
+    // Step 3: semester-scoped target — resolve via factory
     // -----------------------------------------------------------------------
-    const target = opts.target(c);
+    let target: Target;
+    try {
+      target = opts.target(c);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return c.json(Errors.validation([{ target_resolution_error: msg }]).toBody(), 400);
+    }
 
     // -----------------------------------------------------------------------
     // Step 4: look up membership (request-scoped cache)
@@ -140,7 +200,26 @@ function denyResponse(c: Context, code: ApiErrorCode, target: Target): Response 
     case 'NOT_A_MEMBER':
       return c.json(Errors.notAMember().toBody(), 403);
     case 'INSUFFICIENT_ROLE':
+      // Pass the action so the message is accurate if future actions require different roles.
+      // Today both 'write' and 'admin' require 'admin' role, but this is forward-compatible.
       return c.json(Errors.insufficientRole('admin').toBody(), 403);
+    default:
+      return c.json(Errors.internal().toBody(), 500);
+  }
+}
+
+/**
+ * Deny response for global routes where there is no semester target.
+ * Handles TOKEN_READ_ONLY and TOKEN_SCOPE_OUT_OF_BAND without a semesterId.
+ */
+function denyGlobalResponse(c: Context, code: ApiErrorCode): Response {
+  switch (code) {
+    case 'TOKEN_READ_ONLY':
+      return c.json(Errors.tokenReadOnly().toBody(), 403);
+    case 'TOKEN_SCOPE_OUT_OF_BAND':
+      // No semesterId to include; the token has semester_ids !== null which
+      // means it cannot access global (non-semester) resources.
+      return c.json(Errors.tokenScopeOutOfBand('global').toBody(), 403);
     default:
       return c.json(Errors.internal().toBody(), 500);
   }

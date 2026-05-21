@@ -384,6 +384,121 @@ describe('requireAuth middleware', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Critical 1: token scope checks on global routes
+  //
+  // PRD §4.5 requires token scope checks PRECEDE the superadmin check.
+  // A superadmin token with read_only=true must be denied on global write routes.
+  // A token with semester_ids !== null must be denied from all global routes.
+  // -------------------------------------------------------------------------
+
+  it('superadmin token with read_only=true on global write route → 403 TOKEN_READ_ONLY', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const superadmin = await insertUser(db, { is_superadmin: true });
+        const { secret } = await createToken(db, {
+          userId: superadmin.id,
+          label: 'Read-only Superadmin Token',
+          scopes: { read_only: true },
+        });
+
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        const app = makeApp(semester.id);
+
+        // /admin/courses is a write (action: 'admin') global route
+        const res = await app.fetch(
+          new Request('http://localhost/admin/courses', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${secret}` },
+          }),
+        );
+        expect(res.status).toBe(403);
+        const body = await res.json();
+        expect(body.error.code).toBe('TOKEN_READ_ONLY');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('superadmin token with semester_ids scoped on global route → 403 TOKEN_SCOPE_OUT_OF_BAND', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const superadmin = await insertUser(db, { is_superadmin: true });
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+
+        const { secret } = await createToken(db, {
+          userId: superadmin.id,
+          label: 'Semester-scoped Superadmin Token',
+          scopes: { semester_ids: [semester.id] },
+        });
+
+        const app = makeApp(semester.id);
+
+        // Any global route — the token is scoped to specific semesters, not global
+        const res = await app.fetch(
+          new Request('http://localhost/admin/courses', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${secret}` },
+          }),
+        );
+        expect(res.status).toBe(403);
+        const body = await res.json();
+        expect(body.error.code).toBe('TOKEN_SCOPE_OUT_OF_BAND');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Important 5: target factory throws → 400 VALIDATION (not 500 INTERNAL)
+  // -------------------------------------------------------------------------
+
+  it('target factory that throws → 400 VALIDATION (not 500)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db);
+        const { secret } = await createToken(db, {
+          userId: user.id,
+          label: 'Test Token',
+        });
+
+        // App with a route whose target factory always throws
+        const app = new Hono();
+        app.use('*', authSessionMiddleware);
+        app.use('*', initMembershipCache);
+        app.post(
+          '/broken/:id',
+          requireAuth({
+            action: 'read',
+            target: () => {
+              throw new Error('boom — malformed path param');
+            },
+          }),
+          (c) => c.json({ ok: true }),
+        );
+
+        const res = await app.fetch(
+          new Request('http://localhost/broken/bad-id', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${secret}` },
+          }),
+        );
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error.code).toBe('VALIDATION');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
   it('token read_only attempting write → 403 TOKEN_READ_ONLY', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
