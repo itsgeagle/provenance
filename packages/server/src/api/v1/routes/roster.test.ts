@@ -6,6 +6,7 @@
  */
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { withTestDb } from '../../../../test/helpers/db.js';
 import { waitForAuditRow } from '../../../../test/helpers/audit.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
@@ -872,22 +873,212 @@ describe('PATCH /semesters/:semesterId/roster/:rosterEntryId', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration test: commitRoster service (transactional)
+// Critical 1: Cross-semester preview commit guard
 // ---------------------------------------------------------------------------
 
-describe('commitRoster service (via withTestDb)', () => {
-  it('transactional: rolls back on error (all or nothing)', async () => {
+describe('POST /semesters/:semesterId/roster:commit — cross-semester guard', () => {
+  it('returns 404 when upload_id was created for a different semester', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
-        // We test the service directly since simulating a DB error in the route
-        // is complex. This verifies the service layer is used in routes.
-        // The full route commit tests above exercise the transactional path.
-        // This test is a belt-and-suspenders check.
-        expect(true).toBe(true); // placeholder — routes tests cover this
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        // Two semesters; admin has write access to both.
+        const semesterA = await insertSemester(db, course.id);
+        const semesterB = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semesterA.id, 'admin', admin.id);
+        await insertMembership(db, admin.id, semesterB.id, 'admin', admin.id);
+
+        const app = createV1App();
+
+        // Upload CSV against semester A → get upload_id for A.
+        const csv = `sid,display_name\nstu001,Alice`;
+        const uploadRes = await app.fetch(
+          makeCsvUploadRequest(
+            `http://localhost/semesters/${semesterA.id}/roster:upload`,
+            csv,
+            sessionId,
+          ),
+        );
+        expect(uploadRes.status).toBe(200);
+        const { upload_id } = (await uploadRes.json()) as { upload_id: string };
+
+        // Attempt to commit that upload_id against semester B — must return 404.
+        const commitRes = await app.fetch(
+          new Request(`http://localhost/semesters/${semesterB.id}/roster:commit`, {
+            method: 'POST',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ upload_id, accept_deletions: false }),
+          }),
+        );
+        expect(commitRes.status).toBe(404);
+
+        // Verify semester B has no entries (the commit was rejected).
+        const bEntries = await db
+          .select()
+          .from(roster_entries)
+          .then((rows) => rows.filter((r) => r.semester_id === semesterB.id));
+        expect(bEntries).toHaveLength(0);
       } finally {
         _testDb = null;
       }
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Critical 2: PATCH email: null clears the email column
+// ---------------------------------------------------------------------------
+
+describe('PATCH /semesters/:semesterId/roster/:id — email null clear', () => {
+  it('clears email when patched with null', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        // Insert entry with a non-null email.
+        const entry = await insertRosterEntry(db, semester.id, {
+          sid: 'stu001',
+          display_name: 'Alice',
+          email: 'alice@berkeley.edu',
+        });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/roster/${entry.id}`, {
+            method: 'PATCH',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ email: null }),
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { email: string | null };
+        // Route response must reflect the cleared value.
+        expect(body.email).toBeNull();
+
+        // Verify the DB row was actually updated to NULL.
+        const [dbRow] = await db
+          .select()
+          .from(roster_entries)
+          .where(eq(roster_entries.id, entry.id));
+        expect(dbRow?.email).toBeNull();
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Important 3: Duplicate sid in CSV upload returns row-level error
+// ---------------------------------------------------------------------------
+
+describe('POST /semesters/:semesterId/roster:upload — duplicate sid', () => {
+  it('returns 200 with row-level error for duplicate sid in the CSV', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        // Row 2 and row 4 have the same sid (12345). Row 3 is unique.
+        const csv = `sid,display_name\n12345,Alice\n67890,Bob\n12345,Alice Duplicate`;
+        const app = createV1App();
+        const res = await app.fetch(
+          makeCsvUploadRequest(
+            `http://localhost/semesters/${semester.id}/roster:upload`,
+            csv,
+            sessionId,
+          ),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          parsed_rows: number;
+          to_add: number;
+          errors: { row: number; message: string }[];
+        };
+        // The duplicate row should appear in errors.
+        expect(body.errors).toHaveLength(1);
+        expect(body.errors[0]?.row).toBe(4);
+        expect(body.errors[0]?.message).toMatch(/duplicate sid/i);
+        // Only the two unique rows are counted.
+        expect(body.parsed_rows).toBe(2);
+        expect(body.to_add).toBe(2);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Important 4: Content-Length pre-check returns 413 without buffering body
+// ---------------------------------------------------------------------------
+
+describe('POST /semesters/:semesterId/roster:upload — Content-Length pre-check', () => {
+  it('returns 413 immediately when Content-Length header exceeds the cap', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        // Cap = 10 bytes for this test.
+        _setConfigForTest(parseEnv({ ...BASE_ENV, ROSTER_CSV_MAX_BYTES: '10' }));
+
+        // Send a small body but declare a Content-Length larger than the cap.
+        // The route should reject via the pre-check before parseBody is reached.
+        const formData = new FormData();
+        formData.append(
+          'file',
+          new Blob(['sid,display_name\nstu,A'], { type: 'text/csv' }),
+          'r.csv',
+        );
+        const req = new Request(`http://localhost/semesters/${semester.id}/roster:upload`, {
+          method: 'POST',
+          headers: {
+            Cookie: `__Host-prov_sess=${sessionId}`,
+            // Declare a content-length far above the cap.
+            'content-length': '99999',
+          },
+          body: formData,
+        });
+        const app = createV1App();
+        const res = await app.fetch(req);
+        expect(res.status).toBe(413);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe('ROSTER_CSV_TOO_LARGE');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Note: commitRoster transactional rollback
+// ---------------------------------------------------------------------------
+// Transaction rollback is exercised by Drizzle's withTransaction internally.
+// Testing it meaningfully would require injecting a failure mid-commit (e.g.
+// a mid-insert constraint violation) which requires concurrency machinery.
+// The accept_deletions=true and accept_deletions=false paths are already
+// exercised by the route-level tests above. The former placeholder test
+// `expect(true).toBe(true)` has been removed — it implied coverage that did
+// not exist.

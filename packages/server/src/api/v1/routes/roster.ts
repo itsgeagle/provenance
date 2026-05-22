@@ -117,6 +117,17 @@ export function createRosterRouter(): Hono {
       const cfg = getConfig();
       const db = getDb();
 
+      // Content-Length pre-check: reject before buffering the body.
+      // This prevents a large upload from allocating memory before the size
+      // check fires. The post-parse check (fileField.size) remains as defense-in-depth.
+      const contentLengthHeader = c.req.header('content-length');
+      if (contentLengthHeader !== undefined) {
+        const contentLength = parseInt(contentLengthHeader, 10);
+        if (!isNaN(contentLength) && contentLength > cfg.ROSTER_CSV_MAX_BYTES) {
+          return c.json(Errors.rosterCsvTooLarge(cfg.ROSTER_CSV_MAX_BYTES).toBody(), 413);
+        }
+      }
+
       // Parse multipart body. Hono's parseBody handles multipart.
       let formData: Record<string, unknown>;
       try {
@@ -210,9 +221,11 @@ export function createRosterRouter(): Hono {
 
       const { upload_id, accept_deletions } = parsed.data;
 
-      // Look up the cached preview.
+      // Look up the cached preview and verify it belongs to this semester.
+      // Using the same 404 for both missing and semester mismatch — do not leak
+      // preview existence across semesters.
       const preview = getPreview(upload_id);
-      if (preview === null) {
+      if (preview === null || preview.semesterId !== semesterId) {
         throw Errors.notFound();
       }
 
