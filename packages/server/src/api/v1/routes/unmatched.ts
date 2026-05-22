@@ -21,7 +21,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, or, sql, gt } from 'drizzle-orm';
+import { eq, and, or, sql, gt, gte } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { requireAuth } from '../../middleware/authorize.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
@@ -191,12 +191,22 @@ export function createUnmatchedRouter(): Hono {
         if (!isNaN(cursorDate.getTime())) {
           // Files created after the cursor date, or at the same time with a
           // lexicographically larger ID (UUIDs sort lexicographically in Postgres).
+          // The cursor stores a millisecond-precision timestamp (JS Date), but
+          // Postgres stores timestamptz with microsecond precision.  A row whose
+          // DB timestamp is "2026-05-22T12:13:32.770123Z" compares as
+          //   created_at > '2026-05-22T12:13:32.770Z'   → TRUE (123µs > 0)
+          // which would include the cursor row itself in the next page.
+          //
+          // Fix: rows after the cursor are those with:
+          //   (created_at >= T_next_ms)                  — any row in the next ms or later
+          //   OR (created_at >= T_this_ms AND id > cursor.id)  — same ms bucket, later id
+          //
+          // T_next_ms is T_this_ms + 1 millisecond, so no row in the same ms
+          // bucket satisfies the first branch unless it's genuinely in a later ms.
+          const nextMs = new Date(cursorDate.getTime() + 1);
           cursorCondition = or(
-            gt(ingest_files.created_at, cursorDate),
-            and(
-              sql`${ingest_files.created_at} = ${cursorDate.toISOString()}::timestamptz`,
-              gt(ingest_files.id, cursor.id),
-            ),
+            gte(ingest_files.created_at, nextMs),
+            and(gte(ingest_files.created_at, cursorDate), gt(ingest_files.id, cursor.id)),
           );
         }
       }
