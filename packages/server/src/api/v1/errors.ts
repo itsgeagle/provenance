@@ -44,6 +44,7 @@ export type ApiErrorCode =
   | 'CANNOT_DEMOTE_SELF'
   | 'LAST_ADMIN_REQUIRED'
   | 'INGEST_FILE_NOT_UNMATCHED'
+  | 'INGEST_JOB_NOT_CANCELLABLE'
   | 'CONFIG_VERSION_CONFLICT'
   | 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD'
   // Payload too large (413)
@@ -313,6 +314,15 @@ export const Errors = {
       409,
       'This ingest file is not in the unmatched state and cannot be edited',
       { file_id: fileId },
+    );
+  },
+
+  ingestJobNotCancellable(previousStatus: string): ApiError {
+    return new ApiError(
+      'INGEST_JOB_NOT_CANCELLABLE',
+      409,
+      `Job is already in a terminal state and cannot be cancelled (current status: ${previousStatus})`,
+      { previous_status: previousStatus },
     );
   },
 

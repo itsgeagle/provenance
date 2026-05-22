@@ -7,7 +7,12 @@
 import { vi, describe, it, expect } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { withTestDb } from '../../../test/helpers/db.js';
-import { enqueueIngestJob, finalizeIngestJob, cancelIngestJob } from './job-control.js';
+import {
+  enqueueIngestJob,
+  finalizeIngestJob,
+  cancelIngestJob,
+  failIngestJob,
+} from './job-control.js';
 import { users, courses, semesters, ingest_jobs } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 
@@ -34,10 +39,7 @@ async function seedUser(db: DrizzleDb) {
 
 async function seedSemester(db: DrizzleDb, _userId: string) {
   const slug = `cs61a-${crypto.randomUUID().slice(0, 8)}`;
-  const [course] = await db
-    .insert(courses)
-    .values({ name: 'CS 61A', slug })
-    .returning();
+  const [course] = await db.insert(courses).values({ name: 'CS 61A', slug }).returning();
   const [semester] = await db
     .insert(semesters)
     .values({
@@ -134,13 +136,15 @@ describe('finalizeIngestJob', () => {
 // ---------------------------------------------------------------------------
 
 describe('cancelIngestJob', () => {
-  it('sets status=cancelled on a queued job', async () => {
+  it('sets status=cancelled on a queued job and returns cancelled:true', async () => {
     await withTestDb(async (db) => {
       const user = await seedUser(db);
       const semester = await seedSemester(db, user.id);
       const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
 
-      await cancelIngestJob(db, jobId, semester.id);
+      const result = await cancelIngestJob(db, jobId, semester.id);
+      expect(result.cancelled).toBe(true);
+      expect(result.previous_status).toBe('queued');
 
       const rows = await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId));
       expect(rows[0]!.status).toBe('cancelled');
@@ -148,14 +152,31 @@ describe('cancelIngestJob', () => {
     });
   });
 
-  it('is idempotent — cancelling twice succeeds', async () => {
+  it('is idempotent — cancelling an already-cancelled job returns cancelled:false', async () => {
     await withTestDb(async (db) => {
       const user = await seedUser(db);
       const semester = await seedSemester(db, user.id);
       const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
 
       await cancelIngestJob(db, jobId, semester.id);
-      await expect(cancelIngestJob(db, jobId, semester.id)).resolves.toEqual({ ok: true });
+      const result = await cancelIngestJob(db, jobId, semester.id);
+      expect(result.cancelled).toBe(false);
+      expect(result.previous_status).toBe('cancelled');
+    });
+  });
+
+  it('throws INGEST_JOB_NOT_CANCELLABLE (409) when job is in a terminal state', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
+
+      // Force-set to 'failed' via failIngestJob (simulates a terminal state).
+      await failIngestJob(db, jobId, 'forced failure for test');
+
+      const err = await cancelIngestJob(db, jobId, semester.id).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as { code?: string }).code).toBe('INGEST_JOB_NOT_CANCELLABLE');
     });
   });
 
@@ -165,6 +186,34 @@ describe('cancelIngestJob', () => {
       const semester = await seedSemester(db, user.id);
       const nonExistent = crypto.randomUUID();
       await expect(cancelIngestJob(db, nonExistent, semester.id)).rejects.toThrow();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// failIngestJob
+// ---------------------------------------------------------------------------
+
+describe('failIngestJob', () => {
+  it('sets status=failed with error detail in summary', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
+
+      await failIngestJob(db, jobId, 'stageBlob threw on file 2');
+
+      const rows = await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId));
+      expect(rows[0]!.status).toBe('failed');
+      expect(rows[0]!.completed_at).not.toBeNull();
+      expect((rows[0]!.summary as Record<string, string>).error).toBe('stageBlob threw on file 2');
+    });
+  });
+
+  it('no-ops silently if jobId does not exist', async () => {
+    await withTestDb(async (db) => {
+      // Should not throw.
+      await expect(failIngestJob(db, crypto.randomUUID(), 'irrelevant')).resolves.toBeUndefined();
     });
   });
 });

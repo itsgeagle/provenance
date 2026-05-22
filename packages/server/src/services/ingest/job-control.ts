@@ -21,6 +21,34 @@ import { eq, and, ne } from 'drizzle-orm';
 import { Errors } from '../../api/v1/errors.js';
 
 // ---------------------------------------------------------------------------
+// failIngestJob
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks an ingest job as failed with an optional error detail string.
+ *
+ * Called as a compensation path when staging fails mid-batch. Any blobs
+ * already staged to MinIO are left as orphans — the retention sweep (Phase 9c)
+ * will clean them up.
+ *
+ * Silently no-ops if the job doesn't exist (worker idempotency).
+ */
+export async function failIngestJob(
+  db: DrizzleDb,
+  jobId: string,
+  errorDetail?: string,
+): Promise<void> {
+  await db
+    .update(ingest_jobs)
+    .set({
+      status: 'failed',
+      completed_at: new Date(),
+      summary: errorDetail !== undefined ? { error: errorDetail } : {},
+    })
+    .where(eq(ingest_jobs.id, jobId));
+}
+
+// ---------------------------------------------------------------------------
 // enqueueIngestJob
 // ---------------------------------------------------------------------------
 
@@ -72,9 +100,10 @@ export async function enqueueIngestJob(
  */
 export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<void> {
   // Phase 9a: no-op beyond verifying the job exists and is not cancelled.
-  const rows = await db.select({ status: ingest_jobs.status }).from(ingest_jobs).where(
-    eq(ingest_jobs.id, jobId),
-  );
+  const rows = await db
+    .select({ status: ingest_jobs.status })
+    .from(ingest_jobs)
+    .where(eq(ingest_jobs.id, jobId));
 
   if (rows.length === 0) {
     // Silently return if the job doesn't exist — worker idempotency.
@@ -95,51 +124,64 @@ export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<v
 // ---------------------------------------------------------------------------
 
 export interface CancelIngestJobResult {
-  ok: true;
+  /** Whether this call actually transitioned the job to cancelled. */
+  cancelled: boolean;
+  /** The status the job was in before this call. */
+  previous_status: string;
 }
 
 /**
  * Cancels an ingest job if it is still in a cancellable state (queued/running).
  *
- * Returns the updated job row. Throws NOT_FOUND if the job doesn't exist
- * in the given semester, or if it is already terminal.
+ * Returns `{ cancelled, previous_status }`:
+ *   - `cancelled: true`  — job was queued/running and is now cancelled.
+ *   - `cancelled: false` — job was already cancelled (idempotent, no-op).
+ *
+ * Throws NOT_FOUND if the job doesn't exist in the given semester.
+ * Throws INGEST_JOB_NOT_CANCELLABLE (409) if the job is in a terminal state
+ * other than 'cancelled' (i.e. succeeded / partial / failed).
  */
 export async function cancelIngestJob(
   db: DrizzleDb,
   jobId: string,
   semesterId: string,
 ): Promise<CancelIngestJobResult> {
-  const rows = await db
+  // First, fetch the current status so we can give precise feedback.
+  const existing = await db
+    .select({ id: ingest_jobs.id, status: ingest_jobs.status })
+    .from(ingest_jobs)
+    .where(and(eq(ingest_jobs.id, jobId), eq(ingest_jobs.semester_id, semesterId)));
+
+  if (existing.length === 0) {
+    throw Errors.notFound();
+  }
+
+  const currentStatus = existing[0]!.status;
+
+  // Already cancelled — idempotent no-op.
+  if (currentStatus === 'cancelled') {
+    return { cancelled: false, previous_status: currentStatus };
+  }
+
+  // Terminal (non-cancellable) states.
+  if (currentStatus === 'succeeded' || currentStatus === 'partial' || currentStatus === 'failed') {
+    throw Errors.ingestJobNotCancellable(currentStatus);
+  }
+
+  // Cancel it (queued or running).
+  await db
     .update(ingest_jobs)
     .set({ status: 'cancelled', completed_at: new Date() })
     .where(
       and(
         eq(ingest_jobs.id, jobId),
         eq(ingest_jobs.semester_id, semesterId),
-        // Only cancel if not already terminal.
         ne(ingest_jobs.status, 'succeeded'),
         ne(ingest_jobs.status, 'partial'),
         ne(ingest_jobs.status, 'failed'),
         ne(ingest_jobs.status, 'cancelled'),
       ),
-    )
-    .returning({ id: ingest_jobs.id });
+    );
 
-  if (rows.length === 0) {
-    // Either the job doesn't exist in this semester, or it's already terminal.
-    // Check which case it is.
-    const existing = await db
-      .select({ id: ingest_jobs.id })
-      .from(ingest_jobs)
-      .where(and(eq(ingest_jobs.id, jobId), eq(ingest_jobs.semester_id, semesterId)));
-
-    if (existing.length === 0) {
-      throw Errors.notFound();
-    }
-
-    // Job exists but is already terminal — treat as idempotent success.
-    return { ok: true };
-  }
-
-  return { ok: true };
+  return { cancelled: true, previous_status: currentStatus };
 }

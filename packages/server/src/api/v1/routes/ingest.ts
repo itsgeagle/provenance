@@ -30,9 +30,13 @@ import { getConfig } from '../../../config/index.js';
 import { requireAuth } from '../../middleware/authorize.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
 import { audit } from '../../middleware/audit.js';
-import { Errors } from '../errors.js';
+import { Errors, ApiError } from '../errors.js';
 import { ingest_jobs, ingest_files, roster_entries } from '../../../db/schema.js';
-import { enqueueIngestJob, cancelIngestJob } from '../../../services/ingest/job-control.js';
+import {
+  enqueueIngestJob,
+  cancelIngestJob,
+  failIngestJob,
+} from '../../../services/ingest/job-control.js';
 import { stageBlob } from '../../../services/ingest/stage-blob.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
 
@@ -41,39 +45,78 @@ import { createStorageClient, storageConfigFromEnv } from '../../../services/sto
 // ---------------------------------------------------------------------------
 
 /**
+ * Discriminated result from tryExpandZipBundle.
+ *
+ * - kind='not-zip': the bytes were not a valid zip at all (use `rawBuffer` for staging).
+ * - kind='single-zip': valid zip but not a zip-of-zips (use `rawBuffer` for staging).
+ * - kind='zip-of-zips': expanded inner entries are in `entries`.
+ */
+type ExpandResult =
+  | { kind: 'not-zip'; rawBuffer: ArrayBuffer }
+  | { kind: 'single-zip'; rawBuffer: ArrayBuffer }
+  | { kind: 'zip-of-zips'; entries: Array<{ filename: string; data: ArrayBuffer }> };
+
+/**
  * Detect zip-of-zips: a single File named *.zip whose contents are all .zip entries.
- * Returns the inner zip entries as { filename, data } pairs, or null if not a zip-of-zips.
+ *
+ * Accepts a pre-read `rawBuffer` so the caller can pass it to `stageBlob` on
+ * the non-zip-of-zips path without a second `arrayBuffer()` call (Important 3).
+ *
+ * Zip-bomb guard (Critical 2): tracks `totalUncompressed` across all inner
+ * entries serially. If the running total exceeds `maxBatchBytes`, throws
+ * `Errors.ingestBatchTooLarge` immediately. Only one entry's worth of bytes
+ * is held in memory beyond what has already been committed to `entries`.
  */
 async function tryExpandZipBundle(
-  file: File,
-): Promise<Array<{ filename: string; data: ArrayBuffer }> | null> {
-  if (!file.name.endsWith('.zip')) return null;
+  filename: string,
+  rawBuffer: ArrayBuffer,
+  maxBundleBytes: number,
+  maxBatchBytes: number,
+): Promise<ExpandResult> {
+  if (!filename.endsWith('.zip')) return { kind: 'not-zip', rawBuffer };
 
   let outer: JSZip;
   try {
-    const bytes = await file.arrayBuffer();
-    outer = await JSZip.loadAsync(bytes);
+    outer = await JSZip.loadAsync(rawBuffer);
   } catch {
     // Not a valid zip — treat as a regular file.
-    return null;
+    return { kind: 'not-zip', rawBuffer };
   }
 
   const entries = Object.values(outer.files).filter((f) => !f.dir);
-  if (entries.length === 0) return null;
+  if (entries.length === 0) return { kind: 'single-zip', rawBuffer };
 
   // Check if ALL entries are .zip files (zip-of-zips convention).
   const allZips = entries.every((e) => e.name.endsWith('.zip'));
-  if (!allZips) return null;
+  if (!allZips) return { kind: 'single-zip', rawBuffer };
 
-  // Extract each inner zip.
+  // Extract each inner zip serially, tracking running uncompressed total.
+  // At any point only ONE entry's data is held in memory beyond what's
+  // already pushed to `result` — per the zip-bomb guard requirement.
   const result: Array<{ filename: string; data: ArrayBuffer }> = [];
+  let totalUncompressed = 0;
+
   for (const entry of entries) {
     const data = await entry.async('arraybuffer');
+
+    // Per-entry size check (kept from original).
+    if (data.byteLength > maxBundleBytes) {
+      throw Errors.ingestFileTooLarge(maxBundleBytes);
+    }
+
+    totalUncompressed += data.byteLength;
+
+    // Running total cap — zip-bomb guard.
+    if (totalUncompressed > maxBatchBytes) {
+      throw Errors.ingestBatchTooLarge(maxBatchBytes);
+    }
+
     // Use only the filename part, not path components inside the outer archive.
-    const filename = entry.name.split('/').at(-1) ?? entry.name;
-    result.push({ filename, data });
+    const entryFilename = entry.name.split('/').at(-1) ?? entry.name;
+    result.push({ filename: entryFilename, data });
   }
-  return result;
+
+  return { kind: 'zip-of-zips', entries: result };
 }
 
 /**
@@ -102,7 +145,7 @@ export function createIngestRouter(): Hono {
       action: 'write',
       target: (c) => ({ semesterId: c.req.param('semesterId')! }),
     }),
-    audit('ingest.start', 'ingest_job', (c) => c.get('auditDetail')?.['job_id'] as string ?? ''),
+    audit('ingest.start', 'ingest_job', (c) => (c.get('auditDetail')?.['job_id'] as string) ?? ''),
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
       const cfg = getConfig();
@@ -116,10 +159,7 @@ export function createIngestRouter(): Hono {
       if (contentLengthHeader !== undefined) {
         const contentLength = parseInt(contentLengthHeader, 10);
         if (!isNaN(contentLength) && contentLength > cfg.INGEST_MAX_BATCH_BYTES) {
-          return c.json(
-            Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(),
-            413,
-          );
+          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
         }
       }
 
@@ -142,7 +182,12 @@ export function createIngestRouter(): Hono {
       try {
         formData = await c.req.parseBody({ all: true });
       } catch {
-        return c.json(Errors.validation([{ field: 'multipart', issue: 'Failed to parse multipart body' }]).toBody(), 400);
+        return c.json(
+          Errors.validation([
+            { field: 'multipart', issue: 'Failed to parse multipart body' },
+          ]).toBody(),
+          400,
+        );
       }
 
       // Collect files: either `files[]` (array) or a single `archive`.
@@ -163,33 +208,55 @@ export function createIngestRouter(): Hono {
 
       if (rawFiles.length === 0) {
         return c.json(
-          Errors.validation([{ field: 'files', issue: 'No files provided. Use `archive` or `files[]` field.' }]).toBody(),
+          Errors.validation([
+            { field: 'files', issue: 'No files provided. Use `archive` or `files[]` field.' },
+          ]).toBody(),
           400,
         );
       }
 
       // -----------------------------------------------------------------------
       // Expand zip-of-zips OR collect individual files.
+      // Pre-read each File's buffer exactly once (Important 3: no double-buffer).
+      // tryExpandZipBundle receives the already-read buffer and returns it on
+      // non-zip-of-zips paths so we reuse it for stageBlob.
       // -----------------------------------------------------------------------
       const filesToStage: FileToStage[] = [];
 
       for (const raw of rawFiles) {
-        // Per-file size check.
+        // Per-file size check (before reading, to fail fast on obvious over-size).
         if (raw.size > cfg.INGEST_MAX_BUNDLE_BYTES) {
           return c.json(Errors.ingestFileTooLarge(cfg.INGEST_MAX_BUNDLE_BYTES).toBody(), 413);
         }
 
+        // Read the buffer exactly once.
+        const rawBuffer = await raw.arrayBuffer();
+
         // Try to expand as zip-of-zips.
-        const expanded = await tryExpandZipBundle(raw);
-        if (expanded !== null) {
-          for (const inner of expanded) {
-            if (inner.data.byteLength > cfg.INGEST_MAX_BUNDLE_BYTES) {
-              return c.json(Errors.ingestFileTooLarge(cfg.INGEST_MAX_BUNDLE_BYTES).toBody(), 413);
-            }
+        // tryExpandZipBundle enforces per-entry and running-total caps internally
+        // (Critical 2 zip-bomb guard). May throw ApiError on violation.
+        let expandResult: Awaited<ReturnType<typeof tryExpandZipBundle>>;
+        try {
+          expandResult = await tryExpandZipBundle(
+            raw.name,
+            rawBuffer,
+            cfg.INGEST_MAX_BUNDLE_BYTES,
+            cfg.INGEST_MAX_BATCH_BYTES,
+          );
+        } catch (err) {
+          if (err instanceof ApiError) {
+            return c.json(err.toBody(), err.status as 413 | 400);
+          }
+          throw err;
+        }
+
+        if (expandResult.kind === 'zip-of-zips') {
+          for (const inner of expandResult.entries) {
             filesToStage.push({ filename: inner.filename, body: inner.data });
           }
         } else {
-          filesToStage.push({ filename: raw.name, body: await raw.arrayBuffer() });
+          // 'not-zip' or 'single-zip': reuse the already-read buffer.
+          filesToStage.push({ filename: raw.name, body: expandResult.rawBuffer });
         }
       }
 
@@ -214,32 +281,44 @@ export function createIngestRouter(): Hono {
 
       // -----------------------------------------------------------------------
       // Stage each file and create ingest_files rows.
+      //
+      // Critical 1: if staging fails mid-batch, mark the job 'failed' before
+      // re-throwing so the row is never left permanently in 'queued'.
+      // Any blobs already staged to MinIO on prior iterations become orphans;
+      // the retention sweep (Phase 9c) will clean them up.
       // -----------------------------------------------------------------------
       const storageClient = createStorageClient(storageConfigFromEnv(cfg));
 
-      for (const file of filesToStage) {
-        // Pre-allocate a UUID for the ingest_files row so we can build the
-        // staging key before the DB insert.
-        const fileId = crypto.randomUUID();
+      try {
+        for (const file of filesToStage) {
+          // Pre-allocate a UUID for the ingest_files row so we can build the
+          // staging key before the DB insert.
+          const fileId = crypto.randomUUID();
 
-        const { blobSha256, sizeBytes } = await stageBlob(
-          { storageClient },
-          {
-            jobId,
-            ingestFileId: fileId,
-            body: file.body,
-          },
-        );
+          const { blobSha256, sizeBytes } = await stageBlob(
+            { storageClient },
+            {
+              jobId,
+              ingestFileId: fileId,
+              body: file.body,
+            },
+          );
 
-        // Insert the ingest_files row with status='pending'.
-        await db.insert(ingest_files).values({
-          id: fileId,
-          ingest_job_id: jobId,
-          original_filename: file.filename,
-          size_bytes: sizeBytes,
-          blob_sha256: blobSha256,
-          status: 'pending',
-        });
+          // Insert the ingest_files row with status='pending'.
+          await db.insert(ingest_files).values({
+            id: fileId,
+            ingest_job_id: jobId,
+            original_filename: file.filename,
+            size_bytes: sizeBytes,
+            blob_sha256: blobSha256,
+            status: 'pending',
+          });
+        }
+      } catch (stagingErr) {
+        // Compensation: mark the job failed so it is not permanently 'queued'.
+        const detail = stagingErr instanceof Error ? stagingErr.message : String(stagingErr);
+        await failIngestJob(db, jobId, detail);
+        throw stagingErr;
       }
 
       // Set auditDetail so the audit middleware can log job_id as target_id.
@@ -295,9 +374,7 @@ export function createIngestRouter(): Hono {
         .where(
           and(
             eq(ingest_jobs.semester_id, semesterId),
-            statusFilter !== undefined
-              ? eq(ingest_jobs.status, statusFilter)
-              : undefined,
+            statusFilter !== undefined ? eq(ingest_jobs.status, statusFilter) : undefined,
             cursorDate !== null ? lt(ingest_jobs.created_at, cursorDate) : undefined,
           ),
         )
@@ -306,7 +383,7 @@ export function createIngestRouter(): Hono {
 
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, limit) : rows;
-      const nextCursor = hasMore ? items.at(-1)?.created_at?.toISOString() ?? null : null;
+      const nextCursor = hasMore ? (items.at(-1)?.created_at?.toISOString() ?? null) : null;
 
       return c.json({
         items: items.map((r) => ({
@@ -340,9 +417,19 @@ export function createIngestRouter(): Hono {
       const jobId = c.req.param('jobId')!;
       const db = getDb();
 
-      await cancelIngestJob(db, jobId, semesterId);
+      const result = await cancelIngestJob(db, jobId, semesterId);
 
-      return c.json({ ok: true }, 202);
+      // Return 202 for both real cancellations and idempotent no-ops (already
+      // cancelled). Include the discriminated fields so callers can tell them
+      // apart without a follow-up GET.
+      return c.json(
+        {
+          ok: true,
+          cancelled: result.cancelled,
+          previous_status: result.previous_status,
+        },
+        202,
+      );
     },
   );
 
