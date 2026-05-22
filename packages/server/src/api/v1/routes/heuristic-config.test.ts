@@ -738,9 +738,7 @@ describe('computeDryRunDiff', () => {
 
       // Insert an ingest_job (submissions require it)
       const [ingestJob] = await db
-        .insert(
-          (await import('../../../db/schema.js')).ingest_jobs,
-        )
+        .insert((await import('../../../db/schema.js')).ingest_jobs)
         .values({
           semester_id: semester.id,
           uploaded_by: adminUser.id,
@@ -801,9 +799,7 @@ describe('computeDryRunDiff', () => {
       await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
 
       const [ingestJob] = await db
-        .insert(
-          (await import('../../../db/schema.js')).ingest_jobs,
-        )
+        .insert((await import('../../../db/schema.js')).ingest_jobs)
         .values({
           semester_id: semester.id,
           uploaded_by: adminUser.id,
@@ -859,7 +855,9 @@ describe('computeDryRunDiff', () => {
       });
 
       // Now use a candidate that disables large_paste — score drops to 0, tier drops to 'info'
-      const candidateConfig = JSON.parse(JSON.stringify(DEFAULT_SERVER_CONFIG)) as typeof DEFAULT_SERVER_CONFIG;
+      const candidateConfig = JSON.parse(
+        JSON.stringify(DEFAULT_SERVER_CONFIG),
+      ) as typeof DEFAULT_SERVER_CONFIG;
       candidateConfig.per_flag['large_paste']!.enabled = false;
 
       const result = await computeDryRunDiff(db, semester.id, candidateConfig, 2);
@@ -870,6 +868,65 @@ describe('computeDryRunDiff', () => {
       expect(result.diff.top_movers[0]!.new_tier).toBe('info');
       expect(result.diff.top_movers[0]!.old_score).toBe(3);
       expect(result.diff.top_movers[0]!.new_score).toBe(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent PUT If-Match regression test (V21 pattern)
+//
+// Two simultaneous dryRun=true PUTs: one with the correct If-Match version,
+// one with a stale version. Since both are dryRun=true there are no DB writes,
+// but the version-conflict check must still reject the stale one with 409.
+// This establishes the V21 concurrency-test pattern that Phase 13b's commit
+// handler will inherit for actual DB-write conflict detection.
+// ---------------------------------------------------------------------------
+
+describe('PUT ?dryRun=true — concurrent If-Match regression', () => {
+  it('rejects stale If-Match version with 409 when both requests race', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const body = JSON.stringify(validCandidateBody());
+        const headers = {
+          Cookie: `__Host-prov_sess=${sessionId}`,
+          'Content-Type': 'application/json',
+        };
+
+        const [okRes, staleRes] = await Promise.all([
+          // Correct If-Match — current active version is 1
+          app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+              method: 'PUT',
+              headers: { ...headers, 'If-Match': '1' },
+              body,
+            }),
+          ),
+          // Stale If-Match — version 0 is outdated (current is 1)
+          app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+              method: 'PUT',
+              headers: { ...headers, 'If-Match': '0' },
+              body,
+            }),
+          ),
+        ]);
+
+        expect(okRes.status).toBe(200);
+        expect(staleRes.status).toBe(409);
+        const staleBody = (await staleRes.json()) as { error: { code: string } };
+        expect(staleBody.error.code).toBe('CONFIG_VERSION_CONFLICT');
+      } finally {
+        _testDb = null;
+      }
     });
   });
 });
