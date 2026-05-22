@@ -5,7 +5,7 @@
  * listRoster:   Paginated list of roster_entries with optional text search.
  */
 
-import { eq, and, sql, or, ilike, gt } from 'drizzle-orm';
+import { eq, and, sql, or, gt } from 'drizzle-orm';
 import { roster_entries } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';
@@ -117,10 +117,24 @@ export async function listRoster(
   // Build the base WHERE condition.
   const baseConditions = [eq(roster_entries.semester_id, semesterId)];
 
-  // Text search on display_name or email (case-insensitive via ilike).
+  // Text search on display_name or email (case-insensitive via ILIKE).
+  // Escape user-supplied wildcards so that a literal '%' or '_' searches for
+  // those characters rather than acting as LIKE wildcards. The ESCAPE '\' clause
+  // is required because PostgreSQL's ILIKE does not treat backslash as an escape
+  // character by default — drizzle's ilike() helper doesn't expose ESCAPE, so we
+  // use sql`` directly.
   const searchConditions =
     q !== undefined && q !== ''
-      ? [or(ilike(roster_entries.display_name, `%${q}%`), ilike(roster_entries.email, `%${q}%`))]
+      ? (() => {
+          const escaped = q.replace(/[%_\\]/g, '\\$&');
+          const pattern = `%${escaped}%`;
+          return [
+            or(
+              sql`${roster_entries.display_name} ILIKE ${pattern} ESCAPE '\\'`,
+              sql`${roster_entries.email} ILIKE ${pattern} ESCAPE '\\'`,
+            ),
+          ];
+        })()
       : [];
 
   // Cursor-based pagination: cursor is an ISO timestamp from the previous
@@ -197,8 +211,11 @@ export async function updateRosterEntry(
     setValues.display_name = updates.display_name;
   }
   if ('email' in updates) {
-    // null means clear; undefined means not provided
-    setValues.email = updates.email ?? undefined;
+    // null is preserved so Drizzle writes NULL (clears the column).
+    // undefined means the caller did not provide this field → omit from SET.
+    // The ?? undefined pattern was wrong: null ?? undefined === undefined, which
+    // causes Drizzle to omit the column rather than clearing it.
+    setValues.email = updates.email;
   }
   if (updates.extras !== undefined) {
     setValues.extras = updates.extras;
