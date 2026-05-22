@@ -226,6 +226,42 @@ export const api_tokens = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// roster_entries  (PRD §5.2 / migration 0005)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per student enrolled in a semester, keyed by `sid`.
+ * Populated via CSV upload + commit (§8.4). `sid` is unique per semester.
+ */
+export const roster_entries = pgTable(
+  'roster_entries',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    sid: text('sid').notNull(),
+    display_name: text('display_name').notNull(),
+    email: text('email'),
+    extras: jsonb('extras')
+      .notNull()
+      .default(sql`'{}'`),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    updated_at: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    unique('roster_entries_semester_sid_key').on(t.semester_id, t.sid),
+    index('roster_entries_semester_id_idx').on(t.semester_id),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // rate_limit_buckets  (PRD §7.6 / migration 0003)
 // ---------------------------------------------------------------------------
 
@@ -310,5 +346,7 @@ export type ApiToken = typeof api_tokens.$inferSelect;
 export type NewApiToken = typeof api_tokens.$inferInsert;
 export type RateLimitBucket = typeof rate_limit_buckets.$inferSelect;
 export type NewRateLimitBucket = typeof rate_limit_buckets.$inferInsert;
+export type RosterEntry = typeof roster_entries.$inferSelect;
+export type NewRosterEntry = typeof roster_entries.$inferInsert;
 export type AuditLog = typeof audit_log.$inferSelect;
 export type NewAuditLog = typeof audit_log.$inferInsert;

@@ -88,6 +88,7 @@ const rawEnvSchema = z.object({
   INGEST_MAX_BATCH_FILES: intStr(10000),
   RECOMPUTE_MAX_PARALLEL: intStr(4),
   BLOB_DOWNLOAD_URL_TTL_SECONDS: intStr(300),
+  ROSTER_CSV_MAX_BYTES: intStr(10485760),
 });
 
 // ---------------------------------------------------------------------------
