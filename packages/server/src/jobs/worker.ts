@@ -50,6 +50,9 @@ import { dedupFile } from '../services/ingest/dedup.js';
 import { parseBundlePhase } from '../services/ingest/parse-bundle-phase.js';
 import { matchStudent } from '../services/ingest/match-student.js';
 import { createSubmission } from '../services/ingest/create-submission.js';
+import { materializeEvents } from '../services/ingest/materialize-events.js';
+import { computeAndStoreStats } from '../services/ingest/stats.js';
+import { withTransaction } from '../db/client.js';
 
 // ---------------------------------------------------------------------------
 // Payload types (mirrored from POST /ingest enqueue calls)
@@ -285,17 +288,39 @@ export async function startWorker(): Promise<() => Promise<void>> {
         }
       }
 
-      await db
-        .update(ingest_files)
-        .set({
-          status: 'matched',
-          matched_student_id: studentId,
-          matched_assignment_id: submissionResult.assignmentId,
-          submission_id: submissionResult.submissionId,
-          filename_capture: filenameCapture,
-          resolved_at: new Date(),
-        })
-        .where(eq(ingest_files.id, ingestFileId));
+      try {
+        await withTransaction(db, async (tx) => {
+          await materializeEvents(tx, submissionResult.submissionId, bundle);
+          await computeAndStoreStats(tx, submissionResult.submissionId, bundle);
+          await tx
+            .update(ingest_files)
+            .set({
+              status: 'matched',
+              matched_student_id: studentId,
+              matched_assignment_id: submissionResult.assignmentId,
+              submission_id: submissionResult.submissionId,
+              filename_capture: filenameCapture,
+              resolved_at: new Date(),
+            })
+            .where(eq(ingest_files.id, ingestFileId));
+        });
+      } catch (err) {
+        const cause = err instanceof Error ? err.message : String(err);
+        const phase = cause.includes('materializeEvents') ? 'materialize_events' : 'compute_stats';
+        logger.error(
+          { ingestFileId, submissionId: submissionResult.submissionId, err },
+          `ingest_file: ${phase} failed`,
+        );
+        try {
+          await db
+            .update(ingest_files)
+            .set({ status: 'failed', error: { phase, cause }, resolved_at: new Date() })
+            .where(and(eq(ingest_files.id, ingestFileId), eq(ingest_files.status, 'pending')));
+        } catch {
+          // best-effort
+        }
+        return; // outer finally still calls maybeEnqueueFinalize
+      }
 
       logger.info(
         {
