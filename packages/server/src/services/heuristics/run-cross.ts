@@ -18,10 +18,12 @@
  *   3. A single DELETE + N INSERTs is simpler to reason about and atomic under
  *      pg_advisory_lock (see advisory lock discussion in run-cross.ts).
  *
- * The caller (recompute_cross_flags pg-boss handler) holds a semester-scoped
- * advisory lock for the duration of this function. Combined with pg-boss
+ * Uses pg_advisory_xact_lock inside the transaction to prevent concurrent
+ * semester-level cross runs from racing on the DELETE-then-INSERT. The lock is
+ * transaction-scoped and auto-released at COMMIT/ROLLBACK — no explicit unlock
+ * needed, no pool-connection mismatch risk. Combined with pg-boss
  * singletonKey=semesterId, this ensures at most one cross-job runs per semester
- * at any time. See V32 for the rationale for singletonKey-only vs advisory-lock.
+ * at any time. See V32 for the rationale.
  *
  * ## Bundle ID mapping (V32)
  *
@@ -38,6 +40,7 @@
  */
 
 import { eq, isNull, and } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { runCrossHeuristics } from '@provenance/analyzer/src/heuristics/cross/run-cross-heuristics.js';
 import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
 import type { EventIndex } from '@provenance/analyzer/src/index/event-index.js';
@@ -93,16 +96,20 @@ export async function runAndStoreCrossHeuristics(
     .select({ id: submissions.id })
     .from(submissions)
     .where(
-      and(
-        eq(submissions.semester_id, semesterId),
-        isNull(submissions.superseded_by_submission_id),
-      ),
+      and(eq(submissions.semester_id, semesterId), isNull(submissions.superseded_by_submission_id)),
     );
 
   if (submissionRows.length < 2) {
     // Cross-heuristics require at least 2 bundles. If there's 0 or 1, still
     // run the replace to clear stale cross_flags from prior runs (idempotency).
     await withTransaction(db, async (tx) => {
+      // Acquire semester-scoped advisory lock (transaction-scoped; auto-released
+      // at COMMIT/ROLLBACK — no pool-connection mismatch risk).
+      await tx.execute(sql`
+        SELECT pg_advisory_xact_lock(
+          ('x' || substr(md5(${semesterId}::text), 1, 16))::bit(64)::bigint
+        )
+      `);
       await tx.delete(cross_flags).where(eq(cross_flags.semester_id, semesterId));
     });
     return { flag_count: 0, participant_count: 0 };
@@ -204,6 +211,14 @@ export async function runAndStoreCrossHeuristics(
   let totalParticipants = 0;
 
   await withTransaction(db, async (tx) => {
+    // Acquire semester-scoped advisory lock (transaction-scoped; auto-released
+    // at COMMIT/ROLLBACK — no pool-connection mismatch risk).
+    await tx.execute(sql`
+      SELECT pg_advisory_xact_lock(
+        ('x' || substr(md5(${semesterId}::text), 1, 16))::bit(64)::bigint
+      )
+    `);
+
     // DELETE cascades to cross_flag_participants via FK ON DELETE CASCADE.
     await tx.delete(cross_flags).where(eq(cross_flags.semester_id, semesterId));
 

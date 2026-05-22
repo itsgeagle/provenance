@@ -13,34 +13,19 @@
  *   Sent with singletonKey: semesterId so concurrent enqueues (from multiple
  *   ingest jobs finishing in the same semester) collapse to one pending job.
  *
- * ## Advisory lock strategy (V32)
+ * ## Advisory lock strategy (V32 — fixed review I1)
  *
- * We use Postgres advisory locks in addition to singletonKey:
- *
- *   singletonKey=semesterId collapses PENDING duplicates (at most one queued
- *   job per semester). But if two workers pick up two queued jobs for the same
- *   semester before either starts (edge case: the queue had two entries before
- *   the singleton-key dedup fired), they could run concurrently and race on the
- *   DELETE-then-INSERT inside runAndStoreCrossHeuristics.
- *
- *   pg_advisory_lock(hash(semesterId)) prevents this race: the second worker
- *   blocks on the lock until the first finishes, then runs its own full sweep
- *   (producing the same result — idempotent). In steady state (singletonKey
- *   working correctly) the lock is uncontested.
- *
- *   The hash is computed as: ('x' || substr(md5(semesterId), 1, 16))::bit(64)::bigint
- *   This is a Postgres idiom for hashing a UUID string to a bigint (V32 decision).
+ * pg_advisory_xact_lock is acquired INSIDE the transaction in
+ * runAndStoreCrossHeuristics. Transaction-scoped locks are held on the
+ * transaction's connection for the lifetime of the tx and auto-released at
+ * COMMIT/ROLLBACK — no pool-connection mismatch risk.
  *
  * ## Error handling
  *
  *   On error: log + re-throw so pg-boss retries (up to retryLimit: 5).
- *   Advisory lock is released automatically on error (session-level lock is
- *   released when the connection is returned to the pool, or explicitly via
- *   pg_advisory_unlock in the finally block).
  */
 
 import type PgBoss from 'pg-boss';
-import { sql } from 'drizzle-orm';
 import { getDb } from '../db/client.js';
 import { getLogger } from '../logging.js';
 import { JOB_KINDS } from './pg-boss.js';
@@ -91,7 +76,11 @@ export async function enqueueCrossFlagsJob(boss: PgBoss, semesterId: string): Pr
 export async function registerCrossFlagsHandler(boss: PgBoss): Promise<void> {
   const logger = getLogger();
 
-  await boss.createQueue(JOB_KINDS.RECOMPUTE_CROSS_FLAGS);
+  // policy: 'short' enforces singletonKey at insert time (unique index on
+  // (name, singleton_key) while state = 'created'), so duplicate enqueues
+  // for the same semester collapse to one pending job.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pg-boss Queue type requires `name` but createQueue takes it as first arg; passing policy-only options is valid per the JS implementation.
+  await boss.createQueue(JOB_KINDS.RECOMPUTE_CROSS_FLAGS, { policy: 'short' } as any);
   logger.info('worker: recompute_cross_flags queue ensured');
 
   await boss.work<RecomputeCrossFlagsPayload>(
@@ -103,49 +92,22 @@ export async function registerCrossFlagsHandler(boss: PgBoss): Promise<void> {
       const db = getDb();
       logger.info({ semesterId }, 'recompute_cross_flags: started');
 
-      // -----------------------------------------------------------------------
-      // Acquire semester-scoped advisory lock (V32).
-      //
-      // Hash semesterId to a bigint using Postgres md5-based idiom.
-      // pg_advisory_lock is session-level: automatically released when the
-      // connection is closed or on explicit pg_advisory_unlock. We release
-      // explicitly in the finally block for cleanliness.
-      // -----------------------------------------------------------------------
-      let lockAcquired = false;
-
       try {
-        await db.execute(sql`
-          SELECT pg_advisory_lock(
-            ('x' || substr(md5(${semesterId}), 1, 16))::bit(64)::bigint
-          )
-        `);
-        lockAcquired = true;
-
-        logger.info({ semesterId }, 'recompute_cross_flags: advisory lock acquired');
-
+        // Advisory lock is acquired inside runAndStoreCrossHeuristics as
+        // pg_advisory_xact_lock (transaction-scoped). No explicit lock/unlock here.
         const result = await runAndStoreCrossHeuristics(db, semesterId);
 
         logger.info(
-          { semesterId, flag_count: result.flag_count, participant_count: result.participant_count },
+          {
+            semesterId,
+            flag_count: result.flag_count,
+            participant_count: result.participant_count,
+          },
           'recompute_cross_flags: completed',
         );
       } catch (err) {
         logger.error({ semesterId, err }, 'recompute_cross_flags: error');
         throw err; // Let pg-boss retry (retryLimit: 5).
-      } finally {
-        if (lockAcquired) {
-          try {
-            await db.execute(sql`
-              SELECT pg_advisory_unlock(
-                ('x' || substr(md5(${semesterId}), 1, 16))::bit(64)::bigint
-              )
-            `);
-          } catch (unlockErr) {
-            // Best-effort unlock. If this fails, the lock will be released
-            // when the connection is returned to the pool.
-            logger.warn({ semesterId, unlockErr }, 'recompute_cross_flags: advisory unlock failed');
-          }
-        }
       }
     },
   );
