@@ -22,6 +22,15 @@ import {
   CohortListResponseSchema,
   StudentListResponseSchema,
   AssignmentListResponseSchema,
+  IngestJobSchema,
+  IngestJobListResponseSchema,
+  IngestFileListResponseSchema,
+  UnmatchedListResponseSchema,
+  RosterListResponseSchema,
+  RosterDiffSchema,
+  RosterCommitResultSchema,
+  MembersListResponseSchema,
+  SemesterDetailResponseSchema,
 } from '@provenance/shared/api-schemas';
 import type { Membership } from '@provenance/shared/api-schemas';
 
@@ -36,6 +45,14 @@ export const queryKeys = {
   cohortStudents: (semesterId: string, params: Record<string, unknown>) =>
     ['cohort', semesterId, 'students', params] as const,
   assignments: (semesterId: string) => ['cohort', semesterId, 'assignments'] as const,
+  ingestJobs: (semesterId: string) => ['ingest', semesterId, 'jobs'] as const,
+  ingestJob: (jobId: string) => ['ingest', 'job', jobId] as const,
+  ingestJobFiles: (jobId: string, cursor?: string) =>
+    ['ingest', 'job', jobId, 'files', cursor] as const,
+  unmatched: (semesterId: string) => ['unmatched', semesterId] as const,
+  roster: (semesterId: string) => ['roster', semesterId] as const,
+  members: (semesterId: string) => ['members', semesterId] as const,
+  semester: (semesterId: string) => ['semester', semesterId] as const,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -276,6 +293,388 @@ function buildStudentParams(
   if (filters.q) p['q'] = filters.q;
   if (cursor) p['cursor'] = cursor;
   return p;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Ingest hooks
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches an ingest job by ID. Polls every 3 seconds while not terminal.
+ */
+export function useIngestJob(jobId: string, semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.ingestJob(jobId),
+    queryFn: () =>
+      apiFetch(`/semesters/${semesterId}/ingest/jobs/${jobId}`, undefined, IngestJobSchema),
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      const terminal =
+        status === 'succeeded' ||
+        status === 'partial' ||
+        status === 'failed' ||
+        status === 'cancelled';
+      return terminal ? false : 3000;
+    },
+    retry: noRetryOn401,
+    enabled: jobId !== '' && semesterId !== '',
+  });
+}
+
+/**
+ * Fetches the paginated list of ingest jobs for a semester.
+ */
+export function useIngestJobsList(semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.ingestJobs(semesterId),
+    queryFn: () =>
+      apiFetch(
+        `/semesters/${semesterId}/ingest/jobs?limit=20`,
+        undefined,
+        IngestJobListResponseSchema,
+      ),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/**
+ * Fetches a paginated file list for an ingest job.
+ */
+export function useIngestJobFiles(jobId: string, semesterId: string, cursor?: string) {
+  return useQuery({
+    queryKey: queryKeys.ingestJobFiles(jobId, cursor),
+    queryFn: () => {
+      const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=50` : '?limit=50';
+      return apiFetch(
+        `/semesters/${semesterId}/ingest/jobs/${jobId}/files${qs}`,
+        undefined,
+        IngestFileListResponseSchema,
+      );
+    },
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: jobId !== '' && semesterId !== '',
+  });
+}
+
+/**
+ * Mutation: POST /semesters/:semesterId/ingest (multipart upload).
+ * Uses XMLHttpRequest to support upload progress callbacks.
+ */
+export function useStartIngest(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      files,
+      onProgress,
+    }: {
+      files: File[];
+      onProgress?: (pct: number) => void;
+    }): Promise<{ job_id: string }> =>
+      new Promise((resolve, reject) => {
+        const formData = new FormData();
+        for (const file of files) {
+          formData.append('files[]', file);
+        }
+        const xhr = new XMLHttpRequest();
+        xhr.withCredentials = true;
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable && onProgress) {
+            onProgress(Math.round((evt.loaded / evt.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status === 202) {
+            const data = JSON.parse(xhr.responseText) as { job_id: string };
+            resolve(data);
+          } else {
+            try {
+              const err = JSON.parse(xhr.responseText) as {
+                error?: { code: string; message: string };
+              };
+              reject(new Error(err.error?.message ?? `HTTP ${xhr.status}`));
+            } catch {
+              reject(new Error(`HTTP ${xhr.status}`));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        // Determine base URL
+        const base = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/v1';
+        xhr.open('POST', `${base}/semesters/${semesterId}/ingest`);
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.send(formData);
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJobs(semesterId) });
+    },
+  });
+}
+
+/**
+ * Mutation: POST /semesters/:semesterId/ingest/jobs/:jobId/cancel
+ */
+export function useCancelIngest(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) =>
+      apiFetch(`/semesters/${semesterId}/ingest/jobs/${jobId}/cancel`, { method: 'POST' }),
+    onSuccess: (_data, jobId) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJob(jobId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJobs(semesterId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Unmatched hooks
+// ---------------------------------------------------------------------------
+
+/** Lists unmatched files for a semester. */
+export function useUnmatchedFiles(semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.unmatched(semesterId),
+    queryFn: () =>
+      apiFetch(
+        `/semesters/${semesterId}/unmatched?limit=50`,
+        undefined,
+        UnmatchedListResponseSchema,
+      ),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/** Mutation: PATCH /semesters/:semesterId/unmatched/:ingestFileId */
+export function useAttachUnmatched(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ingestFileId,
+      studentId,
+      assignmentIdStr,
+    }: {
+      ingestFileId: string;
+      studentId: string;
+      assignmentIdStr: string;
+    }) =>
+      apiFetch(`/semesters/${semesterId}/unmatched/${ingestFileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId, assignment_id_str: assignmentIdStr }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.unmatched(semesterId) });
+    },
+  });
+}
+
+/** Mutation: POST /semesters/:semesterId/unmatched/:ingestFileId/discard */
+export function useDiscardUnmatched(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ingestFileId, reason }: { ingestFileId: string; reason?: string }) =>
+      apiFetch(`/semesters/${semesterId}/unmatched/${ingestFileId}/discard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.unmatched(semesterId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Roster hooks
+// ---------------------------------------------------------------------------
+
+/** Lists roster entries for a semester. */
+export function useRoster(semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.roster(semesterId),
+    queryFn: () =>
+      apiFetch(`/semesters/${semesterId}/roster?limit=100`, undefined, RosterListResponseSchema),
+    staleTime: 60 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/**
+ * Mutation: POST /semesters/:semesterId/roster:upload
+ * Returns a diff preview without committing.
+ */
+export function useRosterUpload(semesterId: string) {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      return apiFetch(
+        `/semesters/${semesterId}/roster:upload`,
+        { method: 'POST', body: formData },
+        RosterDiffSchema,
+      );
+    },
+  });
+}
+
+/**
+ * Mutation: POST /semesters/:semesterId/roster:commit
+ */
+export function useRosterCommit(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ uploadId, acceptDeletions }: { uploadId: string; acceptDeletions: boolean }) =>
+      apiFetch(
+        `/semesters/${semesterId}/roster:commit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ upload_id: uploadId, accept_deletions: acceptDeletions }),
+        },
+        RosterCommitResultSchema,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.roster(semesterId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Members hooks
+// ---------------------------------------------------------------------------
+
+/** Lists members and pending invitations for a semester. */
+export function useMembers(semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.members(semesterId),
+    queryFn: () =>
+      apiFetch(`/semesters/${semesterId}/members`, undefined, MembersListResponseSchema),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/** Mutation: POST /semesters/:semesterId/members (invite). */
+export function useInviteMember(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ email, role }: { email: string; role: 'admin' | 'grader' }) =>
+      apiFetch(`/semesters/${semesterId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.members(semesterId) });
+    },
+  });
+}
+
+/** Mutation: PATCH /semesters/:semesterId/members/:userId */
+export function useUpdateMemberRole(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: 'admin' | 'grader' }) =>
+      apiFetch(`/semesters/${semesterId}/members/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.members(semesterId) });
+    },
+  });
+}
+
+/** Mutation: DELETE /semesters/:semesterId/members/:userId */
+export function useRemoveMember(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch(`/semesters/${semesterId}/members/${userId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.members(semesterId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Assignment mutation hook (PATCH /assignments/:id)
+// NOTE: PATCH /semesters/:id/assignments/:assignmentId endpoint not yet
+// implemented server-side. This hook is stubbed; it will return 404 until
+// Phase 23 adds the backend handler.
+// ---------------------------------------------------------------------------
+
+/** Mutation: PATCH /semesters/:semesterId/assignments/:assignmentId */
+export function useUpdateAssignment(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      assignmentId,
+      label,
+      sortOrder,
+    }: {
+      assignmentId: string;
+      label?: string;
+      sortOrder?: number;
+    }) =>
+      apiFetch(`/semesters/${semesterId}/assignments/${assignmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, sort_order: sortOrder }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assignments(semesterId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Semester detail + settings hooks
+// ---------------------------------------------------------------------------
+
+/** Fetches semester detail by ID (GET /semesters/:semesterId). */
+export function useSemester(semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.semester(semesterId),
+    queryFn: () => apiFetch(`/semesters/${semesterId}`, undefined, SemesterDetailResponseSchema),
+    staleTime: 60 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/** Mutation: PATCH /semesters/:semesterId */
+export function useUpdateSemester(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (updates: {
+      display_name?: string;
+      filename_convention?: string;
+      blob_retention_days?: number;
+      derived_retention_days?: number;
+    }) =>
+      apiFetch(
+        `/semesters/${semesterId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        },
+        SemesterDetailResponseSchema,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.semester(semesterId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
 }
 
 /**
