@@ -35,6 +35,7 @@ import { createSemestersRouter } from './routes/semesters.js';
 import { createMembersRouter } from './routes/members.js';
 import { createRosterRouter } from './routes/roster.js';
 import { createIngestRouter } from './routes/ingest.js';
+import { createHeuristicConfigRouter } from './routes/heuristic-config.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -72,6 +73,11 @@ export function createV1App(): Hono {
   //        /semesters/:semesterId/ingest/jobs (GET),
   //        /semesters/:semesterId/ingest/jobs/:jobId/cancel (POST)
   app.route('/', createIngestRouter());
+
+  // Heuristic config routes.
+  // Paths: /semesters/:semesterId/heuristic-config (GET, PUT)
+  //        /semesters/:semesterId/heuristic-configs (GET)
+  app.route('/', createHeuristicConfigRouter());
 
   // Global error handler
   app.onError(errorFormatter);
