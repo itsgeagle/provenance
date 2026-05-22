@@ -464,3 +464,191 @@ export const EventRowSchema = z.object({
   payload: z.unknown(),
 });
 export type EventRow = z.infer<typeof EventRowSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Heuristic config schemas (PRD §8.11)
+// ---------------------------------------------------------------------------
+
+export const PerFlagConfigSchema = z.object({
+  enabled: z.boolean(),
+  weight: z.number(),
+});
+export type PerFlagConfig = z.infer<typeof PerFlagConfigSchema>;
+
+export const HeuristicConfigBodySchema = z.object({
+  per_flag: z.record(z.string(), PerFlagConfigSchema),
+  severity_weights: z.object({
+    info: z.number(),
+    low: z.number(),
+    medium: z.number(),
+    high: z.number(),
+  }),
+});
+export type HeuristicConfigBody = z.infer<typeof HeuristicConfigBodySchema>;
+
+export const HeuristicConfigSchema = z.object({
+  id: z.string().uuid().nullable(),
+  version: z.number().int(),
+  config: HeuristicConfigBodySchema,
+  set_at: z.string().datetime().nullable(),
+  note: z.string().nullable(),
+  is_active: z.boolean(),
+});
+export type HeuristicConfig = z.infer<typeof HeuristicConfigSchema>;
+
+export const HeuristicConfigVersionSchema = z.object({
+  id: z.string().uuid(),
+  version: z.number().int(),
+  set_at: z.string().datetime(),
+  set_by: z.string().uuid(),
+  note: z.string().nullable(),
+  is_active: z.boolean(),
+});
+export type HeuristicConfigVersion = z.infer<typeof HeuristicConfigVersionSchema>;
+
+export const HeuristicConfigHistoryResponseSchema = z.object({
+  configs: z.array(HeuristicConfigVersionSchema),
+});
+export type HeuristicConfigHistoryResponse = z.infer<typeof HeuristicConfigHistoryResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Dry-run diff schema (PRD §8.11)
+// ---------------------------------------------------------------------------
+
+export const TopMoverSchema = z.object({
+  submission_id: z.string().uuid(),
+  student: z.object({
+    sid: z.string(),
+    display_name: z.string(),
+  }),
+  assignment: z.object({
+    assignment_id_str: z.string(),
+    label: z.string().nullable(),
+  }),
+  old_score: z.number(),
+  new_score: z.number(),
+  old_tier: z.string().nullable(),
+  new_tier: z.string().nullable(),
+});
+export type TopMover = z.infer<typeof TopMoverSchema>;
+
+export const DryRunDiffSchema = z.object({
+  candidate_version: z.number().int(),
+  diff: z.object({
+    submissions_with_tier_change: z.number().int(),
+    top_movers: z.array(TopMoverSchema),
+    score_histogram_old: z.array(z.number()),
+    score_histogram_new: z.array(z.number()),
+  }),
+});
+export type DryRunDiff = z.infer<typeof DryRunDiffSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Recompute job schema (PRD §5.5)
+// ---------------------------------------------------------------------------
+
+export const RecomputeJobStatusSchema = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'partial',
+  'failed',
+  'cancelled',
+]);
+export type RecomputeJobStatus = z.infer<typeof RecomputeJobStatusSchema>;
+
+export const RecomputeJobSchema = z.object({
+  id: z.string().uuid(),
+  semester_id: z.string().uuid(),
+  target_config_id: z.string().uuid().nullable(),
+  triggered_by: z.string().uuid().nullable(),
+  status: RecomputeJobStatusSchema,
+  progress_total: z.number().int().nullable(),
+  progress_done: z.number().int().nullable(),
+  progress_failed: z.number().int().nullable(),
+  created_at: z.string().datetime(),
+  started_at: z.string().datetime().nullable(),
+  completed_at: z.string().datetime().nullable(),
+  summary: z.unknown().nullable(),
+});
+export type RecomputeJob = z.infer<typeof RecomputeJobSchema>;
+
+export const CommitConfigResponseSchema = z.object({
+  new_config: z.object({
+    id: z.string().uuid(),
+    version: z.number().int(),
+    set_at: z.string().datetime(),
+    note: z.string(),
+    is_active: z.boolean(),
+  }),
+  recompute_job: z.object({
+    id: z.string().uuid(),
+    status: z.string(),
+  }),
+});
+export type CommitConfigResponse = z.infer<typeof CommitConfigResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Cross-flag schemas (PRD §8.10)
+// ---------------------------------------------------------------------------
+
+export const CrossFlagParticipantSchema = z.object({
+  submission_id: z.string().uuid(),
+  student: z.object({
+    id: z.string().uuid(),
+    sid: z.string(),
+    display_name: z.string(),
+  }),
+  assignment: z.object({
+    id: z.string().uuid(),
+    assignment_id_str: z.string(),
+  }),
+  supporting_seqs: z.array(z.number().int()),
+});
+export type CrossFlagParticipant = z.infer<typeof CrossFlagParticipantSchema>;
+
+export const CrossFlagDetailItemSchema = z.object({
+  id: z.string().uuid(),
+  heuristic_id: z.string(),
+  severity: SeveritySchema,
+  confidence: z.number(),
+  detail: z.unknown().nullable(),
+  participants: z.array(CrossFlagParticipantSchema),
+  created_at: z.string().datetime(),
+});
+export type CrossFlagDetailItem = z.infer<typeof CrossFlagDetailItemSchema>;
+
+export const CrossFlagListResponseSchema = z.object({
+  items: z.array(CrossFlagDetailItemSchema),
+  next_cursor: z.string().nullable(),
+});
+export type CrossFlagListResponse = z.infer<typeof CrossFlagListResponseSchema>;
+
+export const CrossFlagDetailResponseSchema = z.object({
+  item: CrossFlagDetailItemSchema,
+});
+export type CrossFlagDetailResponse = z.infer<typeof CrossFlagDetailResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Export job/artifact schema (PRD §8.9)
+// ---------------------------------------------------------------------------
+
+export const ExportSyncResponseSchema = z.object({
+  artifact_id: z.string().uuid(),
+  format: z.enum(['markdown', 'pdf']),
+  expires_at: z.string().datetime(),
+  download_url: z.string(),
+});
+export type ExportSyncResponse = z.infer<typeof ExportSyncResponseSchema>;
+
+export const ExportAsyncResponseSchema = z.object({
+  job_id: z.string().uuid(),
+  status: z.literal('queued'),
+});
+export type ExportAsyncResponse = z.infer<typeof ExportAsyncResponseSchema>;
+
+export const ExportJobSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('sync'), data: ExportSyncResponseSchema }),
+  z.object({ type: z.literal('async'), data: ExportAsyncResponseSchema }),
+]);
+export type ExportJob = z.infer<typeof ExportJobSchema>;
