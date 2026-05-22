@@ -383,6 +383,184 @@ describe('activatePendingInvitations', () => {
       expect(memRows).toHaveLength(1);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // CTE atomicity regression tests (Critical 1 fix)
+  // ---------------------------------------------------------------------------
+
+  it('CTE: activates multiple semesters in one call; all consumed_at set', async () => {
+    // Verifies the CTE replaces the for-loop: all open rows across different
+    // semesters are consumed atomically in a single round-trip.
+    await withTestDb(async (db) => {
+      const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+      const course = await insertCourse(db);
+      const sem1 = await insertSemester(db, course.id);
+      const sem2 = await insertSemester(db, course.id);
+      const sem3 = await insertSemester(db, course.id);
+      const invitee = await insertUser(db, { email: 'multi@berkeley.edu' });
+
+      await db.insert(pending_invitations).values([
+        { email: 'multi@berkeley.edu', semester_id: sem1.id, role: 'grader', invited_by: admin.id },
+        { email: 'multi@berkeley.edu', semester_id: sem2.id, role: 'admin', invited_by: admin.id },
+        { email: 'multi@berkeley.edu', semester_id: sem3.id, role: 'grader', invited_by: admin.id },
+      ]);
+
+      const { activated } = await activatePendingInvitations(db, 'multi@berkeley.edu', invitee.id);
+
+      expect(activated).toBe(3);
+
+      // All three memberships created
+      for (const sem of [sem1, sem2, sem3]) {
+        const mem = await db
+          .select()
+          .from(memberships)
+          .where(and(eq(memberships.user_id, invitee.id), eq(memberships.semester_id, sem.id)));
+        expect(mem).toHaveLength(1);
+      }
+
+      // All three invitations consumed
+      const remaining = await db
+        .select()
+        .from(pending_invitations)
+        .where(isNull(pending_invitations.consumed_at));
+      expect(remaining).toHaveLength(0);
+    });
+  });
+
+  it('CTE: already-consumed rows are untouched by subsequent calls', async () => {
+    // A row with consumed_at IS NOT NULL must remain unchanged — the CTE's
+    // WHERE consumed_at IS NULL clause guarantees this.
+    await withTestDb(async (db) => {
+      const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+      const course = await insertCourse(db);
+      const sem1 = await insertSemester(db, course.id);
+      const sem2 = await insertSemester(db, course.id);
+      const invitee = await insertUser(db, { email: 'partial@berkeley.edu' });
+
+      const consumedDate = new Date('2024-01-01T00:00:00Z');
+
+      // sem1: already consumed
+      await db.insert(pending_invitations).values({
+        email: 'partial@berkeley.edu',
+        semester_id: sem1.id,
+        role: 'grader',
+        invited_by: admin.id,
+        consumed_at: consumedDate,
+      });
+      // sem2: open
+      await db.insert(pending_invitations).values({
+        email: 'partial@berkeley.edu',
+        semester_id: sem2.id,
+        role: 'admin',
+        invited_by: admin.id,
+      });
+
+      const { activated } = await activatePendingInvitations(
+        db,
+        'partial@berkeley.edu',
+        invitee.id,
+      );
+      // Only sem2 was open
+      expect(activated).toBe(1);
+
+      // sem1 consumed_at unchanged
+      const sem1Rows = await db
+        .select()
+        .from(pending_invitations)
+        .where(and(eq(pending_invitations.semester_id, sem1.id)));
+      expect(sem1Rows[0]!.consumed_at!.getTime()).toBe(consumedDate.getTime());
+
+      // sem2 now consumed
+      const sem2Rows = await db
+        .select()
+        .from(pending_invitations)
+        .where(and(eq(pending_invitations.semester_id, sem2.id)));
+      expect(sem2Rows[0]!.consumed_at).not.toBeNull();
+    });
+  });
+
+  it('CTE: second call after first is a no-op (returns 0 activated)', async () => {
+    await withTestDb(async (db) => {
+      const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+      const course = await insertCourse(db);
+      const semester = await insertSemester(db, course.id);
+      const invitee = await insertUser(db, { email: 'noop@berkeley.edu' });
+
+      await db.insert(pending_invitations).values({
+        email: 'noop@berkeley.edu',
+        semester_id: semester.id,
+        role: 'grader',
+        invited_by: admin.id,
+      });
+
+      const first = await activatePendingInvitations(db, 'noop@berkeley.edu', invitee.id);
+      expect(first.activated).toBe(1);
+
+      const second = await activatePendingInvitations(db, 'noop@berkeley.edu', invitee.id);
+      expect(second.activated).toBe(0);
+    });
+  });
+
+  it('CTE: user already a member in one semester is silently skipped; others still activated', async () => {
+    // ON CONFLICT DO NOTHING in the INSERT means pre-existing membership rows do
+    // not appear in RETURNING, so the consumed_at UPDATE for that invitation does
+    // not fire. The other semesters proceed normally.
+    await withTestDb(async (db) => {
+      const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+      const course = await insertCourse(db);
+      const sem1 = await insertSemester(db, course.id);
+      const sem2 = await insertSemester(db, course.id);
+      const invitee = await insertUser(db, { email: 'conflict@berkeley.edu' });
+
+      // Pre-existing membership for sem1
+      await db.insert(memberships).values({
+        user_id: invitee.id,
+        semester_id: sem1.id,
+        role: 'grader',
+        granted_by: admin.id,
+      });
+
+      // Pending invitations for both semesters
+      await db.insert(pending_invitations).values([
+        {
+          email: 'conflict@berkeley.edu',
+          semester_id: sem1.id,
+          role: 'admin',
+          invited_by: admin.id,
+        },
+        {
+          email: 'conflict@berkeley.edu',
+          semester_id: sem2.id,
+          role: 'grader',
+          invited_by: admin.id,
+        },
+      ]);
+
+      const { activated } = await activatePendingInvitations(
+        db,
+        'conflict@berkeley.edu',
+        invitee.id,
+      );
+
+      // sem2 activated; sem1 skipped (conflict) → 1 activated
+      expect(activated).toBe(1);
+
+      // sem1: still grader (existing), not overwritten
+      const sem1Mem = await db
+        .select()
+        .from(memberships)
+        .where(and(eq(memberships.user_id, invitee.id), eq(memberships.semester_id, sem1.id)));
+      expect(sem1Mem).toHaveLength(1);
+      expect(sem1Mem[0]!.role).toBe('grader');
+
+      // sem2: new membership created
+      const sem2Mem = await db
+        .select()
+        .from(memberships)
+        .where(and(eq(memberships.user_id, invitee.id), eq(memberships.semester_id, sem2.id)));
+      expect(sem2Mem).toHaveLength(1);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

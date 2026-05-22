@@ -242,16 +242,46 @@ export async function inviteMember(
 /**
  * Activate all open pending invitations for a given verified email address.
  *
- * Must be called in the SAME transaction as the user-create operation.
+ * Must be called in the SAME transaction as the user-create operation (auth.ts
+ * passes `tx` here so the user-create and invitation-consume are atomic).
  * Idempotent: only activates rows where consumed_at IS NULL.
  *
- * For each pending_invitation row:
- *   1. Insert a memberships row (user_id, semester_id, role, granted_by=invited_by).
- *   2. Set consumed_at = now().
+ * Implementation: a single CTE executes the INSERT into memberships and the
+ * UPDATE of consumed_at atomically. If the server crashes between the two
+ * statements in the old for-loop approach, the DB would be left in an
+ * inconsistent state (membership inserted, consumed_at still NULL). The CTE
+ * collapses this to one round-trip with no intermediate state:
  *
- * On membership conflict (user already a member somehow): skip silently.
+ *   WITH ins AS (
+ *     INSERT INTO memberships (user_id, semester_id, role, granted_by)
+ *     SELECT $userId, semester_id, role, invited_by
+ *     FROM pending_invitations
+ *     WHERE LOWER(email) = $email AND consumed_at IS NULL
+ *     ON CONFLICT (user_id, semester_id) DO NOTHING
+ *     RETURNING semester_id
+ *   )
+ *   UPDATE pending_invitations
+ *   SET consumed_at = now()
+ *   WHERE LOWER(email) = $email
+ *     AND consumed_at IS NULL
+ *     AND semester_id IN (SELECT semester_id FROM ins);
  *
- * Returns { activated: number } — the count of invitations activated.
+ * The UPDATE's WHERE ... IN (SELECT semester_id FROM ins) means: only mark
+ * rows consumed when the INSERT actually produced a new membership (ON CONFLICT
+ * DO NOTHING means conflict rows do NOT appear in RETURNING, so already-member
+ * invitations are not consumed again, preserving idempotency).
+ *
+ * On membership conflict (user already a member somehow): the invitation row is
+ * left unconsumed — this matches the idempotency contract. A second call will
+ * still see consumed_at IS NULL but the INSERT will conflict again, so the
+ * UPDATE won't fire, and the count will be 0.
+ *
+ * Returns { activated: number } — the count of invitation rows marked consumed.
+ *
+ * Error handling: any DB error propagates to the caller. auth.ts wraps this
+ * call inside withTransaction; an error here will roll back the whole
+ * login transaction, causing the user to see a 502 and retry. This is safer
+ * than swallowing errors and leaving half-activated state.
  */
 export async function activatePendingInvitations(
   db: DrizzleDb,
@@ -260,48 +290,34 @@ export async function activatePendingInvitations(
 ): Promise<{ activated: number }> {
   const normalizedEmail = verifiedEmail.toLowerCase();
 
-  // Find all open invitations for this email.
-  const openInvitations = await db
-    .select()
-    .from(pending_invitations)
-    .where(
-      and(
-        sql`LOWER(${pending_invitations.email}) = ${normalizedEmail}`,
-        isNull(pending_invitations.consumed_at),
-      ),
-    );
+  // Single atomic CTE: INSERT memberships + UPDATE consumed_at.
+  // Using db.execute(sql`...`) because Drizzle's typed builder does not support
+  // CTE-based UPDATE...WHERE...IN(SELECT...) in a single chainable expression
+  // without significant indirection. Raw sql`` with parameter binding is safe
+  // against SQL injection — the sql tagged template escapes all interpolated
+  // values via the postgres.js placeholder mechanism.
+  const result = await db.execute(
+    sql`
+      WITH ins AS (
+        INSERT INTO memberships (user_id, semester_id, role, granted_by)
+        SELECT ${userId}::uuid, semester_id, role, invited_by
+        FROM pending_invitations
+        WHERE LOWER(email) = ${normalizedEmail}
+          AND consumed_at IS NULL
+        ON CONFLICT (user_id, semester_id) DO NOTHING
+        RETURNING semester_id
+      )
+      UPDATE pending_invitations
+      SET consumed_at = now()
+      WHERE LOWER(email) = ${normalizedEmail}
+        AND consumed_at IS NULL
+        AND semester_id IN (SELECT semester_id FROM ins)
+    `,
+  );
 
-  if (openInvitations.length === 0) {
-    return { activated: 0 };
-  }
-
-  let activated = 0;
-
-  for (const invitation of openInvitations) {
-    try {
-      await db
-        .insert(memberships)
-        .values({
-          user_id: userId,
-          semester_id: invitation.semester_id,
-          role: invitation.role,
-          granted_by: invitation.invited_by,
-        })
-        .onConflictDoNothing(); // Skip if already a member (idempotent).
-
-      // Mark invitation as consumed.
-      await db
-        .update(pending_invitations)
-        .set({ consumed_at: new Date() })
-        .where(eq(pending_invitations.id, invitation.id));
-
-      activated++;
-    } catch {
-      // Non-fatal: log and continue. A failed activation should not block login.
-      // The next login attempt will retry (consumed_at is still NULL).
-    }
-  }
-
+  // postgres.js returns { count: bigint } on UPDATE; the count is the number of
+  // pending_invitations rows whose consumed_at was just set.
+  const activated = Number(result.count ?? 0);
   return { activated };
 }
 
