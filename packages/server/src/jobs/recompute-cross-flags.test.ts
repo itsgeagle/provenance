@@ -20,7 +20,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { eq, count } from 'drizzle-orm';
+import { eq, count, sql } from 'drizzle-orm';
 import { withTestMinio } from '../../test/helpers/minio.js';
 import { _setConfigForTest, _resetConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
@@ -286,9 +286,9 @@ describe('recompute_cross_flags handler (pg-boss integration)', () => {
         })
         .returning();
 
-      // Start the worker so queues are created, but we want to test before the
-      // worker picks up the jobs. We DON'T stop the worker in this test because
-      // we want to verify the queue state, not the execution.
+      // Start the worker so queues are created, then enqueue two jobs for the
+      // same semester back-to-back. singletonKey=semesterId means the second
+      // send is a no-op — pg-boss collapses it to the existing pending job.
       workerStop = await startWorker();
 
       const boss = await getBoss();
@@ -297,16 +297,7 @@ describe('recompute_cross_flags handler (pg-boss integration)', () => {
       await enqueueCrossFlagsJob(boss, semester!.id);
       await enqueueCrossFlagsJob(boss, semester!.id);
 
-      // Wait a moment for both sends to register.
-      await new Promise((r) => setTimeout(r, 1_000));
-
-      // Query pg-boss job table directly to verify at most 1 pending job.
-      // pg-boss singletonKey guarantees only one queued+running instance.
-      // The first send creates a row; the second is a no-op (returns null).
-      // We can't easily query pgboss.job from Drizzle, so we verify by
-      // running the cross job and checking the result is stable.
-      // The key observable: after the worker picks up both (which is really
-      // just one due to singletonKey), the cross_flags table has 0 rows.
+      // Wait for the worker to pick up and complete the (single) job.
       const POLL_TIMEOUT_MS = 30_000;
       let elapsed = 0;
       let done = false;
@@ -316,13 +307,24 @@ describe('recompute_cross_flags handler (pg-boss integration)', () => {
         elapsed += 500;
 
         if (elapsed >= 5_000) {
-          // 5 seconds should be more than enough for one job to complete.
-          // cross_flags should be 0 (no submissions in this semester).
-          const cntRes2 = await db
-            .select({ cnt: count() })
-            .from(cross_flags)
-            .where(eq(cross_flags.semester_id, semester!.id));
-          expect(cntRes2[0]?.cnt ?? 0).toBe(0);
+          // Query pgboss.job directly to verify exactly one completed job row
+          // for this semesterId singleton_key — not two. This is the actual
+          // deduplication invariant: singletonKey collapsed the second send.
+          const jobRows = await db.execute(sql`
+            SELECT state, count(*)::int AS cnt
+            FROM pgboss.job
+            WHERE name = 'recompute_cross_flags'
+              AND singleton_key = ${semester!.id}
+            GROUP BY state
+          `);
+          // postgres.js returns the result as a plain array of row objects.
+          const rows = jobRows as unknown as Array<{ state: string; cnt: number }>;
+          const totalJobCount = rows.reduce((acc, r) => acc + r.cnt, 0);
+
+          // There should be exactly 1 job row in total (completed), not 2.
+          // If singletonKey failed, the second enqueue would have inserted a
+          // second row, giving totalJobCount = 2.
+          expect(totalJobCount, 'singletonKey should collapse 2 enqueues to 1 job').toBe(1);
           done = true;
           break;
         }
