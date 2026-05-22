@@ -5,9 +5,9 @@
  * consumed by the analyzer frontend. Both packages import from here so the
  * shape contract is defined in one place.
  *
- * Only schemas needed by Phase 20 endpoints (/me, memberships) are populated
- * here. Later phases will extend this file as new endpoints are consumed by
- * the frontend.
+ * Phase 20: /me, memberships.
+ * Phase 21: cohort list (SubmissionRow, CohortListResponse, StudentRollupRow,
+ *            CohortFacets, Severity), assignments list.
  */
 
 import { z } from 'zod';
@@ -66,10 +66,141 @@ export const MeResponseSchema = z.discriminatedUnion('principal_kind', [
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Submission/ingest schemas (minimal stubs for Phase 20)
-//
-// These will be expanded in Phases 21–24 as the cohort view and drill-in
-// views consume more API endpoints.
+// Severity + validation status primitives
+// ---------------------------------------------------------------------------
+
+export const SeveritySchema = z.enum(['info', 'low', 'medium', 'high']);
+export type Severity = z.infer<typeof SeveritySchema>;
+
+export const ValidationStatusSchema = z.enum(['pass', 'warn', 'fail']);
+export type ValidationStatus = z.infer<typeof ValidationStatusSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 21 cohort schemas — SubmissionRow (PRD §8.8 line 1083+)
+// ---------------------------------------------------------------------------
+
+export const SubmissionRowSchema = z.object({
+  id: z.string().uuid(),
+  semester_id: z.string().uuid(),
+  assignment: z.object({
+    id: z.string().uuid(),
+    assignment_id_str: z.string(),
+    label: z.string(),
+  }),
+  student: z.object({
+    id: z.string().uuid(),
+    sid: z.string(),
+    display_name: z.string(),
+  }),
+  score_total: z.number(),
+  score_max_severity: SeveritySchema,
+  flag_counts: z.object({
+    info: z.number().int(),
+    low: z.number().int(),
+    medium: z.number().int(),
+    high: z.number().int(),
+  }),
+  top_flags: z.array(
+    z.object({
+      heuristic_id: z.string(),
+      severity: SeveritySchema,
+    }),
+  ),
+  validation_status: z.string().nullable(),
+  ingested_at: z.string().datetime(),
+  recorder_version: z.string().nullable(),
+  superseded: z.boolean(),
+  recompute_status: z.string(),
+});
+export type SubmissionRow = z.infer<typeof SubmissionRowSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 21 cohort schemas — CohortFacets + CohortListResponse (PRD §8.8 line 1075+)
+// ---------------------------------------------------------------------------
+
+export const CohortFacetsSchema = z.object({
+  by_severity: z.object({
+    info: z.number().int(),
+    low: z.number().int(),
+    medium: z.number().int(),
+    high: z.number().int(),
+  }),
+  by_validation: z.object({
+    pass: z.number().int(),
+    warn: z.number().int(),
+    fail: z.number().int(),
+  }),
+  by_assignment: z.array(
+    z.object({
+      id: z.string().uuid(),
+      label: z.string(),
+      count: z.number().int(),
+    }),
+  ),
+});
+export type CohortFacets = z.infer<typeof CohortFacetsSchema>;
+
+export const CohortListResponseSchema = z.object({
+  items: z.array(SubmissionRowSchema),
+  next_cursor: z.string().nullable(),
+  total_count: z.number().int(),
+  facets: CohortFacetsSchema,
+});
+export type CohortListResponse = z.infer<typeof CohortListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 21 cohort schemas — StudentRollupRow (PRD §8.8 line 1110+)
+// ---------------------------------------------------------------------------
+
+export const StudentRollupRowSchema = z.object({
+  student: z.object({
+    id: z.string().uuid(),
+    sid: z.string(),
+    display_name: z.string(),
+    email: z.string().optional(),
+  }),
+  submission_count: z.number().int(),
+  score_sum: z.number(),
+  score_max: z.number(),
+  flag_counts: z.object({
+    info: z.number().int(),
+    low: z.number().int(),
+    medium: z.number().int(),
+    high: z.number().int(),
+  }),
+  worst_submission: SubmissionRowSchema.nullable(),
+  recompute_status: z.string(),
+});
+export type StudentRollupRow = z.infer<typeof StudentRollupRowSchema>;
+
+export const StudentListResponseSchema = z.object({
+  items: z.array(StudentRollupRowSchema),
+  next_cursor: z.string().nullable(),
+  total_count: z.number().int(),
+});
+export type StudentListResponse = z.infer<typeof StudentListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 21 — Assignment summary row (for filter dropdown)
+// ---------------------------------------------------------------------------
+
+export const AssignmentSummarySchema = z.object({
+  id: z.string().uuid(),
+  assignment_id_str: z.string(),
+  label: z.string(),
+  submission_count: z.number().int(),
+  mean_score: z.number().nullable(),
+  fail_count: z.number().int(),
+});
+export type AssignmentSummary = z.infer<typeof AssignmentSummarySchema>;
+
+export const AssignmentListResponseSchema = z.object({
+  items: z.array(AssignmentSummarySchema),
+});
+export type AssignmentListResponse = z.infer<typeof AssignmentListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Ingest / submission stubs (Phase 20 minimal; kept for compatibility)
 // ---------------------------------------------------------------------------
 
 export const IngestFileSummarySchema = z.object({
@@ -79,18 +210,6 @@ export const IngestFileSummarySchema = z.object({
   created_at: z.string().datetime(),
 });
 export type IngestFileSummary = z.infer<typeof IngestFileSummarySchema>;
-
-export const SubmissionRowSchema = z.object({
-  id: z.string().uuid(),
-  semester_id: z.string().uuid(),
-  assignment_id: z.string().uuid(),
-  student_id: z.string().uuid(),
-  version_index: z.number().int(),
-  score_total: z.number().nullable(),
-  validation_status: z.string().nullable(),
-  ingested_at: z.string().datetime(),
-});
-export type SubmissionRow = z.infer<typeof SubmissionRowSchema>;
 
 export const FlagRowSchema = z.object({
   id: z.string().uuid(),
