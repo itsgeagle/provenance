@@ -32,6 +32,7 @@ import { createMeRouter } from './routes/me.js';
 import { createMeTokensRouter } from './routes/me-tokens.js';
 import { createCoursesRouter } from './routes/courses.js';
 import { createSemestersRouter } from './routes/semesters.js';
+import { createMembersRouter } from './routes/members.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -56,6 +57,9 @@ export function createV1App(): Hono {
   // '/semesters/:semesterId') so it mounts at root '/'.
   app.route('/courses', createCoursesRouter());
   app.route('/', createSemestersRouter());
+  // Members + invitations routes.
+  // Paths: /semesters/:semesterId/members and /semesters/:semesterId/invitations/:id
+  app.route('/', createMembersRouter());
 
   // Global error handler
   app.onError(errorFormatter);

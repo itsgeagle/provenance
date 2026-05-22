@@ -154,7 +154,9 @@ export function createAuthRouter(): Hono {
     // Look up or create the user, then activate any pending invitations.
     // Both operations are wrapped in a single transaction so partial failures
     // don't leave the user without their invited memberships.
-    // eslint-disable-next-line prefer-const -- assigned inside async callback; TS can't infer
+    // `userId` is assigned inside the `withTransaction` callback.
+    // The definite assignment assertion (!) is necessary because TS cannot infer
+    // that the async callback always runs (even though `await withTransaction` guarantees it).
     let userId!: string;
     let activatedCount = 0;
 

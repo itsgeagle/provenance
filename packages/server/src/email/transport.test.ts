@@ -65,7 +65,6 @@ describe('getRealEmailTransport — SMTP configured', () => {
   it('constructs transport and passes message to nodemailer sendMail', async () => {
     // Mock nodemailer.createTransport to avoid real SMTP connections.
     const sendMailMock = vi.fn().mockResolvedValue({ messageId: 'test-id' });
-    const createTransportMock = vi.fn().mockReturnValue({ sendMail: sendMailMock });
 
     // We inject via a lightweight approach: patch the module. Since we can't
     // easily mock ESM imports here without vi.mock (which requires hoisting),

@@ -22,8 +22,6 @@ import {
   inviteMember,
   activatePendingInvitations,
   revokeInvitation,
-  listMembers,
-  listPendingInvitations,
 } from './invitations.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -136,7 +134,8 @@ describe('inviteMember — existing user', () => {
   it('case-insensitive lookup: inviting UPPER email matches existing lower-case user', async () => {
     await withTestDb(async (db) => {
       const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
-      const invitee = await insertUser(db, { email: 'mixedcase@berkeley.edu' });
+      // Create the user with a lower-case email; the invite uses upper-case.
+      await insertUser(db, { email: 'mixedcase@berkeley.edu' });
       const course = await insertCourse(db);
       const semester = await insertSemester(db, course.id);
 

@@ -22,7 +22,7 @@ import {
 } from '../../../../test/helpers/mint-jwt.js';
 import type { JwkSet } from '../../../auth/jwks.js';
 import { users, sessions, pending_invitations, memberships, courses, semesters } from '../../../db/schema.js';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type { DrizzleDb } from '../../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });

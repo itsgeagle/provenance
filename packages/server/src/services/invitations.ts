@@ -99,9 +99,7 @@ export async function inviteMember(
   let emailSendArgs:
     | { to: string; subject: string; text: string; html: string; pendingSummary: PendingSummary }
     | undefined;
-  let result: InviteResult;
-
-  result = await withTransaction(db, async (tx) => {
+  const txResult = await withTransaction(db, async (tx) => {
     // (a) Look up existing user by email (case-insensitive, uses functional index).
     const existingUsers = await tx
       .select({
@@ -164,12 +162,11 @@ export async function inviteMember(
     // (d) No existing user — insert pending_invitations row.
     // The partial unique index prevents duplicate open invitations.
     const inviter = await tx
-      .select({ email: users.email, display_name: users.display_name })
+      .select({ email: users.email })
       .from(users)
       .where(eq(users.id, invitedBy))
       .limit(1);
     const inviterEmail = inviter[0]?.email ?? invitedBy;
-    const inviterDisplayName = inviter[0]?.display_name ?? inviterEmail;
 
     let pendingRow: typeof pending_invitations.$inferSelect;
     try {
@@ -221,7 +218,7 @@ export async function inviteMember(
   // deps.sendEmail is injected by the route, which wraps the real transport in
   // a closure that already has course/semester slug context baked in.
   // We call it with { to } only; the closure rebuilds the full content.
-  if (result.kind === 'pending' && deps.sendEmail !== undefined && emailSendArgs !== undefined) {
+  if (txResult.kind === 'pending' && deps.sendEmail !== undefined && emailSendArgs !== undefined) {
     deps.sendEmail({
       to: emailSendArgs.to,
       subject: emailSendArgs.subject,
@@ -233,7 +230,7 @@ export async function inviteMember(
     });
   }
 
-  return result;
+  return txResult;
 }
 
 // ---------------------------------------------------------------------------
