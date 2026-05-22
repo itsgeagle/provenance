@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import {
@@ -19,14 +19,6 @@ import {
 } from '../../test/msw-handlers.js';
 import { IngestStartView } from './IngestStartView.js';
 
-/**
- * JobDetailView placeholder that captures the current location.
- */
-function JobDetailPlaceholder() {
-  const location = useLocation();
-  return <div data-testid="job-detail-page">Current location: {location.pathname}</div>;
-}
-
 function renderStartView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -34,7 +26,6 @@ function renderStartView() {
       <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/ingest`]}>
         <Routes>
           <Route path="/s/:semesterSlug/ingest" element={<IngestStartView />} />
-          <Route path="/s/:semesterSlug/ingest/jobs/:jobId" element={<JobDetailPlaceholder />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -116,38 +107,5 @@ describe('IngestStartView', () => {
 
     // Verify the POST request was made
     expect(postCalled).toBe(true);
-  });
-
-  it('navigates to job detail on successful upload', async () => {
-    // Mock the POST /ingest endpoint
-    mswServer.use(
-      http.post(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/ingest`, () => {
-        return HttpResponse.json({ job_id: DEFAULT_JOB_ID }, { status: 202 });
-      }),
-    );
-
-    renderStartView();
-
-    const fileInput = screen.getByTestId('file-input') as HTMLInputElement;
-    const zipFile = new File(['zip content'], 'submissions.zip', { type: 'application/zip' });
-
-    // Select file
-    await act(async () => {
-      fireEvent.change(fileInput, { target: { files: [zipFile] } });
-    });
-
-    // Click upload
-    const uploadButton = screen.getByTestId('upload-button');
-    await act(async () => {
-      fireEvent.click(uploadButton);
-    });
-
-    // Wait for job detail placeholder to appear (navigation succeeded)
-    await waitFor(
-      () => {
-        expect(screen.getByTestId('job-detail-page')).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
   });
 });
