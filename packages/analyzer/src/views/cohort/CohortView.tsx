@@ -24,11 +24,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useCohortFilters } from './use-cohort-filters.js';
-import {
-  useCohortSubmissions,
-  useCohortStudents,
-  useAssignments,
-} from '../../api/queries.js';
+import { useCohortSubmissions, useCohortStudents, useAssignments } from '../../api/queries.js';
 import { CohortTable } from './CohortTable.js';
 import { StudentRollupTable } from './StudentRollupTable.js';
 import { FilterRail } from './FilterRail.js';
@@ -207,13 +203,12 @@ export function CohortView() {
       ? (submissionCursor ?? null)
       : (submissionsQuery.data?.next_cursor ?? null);
   const nextStudentCursor =
-    studentRows.length > 0
-      ? (studentCursor ?? null)
-      : (studentsQuery.data?.next_cursor ?? null);
+    studentRows.length > 0 ? (studentCursor ?? null) : (studentsQuery.data?.next_cursor ?? null);
 
-  // Loading / error states
-  const isLoading = submissionsQuery.isLoading || studentsQuery.isLoading;
-  const error = submissionsQuery.error ?? studentsQuery.error;
+  // Loading / error states — only consider the active tab's query
+  const isLoading =
+    activeTab === 'submissions' ? submissionsQuery.isLoading : studentsQuery.isLoading;
+  const error = activeTab === 'submissions' ? submissionsQuery.error : studentsQuery.error;
 
   if (!semesterId) {
     return (

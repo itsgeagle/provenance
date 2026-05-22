@@ -87,9 +87,7 @@ const RECOMPUTE_COLOR: Record<string, string> = {
 };
 
 function RecomputeBadge({ status }: { status: string }) {
-  return (
-    <span className={`text-xs ${RECOMPUTE_COLOR[status] ?? 'text-gray-500'}`}>{status}</span>
-  );
+  return <span className={`text-xs ${RECOMPUTE_COLOR[status] ?? 'text-gray-500'}`}>{status}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,9 +259,7 @@ export function CohortTable({
   const totalSize = virtualizer.getTotalSize();
   const paddingTop = virtualRows.length > 0 ? (virtualRows[0]?.start ?? 0) : 0;
   const paddingBottom =
-    virtualRows.length > 0
-      ? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
-      : 0;
+    virtualRows.length > 0 ? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0) : 0;
 
   function handleHeaderClick(columnId: string) {
     const sortMap = COLUMN_TO_SORT[columnId];

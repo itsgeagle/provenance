@@ -104,16 +104,12 @@ export function StudentRollupTable({
       ch.accessor('score_sum', {
         id: 'score',
         header: 'Score Sum',
-        cell: (info) => (
-          <span className="text-sm tabular-nums">{info.getValue().toFixed(1)}</span>
-        ),
+        cell: (info) => <span className="text-sm tabular-nums">{info.getValue().toFixed(1)}</span>,
       }),
       ch.accessor('score_max', {
         id: 'score_max',
         header: 'Score Max',
-        cell: (info) => (
-          <span className="text-sm tabular-nums">{info.getValue().toFixed(1)}</span>
-        ),
+        cell: (info) => <span className="text-sm tabular-nums">{info.getValue().toFixed(1)}</span>,
       }),
       ch.accessor('flag_counts', {
         id: 'flags',
@@ -179,9 +175,7 @@ export function StudentRollupTable({
   const totalSize = virtualizer.getTotalSize();
   const paddingTop = virtualRows.length > 0 ? (virtualRows[0]?.start ?? 0) : 0;
   const paddingBottom =
-    virtualRows.length > 0
-      ? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
-      : 0;
+    virtualRows.length > 0 ? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0) : 0;
 
   function handleHeaderClick(columnId: string) {
     const newSort = COLUMN_TO_SORT[columnId];
