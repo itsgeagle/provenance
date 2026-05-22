@@ -1,0 +1,875 @@
+/**
+ * Heuristic config route integration tests — Phase 13a.
+ *
+ * All tests go through the full v1 app pipeline via createV1App() (V18 rule).
+ * Tests are DB-backed via testcontainers (withTestDb).
+ *
+ * Coverage:
+ *   - GET /heuristic-config: returns active config / default when none
+ *   - GET /heuristic-configs: returns history array
+ *   - PUT?dryRun=true: returns DryRunDiff shape; no DB writes
+ *   - PUT?dryRun=true with invalid candidate: 422
+ *   - PUT (no dryRun): 501
+ *   - PUT with If-Match mismatch: 409
+ *   - PUT without If-Match: 428
+ *   - computeDryRunDiff unit cases: empty semester, all-same scores, real diff
+ */
+
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { withTestDb } from '../../../../test/helpers/db.js';
+import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
+import { _resetLoggerForTest } from '../../../logging.js';
+import { parseEnv } from '../../../config/env.js';
+import { createV1App } from '../index.js';
+import {
+  users,
+  sessions,
+  courses,
+  semesters,
+  memberships,
+  heuristic_configs,
+  roster_entries,
+  assignments,
+  submissions,
+  flags,
+} from '../../../db/schema.js';
+import type { DrizzleDb } from '../../../db/client.js';
+import { DEFAULT_SERVER_CONFIG } from '../../../services/heuristics/config.js';
+import { computeDryRunDiff } from '../../../services/scoring/dry-run.js';
+import { sql } from 'drizzle-orm';
+
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
+
+// ---------------------------------------------------------------------------
+// Test env
+// ---------------------------------------------------------------------------
+
+const BASE_ENV: Record<string, string> = {
+  NODE_ENV: 'test',
+  PUBLIC_BASE_URL: 'http://localhost:3000',
+  DATABASE_URL: 'postgres://user:pass@localhost:5432/provenance',
+  OBJECT_STORAGE_ENDPOINT: 'http://localhost:9000',
+  OBJECT_STORAGE_BUCKET: 'provenance',
+  OBJECT_STORAGE_ACCESS_KEY_ID: 'minioadmin',
+  OBJECT_STORAGE_SECRET_ACCESS_KEY: 'minioadmin',
+  GOOGLE_OAUTH_CLIENT_ID: 'client-id',
+  GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+  AUTH_ALLOWED_HOSTED_DOMAINS: '["berkeley.edu"]',
+  AUTH_SUPERADMIN_EMAILS: '["admin@berkeley.edu"]',
+  AUTH_COOKIE_SIGNING_SECRET: 'test-signing-secret-for-heuristic-tests-12345678',
+  SESSION_TTL_DAYS: '14',
+};
+
+beforeEach(() => {
+  _resetConfigForTest();
+  _resetLoggerForTest();
+  _setConfigForTest(parseEnv(BASE_ENV));
+});
+
+// ---------------------------------------------------------------------------
+// DB injection (V18 pattern)
+// ---------------------------------------------------------------------------
+
+let _testDb: DrizzleDb | null = null;
+
+vi.mock('../../../db/client.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../../db/client.js')>();
+  return {
+    ...original,
+    getDb: () => {
+      if (_testDb !== null) return _testDb;
+      return original.getDb();
+    },
+  };
+});
+
+// ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
+
+async function insertUser(db: DrizzleDb, overrides?: Partial<typeof users.$inferInsert>) {
+  const randomId = Math.random().toString(36).slice(2);
+  const [user] = await db
+    .insert(users)
+    .values({
+      google_subject: `sub-${randomId}`,
+      email: `user-${randomId}@berkeley.edu`,
+      display_name: 'Test User',
+      is_superadmin: false,
+      ...overrides,
+    })
+    .returning();
+  return user!;
+}
+
+async function insertSession(
+  db: DrizzleDb,
+  userId: string,
+  expiresAt: Date = new Date(Date.now() + 14 * 86400_000),
+): Promise<string> {
+  const uniqueId = `sess-${Math.random().toString(36).slice(2)}`.padEnd(43, 'x').slice(0, 43);
+  await db.insert(sessions).values({ id: uniqueId, user_id: userId, expires_at: expiresAt });
+  return uniqueId;
+}
+
+async function insertCourse(db: DrizzleDb) {
+  const randomId = Math.random().toString(36).slice(2);
+  const [course] = await db
+    .insert(courses)
+    .values({ name: 'CS 61A', slug: `cs61a-${randomId}` })
+    .returning();
+  return course!;
+}
+
+async function insertSemester(db: DrizzleDb, courseId: string) {
+  const randomId = Math.random().toString(36).slice(2);
+  const [semester] = await db
+    .insert(semesters)
+    .values({
+      course_id: courseId,
+      term: 'fa',
+      year: 2024,
+      slug: `fa2024-${randomId}`,
+      display_name: 'Fall 2024',
+      filename_convention: '(?<sid>[a-z0-9]+)_hw',
+    })
+    .returning();
+  return semester!;
+}
+
+async function insertMembership(
+  db: DrizzleDb,
+  userId: string,
+  semesterId: string,
+  role: 'admin' | 'grader',
+  grantedBy: string,
+) {
+  await db
+    .insert(memberships)
+    .values({ user_id: userId, semester_id: semesterId, role, granted_by: grantedBy });
+}
+
+/**
+ * Insert a heuristic_config row for a semester.
+ * Used to create a pre-existing config for If-Match tests.
+ */
+async function insertHeuristicConfig(
+  db: DrizzleDb,
+  semesterId: string,
+  userId: string,
+  version: number,
+  isActive: boolean,
+) {
+  const [row] = await db
+    .insert(heuristic_configs)
+    .values({
+      semester_id: semesterId,
+      version,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jsonb
+      config: DEFAULT_SERVER_CONFIG as any,
+      set_by: userId,
+      is_active: isActive,
+      note: 'test config',
+    })
+    .returning();
+  return row!;
+}
+
+/** Build a valid PUT body from DEFAULT_SERVER_CONFIG. */
+function validCandidateBody(): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(DEFAULT_SERVER_CONFIG)) as Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// GET /semesters/:semesterId/heuristic-config
+// ---------------------------------------------------------------------------
+
+describe('GET /semesters/:semesterId/heuristic-config', () => {
+  it('returns 401 when unauthenticated', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config`),
+        );
+        expect(res.status).toBe(401);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 403 for non-member', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        // admin is NOT a member of the semester
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(403);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns default (version=0) when no config exists', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        // No heuristic_config row inserted (migration backfill skipped for new semesters
+        // created after migration; they start with no config).
+        // To test "no config" scenario: the semester was created but no INSERT happened.
+        // Since insertSemester doesn't trigger backfill (that only runs at migration time),
+        // this simulates a newly-created semester post-migration.
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { version: number; config: unknown };
+        expect(body.version).toBe(0);
+        expect(body.config).toBeDefined();
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns active config when one exists', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { version: number; is_active: boolean; id: string };
+        expect(body.version).toBe(1);
+        expect(body.is_active).toBe(true);
+        expect(body.id).toBeTruthy();
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /semesters/:semesterId/heuristic-configs (history)
+// ---------------------------------------------------------------------------
+
+describe('GET /semesters/:semesterId/heuristic-configs', () => {
+  it('returns 401 when unauthenticated', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-configs`),
+        );
+        expect(res.status).toBe(401);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns empty array when no configs exist', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-configs`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { configs: unknown[] };
+        expect(Array.isArray(body.configs)).toBe(true);
+        expect(body.configs).toHaveLength(0);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns history array with version and is_active fields', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        // Insert v1 (inactive) and v2 (active)
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, false);
+        await insertHeuristicConfig(db, semester.id, admin.id, 2, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-configs`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          configs: Array<{ version: number; is_active: boolean }>;
+        };
+        expect(body.configs).toHaveLength(2);
+        // Ordered newest first (by version DESC)
+        expect(body.configs[0]!.version).toBe(2);
+        expect(body.configs[0]!.is_active).toBe(true);
+        expect(body.configs[1]!.version).toBe(1);
+        expect(body.configs[1]!.is_active).toBe(false);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /semesters/:semesterId/heuristic-config (no dryRun) → 501
+// ---------------------------------------------------------------------------
+
+describe('PUT /semesters/:semesterId/heuristic-config (no dryRun)', () => {
+  it('returns 501 when dryRun param is absent', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(501);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe('NOT_IMPLEMENTED');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 501 when dryRun=false', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=false`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(501);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /semesters/:semesterId/heuristic-config?dryRun=true — If-Match enforcement
+// ---------------------------------------------------------------------------
+
+describe('PUT ?dryRun=true — If-Match enforcement', () => {
+  it('returns 428 when If-Match header is absent', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              // No If-Match header
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(428);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe('PRECONDITION_REQUIRED');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 409 when If-Match does not match current version', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '99', // wrong version; current is 1
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(409);
+        const body = (await res.json()) as { error: { code: string; details: unknown } };
+        expect(body.error.code).toBe('CONFIG_VERSION_CONFLICT');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 409 when If-Match is 0 but active config is version 1', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '0', // stale — actual is 1
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(409);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT ?dryRun=true — invalid config body → 422
+// ---------------------------------------------------------------------------
+
+describe('PUT ?dryRun=true — invalid config body', () => {
+  it('returns 422 when per_flag is missing a known ID', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const badConfig = validCandidateBody();
+        delete (badConfig['per_flag'] as Record<string, unknown>)['large_paste'];
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(badConfig),
+          }),
+        );
+        expect(res.status).toBe(422);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe('HEURISTIC_CONFIG_INVALID');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 422 when weight is out of range', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const badConfig = validCandidateBody();
+        (
+          (badConfig['per_flag'] as Record<string, unknown>)['chain_broken'] as Record<
+            string,
+            unknown
+          >
+        )['weight'] = 200;
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(badConfig),
+          }),
+        );
+        expect(res.status).toBe(422);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT ?dryRun=true — happy path returns DryRunDiff shape
+// ---------------------------------------------------------------------------
+
+describe('PUT ?dryRun=true — happy path', () => {
+  it('returns DryRunDiff shape with empty semester (no submissions)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          candidate_version: number;
+          diff: {
+            submissions_with_tier_change: number;
+            top_movers: unknown[];
+            score_histogram_old: number[];
+            score_histogram_new: number[];
+          };
+        };
+        expect(body.candidate_version).toBe(2);
+        expect(body.diff.submissions_with_tier_change).toBe(0);
+        expect(body.diff.top_movers).toHaveLength(0);
+        expect(body.diff.score_histogram_old).toHaveLength(10);
+        expect(body.diff.score_histogram_new).toHaveLength(10);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('does NOT write any rows to heuristic_configs during dry-run', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        // Count rows before
+        const before = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(heuristic_configs)
+          .where(eq(heuristic_configs.semester_id, semester.id));
+
+        const app = createV1App();
+        await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+
+        // Count rows after — must be the same
+        const after = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(heuristic_configs)
+          .where(eq(heuristic_configs.semester_id, semester.id));
+
+        expect(after[0]!.count).toBe(before[0]!.count);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeDryRunDiff unit cases (direct service call, no HTTP)
+// ---------------------------------------------------------------------------
+
+describe('computeDryRunDiff', () => {
+  it('returns empty diff for semester with no submissions', async () => {
+    await withTestDb(async (db) => {
+      const course = await insertCourse(db);
+      const semester = await insertSemester(db, course.id);
+
+      const result = await computeDryRunDiff(db, semester.id, DEFAULT_SERVER_CONFIG, 2);
+
+      expect(result.candidate_version).toBe(2);
+      expect(result.diff.submissions_with_tier_change).toBe(0);
+      expect(result.diff.top_movers).toHaveLength(0);
+      expect(result.diff.score_histogram_old).toHaveLength(10);
+      expect(result.diff.score_histogram_new).toHaveLength(10);
+      // All buckets zero
+      expect(result.diff.score_histogram_old.every((v) => v === 0)).toBe(true);
+    });
+  });
+
+  it('returns zero tier_change when all weights match existing scores', async () => {
+    await withTestDb(async (db) => {
+      const adminUser = await insertUser(db);
+      const course = await insertCourse(db);
+      const semester = await insertSemester(db, course.id);
+      await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
+
+      // Insert an ingest_job (submissions require it)
+      const [ingestJob] = await db
+        .insert(
+          (await import('../../../db/schema.js')).ingest_jobs,
+        )
+        .values({
+          semester_id: semester.id,
+          uploaded_by: adminUser.id,
+          status: 'succeeded',
+        })
+        .returning();
+
+      const [assignment] = await db
+        .insert(assignments)
+        .values({
+          semester_id: semester.id,
+          assignment_id_str: 'hw1',
+          label: 'Homework 1',
+        })
+        .returning();
+
+      const [student] = await db
+        .insert(roster_entries)
+        .values({
+          semester_id: semester.id,
+          sid: 'stu001',
+          display_name: 'Alice',
+        })
+        .returning();
+
+      // Insert a submission with score 0 (no flags)
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          semester_id: semester.id,
+          assignment_id: assignment!.id,
+          student_id: student!.id,
+          blob_object_key: 'test/blob',
+          blob_sha256: 'abc123',
+          source_filename: 'hw1_stu001.zip',
+          ingest_job_id: ingestJob!.id,
+          version_index: 1,
+          score_total: 0,
+          score_max_severity: 'info',
+        })
+        .returning();
+
+      // Same config → all scores identical → no tier change
+      const result = await computeDryRunDiff(db, semester.id, DEFAULT_SERVER_CONFIG, 2);
+      expect(result.diff.submissions_with_tier_change).toBe(0);
+      expect(result.diff.top_movers[0]?.old_score).toBe(0);
+      expect(result.diff.top_movers[0]?.new_score).toBe(0);
+
+      void submission;
+    });
+  });
+
+  it('detects tier change when a weight change shifts score_max_severity', async () => {
+    await withTestDb(async (db) => {
+      const adminUser = await insertUser(db);
+      const course = await insertCourse(db);
+      const semester = await insertSemester(db, course.id);
+      await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
+
+      const [ingestJob] = await db
+        .insert(
+          (await import('../../../db/schema.js')).ingest_jobs,
+        )
+        .values({
+          semester_id: semester.id,
+          uploaded_by: adminUser.id,
+          status: 'succeeded',
+        })
+        .returning();
+
+      const [assignment] = await db
+        .insert(assignments)
+        .values({
+          semester_id: semester.id,
+          assignment_id_str: 'hw2',
+          label: 'Homework 2',
+        })
+        .returning();
+
+      const [student] = await db
+        .insert(roster_entries)
+        .values({
+          semester_id: semester.id,
+          sid: 'stu002',
+          display_name: 'Bob',
+        })
+        .returning();
+
+      // Submission with score_max_severity='medium' (has a medium flag)
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          semester_id: semester.id,
+          assignment_id: assignment!.id,
+          student_id: student!.id,
+          blob_object_key: 'test/blob2',
+          blob_sha256: 'def456',
+          source_filename: 'hw2_stu002.zip',
+          ingest_job_id: ingestJob!.id,
+          version_index: 1,
+          score_total: 3, // severity_weight.medium = 3, confidence=1.0, weight=1.0
+          score_max_severity: 'medium',
+        })
+        .returning();
+
+      // Insert a medium flag for the submission
+      await db.insert(flags).values({
+        submission_id: submission!.id,
+        semester_id: semester.id,
+        heuristic_id: 'large_paste',
+        severity: 'medium',
+        confidence: 1.0,
+        weight_at_compute: 1.0,
+        score_contribution: 3,
+        heuristic_config_version: 1,
+      });
+
+      // Now use a candidate that disables large_paste — score drops to 0, tier drops to 'info'
+      const candidateConfig = JSON.parse(JSON.stringify(DEFAULT_SERVER_CONFIG)) as typeof DEFAULT_SERVER_CONFIG;
+      candidateConfig.per_flag['large_paste']!.enabled = false;
+
+      const result = await computeDryRunDiff(db, semester.id, candidateConfig, 2);
+
+      expect(result.diff.submissions_with_tier_change).toBe(1);
+      expect(result.diff.top_movers).toHaveLength(1);
+      expect(result.diff.top_movers[0]!.old_tier).toBe('medium');
+      expect(result.diff.top_movers[0]!.new_tier).toBe('info');
+      expect(result.diff.top_movers[0]!.old_score).toBe(3);
+      expect(result.diff.top_movers[0]!.new_score).toBe(0);
+    });
+  });
+});
