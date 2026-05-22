@@ -14,7 +14,10 @@ function makeEnvelope(seq: number, sessionId: string, wallBaseMs: number) {
     t: seq * 100,
     wall: new Date(wallBaseMs + seq * 1000).toISOString(),
     kind: 'doc.change' as const,
-    data: { path: 'hw1.py', deltas: [{ text: 'x' }] } as unknown as ParsedSession['events'][number]['data'],
+    data: {
+      path: 'hw1.py',
+      deltas: [{ text: 'x' }],
+    } as unknown as ParsedSession['events'][number]['data'],
     prev_hash: seq === 0 ? 'GENESIS' : `h-${sessionId}-${seq - 1}`,
     hash: `h-${sessionId}-${seq}`,
   };
@@ -56,11 +59,17 @@ describe('materializeEvents', () => {
       const bundle = makeSyntheticBundle(10_000);
       await materializeEvents(db, submissionId, bundle);
 
-      const cntResult = await db.select({ cnt: count() }).from(events).where(eq(events.submission_id, submissionId));
+      const cntResult = await db
+        .select({ cnt: count() })
+        .from(events)
+        .where(eq(events.submission_id, submissionId));
       expect(cntResult[0]!.cnt).toBe(10_000);
 
-      const rows = await db.select({ seq: events.seq }).from(events)
-        .where(eq(events.submission_id, submissionId)).orderBy(asc(events.seq));
+      const rows = await db
+        .select({ seq: events.seq })
+        .from(events)
+        .where(eq(events.submission_id, submissionId))
+        .orderBy(asc(events.seq));
       expect(rows[0]!.seq).toBe(0);
       expect(rows[rows.length - 1]!.seq).toBe(9999);
       for (let i = 1; i < rows.length; i++) expect(rows[i]!.seq).toBe(i);
@@ -73,8 +82,11 @@ describe('materializeEvents', () => {
       const bundle = makeSyntheticBundle(3);
       await materializeEvents(db, submissionId, bundle);
 
-      const rows = await db.select().from(events)
-        .where(eq(events.submission_id, submissionId)).orderBy(asc(events.seq));
+      const rows = await db
+        .select()
+        .from(events)
+        .where(eq(events.submission_id, submissionId))
+        .orderBy(asc(events.seq));
       expect(rows[0]!.prev_hash).toBe('GENESIS');
       expect(rows[0]!.hash).toBe('h-session-0-0');
       expect(rows[1]!.prev_hash).toBe('h-session-0-0');
@@ -89,11 +101,17 @@ describe('materializeEvents', () => {
       const bundle = makeSyntheticBundle(n);
       await materializeEvents(db, submissionId, bundle);
 
-      const cntResult = await db.select({ cnt: count() }).from(events).where(eq(events.submission_id, submissionId));
+      const cntResult = await db
+        .select({ cnt: count() })
+        .from(events)
+        .where(eq(events.submission_id, submissionId));
       expect(cntResult[0]!.cnt).toBe(n);
 
-      const rows = await db.select({ seq: events.seq }).from(events)
-        .where(eq(events.submission_id, submissionId)).orderBy(asc(events.seq));
+      const rows = await db
+        .select({ seq: events.seq })
+        .from(events)
+        .where(eq(events.submission_id, submissionId))
+        .orderBy(asc(events.seq));
       expect(rows[EVENTS_INSERT_CHUNK_SIZE]!.seq).toBe(EVENTS_INSERT_CHUNK_SIZE);
     });
   });
@@ -108,10 +126,16 @@ describe('materializeEvents', () => {
         materializeEvents(db, subA, bundleA),
         materializeEvents(db, subB, bundleB),
       ]);
-      const aRows = await db.select({ seq: events.seq }).from(events)
-        .where(eq(events.submission_id, subA)).orderBy(asc(events.seq));
-      const bRows = await db.select({ seq: events.seq }).from(events)
-        .where(eq(events.submission_id, subB)).orderBy(asc(events.seq));
+      const aRows = await db
+        .select({ seq: events.seq })
+        .from(events)
+        .where(eq(events.submission_id, subA))
+        .orderBy(asc(events.seq));
+      const bRows = await db
+        .select({ seq: events.seq })
+        .from(events)
+        .where(eq(events.submission_id, subB))
+        .orderBy(asc(events.seq));
       expect(aRows.length).toBe(100);
       expect(bRows.length).toBe(50);
       expect(aRows[99]!.seq).toBe(99);
@@ -125,7 +149,10 @@ describe('materializeEvents', () => {
       const bundle = makeSyntheticBundle(10);
       await materializeEvents(db, submissionId, bundle);
       await materializeEvents(db, submissionId, bundle);
-      const cntResult = await db.select({ cnt: count() }).from(events).where(eq(events.submission_id, submissionId));
+      const cntResult = await db
+        .select({ cnt: count() })
+        .from(events)
+        .where(eq(events.submission_id, submissionId));
       expect(cntResult[0]!.cnt).toBe(10);
     });
   });
@@ -136,7 +163,10 @@ describe('materializeEvents', () => {
       const bundle = makeSyntheticBundle(5);
       await materializeEvents(db, submissionId, bundle);
       await db.delete(submissions).where(eq(submissions.id, submissionId));
-      const cntResult = await db.select({ cnt: count() }).from(events).where(eq(events.submission_id, submissionId));
+      const cntResult = await db
+        .select({ cnt: count() })
+        .from(events)
+        .where(eq(events.submission_id, submissionId));
       expect(cntResult[0]!.cnt).toBe(0);
     });
   });

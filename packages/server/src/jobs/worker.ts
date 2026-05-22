@@ -290,8 +290,18 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
       try {
         await withTransaction(db, async (tx) => {
-          await materializeEvents(tx, submissionResult.submissionId, bundle);
-          await computeAndStoreStats(tx, submissionResult.submissionId, bundle);
+          try {
+            await materializeEvents(tx, submissionResult.submissionId, bundle);
+          } catch (e) {
+            const cause = e instanceof Error ? e.message : String(e);
+            throw Object.assign(new Error(cause), { phase: 'materialize_events' as const });
+          }
+          try {
+            await computeAndStoreStats(tx, submissionResult.submissionId, bundle);
+          } catch (e) {
+            const cause = e instanceof Error ? e.message : String(e);
+            throw Object.assign(new Error(cause), { phase: 'compute_stats' as const });
+          }
           await tx
             .update(ingest_files)
             .set({
@@ -306,9 +316,12 @@ export async function startWorker(): Promise<() => Promise<void>> {
         });
       } catch (err) {
         const cause = err instanceof Error ? err.message : String(err);
-        const phase = cause.includes('materializeEvents') ? 'materialize_events' : 'compute_stats';
+        const phase =
+          typeof err === 'object' && err !== null && 'phase' in err
+            ? (err as { phase: 'materialize_events' | 'compute_stats' }).phase
+            : 'worker_post_create';
         logger.error(
-          { ingestFileId, submissionId: submissionResult.submissionId, err },
+          { ingestFileId, submissionId: submissionResult.submissionId, err, phase },
           `ingest_file: ${phase} failed`,
         );
         try {
