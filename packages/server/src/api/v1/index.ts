@@ -41,6 +41,8 @@ import { createCohortRouter } from './routes/cohort.js';
 import { createCrossFlagsRouter } from './routes/cross-flags.js';
 import { createSubmissionsRouter } from './routes/submissions.js';
 import { createEventsRouter } from './routes/events.js';
+import { createFilesRouter } from './routes/files.js';
+import { createBundleRouter } from './routes/bundle.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -113,6 +115,15 @@ export function createV1App(): Hono {
   // Paths: /submissions/:submissionId/events (GET)
   //        /submissions/:submissionId/events/:seq (GET)
   app.route('/', createEventsRouter());
+
+  // File content + provenance routes (Phase 18).
+  // Paths: /submissions/:submissionId/files/:path{.+}/content (GET)
+  //        /submissions/:submissionId/files/:path{.+}/provenance (GET)
+  app.route('/', createFilesRouter());
+
+  // Bundle download route (Phase 18).
+  // Paths: /submissions/:submissionId/bundle (GET → 302)
+  app.route('/', createBundleRouter());
 
   // Global error handler
   app.onError(errorFormatter);
