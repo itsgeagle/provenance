@@ -46,9 +46,9 @@ export const queryKeys = {
     ['cohort', semesterId, 'students', params] as const,
   assignments: (semesterId: string) => ['cohort', semesterId, 'assignments'] as const,
   ingestJobs: (semesterId: string) => ['ingest', semesterId, 'jobs'] as const,
-  ingestJob: (jobId: string) => ['ingest', 'job', jobId] as const,
-  ingestJobFiles: (jobId: string, cursor?: string) =>
-    ['ingest', 'job', jobId, 'files', cursor] as const,
+  ingestJob: (jobId: string, semesterId: string) => ['ingest', semesterId, 'job', jobId] as const,
+  ingestJobFiles: (jobId: string, semesterId: string, cursor?: string) =>
+    ['ingest', semesterId, 'job', jobId, 'files', cursor] as const,
   unmatched: (semesterId: string) => ['unmatched', semesterId] as const,
   roster: (semesterId: string) => ['roster', semesterId] as const,
   members: (semesterId: string) => ['members', semesterId] as const,
@@ -304,7 +304,7 @@ function buildStudentParams(
  */
 export function useIngestJob(jobId: string, semesterId: string) {
   return useQuery({
-    queryKey: queryKeys.ingestJob(jobId),
+    queryKey: queryKeys.ingestJob(jobId, semesterId),
     queryFn: () =>
       apiFetch(`/semesters/${semesterId}/ingest/jobs/${jobId}`, undefined, IngestJobSchema),
     staleTime: 0,
@@ -345,7 +345,7 @@ export function useIngestJobsList(semesterId: string) {
  */
 export function useIngestJobFiles(jobId: string, semesterId: string, cursor?: string) {
   return useQuery({
-    queryKey: queryKeys.ingestJobFiles(jobId, cursor),
+    queryKey: queryKeys.ingestJobFiles(jobId, semesterId, cursor),
     queryFn: () => {
       const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}&limit=50` : '?limit=50';
       return apiFetch(
@@ -423,7 +423,7 @@ export function useCancelIngest(semesterId: string) {
     mutationFn: (jobId: string) =>
       apiFetch(`/semesters/${semesterId}/ingest/jobs/${jobId}/cancel`, { method: 'POST' }),
     onSuccess: (_data, jobId) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJob(jobId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJob(jobId, semesterId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJobs(semesterId) });
     },
   });
