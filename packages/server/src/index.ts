@@ -22,7 +22,15 @@ switch (mode) {
     startApi();
     break;
   case 'worker':
-    startWorker();
+    // startWorker() returns a teardown function; register it for graceful shutdown.
+    startWorker().then((teardown) => {
+      const shutdown = async () => {
+        await teardown();
+        process.exit(0);
+      };
+      process.on('SIGTERM', () => void shutdown());
+      process.on('SIGINT', () => void shutdown());
+    });
     break;
   default:
     console.error(`Unknown --mode="${mode}". Expected: api | worker | all`);
