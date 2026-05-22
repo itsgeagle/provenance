@@ -112,6 +112,8 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
 
       try {
         // Mark the job as running.
+        // The WHERE clause filters on status='queued' so this is a no-op on
+        // pg-boss retry (status is already 'running' from the prior attempt).
         await db
           .update(recompute_jobs)
           .set({ status: 'running', started_at: new Date() })
@@ -126,7 +128,14 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
         `);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: postgres.js raw result
         const hcRowsArr = hcRows as any as Array<{ version: number }>;
-        const configVersion = hcRowsArr[0]?.version ?? 1;
+        if (hcRowsArr.length === 0) {
+          // target_config_id references a config that no longer exists — DATA ERROR.
+          // Throw so pg-boss marks this job failed and surfaces it in monitoring.
+          throw new Error(
+            `recompute_semester: target_config_id ${targetConfigId} not found in heuristic_configs`,
+          );
+        }
+        const configVersion = hcRowsArr[0]!.version;
 
         // Enumerate non-superseded submissions.
         const submissionIds = await getNonSupersededSubmissionIds(db, semesterId);
