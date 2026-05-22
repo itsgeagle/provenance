@@ -15,7 +15,7 @@ import { eq, and, isNull, desc, count as countFn, inArray } from 'drizzle-orm';
 import { courses, semesters, memberships } from '../db/schema.js';
 import type { DrizzleDb } from '../db/client.js';
 import type { Principal } from '../api/middleware/auth-session.js';
-import { Errors } from '../api/v1/errors.js';
+import { Errors, ApiError } from '../api/v1/errors.js';
 
 // ---------------------------------------------------------------------------
 // Type aliases
@@ -256,7 +256,7 @@ export function validateFilenameConvention(pattern: string): void {
       );
     }
   } catch (err) {
-    if (err instanceof Errors.constructor) {
+    if (err instanceof ApiError) {
       throw err; // re-throw our ApiError
     }
     const msg = err instanceof Error ? err.message : String(err);
@@ -428,7 +428,7 @@ export async function updateSemester(
     derivedRetentionDays?: number;
   },
 ): Promise<SemesterRow | null> {
-  if (input.filenameConvention) {
+  if (input.filenameConvention !== undefined) {
     validateFilenameConvention(input.filenameConvention);
   }
 
