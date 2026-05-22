@@ -622,6 +622,65 @@ export const validation_results = pgTable('validation_results', {
 });
 
 // ---------------------------------------------------------------------------
+// flags  (PRD §5.4 / migration 0009)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per heuristic finding on a submission.
+ *
+ * A single heuristic can fire multiple flags per submission (e.g. large_paste
+ * fires once per paste event above threshold), so the PK is gen_random_uuid()
+ * rather than a composite key.
+ *
+ * `supporting_seqs` is int[] of globalIdx values (events.seq) that
+ * contributed to this flag. Translated from v2's `${sessionId}:${seq}` string
+ * keys by buildIndex.bySeq at ingest time.
+ *
+ * `session_id`: set to the sessionId when all supporting_seqs belong to
+ * the same session; otherwise '' (the default). This lets the API
+ * deep-link into a specific session timeline without decoding supporting_seqs.
+ *
+ * CHECK constraints are defined in the SQL migration; omitted from Drizzle to
+ * keep the schema concise (V27 convention).
+ */
+export const flags = pgTable(
+  'flags',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    submission_id: uuid('submission_id')
+      .notNull()
+      .references(() => submissions.id, { onDelete: 'cascade' }),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    heuristic_id: text('heuristic_id').notNull(),
+    severity: text('severity').notNull(),
+    confidence: doublePrecision('confidence').notNull(),
+    weight_at_compute: doublePrecision('weight_at_compute').notNull(),
+    score_contribution: doublePrecision('score_contribution').notNull(),
+    detail: jsonb('detail')
+      .notNull()
+      .default(sql`'{}'`),
+    supporting_seqs: integer('supporting_seqs')
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    session_id: text('session_id').notNull().default(''),
+    heuristic_config_version: integer('heuristic_config_version').notNull(),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    index('flags_sub_idx').on(t.submission_id),
+    index('flags_sem_heur_idx').on(t.semester_id, t.heuristic_id),
+    index('flags_sem_sev_idx').on(t.semester_id, t.severity),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -659,3 +718,5 @@ export type PerFileStat = typeof per_file_stats.$inferSelect;
 export type NewPerFileStat = typeof per_file_stats.$inferInsert;
 export type ValidationResult = typeof validation_results.$inferSelect;
 export type NewValidationResult = typeof validation_results.$inferInsert;
+export type Flag = typeof flags.$inferSelect;
+export type NewFlag = typeof flags.$inferInsert;
