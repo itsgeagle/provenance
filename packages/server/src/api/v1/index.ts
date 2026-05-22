@@ -34,6 +34,7 @@ import { createCoursesRouter } from './routes/courses.js';
 import { createSemestersRouter } from './routes/semesters.js';
 import { createMembersRouter } from './routes/members.js';
 import { createRosterRouter } from './routes/roster.js';
+import { createIngestRouter } from './routes/ingest.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -65,6 +66,12 @@ export function createV1App(): Hono {
   // Roster routes.
   // Paths: /semesters/:semesterId/roster (GET, POST :upload, POST :commit, PATCH /:id)
   app.route('/', createRosterRouter());
+
+  // Ingest routes.
+  // Paths: /semesters/:semesterId/ingest (POST),
+  //        /semesters/:semesterId/ingest/jobs (GET),
+  //        /semesters/:semesterId/ingest/jobs/:jobId/cancel (POST)
+  app.route('/', createIngestRouter());
 
   // Global error handler
   app.onError(errorFormatter);
