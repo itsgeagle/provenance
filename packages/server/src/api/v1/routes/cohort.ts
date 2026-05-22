@@ -56,22 +56,21 @@ export function createCohortRouter(): Hono {
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
       const db = getDb();
-      const q = c.req.query;
 
       // Parse filters
       const filters: CohortFilters = {};
 
-      const assignmentId = q('assignment_id');
+      const assignmentId = c.req.query('assignment_id');
       if (assignmentId) filters.assignmentId = assignmentId;
 
-      const studentId = q('student_id');
+      const studentId = c.req.query('student_id');
       if (studentId) filters.studentId = studentId;
 
       // flag_id can appear multiple times (repeated key)
       const flagIds = c.req.queries('flag_id');
       if (flagIds && flagIds.length > 0) filters.flagIds = flagIds;
 
-      const severityMin = q('severity_min');
+      const severityMin = c.req.query('severity_min');
       if (severityMin) {
         const valid: Severity[] = ['info', 'low', 'medium', 'high'];
         if (!valid.includes(severityMin as Severity)) {
@@ -85,7 +84,7 @@ export function createCohortRouter(): Hono {
         filters.severityMin = severityMin as Severity;
       }
 
-      const validationStatus = q('validation_status');
+      const validationStatus = c.req.query('validation_status');
       if (validationStatus) {
         if (!['pass', 'warn', 'fail'].includes(validationStatus)) {
           return c.json(
@@ -98,37 +97,37 @@ export function createCohortRouter(): Hono {
         filters.validationStatus = validationStatus as 'pass' | 'warn' | 'fail';
       }
 
-      const scoreMinStr = q('score_min');
+      const scoreMinStr = c.req.query('score_min');
       if (scoreMinStr !== undefined) {
         const n = parseFloat(scoreMinStr);
         if (!isNaN(n)) filters.scoreMin = n;
       }
 
-      const scoreMaxStr = q('score_max');
+      const scoreMaxStr = c.req.query('score_max');
       if (scoreMaxStr !== undefined) {
         const n = parseFloat(scoreMaxStr);
         if (!isNaN(n)) filters.scoreMax = n;
       }
 
-      const hasExternalEdits = q('has_external_edits');
+      const hasExternalEdits = c.req.query('has_external_edits');
       if (hasExternalEdits === 'true') filters.hasExternalEdits = true;
       else if (hasExternalEdits === 'false') filters.hasExternalEdits = false;
 
-      const hasLargePaste = q('has_large_paste');
+      const hasLargePaste = c.req.query('has_large_paste');
       if (hasLargePaste === 'true') filters.hasLargePaste = true;
       else if (hasLargePaste === 'false') filters.hasLargePaste = false;
 
-      const recorderVersion = q('recorder_version');
+      const recorderVersion = c.req.query('recorder_version');
       if (recorderVersion) filters.recorderVersion = recorderVersion;
 
-      const includeSuperseded = q('include_superseded');
+      const includeSuperseded = c.req.query('include_superseded');
       filters.includeSuperseded = includeSuperseded === 'true';
 
-      const qParam = q('q');
+      const qParam = c.req.query('q');
       if (qParam) filters.q = qParam;
 
       // Parse sort
-      const sortParam = q('sort') ?? 'score_desc';
+      const sortParam = c.req.query('sort') ?? 'score_desc';
       const validSorts: CohortSort[] = [
         'score_desc',
         'score_asc',
@@ -146,11 +145,11 @@ export function createCohortRouter(): Hono {
       const sort = sortParam as CohortSort;
 
       // Parse limit
-      const rawLimit = parseInt(q('limit') ?? '50', 10);
+      const rawLimit = parseInt(c.req.query('limit') ?? '50', 10);
       const limit = isNaN(rawLimit) || rawLimit < 1 ? 50 : rawLimit > 500 ? 500 : rawLimit;
 
       // Parse cursor
-      const cursorStr = q('cursor');
+      const cursorStr = c.req.query('cursor');
       const cursor = cursorStr !== undefined ? decodeCursor(cursorStr) : null;
       if (cursorStr !== undefined && cursor === null) {
         return c.json(
@@ -188,21 +187,20 @@ export function createCohortRouter(): Hono {
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
       const db = getDb();
-      const q = c.req.query;
 
       // Same filter set as submissions
       const filters: CohortFilters = {};
 
-      const assignmentId = q('assignment_id');
+      const assignmentId = c.req.query('assignment_id');
       if (assignmentId) filters.assignmentId = assignmentId;
 
-      const studentId = q('student_id');
+      const studentId = c.req.query('student_id');
       if (studentId) filters.studentId = studentId;
 
       const flagIds = c.req.queries('flag_id');
       if (flagIds && flagIds.length > 0) filters.flagIds = flagIds;
 
-      const severityMin = q('severity_min');
+      const severityMin = c.req.query('severity_min');
       if (severityMin) {
         const valid: Severity[] = ['info', 'low', 'medium', 'high'];
         if (!valid.includes(severityMin as Severity)) {
@@ -216,7 +214,7 @@ export function createCohortRouter(): Hono {
         filters.severityMin = severityMin as Severity;
       }
 
-      const validationStatus = q('validation_status');
+      const validationStatus = c.req.query('validation_status');
       if (validationStatus) {
         if (!['pass', 'warn', 'fail'].includes(validationStatus)) {
           return c.json(
@@ -229,37 +227,37 @@ export function createCohortRouter(): Hono {
         filters.validationStatus = validationStatus as 'pass' | 'warn' | 'fail';
       }
 
-      const scoreMinStr = q('score_min');
+      const scoreMinStr = c.req.query('score_min');
       if (scoreMinStr !== undefined) {
         const n = parseFloat(scoreMinStr);
         if (!isNaN(n)) filters.scoreMin = n;
       }
 
-      const scoreMaxStr = q('score_max');
+      const scoreMaxStr = c.req.query('score_max');
       if (scoreMaxStr !== undefined) {
         const n = parseFloat(scoreMaxStr);
         if (!isNaN(n)) filters.scoreMax = n;
       }
 
-      const hasExternalEdits = q('has_external_edits');
+      const hasExternalEdits = c.req.query('has_external_edits');
       if (hasExternalEdits === 'true') filters.hasExternalEdits = true;
       else if (hasExternalEdits === 'false') filters.hasExternalEdits = false;
 
-      const hasLargePaste = q('has_large_paste');
+      const hasLargePaste = c.req.query('has_large_paste');
       if (hasLargePaste === 'true') filters.hasLargePaste = true;
       else if (hasLargePaste === 'false') filters.hasLargePaste = false;
 
-      const recorderVersion = q('recorder_version');
+      const recorderVersion = c.req.query('recorder_version');
       if (recorderVersion) filters.recorderVersion = recorderVersion;
 
-      const includeSuperseded = q('include_superseded');
+      const includeSuperseded = c.req.query('include_superseded');
       filters.includeSuperseded = includeSuperseded === 'true';
 
-      const qParam = q('q');
+      const qParam = c.req.query('q');
       if (qParam) filters.q = qParam;
 
       // Sort
-      const sortParam = q('sort') ?? 'score_sum_desc';
+      const sortParam = c.req.query('sort') ?? 'score_sum_desc';
       const validSorts: StudentSort[] = ['score_sum_desc', 'score_max_desc', 'student_asc'];
       if (!validSorts.includes(sortParam as StudentSort)) {
         return c.json(
@@ -271,10 +269,10 @@ export function createCohortRouter(): Hono {
       }
       const sort = sortParam as StudentSort;
 
-      const rawLimit = parseInt(q('limit') ?? '50', 10);
+      const rawLimit = parseInt(c.req.query('limit') ?? '50', 10);
       const limit = isNaN(rawLimit) || rawLimit < 1 ? 50 : rawLimit > 500 ? 500 : rawLimit;
 
-      const cursorStr = q('cursor');
+      const cursorStr = c.req.query('cursor');
       const cursor = cursorStr !== undefined ? decodeStudentCursor(cursorStr) : null;
       if (cursorStr !== undefined && cursor === null) {
         return c.json(

@@ -340,6 +340,10 @@ export async function listCohortSubmissions(
 
     // Top 3 flags per submission using ROW_NUMBER() OVER (PARTITION BY submission_id)
     // ordered by severity rank DESC, confidence DESC
+    const idList = sql.join(
+      submissionIds.map((id) => sql`${id}::uuid`),
+      sql`, `,
+    );
     const topFlagRows = await db.execute<{
       submission_id: string;
       heuristic_id: string;
@@ -365,7 +369,7 @@ export async function listCohortSubmissions(
                 confidence DESC
             ) AS rn
           FROM flags
-          WHERE submission_id = ANY(${sql`${submissionIds}::uuid[]`})
+          WHERE submission_id IN (${idList})
         ) ranked
         WHERE rn <= 3
         ORDER BY submission_id, rn

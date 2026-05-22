@@ -52,14 +52,13 @@ export function createCrossFlagsRouter(): Hono {
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
       const db = getDb();
-      const q = c.req.query;
 
       const filters: CrossFlagFilters = {};
 
-      const heuristicId = q('heuristic_id');
+      const heuristicId = c.req.query('heuristic_id');
       if (heuristicId) filters.heuristicId = heuristicId;
 
-      const severityMin = q('severity_min');
+      const severityMin = c.req.query('severity_min');
       if (severityMin) {
         const valid: Severity[] = ['info', 'low', 'medium', 'high'];
         if (!valid.includes(severityMin as Severity)) {
@@ -73,13 +72,13 @@ export function createCrossFlagsRouter(): Hono {
         filters.severityMin = severityMin as Severity;
       }
 
-      const submissionId = q('submission_id');
+      const submissionId = c.req.query('submission_id');
       if (submissionId) filters.submissionId = submissionId;
 
-      const rawLimit = parseInt(q('limit') ?? '50', 10);
+      const rawLimit = parseInt(c.req.query('limit') ?? '50', 10);
       const limit = isNaN(rawLimit) || rawLimit < 1 ? 50 : rawLimit > 500 ? 500 : rawLimit;
 
-      const cursorStr = q('cursor');
+      const cursorStr = c.req.query('cursor');
       const cursor = cursorStr !== undefined ? decodeCrossFlagCursor(cursorStr) : null;
       if (cursorStr !== undefined && cursor === null) {
         return c.json(

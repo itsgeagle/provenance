@@ -15,6 +15,7 @@
  */
 
 import { and, eq, isNull, inArray, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { submissions, assignments, roster_entries, flags } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { SubmissionRow, CohortFilters } from './list.js';

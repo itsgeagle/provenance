@@ -129,13 +129,17 @@ export async function listCrossFlags(
     if (!isNaN(cursorDate.getTime())) {
       // Same millisecond+1 trick from V33 to handle µs precision on DESC order
       const prevMs = new Date(cursorDate.getTime() - 1);
+      // Pass dates as ISO strings — postgres-js cannot serialize Date objects
+      // when they originate from js Date instances in sql`` template params.
+      const prevMsStr = prevMs.toISOString();
+      const cursorDateStr = cursorDate.toISOString();
       // "next page" = rows earlier in time than cursor, OR same ms + smaller id
       whereConditions.push(
         or(
-          sql`${cross_flags.created_at} < ${prevMs}`,
+          sql`${cross_flags.created_at} < ${prevMsStr}::timestamptz`,
           and(
-            sql`${cross_flags.created_at} >= ${prevMs}`,
-            sql`${cross_flags.created_at} <= ${cursorDate}`,
+            sql`${cross_flags.created_at} >= ${prevMsStr}::timestamptz`,
+            sql`${cross_flags.created_at} <= ${cursorDateStr}::timestamptz`,
             sql`${cross_flags.id} < ${cursor.id}`,
           ),
         )!,
