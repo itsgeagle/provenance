@@ -548,11 +548,15 @@ function buildCursorCondition(sort: CohortSort, cursor: CohortCursor): SQL | nul
       if (isNaN(cursorDate.getTime())) return null;
       // Use the millisecond+1 trick from V33 to handle µs precision
       const nextMs = new Date(cursorDate.getTime() + 1);
+      // Pass dates as ISO strings — postgres-js cannot serialize Date objects
+      // when they originate from js Date instances in sql`` template params.
+      const cursorDateStr = cursorDate.toISOString();
+      const nextMsStr = nextMs.toISOString();
       return or(
-        sql`${submissions.ingested_at} < ${cursorDate}`,
+        sql`${submissions.ingested_at} < ${cursorDateStr}::timestamptz`,
         and(
-          sql`${submissions.ingested_at} >= ${cursorDate}`,
-          sql`${submissions.ingested_at} < ${nextMs}`,
+          sql`${submissions.ingested_at} >= ${cursorDateStr}::timestamptz`,
+          sql`${submissions.ingested_at} < ${nextMsStr}::timestamptz`,
           sql`${submissions.id} < ${cursor.id}`,
         ),
       )!;
