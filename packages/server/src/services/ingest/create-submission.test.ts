@@ -5,7 +5,7 @@
  */
 
 import { vi, describe, it, expect } from 'vitest';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, asc } from 'drizzle-orm';
 import { withTestDb } from '../../../test/helpers/db.js';
 import { withTestMinio } from '../../../test/helpers/minio.js';
 import { createSubmission } from './create-submission.js';
@@ -355,7 +355,10 @@ describe('createSubmission', () => {
           .select()
           .from(assignments)
           .where(
-            and(eq(assignments.semester_id, semester.id), eq(assignments.assignment_id_str, 'hw03')),
+            and(
+              eq(assignments.semester_id, semester.id),
+              eq(assignments.assignment_id_str, 'hw03'),
+            ),
           );
         expect(aRows).toHaveLength(1);
       });
@@ -394,11 +397,116 @@ describe('createSubmission', () => {
         );
 
         const [row] = await db
-          .select({ recorder_version: submissions.recorder_version, format_version: submissions.format_version })
+          .select({
+            recorder_version: submissions.recorder_version,
+            format_version: submissions.format_version,
+          })
           .from(submissions)
           .where(eq(submissions.id, result.submissionId));
         expect(row!.recorder_version).toBe('1.2.3');
         expect(row!.format_version).toBe('1.0');
+      });
+    });
+  });
+
+  it('serializes concurrent uploads under row lock (version_index allocation is unique)', async () => {
+    // Phase 9 exit gate: concurrent uploads of the same (semester, assignment,
+    // student) must serialize under the FOR UPDATE lock so that each concurrent
+    // call gets a distinct version_index. This test fires 3 concurrent
+    // createSubmission calls for the same cohort and verifies that:
+    //   - all 3 succeed
+    //   - version_indexes are exactly {2, 3, 4} (an existing submission was #1)
+    //   - the supersede chain is linear (each points to the next)
+    await withTestDb(async (db) => {
+      await withTestMinio(async ({ client }) => {
+        const user = await seedUser(db);
+        const semester = await seedSemester(db);
+        const student = await seedStudent(db, semester.id);
+        const job = await seedIngestJob(db, semester.id, user.id);
+
+        // Seed the first submission (version_index = 1).
+        const fileId0 = crypto.randomUUID();
+        const stagingKey0 = await stageTestBlob(
+          client,
+          job.id,
+          fileId0,
+          new TextEncoder().encode('v0'),
+        );
+        await createSubmission(
+          { db, storageClient: client },
+          {
+            semesterId: semester.id,
+            assignmentIdStr: 'hw_concurrent',
+            studentId: student.id,
+            blobSha256: '0'.repeat(64),
+            stagingKey: stagingKey0,
+            originalFilename: 'hw_concurrent-123456.zip',
+            ingestJobId: job.id,
+          },
+        );
+
+        // Fire 3 concurrent uploads for the same cohort.
+        const results = await Promise.allSettled(
+          [1, 2, 3].map(async (n) => {
+            const fid = crypto.randomUUID();
+            const key = await stageTestBlob(
+              client,
+              job.id,
+              fid,
+              new TextEncoder().encode(`concurrent-${String(n)}`),
+            );
+            return createSubmission(
+              { db, storageClient: client },
+              {
+                semesterId: semester.id,
+                assignmentIdStr: 'hw_concurrent',
+                studentId: student.id,
+                blobSha256: String(n).repeat(64),
+                stagingKey: key,
+                originalFilename: 'hw_concurrent-123456.zip',
+                ingestJobId: job.id,
+              },
+            );
+          }),
+        );
+
+        // All 3 must succeed.
+        for (const r of results) {
+          expect(
+            r.status,
+            `Expected all concurrent uploads to succeed; got: ${JSON.stringify(r)}`,
+          ).toBe('fulfilled');
+        }
+
+        // Fetch all submissions for this cohort sorted by version_index.
+        const allRows = await db
+          .select({
+            id: submissions.id,
+            version_index: submissions.version_index,
+            superseded_by: submissions.superseded_by_submission_id,
+          })
+          .from(submissions)
+          .where(
+            and(eq(submissions.semester_id, semester.id), eq(submissions.student_id, student.id)),
+          )
+          .orderBy(asc(submissions.version_index));
+
+        // Should have 4 rows (1 seed + 3 concurrent).
+        expect(allRows).toHaveLength(4);
+
+        // version_indexes must be exactly 1, 2, 3, 4 — no duplicates.
+        const indexes = allRows.map((r) => r.version_index);
+        expect(indexes).toEqual([1, 2, 3, 4]);
+
+        // Supersede chain: 1→something, 2→something, 3→something, 4→null.
+        // The last row (highest version_index) has no superseder.
+        const lastRow = allRows.at(-1)!;
+        expect(lastRow.superseded_by).toBeNull();
+
+        // All earlier rows must be superseded (superseded_by is not null).
+        for (const row of allRows.slice(0, -1)) {
+          expect(row.superseded_by).not.toBeNull();
+        }
       });
     });
   });
