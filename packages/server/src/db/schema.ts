@@ -510,6 +510,77 @@ export const ingest_files = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// events  (PRD §5.4 / migration 0007)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per event in the log-core hash chain, indexed chronologically.
+ *
+ * `seq` is the global chronological index across all sessions within the
+ * submission (IndexedEvent.globalIdx from v2 buildIndex), NOT the
+ * session-local seq from the bundle envelope.
+ *
+ * `payload` is the raw event data object from the bundle envelope, stored as
+ * jsonb for structured queries.
+ *
+ * `prev_hash` + `hash` carry the log-core hash-chain values from
+ * HashedEnvelope, enabling server-side chain verification.
+ */
+export const events = pgTable(
+  'events',
+  {
+    submission_id: uuid('submission_id')
+      .notNull()
+      .references(() => submissions.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    session_id: text('session_id').notNull(),
+    t: integer('t').notNull(),
+    wall: timestamp('wall', { withTimezone: true }).notNull(),
+    kind: text('kind').notNull(),
+    payload: jsonb('payload').notNull(),
+    prev_hash: text('prev_hash').notNull(),
+    hash: text('hash').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.submission_id, t.seq] }),
+    index('events_sub_kind_t_idx').on(t.submission_id, t.kind, t.t),
+    index('events_sub_t_idx').on(t.submission_id, t.t),
+    index('events_sub_session_seq_idx').on(t.submission_id, t.session_id, t.seq),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// per_file_stats  (PRD §5.4 / migration 0007)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per (submission, file_path) with aggregated editing statistics.
+ *
+ * `final_length` and `start_length` are stored as 0 at ingest time.
+ * Computing them requires file reconstruction (Phase 18).
+ *
+ * `reconstruction_tainted` is true if reconstructFile reported taint (large
+ * paste or external change) for this file.
+ */
+export const per_file_stats = pgTable(
+  'per_file_stats',
+  {
+    submission_id: uuid('submission_id')
+      .notNull()
+      .references(() => submissions.id, { onDelete: 'cascade' }),
+    file_path: text('file_path').notNull(),
+    chars_typed: integer('chars_typed').notNull().default(0),
+    chars_pasted: integer('chars_pasted').notNull().default(0),
+    chars_external_change_delta: integer('chars_external_change_delta').notNull().default(0),
+    saves: integer('saves').notNull().default(0),
+    final_length: integer('final_length').notNull().default(0),
+    start_length: integer('start_length').notNull().default(0),
+    reconstruction_tainted: boolean('reconstruction_tainted').notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.submission_id, t.file_path] })],
+);
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -541,3 +612,7 @@ export type IngestFile = typeof ingest_files.$inferSelect;
 export type NewIngestFile = typeof ingest_files.$inferInsert;
 export type Submission = typeof submissions.$inferSelect;
 export type NewSubmission = typeof submissions.$inferInsert;
+export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
+export type PerFileStat = typeof per_file_stats.$inferSelect;
+export type NewPerFileStat = typeof per_file_stats.$inferInsert;
