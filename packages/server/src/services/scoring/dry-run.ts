@@ -1,0 +1,304 @@
+/**
+ * dry-run scoring service — Phase 13a.
+ *
+ * computeDryRunDiff: given (semesterId, candidateConfig), re-weights the
+ * existing flags in DB against the candidate config and returns a diff payload
+ * per PRD §8.11.
+ *
+ * ## Key design decision: re-weight existing flags, NOT re-run heuristics
+ *
+ * The "config" affects per-flag weights (enabled/weight) and severity_weights.
+ * It does NOT change the set of flags produced by the heuristic functions
+ * (which depend on threshold values from the v2 HeuristicConfig, a separate
+ * shape). Therefore, dry-run simply reads existing flags rows from the DB and
+ * recomputes score_contribution using the candidate severity_weights and
+ * per_flag[heuristicId].weight. This is:
+ *   - Much faster (no bundle re-parsing, no heuristic re-execution).
+ *   - Correct per PRD §10.5 intent: "does NOT touch heuristic_configs or flags".
+ *
+ * ## Histogram bucketing
+ *
+ * Upper bound = max(max(old_scores), max(new_scores)). This ensures both
+ * histograms share the same bucket boundaries for direct comparison. If all
+ * scores are 0, the upper bound is 1.0 to avoid zero-width buckets.
+ */
+
+import { eq, isNull, inArray, and } from 'drizzle-orm';
+import { submissions, flags, roster_entries, assignments } from '../../db/schema.js';
+import type { DrizzleDb } from '../../db/client.js';
+import type { ServerHeuristicConfig } from '../heuristics/config.js';
+import { computeScore } from './compute.js';
+import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+
+// ---------------------------------------------------------------------------
+// DryRunDiff — PRD §8.11 response shape
+// ---------------------------------------------------------------------------
+
+export type TierMover = {
+  submission_id: string;
+  student: { id: string; sid: string; display_name: string };
+  assignment: { id: string; assignment_id_str: string; label: string };
+  old_score: number;
+  new_score: number;
+  old_tier: Severity;
+  new_tier: Severity;
+};
+
+export type DryRunDiff = {
+  candidate_version: number;
+  diff: {
+    submissions_with_tier_change: number;
+    top_movers: TierMover[];
+    score_histogram_old: number[];
+    score_histogram_new: number[];
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Number of buckets in the score histogram. */
+const HISTOGRAM_BUCKETS = 10;
+
+/**
+ * Build a 10-bucket histogram over scores.
+ *
+ * @param scores - Array of scores to bucket.
+ * @param upperBound - Exclusive upper bound for the last bucket.
+ *   Scores at exactly upperBound are placed in the last bucket.
+ */
+function buildHistogram(scores: number[], upperBound: number): number[] {
+  const buckets = new Array<number>(HISTOGRAM_BUCKETS).fill(0);
+  if (upperBound <= 0 || scores.length === 0) return buckets;
+
+  const step = upperBound / HISTOGRAM_BUCKETS;
+  for (const score of scores) {
+    // Clamp to [0, upperBound]; place at max bucket index if score === upperBound.
+    const idx = Math.min(Math.floor(score / step), HISTOGRAM_BUCKETS - 1);
+    buckets[idx]! += 1;
+  }
+  return buckets;
+}
+
+/**
+ * Recompute score_total and score_max_severity for a submission's flags
+ * using the candidate config's weights and severity_weights.
+ *
+ * @param flagRows - All flag rows for a single submission.
+ * @param config - The candidate ServerHeuristicConfig.
+ */
+function recomputeScore(
+  flagRows: Array<{
+    heuristic_id: string;
+    severity: string;
+    confidence: number;
+  }>,
+  config: ServerHeuristicConfig,
+): { score_total: number; score_max_severity: Severity } {
+  const scoreInputs: Array<{ severity: string; score_contribution: number }> = [];
+
+  for (const flag of flagRows) {
+    const perFlag = config.per_flag[flag.heuristic_id];
+    // Disabled heuristics contribute 0 (and are excluded from max_severity calc).
+    if (!perFlag || !perFlag.enabled) continue;
+
+    const severityWeight =
+      config.severity_weights[flag.severity as keyof typeof config.severity_weights] ?? 0;
+    const contribution = severityWeight * flag.confidence * perFlag.weight;
+    scoreInputs.push({ severity: flag.severity, score_contribution: contribution });
+  }
+
+  return computeScore(scoreInputs);
+}
+
+// ---------------------------------------------------------------------------
+// computeDryRunDiff
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the prospective score diff for a candidate heuristic config.
+ *
+ * Does NOT write any rows to the DB.
+ *
+ * @param db - Drizzle DB handle.
+ * @param semesterId - UUID of the semester.
+ * @param candidateConfig - Candidate PRD §10.2 config (already validated by caller).
+ * @param candidateVersion - The version number this candidate would receive if committed.
+ * @returns DryRunDiff per PRD §8.11.
+ */
+export async function computeDryRunDiff(
+  db: DrizzleDb,
+  semesterId: string,
+  candidateConfig: ServerHeuristicConfig,
+  candidateVersion: number,
+): Promise<DryRunDiff> {
+  // -------------------------------------------------------------------------
+  // Step 1: Enumerate non-superseded submissions in the semester.
+  // Join roster_entries (student) and assignments for top_movers payload.
+  // -------------------------------------------------------------------------
+  const filteredSubmissions = await db
+    .select({
+      id: submissions.id,
+      score_total: submissions.score_total,
+      score_max_severity: submissions.score_max_severity,
+      student_id: submissions.student_id,
+      assignment_id: submissions.assignment_id,
+      student_sid: roster_entries.sid,
+      student_display_name: roster_entries.display_name,
+      assignment_id_str: assignments.assignment_id_str,
+      assignment_label: assignments.label,
+    })
+    .from(submissions)
+    .innerJoin(roster_entries, eq(submissions.student_id, roster_entries.id))
+    .innerJoin(assignments, eq(submissions.assignment_id, assignments.id))
+    .where(
+      and(
+        eq(submissions.semester_id, semesterId),
+        isNull(submissions.superseded_by_submission_id),
+      ),
+    );
+
+  if (filteredSubmissions.length === 0) {
+    return {
+      candidate_version: candidateVersion,
+      diff: {
+        submissions_with_tier_change: 0,
+        top_movers: [],
+        score_histogram_old: new Array<number>(HISTOGRAM_BUCKETS).fill(0),
+        score_histogram_new: new Array<number>(HISTOGRAM_BUCKETS).fill(0),
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 2: Load all flags for the semester's non-superseded submissions.
+  // -------------------------------------------------------------------------
+  const submissionIds = filteredSubmissions.map((s) => s.id);
+
+  const allFlagRows = await db
+    .select({
+      submission_id: flags.submission_id,
+      heuristic_id: flags.heuristic_id,
+      severity: flags.severity,
+      confidence: flags.confidence,
+    })
+    .from(flags)
+    .where(inArray(flags.submission_id, submissionIds));
+
+  // Group flags by submission_id.
+  const flagsBySubmission = new Map<
+    string,
+    Array<{ heuristic_id: string; severity: string; confidence: number }>
+  >();
+  for (const flag of allFlagRows) {
+    let bucket = flagsBySubmission.get(flag.submission_id);
+    if (!bucket) {
+      bucket = [];
+      flagsBySubmission.set(flag.submission_id, bucket);
+    }
+    bucket.push({
+      heuristic_id: flag.heuristic_id,
+      severity: flag.severity,
+      confidence: flag.confidence,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 3: For each submission, compute (old_score, new_score, old_tier, new_tier).
+  // -------------------------------------------------------------------------
+  type SubmissionDiff = {
+    submission_id: string;
+    student_id: string;
+    student_sid: string;
+    student_display_name: string;
+    assignment_id: string;
+    assignment_id_str: string;
+    assignment_label: string;
+    old_score: number;
+    new_score: number;
+    old_tier: Severity;
+    new_tier: Severity;
+  };
+
+  const diffs: SubmissionDiff[] = [];
+
+  for (const sub of filteredSubmissions) {
+    const subFlags = flagsBySubmission.get(sub.id) ?? [];
+    const { score_total: new_score, score_max_severity: new_tier } = recomputeScore(
+      subFlags,
+      candidateConfig,
+    );
+
+    diffs.push({
+      submission_id: sub.id,
+      student_id: sub.student_id,
+      student_sid: sub.student_sid,
+      student_display_name: sub.student_display_name,
+      assignment_id: sub.assignment_id,
+      assignment_id_str: sub.assignment_id_str,
+      assignment_label: sub.assignment_label,
+      old_score: sub.score_total,
+      new_score,
+      old_tier: sub.score_max_severity as Severity,
+      new_tier,
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 4: submissions_with_tier_change count.
+  // -------------------------------------------------------------------------
+  const withTierChange = diffs.filter((d) => d.old_tier !== d.new_tier).length;
+
+  // -------------------------------------------------------------------------
+  // Step 5: top_movers — top 20 by |new_score - old_score| descending.
+  // -------------------------------------------------------------------------
+  const sorted = [...diffs].sort(
+    (a, b) => Math.abs(b.new_score - b.old_score) - Math.abs(a.new_score - a.old_score),
+  );
+  const topMovers: TierMover[] = sorted.slice(0, 20).map((d) => ({
+    submission_id: d.submission_id,
+    student: {
+      id: d.student_id,
+      sid: d.student_sid,
+      display_name: d.student_display_name,
+    },
+    assignment: {
+      id: d.assignment_id,
+      assignment_id_str: d.assignment_id_str,
+      label: d.assignment_label,
+    },
+    old_score: d.old_score,
+    new_score: d.new_score,
+    old_tier: d.old_tier,
+    new_tier: d.new_tier,
+  }));
+
+  // -------------------------------------------------------------------------
+  // Step 6: Histograms.
+  // Upper bound = max(max(old_scores), max(new_scores)), floor 1.0 for safety.
+  // This shared upper bound ensures both histograms use identical bucket widths
+  // for direct visual comparison in the UI.
+  // -------------------------------------------------------------------------
+  const oldScores = diffs.map((d) => d.old_score);
+  const newScores = diffs.map((d) => d.new_score);
+
+  const upperBound = Math.max(
+    oldScores.length > 0 ? Math.max(...oldScores) : 0,
+    newScores.length > 0 ? Math.max(...newScores) : 0,
+    1.0, // floor to avoid zero-width buckets when all scores are 0
+  );
+
+  const scoreHistogramOld = buildHistogram(oldScores, upperBound);
+  const scoreHistogramNew = buildHistogram(newScores, upperBound);
+
+  return {
+    candidate_version: candidateVersion,
+    diff: {
+      submissions_with_tier_change: withTierChange,
+      top_movers: topMovers,
+      score_histogram_old: scoreHistogramOld,
+      score_histogram_new: scoreHistogramNew,
+    },
+  };
+}
