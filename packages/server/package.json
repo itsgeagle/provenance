@@ -20,10 +20,12 @@
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "@hono/zod-openapi": "^0.19.4",
-    "argon2": "^0.31.2",
+    "@types/nodemailer": "^8.0.0",
     "arctic": "^3.7.0",
+    "argon2": "^0.31.2",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.7.11",
+    "nodemailer": "^8.0.7",
     "oslo": "^1.2.1",
     "pino": "^9.7.0",
     "pino-http": "^10.4.0",
