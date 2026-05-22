@@ -167,7 +167,15 @@ export const components = {
         blob_sha256: { type: 'string' },
         status: {
           type: 'string',
-          enum: ['pending', 'matched', 'unmatched', 'duplicate', 'failed', 'superseded', 'discarded'],
+          enum: [
+            'pending',
+            'matched',
+            'unmatched',
+            'duplicate',
+            'failed',
+            'superseded',
+            'discarded',
+          ],
         },
         matched_student: {
           type: 'object',
@@ -247,10 +255,19 @@ export const components = {
     SubmissionRow: {
       type: 'object',
       required: [
-        'id', 'semester_id', 'assignment', 'student',
-        'score_total', 'score_max_severity', 'flag_counts',
-        'top_flags', 'validation_status', 'ingested_at',
-        'recorder_version', 'superseded', 'recompute_status',
+        'id',
+        'semester_id',
+        'assignment',
+        'student',
+        'score_total',
+        'score_max_severity',
+        'flag_counts',
+        'top_flags',
+        'validation_status',
+        'ingested_at',
+        'recorder_version',
+        'superseded',
+        'recompute_status',
       ],
       properties: {
         id: { $ref: '#/components/schemas/UUID' },
@@ -500,7 +517,7 @@ export const components = {
     SessionCookie: {
       type: 'apiKey',
       in: 'cookie',
-      name: '__Host-prov_session',
+      name: '__Host-prov_sess',
       description: 'Session cookie set after Google OAuth flow.',
     },
   },
