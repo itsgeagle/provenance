@@ -244,22 +244,12 @@ export function createMembersRouter(deps: MembersRouterDeps = {}): Hono {
         throw Errors.cannotDemoteSelf();
       }
 
-      // Fetch current membership.
-      const existing = await invitationsService.getMembership(db, semesterId, userId);
-      if (existing === null) {
-        throw Errors.notFound();
-      }
-
-      // Last-admin guard: if target is an admin and new role is grader, ensure
-      // there will be at least one admin left after the update.
-      if (existing.role === 'admin' && newRole === 'grader') {
-        const adminCount = await invitationsService.countAdmins(db, semesterId);
-        if (adminCount <= 1) {
-          throw Errors.lastAdminRequired();
-        }
-      }
-
-      await invitationsService.updateMemberRole(db, semesterId, userId, newRole);
+      // updateMemberRoleSafely wraps the last-admin guard + mutation in a
+      // single serialized transaction with FOR UPDATE row locks, eliminating
+      // the TOCTOU race where two concurrent demotes both pass the guard and
+      // leave 0 admins. It throws Errors.notFound() or Errors.lastAdminRequired()
+      // if applicable; those bubble up to the global error handler.
+      await invitationsService.updateMemberRoleSafely(db, semesterId, userId, newRole);
 
       return c.json({ user_id: userId, role: newRole });
     },
@@ -285,22 +275,10 @@ export function createMembersRouter(deps: MembersRouterDeps = {}): Hono {
       const userId = c.req.param('userId')!;
       const db = getDb();
 
-      // Fetch current membership.
-      const existing = await invitationsService.getMembership(db, semesterId, userId);
-      if (existing === null) {
-        // Member not found — idempotent, return 204.
-        return c.body(null, 204);
-      }
-
-      // Last-admin guard.
-      if (existing.role === 'admin') {
-        const adminCount = await invitationsService.countAdmins(db, semesterId);
-        if (adminCount <= 1) {
-          throw Errors.lastAdminRequired();
-        }
-      }
-
-      await invitationsService.removeMember(db, semesterId, userId);
+      // removeMemberSafely wraps the last-admin guard + delete in a serialized
+      // transaction with FOR UPDATE row locks, eliminating the TOCTOU race.
+      // Returns 'not_found' for idempotent 204 when member doesn't exist.
+      await invitationsService.removeMemberSafely(db, semesterId, userId);
 
       return c.body(null, 204);
     },

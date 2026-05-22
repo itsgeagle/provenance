@@ -423,14 +423,19 @@ export async function listPendingInvitations(
 // ---------------------------------------------------------------------------
 
 /**
- * Count the number of admins in a semester.
+ * Count the number of admins in a semester using a SQL aggregate.
+ *
+ * NOTE: After the Critical-2 fix, the serialized PATCH/DELETE helpers
+ * (`updateMemberRoleSafely`, `removeMemberSafely`) lock + count admins inside
+ * a transaction instead of calling this function. `countAdmins` is kept for
+ * any future callers that need a non-locking read.
  */
 export async function countAdmins(db: DrizzleDb, semesterId: UUID): Promise<number> {
-  const rows = await db
-    .select()
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
     .from(memberships)
     .where(and(eq(memberships.semester_id, semesterId), eq(memberships.role, 'admin')));
-  return rows.length;
+  return result[0]?.count ?? 0;
 }
 
 /**
@@ -451,6 +456,9 @@ export async function getMembership(
 
 /**
  * Update a membership's role.
+ * @deprecated Use `updateMemberRoleSafely` from route handlers to get the
+ *   last-admin guard + row locks. This bare function is kept for tests that
+ *   need to set up state without going through the guard.
  */
 export async function updateMemberRole(
   db: DrizzleDb,
@@ -466,9 +474,129 @@ export async function updateMemberRole(
 
 /**
  * Remove a membership (hard delete).
+ * @deprecated Use `removeMemberSafely` from route handlers to get the
+ *   last-admin guard + row locks.
  */
 export async function removeMember(db: DrizzleDb, semesterId: UUID, userId: UUID): Promise<void> {
   await db
     .delete(memberships)
     .where(and(eq(memberships.user_id, userId), eq(memberships.semester_id, semesterId)));
+}
+
+// ---------------------------------------------------------------------------
+// Safe (locking) PATCH / DELETE helpers — Critical 2 fix
+// ---------------------------------------------------------------------------
+
+/**
+ * Update a membership's role with a last-admin guard and explicit row locks.
+ *
+ * Concurrency problem being solved:
+ * Two admins concurrently demoting each other both see countAdmins() === 2,
+ * both pass the guard, and both update — leaving 0 admins. The TOCTOU window
+ * is eliminated by wrapping the check+mutate in a transaction that holds
+ * FOR UPDATE locks on all admin rows for the semester. Postgres serializes
+ * concurrent transactions on the same locked rows, so only one wins.
+ *
+ * Lock order:
+ *   1. Lock the target membership row (FOR UPDATE).
+ *   2. Lock all admin rows for the semester (FOR UPDATE) — needed so that a
+ *      concurrent demote of a different admin row cannot sneak through while
+ *      this transaction's admin count read is still valid.
+ *
+ * Returns the updated row's new role.
+ * Throws:
+ *   - Errors.notFound()          if the target membership doesn't exist.
+ *   - Errors.lastAdminRequired() if demoting the sole admin.
+ */
+export async function updateMemberRoleSafely(
+  db: DrizzleDb,
+  semesterId: UUID,
+  userId: UUID,
+  newRole: Role,
+): Promise<void> {
+  await withTransaction(db, async (tx) => {
+    // 1. Lock the target row.
+    const targetRows = await tx
+      .select()
+      .from(memberships)
+      .where(and(eq(memberships.user_id, userId), eq(memberships.semester_id, semesterId)))
+      .for('update')
+      .limit(1);
+
+    if (targetRows.length === 0) {
+      throw Errors.notFound();
+    }
+    const target = targetRows[0]!;
+
+    // 2. If demoting an admin, lock ALL admin rows and count them.
+    //    Locking all admin rows prevents a concurrent demote of any admin from
+    //    slipping through between our count and our update.
+    if (target.role === 'admin' && newRole === 'grader') {
+      const adminRows = await tx
+        .select({ user_id: memberships.user_id })
+        .from(memberships)
+        .where(and(eq(memberships.semester_id, semesterId), eq(memberships.role, 'admin')))
+        .for('update');
+
+      if (adminRows.length <= 1) {
+        throw Errors.lastAdminRequired();
+      }
+    }
+
+    // 3. Apply the update.
+    await tx
+      .update(memberships)
+      .set({ role: newRole })
+      .where(and(eq(memberships.user_id, userId), eq(memberships.semester_id, semesterId)));
+  });
+}
+
+/**
+ * Remove a membership with a last-admin guard and explicit row locks.
+ *
+ * Same concurrency pattern as `updateMemberRoleSafely`.
+ *
+ * Returns `'removed'` when the member was deleted, or `'not_found'` when the
+ * membership didn't exist (idempotent — callers should return 204 either way).
+ * Throws Errors.lastAdminRequired() if attempting to remove the sole admin.
+ */
+export async function removeMemberSafely(
+  db: DrizzleDb,
+  semesterId: UUID,
+  userId: UUID,
+): Promise<'removed' | 'not_found'> {
+  return withTransaction(db, async (tx) => {
+    // 1. Lock the target row.
+    const targetRows = await tx
+      .select()
+      .from(memberships)
+      .where(and(eq(memberships.user_id, userId), eq(memberships.semester_id, semesterId)))
+      .for('update')
+      .limit(1);
+
+    if (targetRows.length === 0) {
+      return 'not_found';
+    }
+    const target = targetRows[0]!;
+
+    // 2. If removing an admin, lock ALL admin rows and count them.
+    if (target.role === 'admin') {
+      const adminRows = await tx
+        .select({ user_id: memberships.user_id })
+        .from(memberships)
+        .where(and(eq(memberships.semester_id, semesterId), eq(memberships.role, 'admin')))
+        .for('update');
+
+      if (adminRows.length <= 1) {
+        throw Errors.lastAdminRequired();
+      }
+    }
+
+    // 3. Apply the delete.
+    await tx
+      .delete(memberships)
+      .where(and(eq(memberships.user_id, userId), eq(memberships.semester_id, semesterId)));
+
+    return 'removed';
+  });
 }

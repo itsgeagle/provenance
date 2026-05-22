@@ -8,6 +8,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { eq, and, isNull } from 'drizzle-orm';
 import { withTestDb } from '../../../../test/helpers/db.js';
+import * as invitationsService from '../../../services/invitations.js';
 import { waitForAuditRow } from '../../../../test/helpers/audit.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
 import { _resetLoggerForTest } from '../../../logging.js';
@@ -888,6 +889,88 @@ describe('DELETE /semesters/:semesterId/invitations/:invitationId', () => {
         );
 
         expect(res.status).toBe(403);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent admin demote race — Critical 2 regression tests
+// ---------------------------------------------------------------------------
+
+describe('concurrent admin demote race (FOR UPDATE lock serialization)', () => {
+  it('only one of two concurrent demotes succeeds; at least 1 admin remains', async () => {
+    // Two admins concurrently try to demote each other. Without the FOR UPDATE
+    // lock, both could pass the "adminCount > 1" guard simultaneously and
+    // both updates would succeed, leaving 0 admins.
+    // With FOR UPDATE, Postgres serializes the two transactions; the second
+    // must wait for the first to commit, then sees adminCount === 1 and throws.
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin1 = await insertUser(db, { email: 'admin1@berkeley.edu' });
+        const admin2 = await insertUser(db, { email: 'admin2@berkeley.edu' });
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin1.id, semester.id, 'admin', admin1.id);
+        await insertMembership(db, admin2.id, semester.id, 'admin', admin1.id);
+
+        // Fire both demotes concurrently; Postgres row locks serialize them.
+        const results = await Promise.allSettled([
+          invitationsService.updateMemberRoleSafely(db, semester.id, admin1.id, 'grader'),
+          invitationsService.updateMemberRoleSafely(db, semester.id, admin2.id, 'grader'),
+        ]);
+
+        const fulfilled = results.filter((r) => r.status === 'fulfilled');
+        const rejected = results.filter((r) => r.status === 'rejected');
+
+        // Exactly one succeeds and one fails with LAST_ADMIN_REQUIRED.
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        const err = (rejected[0] as PromiseRejectedResult).reason as { code?: string };
+        expect(err.code).toBe('LAST_ADMIN_REQUIRED');
+
+        // At least one admin remains in the DB.
+        const adminCount = await invitationsService.countAdmins(db, semester.id);
+        expect(adminCount).toBeGreaterThanOrEqual(1);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('only one of two concurrent removals of different admins succeeds', async () => {
+    // Two admins concurrently removed by a superadmin. Same race as above
+    // but via removeMemberSafely.
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin1 = await insertUser(db, { email: 'admin1@berkeley.edu' });
+        const admin2 = await insertUser(db, { email: 'admin2@berkeley.edu' });
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin1.id, semester.id, 'admin', admin1.id);
+        await insertMembership(db, admin2.id, semester.id, 'admin', admin1.id);
+
+        const results = await Promise.allSettled([
+          invitationsService.removeMemberSafely(db, semester.id, admin1.id),
+          invitationsService.removeMemberSafely(db, semester.id, admin2.id),
+        ]);
+
+        const fulfilled = results.filter((r) => r.status === 'fulfilled');
+        const rejected = results.filter((r) => r.status === 'rejected');
+
+        // Exactly one removal succeeds; the other is blocked by last-admin guard.
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        const err = (rejected[0] as PromiseRejectedResult).reason as { code?: string };
+        expect(err.code).toBe('LAST_ADMIN_REQUIRED');
+
+        // At least one admin remains.
+        const adminCount = await invitationsService.countAdmins(db, semester.id);
+        expect(adminCount).toBeGreaterThanOrEqual(1);
       } finally {
         _testDb = null;
       }
