@@ -36,6 +36,13 @@
       "when": 1748400000000,
       "tag": "0005_roster_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1748500000000,
+      "tag": "0006_ingest_and_submissions",
+      "breakpoints": true
     }
   ]
 }

@@ -54,12 +54,22 @@ export async function withTestMinio(fn: (ctx: TestMinioContext) => Promise<void>
   });
 
   // Create the bucket via the S3 PUT-bucket API before running the test fn.
+  // Retry up to 10 times with 500ms backoff to handle "server not initialized yet" races.
   const bucketUrl = `${endpoint}/${BUCKET_NAME}`;
-  const res = await client.aws.fetch(bucketUrl, { method: 'PUT' });
-  if (!res.ok && res.status !== 409) {
-    const text = await res.text().catch(() => '');
+  let lastError = '';
+  let created = false;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
+    const res = await client.aws.fetch(bucketUrl, { method: 'PUT' });
+    if (res.ok || res.status === 409) {
+      created = true;
+      break;
+    }
+    lastError = await res.text().catch(() => `HTTP ${res.status}`);
+  }
+  if (!created) {
     await container.stop();
-    throw new Error(`Failed to create MinIO test bucket: HTTP ${res.status} — ${text}`);
+    throw new Error(`Failed to create MinIO test bucket after retries: ${lastError}`);
   }
 
   try {
