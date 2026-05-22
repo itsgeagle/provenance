@@ -16,16 +16,17 @@
  * ## PUT ?dryRun=false (or omitted)
  *
  * Returns 501 NOT_IMPLEMENTED — the commit path ships in Phase 13b.
+ * No audit action is emitted for the 501 stub (no operation occurred).
  *
  * ## Audit actions
  *
  *   heuristic_config.read     — GET active config
  *   heuristic_config.history  — GET history
  *   heuristic_config.dry_run  — PUT?dryRun=true
+ *   heuristic_config.commit   — PUT?dryRun=false (Phase 13b, not yet implemented)
  */
 
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { getDb } from '../../../db/client.js';
 import { requireAuth } from '../../middleware/authorize.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
@@ -38,12 +39,6 @@ import {
   DEFAULT_SERVER_CONFIG,
 } from '../../../services/heuristics/config.js';
 import { computeDryRunDiff } from '../../../services/scoring/dry-run.js';
-
-// ---------------------------------------------------------------------------
-// Request schema — PUT body
-// ---------------------------------------------------------------------------
-
-const putConfigBodySchema = z.object({}).passthrough(); // accept any object; validateConfig does the real validation
 
 // ---------------------------------------------------------------------------
 // Router factory
@@ -127,8 +122,14 @@ export function createHeuristicConfigRouter(): Hono {
   // -------------------------------------------------------------------------
   // PUT /semesters/:semesterId/heuristic-config — dry-run or commit
   //
-  // 13a: only ?dryRun=true is supported.
-  // 13b: commit path (dryRun=false) will be added.
+  // 13a: only ?dryRun=true is implemented.
+  // 13b: commit path (dryRun=false) replaces the 501 stub.
+  //
+  // Audit action: heuristic_config.dry_run, emitted only when dryRun=true
+  // succeeds (2xx). The audit middleware skips on non-2xx responses, so the
+  // 501 stub path (dryRun=false) produces no audit entry — correct because no
+  // operation occurred. Phase 13b's commit handler will wire its own
+  // audit('heuristic_config.commit', ...) in the same 3-line composition.
   // -------------------------------------------------------------------------
 
   router.put(
@@ -138,15 +139,19 @@ export function createHeuristicConfigRouter(): Hono {
       action: 'write',
       target: (c) => ({ semesterId: c.req.param('semesterId')! }),
     }),
-    // Audit is wired here; the handler sets c.var.auditDetail with candidateVersion.
+    // audit placed before the final handler (V19 3-line composition pattern).
+    // Only fires on 2xx; the 501 stub path returns 501, so no audit row is
+    // written for the commit-not-implemented case.
     audit('heuristic_config.dry_run', 'semester', (c) => c.req.param('semesterId')!),
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
-      const dryRunStr = c.req.query('dryRun');
-      const isDryRun = dryRunStr === 'true';
+      const isDryRun = c.req.query('dryRun') === 'true';
 
       // -----------------------------------------------------------------------
       // 501 stub: commit path not available in Phase 13a.
+      // Returns 501 (non-2xx) → audit middleware does NOT insert a row.
+      // Phase 13b replaces this entire block with a real commit handler wired
+      // with audit('heuristic_config.commit', ...).
       // -----------------------------------------------------------------------
       if (!isDryRun) {
         return c.json(
@@ -211,11 +216,6 @@ export function createHeuristicConfigRouter(): Hono {
         rawBody = await c.req.json();
       } catch {
         throw Errors.validation([{ message: 'Request body must be valid JSON' }]);
-      }
-
-      const parseResult = putConfigBodySchema.safeParse(rawBody);
-      if (!parseResult.success) {
-        throw Errors.validation(parseResult.error.issues);
       }
 
       const validationResult = validateConfig(rawBody);
