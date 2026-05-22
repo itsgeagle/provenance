@@ -165,13 +165,13 @@ describe('SubmissionShell — tab navigation', () => {
     );
   });
 
-  it('clicking Export tab shows export stub', () => {
+  it('clicking Export tab shows export panel', () => {
     setupMinimalHandlers();
     renderShell();
 
     fireEvent.click(screen.getByTestId('tab-export'));
 
-    expect(screen.getByTestId('export-stub')).toBeInTheDocument();
+    expect(screen.getByTestId('export-panel')).toBeInTheDocument();
   });
 
   it('?tab=timeline URL param activates timeline tab', async () => {

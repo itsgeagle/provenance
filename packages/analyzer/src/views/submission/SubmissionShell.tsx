@@ -23,7 +23,7 @@ import { Overview } from './Overview.js';
 import { Timeline } from './Timeline.js';
 import { Replay } from './Replay.js';
 import { Validation } from './Validation.js';
-import { ExportStub } from './ExportStub.js';
+import { ExportPanel } from './ExportPanel.js';
 
 // ---------------------------------------------------------------------------
 // Tab type
@@ -92,7 +92,7 @@ export function SubmissionShell() {
           {activeTab === 'timeline' && <Timeline />}
           {activeTab === 'replay' && <Replay />}
           {activeTab === 'validation' && <Validation />}
-          {activeTab === 'export' && <ExportStub />}
+          {activeTab === 'export' && <ExportPanel />}
         </div>
       </div>
     </ApiSubmissionDataProviderContext>

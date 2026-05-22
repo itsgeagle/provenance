@@ -42,6 +42,9 @@ import { MembersView } from './views/members/MembersView.js';
 import { AssignmentsView } from './views/assignments/AssignmentsView.js';
 import { SemesterSettingsView } from './views/settings/SemesterSettingsView.js';
 import { SubmissionShell } from './views/submission/SubmissionShell.js';
+import { TuningView } from './views/heuristics/TuningView.js';
+import { CrossFlagListView } from './views/cross-flags/CrossFlagListView.js';
+import { CrossFlagDetailView } from './views/cross-flags/CrossFlagDetailView.js';
 
 // ---------------------------------------------------------------------------
 // Legacy v2 route guards
@@ -198,6 +201,39 @@ export function App() {
           <RequireAuth>
             <AppShell>
               <SubmissionShell />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      {/* Phase 24: heuristic tuning */}
+      <Route
+        path="/s/:semesterSlug/tuning"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <TuningView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      {/* Phase 24: cross-flags list */}
+      <Route
+        path="/s/:semesterSlug/cross-flags"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <CrossFlagListView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      {/* Phase 24: cross-flag detail */}
+      <Route
+        path="/s/:semesterSlug/cross-flags/:crossFlagId"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <CrossFlagDetailView />
             </AppShell>
           </RequireAuth>
         }

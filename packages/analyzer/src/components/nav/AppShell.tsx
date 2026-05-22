@@ -44,6 +44,8 @@ function SemesterAdminNav() {
     { to: `${base}/roster`, label: 'Roster' },
     { to: `${base}/members`, label: 'Members' },
     { to: `${base}/assignments`, label: 'Assignments' },
+    { to: `${base}/cross-flags`, label: 'Cross-Flags' },
+    { to: `${base}/tuning`, label: 'Tuning' },
     { to: `${base}/settings`, label: 'Settings' },
   ];
 
