@@ -7,6 +7,7 @@
  */
 
 import { http, HttpResponse } from 'msw';
+import type { Membership } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
 // Default response fixtures
@@ -81,7 +82,7 @@ export function meNoSemestersHandler() {
 }
 
 /** Returns a /me handler that responds with the given memberships. */
-export function meWithMembershipsHandler(memberships: typeof defaultMeResponse.memberships) {
+export function meWithMembershipsHandler(memberships: Membership[]) {
   return http.get('/api/v1/me', () => {
     return HttpResponse.json({
       ...defaultMeResponse,
