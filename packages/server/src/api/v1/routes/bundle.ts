@@ -99,8 +99,7 @@ export function createBundleRouter(): Hono {
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
 
     // Audit row: bundle.download (fire-and-forget per V19 pattern).
-    const actorUserId =
-      principal.principal_kind === 'session' ? principal.user.id : principal.user.id;
+    const actorUserId = principal.user.id;
     const actorTokenId = principal.principal_kind === 'token' ? principal.token.id : null;
 
     insertAuditRow({
