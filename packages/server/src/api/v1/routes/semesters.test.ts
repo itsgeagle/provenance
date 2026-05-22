@@ -116,7 +116,7 @@ describe('POST /api/v1/courses/:courseId/semesters', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/${course!.id}/semesters`, {
+          new Request(`http://localhost/courses/${course!.id}/semesters`, {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -153,7 +153,7 @@ describe('POST /api/v1/courses/:courseId/semesters', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/${course!.id}/semesters`, {
+          new Request(`http://localhost/courses/${course!.id}/semesters`, {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -187,7 +187,7 @@ describe('POST /api/v1/courses/:courseId/semesters', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/${course!.id}/semesters`, {
+          new Request(`http://localhost/courses/${course!.id}/semesters`, {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -236,7 +236,7 @@ describe('GET /api/v1/courses/:courseId/semesters', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/${course!.id}/semesters`, {
+          new Request(`http://localhost/courses/${course!.id}/semesters`, {
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),
         );
@@ -289,7 +289,7 @@ describe('GET /api/v1/semesters/:semesterId', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/semesters/${semester!.id}`, {
+          new Request(`http://localhost/semesters/${semester!.id}`, {
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),
         );
@@ -330,7 +330,7 @@ describe('GET /api/v1/semesters/:semesterId', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/semesters/${semester!.id}`, {
+          new Request(`http://localhost/semesters/${semester!.id}`, {
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),
         );
@@ -379,7 +379,7 @@ describe('PATCH /api/v1/semesters/:semesterId', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/semesters/${semester!.id}`, {
+          new Request(`http://localhost/semesters/${semester!.id}`, {
             method: 'PATCH',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({ display_name: 'Fall 2024 (Updated)' }),
@@ -423,7 +423,7 @@ describe('POST /api/v1/semesters/:semesterId/archive', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/semesters/${semester!.id}/archive`, {
+          new Request(`http://localhost/semesters/${semester!.id}/archive`, {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),

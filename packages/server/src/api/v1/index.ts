@@ -50,8 +50,11 @@ export function createV1App(): Hono {
   // Mount /me/tokens before /me to prevent prefix shadowing.
   app.route('/me/tokens', createMeTokensRouter());
   app.route('/me', createMeRouter());
-  // Mount courses and semesters routes
-  app.route('/', createCoursesRouter());
+  // Mount courses and semesters routes.
+  // createCoursesRouter declares paths relative to /courses (e.g. '/', '/:courseId').
+  // createSemestersRouter declares full paths (e.g. '/courses/:courseId/semesters',
+  // '/semesters/:semesterId') so it mounts at root '/'.
+  app.route('/courses', createCoursesRouter());
   app.route('/', createSemestersRouter());
 
   // Global error handler

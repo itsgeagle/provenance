@@ -52,6 +52,28 @@ export interface SemesterDetail extends SemesterSummary {
   filename_convention: string;
   blob_retention_days: number;
   derived_retention_days: number;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Error detection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if `err` represents a Postgres unique constraint violation
+ * (error code 23505).
+ *
+ * Postgres.js wraps the underlying PostgresError in a query wrapper; we must
+ * check both the top-level error and its `.cause` to handle both cases.
+ */
+function isUniqueConstraintViolation(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  // Direct postgres error
+  if ((err as unknown as { code?: string }).code === '23505') return true;
+  // Wrapped by postgres.js query layer
+  const cause = (err as { cause?: unknown }).cause;
+  if (cause instanceof Error && (cause as unknown as { code?: string }).code === '23505') return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,12 +98,9 @@ export async function createCourse(
       .returning();
     return course!;
   } catch (err) {
-    // Check for unique constraint violation on slug
-    if (
-      err instanceof Error &&
-      err.message.includes('duplicate key') &&
-      err.message.includes('slug')
-    ) {
+    // Postgres.js wraps the DB error; check both the wrapper and the cause.
+    // Unique constraint violations have postgres error code '23505'.
+    if (isUniqueConstraintViolation(err)) {
       throw Errors.courseSlugTaken(input.slug);
     }
     throw err;
@@ -118,19 +137,28 @@ export async function listCoursesForPrincipal(db: DrizzleDb, principal: Principa
     }));
   }
 
-  // Non-superadmin: courses with at least one semester they're a member of
+  // Non-superadmin: courses with at least one semester they're a member of.
+  // created_at is included in the select so it can appear in the ORDER BY
+  // clause (SELECT DISTINCT requires this in Postgres).
   const rows = await db
     .selectDistinct({
       id: courses.id,
       name: courses.name,
       slug: courses.slug,
       archived: isNull(courses.archived_at).as('not_archived'),
+      created_at: courses.created_at,
     })
     .from(courses)
     .innerJoin(semesters, eq(semesters.course_id, courses.id))
     .innerJoin(memberships, eq(memberships.semester_id, semesters.id))
     .where(eq(memberships.user_id, principal.user.id))
     .orderBy(desc(courses.created_at));
+
+  // Short-circuit: user has no accessible courses.
+  // inArray with an empty list generates invalid SQL, so return early.
+  if (rows.length === 0) {
+    return [];
+  }
 
   // Count semesters per course
   const semesterCounts = await db
@@ -275,12 +303,9 @@ export async function createSemester(
       .returning();
     return semester!;
   } catch (err) {
-    // Check for unique constraint violation on (course_id, slug)
-    if (
-      err instanceof Error &&
-      err.message.includes('duplicate key') &&
-      err.message.includes('slug')
-    ) {
+    // Postgres.js wraps the DB error; check both the wrapper and the cause.
+    // Unique constraint violations have postgres error code '23505'.
+    if (isUniqueConstraintViolation(err)) {
       throw Errors.semesterSlugTaken(input.slug);
     }
     throw err;
@@ -355,6 +380,7 @@ export async function getSemester(
       blob_retention_days: semesters.blob_retention_days,
       derived_retention_days: semesters.derived_retention_days,
       archived_at: semesters.archived_at,
+      created_at: semesters.created_at,
       role: memberships.role,
     })
     .from(semesters)
@@ -385,6 +411,7 @@ export async function getSemester(
     blob_retention_days: r.blob_retention_days,
     derived_retention_days: r.derived_retention_days,
     archived: r.archived_at !== null,
+    created_at: r.created_at.toISOString(),
     submission_count: 0,
     student_count: 0,
     assignment_count: 0,

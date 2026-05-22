@@ -52,15 +52,23 @@ export function createCoursesRouter(): Hono {
   const router = new Hono();
 
   // -------------------------------------------------------------------------
-  // GET /courses — list courses (authenticated, rate-limited)
+  // GET /courses — list courses (any authenticated user, rate-limited)
+  //
+  // Uses a manual auth check rather than requireAuth('global') because
+  // 'global' implies superadmin-only. Any authenticated user may list the
+  // courses they have access to; the service layer filters results by
+  // membership for non-superadmins.
   // -------------------------------------------------------------------------
 
   router.get(
     '/',
     rateLimit('read.cohort'),
-    requireAuth({ action: 'read', target: 'global' }),
     async (c) => {
-      const principal = c.var.principal!;
+      const principal = c.var.principal ?? null;
+      if (principal === null) {
+        const returnTo = encodeURIComponent(c.req.path);
+        return c.json(Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(), 401);
+      }
       const db = getDb();
 
       try {

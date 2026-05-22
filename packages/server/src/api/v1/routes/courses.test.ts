@@ -111,7 +111,7 @@ describe('POST /api/v1/courses', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request('http://localhost/api/v1/courses', {
+          new Request('http://localhost/courses', {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({ name: 'CS 61A', slug: 'cs61a' }),
@@ -138,7 +138,7 @@ describe('POST /api/v1/courses', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request('http://localhost/api/v1/courses', {
+          new Request('http://localhost/courses', {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({ name: 'CS 61A', slug: 'cs61a' }),
@@ -160,7 +160,7 @@ describe('POST /api/v1/courses', () => {
       try {
         const app = createV1App();
         const res = await app.fetch(
-          new Request('http://localhost/api/v1/courses', {
+          new Request('http://localhost/courses', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ name: 'CS 61A', slug: 'cs61a' }),
@@ -189,7 +189,7 @@ describe('POST /api/v1/courses', () => {
         // Try to create duplicate
         const app = createV1App();
         const res = await app.fetch(
-          new Request('http://localhost/api/v1/courses', {
+          new Request('http://localhost/courses', {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({ name: 'Another', slug: 'cs61a' }),
@@ -221,7 +221,7 @@ describe('GET /api/v1/courses', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request('http://localhost/api/v1/courses', {
+          new Request('http://localhost/courses', {
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),
         );
@@ -241,7 +241,7 @@ describe('GET /api/v1/courses', () => {
       try {
         const app = createV1App();
         const res = await app.fetch(
-          new Request('http://localhost/api/v1/courses'),
+          new Request('http://localhost/courses'),
         );
 
         expect(res.status).toBe(401);
@@ -267,7 +267,7 @@ describe('GET /api/v1/courses/:id', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/${course!.id}`, {
+          new Request(`http://localhost/courses/${course!.id}`, {
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),
         );
@@ -291,7 +291,7 @@ describe('GET /api/v1/courses/:id', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/00000000-0000-0000-0000-000000000000`, {
+          new Request(`http://localhost/courses/00000000-0000-0000-0000-000000000000`, {
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),
         );
@@ -319,7 +319,7 @@ describe('PATCH /api/v1/courses/:id', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/${course!.id}`, {
+          new Request(`http://localhost/courses/${course!.id}`, {
             method: 'PATCH',
             headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
             body: JSON.stringify({ name: 'Computer Science 61A' }),
@@ -351,7 +351,7 @@ describe('POST /api/v1/courses/:id/archive', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/api/v1/courses/${course!.id}/archive`, {
+          new Request(`http://localhost/courses/${course!.id}/archive`, {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),

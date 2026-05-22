@@ -20,7 +20,7 @@ import type { Principal } from '../api/middleware/auth-session.js';
 const superAdminPrincipal: Principal = {
   principal_kind: 'session',
   user: {
-    id: 'admin-user-id',
+    id: '00000000-0000-0000-0000-000000000001',
     google_subject: 'admin@example.com',
     email: 'admin@example.com',
     display_name: 'Admin User',
@@ -29,8 +29,8 @@ const superAdminPrincipal: Principal = {
     last_login_at: new Date(),
   },
   session: {
-    id: 'session-id',
-    user_id: 'admin-user-id',
+    id: 'a'.repeat(43),
+    user_id: '00000000-0000-0000-0000-000000000001',
     created_at: new Date(),
     last_seen_at: new Date(),
     expires_at: new Date(Date.now() + 1000000),
@@ -95,7 +95,8 @@ describe('structureService.courses', () => {
         });
         expect.fail('Should have thrown COURSE_SLUG_TAKEN');
       } catch (err) {
-        if (err instanceof Error && err.message.includes('COURSE_SLUG_TAKEN')) {
+        // ApiError carries the code in `err.code`, not in `err.message`.
+        if (err instanceof Error && (err as { code?: string }).code === 'COURSE_SLUG_TAKEN') {
           expect(true).toBe(true);
         } else {
           throw err;
@@ -246,7 +247,8 @@ describe('structureService.semesters', () => {
         });
         expect.fail('Should have thrown SEMESTER_SLUG_TAKEN');
       } catch (err) {
-        if (err instanceof Error && err.message.includes('SEMESTER_SLUG_TAKEN')) {
+        // ApiError carries the code in `err.code`, not in `err.message`.
+        if (err instanceof Error && (err as { code?: string }).code === 'SEMESTER_SLUG_TAKEN') {
           expect(true).toBe(true);
         } else {
           throw err;
@@ -375,8 +377,8 @@ describe('structureService.memberships', () => {
     await withTestDb(async (db) => {
       // This test would require inserting users and memberships,
       // which is more complex. For now, just verify the function exists
-      // and returns an array.
-      const memberships = await structureService.getUserMemberships(db, 'nonexistent-user-id');
+      // and returns an array for a user with no memberships.
+      const memberships = await structureService.getUserMemberships(db, '00000000-0000-0000-0000-000000000099');
       expect(Array.isArray(memberships)).toBe(true);
     });
   });
