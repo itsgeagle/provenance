@@ -197,6 +197,35 @@ describe('structureService.semesters', () => {
     }).toThrow();
   });
 
+  it('throws VALIDATION_REGEX (not a raw SyntaxError) for invalid regex syntax', () => {
+    // Regression for Critical 2: the catch block used `err instanceof Errors.constructor`
+    // which evaluates to `err instanceof Object` — always true — so the re-throw branch
+    // for our own ApiError ran for ALL errors, meaning the SyntaxError from `new RegExp`
+    // was never rewrapped as VALIDATION_REGEX. This test ensures the rewrap happens.
+
+    const patterns = [
+      '(?<sid>[bad-regex-with-unclosed-bracket', // unclosed character class
+      '(?<sid>(?P<bad>nested))', // invalid named group syntax in JS
+      '(?<sid>\\p{NotACategory})', // invalid unicode property
+    ];
+
+    for (const pattern of patterns) {
+      try {
+        structureService.validateFilenameConvention(pattern);
+        // If it didn't throw, the regex might have been accepted — that's fine for the second pattern
+        // on some engines, but for the first one it must throw.
+        if (pattern === '(?<sid>[bad-regex-with-unclosed-bracket') {
+          expect.fail(`Expected VALIDATION_REGEX for pattern: ${pattern}`);
+        }
+      } catch (err) {
+        // Must be an ApiError with code VALIDATION_REGEX, NOT a raw SyntaxError
+        expect(err).toBeInstanceOf(Error);
+        expect((err as { code?: string }).code).toBe('VALIDATION_REGEX');
+        expect(err).not.toBeInstanceOf(SyntaxError);
+      }
+    }
+  });
+
   it('creates a semester', async () => {
     await withTestDb(async (db) => {
       const course = await structureService.createCourse(db, {

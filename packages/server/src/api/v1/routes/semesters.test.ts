@@ -5,12 +5,13 @@
  */
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { eq, and } from 'drizzle-orm';
 import { withTestDb } from '../../../../test/helpers/db.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
 import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
 import { createV1App } from '../index.js';
-import { users, sessions, courses, semesters, memberships } from '../../../db/schema.js';
+import { users, sessions, courses, semesters, memberships, audit_log } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -92,6 +93,28 @@ async function insertSession(
     expires_at: expiresAt,
   });
   return uniqueId;
+}
+
+/**
+ * Polls audit_log until a matching row appears (up to ~150ms with 3 retries).
+ * The audit middleware is fire-and-forget: the insert promise is detached from
+ * the response, so we must wait for it to settle before asserting DB state.
+ */
+async function waitForAuditRow(
+  db: DrizzleDb,
+  action: string,
+  targetId: string,
+  retries = 3,
+): Promise<typeof audit_log.$inferSelect | undefined> {
+  for (let i = 0; i <= retries; i++) {
+    const rows = await db
+      .select()
+      .from(audit_log)
+      .where(and(eq(audit_log.action, action), eq(audit_log.target_id, targetId)));
+    if (rows.length > 0) return rows[0];
+    if (i < retries) await new Promise((r) => setTimeout(r, 50));
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -437,6 +460,239 @@ describe('POST /api/v1/semesters/:semesterId/archive', () => {
         );
 
         expect(res.status).toBe(204);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Important 4: non-superadmin GET /courses/:courseId/semesters
+// ---------------------------------------------------------------------------
+
+describe('GET /api/v1/courses/:courseId/semesters (non-superadmin access)', () => {
+  it('allows a grader member to list semesters for a course they belong to', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const granter = await insertUser(db, { is_superadmin: true });
+        const grader = await insertUser(db, { is_superadmin: false });
+        const sessionId = await insertSession(db, grader.id);
+
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+
+        const [semester] = await db
+          .insert(semesters)
+          .values({
+            course_id: course!.id,
+            term: 'fa',
+            year: 2024,
+            slug: 'fa2024',
+            display_name: 'Fall 2024',
+            filename_convention: '(?<sid>[a-z0-9]+)_hw',
+          })
+          .returning();
+
+        await db.insert(memberships).values({
+          user_id: grader.id,
+          semester_id: semester!.id,
+          role: 'grader',
+          granted_by: granter.id,
+        });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/courses/${course!.id}/semesters`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(Array.isArray(body.semesters)).toBe(true);
+        expect(body.semesters.length).toBe(1);
+        expect(body.semesters[0].id).toBe(semester!.id);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 401 for unauthenticated request to GET /courses/:courseId/semesters', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/courses/${course!.id}/semesters`),
+        );
+
+        expect(res.status).toBe(401);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Important 7: audit log rows for semester write endpoints
+// ---------------------------------------------------------------------------
+
+describe('audit log — semester write endpoints', () => {
+  it('semester.create: audit row has target_id = created semester UUID', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { is_superadmin: true });
+        const sessionId = await insertSession(db, admin.id);
+
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/courses/${course!.id}/semesters`, {
+            method: 'POST',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              term: 'fa',
+              year: 2024,
+              slug: 'fa2024-audit',
+              display_name: 'Fall 2024',
+              filename_convention: '(?<sid>[a-z0-9]+)_hw',
+            }),
+          }),
+        );
+
+        expect(res.status).toBe(201);
+        const body = await res.json();
+        const semesterId: string = body.semester.id;
+
+        const row = await waitForAuditRow(db, 'semester.create', semesterId);
+        expect(row).toBeDefined();
+        expect(row?.action).toBe('semester.create');
+        expect(row?.target_type).toBe('semester');
+        expect(row?.target_id).toBe(semesterId);
+        expect(row?.actor_user_id).toBe(admin.id);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('semester.update: audit row has correct action and target_id', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const granter = await insertUser(db, { is_superadmin: true });
+        const semAdmin = await insertUser(db, { is_superadmin: false });
+        const sessionId = await insertSession(db, semAdmin.id);
+
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+
+        const [semester] = await db
+          .insert(semesters)
+          .values({
+            course_id: course!.id,
+            term: 'fa',
+            year: 2024,
+            slug: 'fa2024',
+            display_name: 'Fall 2024',
+            filename_convention: '(?<sid>[a-z0-9]+)_hw',
+          })
+          .returning();
+
+        await db.insert(memberships).values({
+          user_id: semAdmin.id,
+          semester_id: semester!.id,
+          role: 'admin',
+          granted_by: granter.id,
+        });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester!.id}`, {
+            method: 'PATCH',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ display_name: 'Fall 2024 Updated' }),
+          }),
+        );
+
+        expect(res.status).toBe(200);
+
+        const row = await waitForAuditRow(db, 'semester.update', semester!.id);
+        expect(row).toBeDefined();
+        expect(row?.action).toBe('semester.update');
+        expect(row?.target_type).toBe('semester');
+        expect(row?.target_id).toBe(semester!.id);
+        expect(row?.actor_user_id).toBe(semAdmin.id);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('semester.archive: audit row has correct action and target_id', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { is_superadmin: true });
+        const sessionId = await insertSession(db, admin.id);
+
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+
+        const [semester] = await db
+          .insert(semesters)
+          .values({
+            course_id: course!.id,
+            term: 'fa',
+            year: 2024,
+            slug: 'fa2024',
+            display_name: 'Fall 2024',
+            filename_convention: '(?<sid>[a-z0-9]+)_hw',
+          })
+          .returning();
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester!.id}/archive`, {
+            method: 'POST',
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(204);
+
+        const row = await waitForAuditRow(db, 'semester.archive', semester!.id);
+        expect(row).toBeDefined();
+        expect(row?.action).toBe('semester.archive');
+        expect(row?.target_type).toBe('semester');
+        expect(row?.target_id).toBe(semester!.id);
+        expect(row?.actor_user_id).toBe(admin.id);
       } finally {
         _testDb = null;
       }
