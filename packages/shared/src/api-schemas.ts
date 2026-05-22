@@ -186,11 +186,17 @@ export type StudentListResponse = z.infer<typeof StudentListResponseSchema>;
 
 export const AssignmentSummarySchema = z.object({
   id: z.string().uuid(),
+  semester_id: z.string().uuid(),
   assignment_id_str: z.string(),
   label: z.string(),
+  sort_order: z.number().int(),
   submission_count: z.number().int(),
-  mean_score: z.number().nullable(),
+  distinct_students: z.number().int(),
+  mean_score: z.number(),
+  median_score: z.number(),
+  p95_score: z.number(),
   fail_count: z.number().int(),
+  warn_count: z.number().int(),
 });
 export type AssignmentSummary = z.infer<typeof AssignmentSummarySchema>;
 

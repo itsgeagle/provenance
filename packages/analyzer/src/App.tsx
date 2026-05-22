@@ -33,6 +33,7 @@ import { LoginView } from './views/login/LoginView.js';
 import { HomeView } from './views/home/HomeView.js';
 import { AppShell } from './components/nav/AppShell.js';
 import { RequireAuth } from './auth/RequireAuth.js';
+import { CohortView } from './views/cohort/CohortView.js';
 
 // ---------------------------------------------------------------------------
 // Legacy v2 route guards
@@ -100,15 +101,13 @@ export function App() {
         }
       />
 
-      {/* /s/:semesterSlug/* — placeholder until Phase 21 wires the cohort view */}
+      {/* /s/:semesterSlug — cohort view (Phase 21) */}
       <Route
         path="/s/:semesterSlug/*"
         element={
           <RequireAuth>
             <AppShell>
-              <div className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400">
-                Cohort view coming in Phase 21.
-              </div>
+              <CohortView />
             </AppShell>
           </RequireAuth>
         }

@@ -1,0 +1,332 @@
+/**
+ * CohortView — top-level cohort page at /s/:semesterSlug.
+ *
+ * Layout:
+ * - Filter rail (left, ~280px)
+ * - Main area:
+ *   - Top bar: semester name, total count, tab toggle, export button, saved views
+ *   - Table: CohortTable (by submission) or StudentRollupTable (by student)
+ *
+ * URL state:
+ * - Filters via useCohortFilters (see use-cohort-filters.ts)
+ * - tab via ?tab=submissions|students (default: submissions)
+ * - Cursor pagination: load-more button appends cursor to the current page's
+ *   accumulated rows; clear filters resets to page 1.
+ *
+ * Data flow:
+ * - useCohortSubmissions / useCohortStudents via React Query
+ * - Cursor from server response stored in component state (not URL)
+ * - Filters + sort from URL
+ *
+ * Route: /s/:semesterSlug (and /s/:semesterSlug/*)
+ */
+
+import { useState, useCallback } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { useCohortFilters } from './use-cohort-filters.js';
+import {
+  useCohortSubmissions,
+  useCohortStudents,
+  useAssignments,
+} from '../../api/queries.js';
+import { CohortTable } from './CohortTable.js';
+import { StudentRollupTable } from './StudentRollupTable.js';
+import { FilterRail } from './FilterRail.js';
+import { SavedViews } from './SavedViews.js';
+import { ExportCurrentView } from './ExportCurrentView.js';
+import { useSemesters } from '../../api/queries.js';
+import type { SubmissionRow, StudentRollupRow } from '@provenance/shared/api-schemas';
+import type { CohortSort, StudentSort } from '../../api/queries.js';
+import type { SavedView } from './SavedViews.js';
+
+// ---------------------------------------------------------------------------
+// Tab type
+// ---------------------------------------------------------------------------
+
+type Tab = 'submissions' | 'students';
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function CohortView() {
+  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Determine semesterId from memberships (via useSemesters)
+  const { data: semesters } = useSemesters();
+  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
+  const semesterId = membership?.semester_id ?? '';
+
+  // Tab
+  const tabParam = searchParams.get('tab');
+  const activeTab: Tab = tabParam === 'students' ? 'students' : 'submissions';
+
+  function setTab(tab: Tab) {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'submissions') {
+      next.delete('tab');
+    } else {
+      next.set('tab', tab);
+    }
+    setSearchParams(next, { replace: true });
+  }
+
+  // Filters + sort (URL state)
+  const { filters, sort, setFilters, clearFilters } = useCohortFilters();
+
+  // Student sort state (not in URL — simpler)
+  const [studentSort, setStudentSort] = useState<StudentSort>('score_sum_desc');
+
+  // Submission cursor-based load-more: accumulated rows + cursors
+  const [submissionRows, setSubmissionRows] = useState<SubmissionRow[]>([]);
+  const [submissionCursor, setSubmissionCursor] = useState<string | null>(null);
+  const [loadingMoreSubmissions, setLoadingMoreSubmissions] = useState(false);
+
+  // Student cursor-based load-more
+  const [studentRows, setStudentRows] = useState<StudentRollupRow[]>([]);
+  const [studentCursor, setStudentCursor] = useState<string | null>(null);
+  const [loadingMoreStudents, setLoadingMoreStudents] = useState(false);
+
+  // Primary queries (first page, re-runs when filters/sort change)
+  const submissionsQuery = useCohortSubmissions(semesterId, filters, sort, null, 50);
+  const studentsQuery = useCohortStudents(semesterId, filters, studentSort, null, 50);
+  const assignmentsQuery = useAssignments(semesterId);
+
+  // Sync accumulated rows with fresh query results (filter/sort change resets)
+  const freshSubmissions = submissionsQuery.data?.items ?? [];
+  const freshStudents = studentsQuery.data?.items ?? [];
+
+  // Use accumulated rows only if we've started load-more; otherwise use fresh
+  const displaySubmissions = submissionRows.length > 0 ? submissionRows : freshSubmissions;
+  const displayStudents = studentRows.length > 0 ? studentRows : freshStudents;
+
+  // When fresh query completes (filter changed), reset accumulated
+  const handleFiltersApply = useCallback(
+    (nextFilters: Parameters<typeof setFilters>[0], nextSort?: CohortSort) => {
+      setSubmissionRows([]);
+      setSubmissionCursor(null);
+      setStudentRows([]);
+      setStudentCursor(null);
+      setFilters(nextFilters, nextSort);
+    },
+    [setFilters],
+  );
+
+  const handleClearFilters = useCallback(() => {
+    setSubmissionRows([]);
+    setSubmissionCursor(null);
+    setStudentRows([]);
+    setStudentCursor(null);
+    clearFilters();
+  }, [clearFilters]);
+
+  // Load more: fetch next page of submissions, append to accumulated list
+  async function handleLoadMoreSubmissions() {
+    const cursor = submissionsQuery.data?.next_cursor ?? null;
+    if (!cursor || loadingMoreSubmissions || !semesterId) return;
+    setLoadingMoreSubmissions(true);
+    try {
+      // Use apiFetch directly for the next page
+      const { apiFetch } = await import('../../api/client.js');
+      const { CohortListResponseSchema } = await import('@provenance/shared/api-schemas');
+      const { buildQueryString } = await import('../../api/queries.js');
+      const params: Record<string, string | string[] | undefined> = {
+        cursor,
+        limit: '50',
+        sort,
+      };
+      if (filters.assignmentId) params['assignment_id'] = filters.assignmentId;
+      const qs = buildQueryString(params);
+      const result = await apiFetch(
+        `/semesters/${semesterId}/submissions?${qs}`,
+        undefined,
+        CohortListResponseSchema,
+      );
+      const base = submissionRows.length > 0 ? submissionRows : freshSubmissions;
+      setSubmissionRows([...base, ...result.items]);
+      setSubmissionCursor(result.next_cursor);
+    } finally {
+      setLoadingMoreSubmissions(false);
+    }
+  }
+
+  async function handleLoadMoreStudents() {
+    const cursor = studentsQuery.data?.next_cursor ?? null;
+    if (!cursor || loadingMoreStudents || !semesterId) return;
+    setLoadingMoreStudents(true);
+    try {
+      const { apiFetch } = await import('../../api/client.js');
+      const { StudentListResponseSchema } = await import('@provenance/shared/api-schemas');
+      const { buildQueryString } = await import('../../api/queries.js');
+      const params: Record<string, string | string[] | undefined> = {
+        cursor,
+        limit: '50',
+        sort: studentSort,
+      };
+      const qs = buildQueryString(params);
+      const result = await apiFetch(
+        `/semesters/${semesterId}/students?${qs}`,
+        undefined,
+        StudentListResponseSchema,
+      );
+      const base = studentRows.length > 0 ? studentRows : freshStudents;
+      setStudentRows([...base, ...result.items]);
+      setStudentCursor(result.next_cursor);
+    } finally {
+      setLoadingMoreStudents(false);
+    }
+  }
+
+  function handleSortChange(newSort: CohortSort) {
+    setSubmissionRows([]);
+    setSubmissionCursor(null);
+    setFilters(filters, newSort);
+  }
+
+  function handleStudentSortChange(newSort: StudentSort) {
+    setStudentRows([]);
+    setStudentCursor(null);
+    setStudentSort(newSort);
+  }
+
+  // Saved views
+  function handleLoadSavedView(view: SavedView) {
+    setSubmissionRows([]);
+    setSubmissionCursor(null);
+    setStudentRows([]);
+    setStudentCursor(null);
+    setFilters(view.filters, view.sort);
+  }
+
+  // Derived state
+  const totalCount = submissionsQuery.data?.total_count ?? 0;
+  const assignments = assignmentsQuery.data?.items ?? [];
+  const nextSubmissionCursor =
+    submissionRows.length > 0
+      ? (submissionCursor ?? null)
+      : (submissionsQuery.data?.next_cursor ?? null);
+  const nextStudentCursor =
+    studentRows.length > 0
+      ? (studentCursor ?? null)
+      : (studentsQuery.data?.next_cursor ?? null);
+
+  // Loading / error states
+  const isLoading = submissionsQuery.isLoading || studentsQuery.isLoading;
+  const error = submissionsQuery.error ?? studentsQuery.error;
+
+  if (!semesterId) {
+    return (
+      <div
+        className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400"
+        data-testid="cohort-no-semester"
+      >
+        Loading semester…
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-1 overflow-hidden" data-testid="cohort-view">
+      {/* Filter rail */}
+      <FilterRail
+        filters={filters}
+        assignments={assignments}
+        onApply={handleFiltersApply}
+        onClear={handleClearFilters}
+      />
+
+      {/* Main content */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Top bar */}
+        <div className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3">
+          {/* Semester label */}
+          <h1 className="text-sm font-semibold text-gray-900" data-testid="cohort-heading">
+            {semesterSlug}
+          </h1>
+
+          {/* Total count */}
+          <span className="text-xs text-gray-500" data-testid="cohort-total-count">
+            {totalCount} submissions
+          </span>
+
+          <div className="flex-1" />
+
+          {/* Tab toggle */}
+          <div className="flex rounded-md border border-gray-300 text-xs overflow-hidden">
+            <button
+              className={`px-3 py-1.5 ${activeTab === 'submissions' ? 'bg-gray-100 font-medium text-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => setTab('submissions')}
+              data-testid="tab-submissions"
+            >
+              By submission
+            </button>
+            <button
+              className={`border-l border-gray-300 px-3 py-1.5 ${activeTab === 'students' ? 'bg-gray-100 font-medium text-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => setTab('students')}
+              data-testid="tab-students"
+            >
+              By student
+            </button>
+          </div>
+
+          {/* Export */}
+          <ExportCurrentView
+            rows={activeTab === 'submissions' ? displaySubmissions : []}
+            semesterSlug={semesterSlug}
+          />
+
+          {/* Saved views */}
+          {semesterId && (
+            <SavedViews
+              semesterId={semesterId}
+              currentFilters={filters}
+              currentSort={sort}
+              onLoadView={handleLoadSavedView}
+            />
+          )}
+        </div>
+
+        {/* Table area */}
+        <div className="flex-1 overflow-auto p-4">
+          {isLoading && (
+            <div
+              className="flex items-center justify-center py-16 text-sm text-gray-400"
+              data-testid="cohort-loading"
+            >
+              Loading…
+            </div>
+          )}
+          {error !== null && !isLoading && (
+            <div
+              className="flex items-center justify-center py-16 text-sm text-red-500"
+              data-testid="cohort-error"
+            >
+              Failed to load data. Please try again.
+            </div>
+          )}
+          {!isLoading && !error && activeTab === 'submissions' && (
+            <CohortTable
+              rows={displaySubmissions}
+              sort={sort}
+              onSortChange={handleSortChange}
+              nextCursor={nextSubmissionCursor}
+              onLoadMore={() => void handleLoadMoreSubmissions()}
+              isLoadingMore={loadingMoreSubmissions}
+            />
+          )}
+          {!isLoading && !error && activeTab === 'students' && (
+            <StudentRollupTable
+              rows={displayStudents}
+              sort={studentSort}
+              onSortChange={handleStudentSortChange}
+              nextCursor={nextStudentCursor}
+              onLoadMore={() => void handleLoadMoreStudents()}
+              isLoadingMore={loadingMoreStudents}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
