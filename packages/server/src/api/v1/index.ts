@@ -33,6 +33,7 @@ import { createMeTokensRouter } from './routes/me-tokens.js';
 import { createCoursesRouter } from './routes/courses.js';
 import { createSemestersRouter } from './routes/semesters.js';
 import { createMembersRouter } from './routes/members.js';
+import { createRosterRouter } from './routes/roster.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -60,6 +61,10 @@ export function createV1App(): Hono {
   // Members + invitations routes.
   // Paths: /semesters/:semesterId/members and /semesters/:semesterId/invitations/:id
   app.route('/', createMembersRouter());
+
+  // Roster routes.
+  // Paths: /semesters/:semesterId/roster (GET, POST :upload, POST :commit, PATCH /:id)
+  app.route('/', createRosterRouter());
 
   // Global error handler
   app.onError(errorFormatter);
