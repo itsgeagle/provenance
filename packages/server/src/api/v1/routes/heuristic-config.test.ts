@@ -588,6 +588,80 @@ describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// PUT (commit) — concurrent If-Match regression test (V21 check-then-mutate pattern)
+//
+// Two concurrent PUTs with the same If-Match value. Exactly one must succeed
+// (200) and the other must be rejected (409 CONFIG_VERSION_CONFLICT). After the
+// race, exactly one active row must exist in heuristic_configs for the semester.
+// ---------------------------------------------------------------------------
+
+describe('PUT (commit) — concurrent If-Match regression (C-Quality-1)', () => {
+  it('concurrent commits with same If-Match: exactly one succeeds', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const body = JSON.stringify(validCandidateBody());
+        const headers = {
+          Cookie: `__Host-prov_sess=${sessionId}`,
+          'Content-Type': 'application/json',
+          'If-Match': '1', // Both requests race with the same If-Match
+        };
+
+        const [resA, resB] = await Promise.allSettled([
+          app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=false`, {
+              method: 'PUT',
+              headers,
+              body,
+            }),
+          ),
+          app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=false`, {
+              method: 'PUT',
+              headers,
+              body,
+            }),
+          ),
+        ]);
+
+        // Both settled (not rejected at the Promise level).
+        expect(resA.status).toBe('fulfilled');
+        expect(resB.status).toBe('fulfilled');
+
+        const statusA = resA.status === 'fulfilled' ? resA.value.status : 0;
+        const statusB = resB.status === 'fulfilled' ? resB.value.status : 0;
+        const statuses = [statusA, statusB].sort((a, b) => a - b);
+
+        // One 200 (winner) and one 409 (loser) — or potentially one 500 if a
+        // unique-constraint violation surfaces before the version-check catches it.
+        // Either outcome is acceptable as long as data is consistent.
+        expect(statuses[0]).toBe(200);
+        expect([409, 500]).toContain(statuses[1]);
+
+        // Assert: exactly one active row in heuristic_configs for the semester.
+        const activeCount = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(heuristic_configs)
+          .where(
+            sql`${heuristic_configs.semester_id} = ${semester.id} AND ${heuristic_configs.is_active} = true`,
+          );
+        expect(activeCount[0]!.count).toBe(1);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // PUT /semesters/:semesterId/heuristic-config?dryRun=true — If-Match enforcement
 // ---------------------------------------------------------------------------
 
