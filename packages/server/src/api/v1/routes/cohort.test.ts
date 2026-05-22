@@ -476,10 +476,9 @@ describe('GET /semesters/:semesterId/submissions', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(
-          `http://localhost/semesters/${semester.id}/submissions?severity_min=medium`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/semesters/${semester.id}/submissions?severity_min=medium`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
 
       expect(res.status).toBe(200);
@@ -506,16 +505,28 @@ describe('GET /semesters/:semesterId/submissions', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
 
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, scoreTotal: 5, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        scoreTotal: 5,
+        versionIndex: 1,
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s2.id,
-        ingestJobId: job.id, scoreTotal: 10, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        scoreTotal: 10,
+        versionIndex: 1,
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s3.id,
-        ingestJobId: job.id, scoreTotal: 20, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s3.id,
+        ingestJobId: job.id,
+        scoreTotal: 20,
+        versionIndex: 1,
       });
 
       const app = createV1App();
@@ -573,7 +584,10 @@ describe('GET /semesters/:semesterId/submissions', () => {
         }),
       );
       expect(res1.status).toBe(200);
-      const body1 = (await res1.json()) as { items: { superseded: boolean }[]; total_count: number };
+      const body1 = (await res1.json()) as {
+        items: { superseded: boolean }[];
+        total_count: number;
+      };
       expect(body1.items).toHaveLength(1);
       expect(body1.items[0]!.superseded).toBe(false);
       expect(body1.total_count).toBe(1);
@@ -608,12 +622,18 @@ describe('GET /semesters/:semesterId/submissions', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
 
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: alice.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: alice.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: bob.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: bob.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       const app = createV1App();
@@ -648,12 +668,18 @@ describe('GET /semesters/:semesterId/submissions', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
 
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s2.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       // Only sub1 has a large_paste flag
@@ -696,24 +722,35 @@ describe('GET /semesters/:semesterId/submissions', () => {
 
       // All 3 have score_total=5 → sort by id DESC
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, scoreTotal: 5, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        scoreTotal: 5,
+        versionIndex: 1,
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s2.id,
-        ingestJobId: job.id, scoreTotal: 5, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        scoreTotal: 5,
+        versionIndex: 1,
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s3.id,
-        ingestJobId: job.id, scoreTotal: 5, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s3.id,
+        ingestJobId: job.id,
+        scoreTotal: 5,
+        versionIndex: 1,
       });
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(
-          `http://localhost/semesters/${semester.id}/submissions?sort=score_desc`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/semesters/${semester.id}/submissions?sort=score_desc`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
 
       expect(res.status).toBe(200);
@@ -746,8 +783,12 @@ describe('GET /semesters/:semesterId/submissions', () => {
         const s = await seedStudent(db, semester.id, `stu00${i}`);
         studentIds.push(s.id);
         await seedSubmission(db, {
-          semesterId: semester.id, assignmentId: a.id, studentId: s.id,
-          ingestJobId: job.id, scoreTotal: (5 - i) * 10, versionIndex: 1,
+          semesterId: semester.id,
+          assignmentId: a.id,
+          studentId: s.id,
+          ingestJobId: job.id,
+          scoreTotal: (5 - i) * 10,
+          versionIndex: 1,
         });
       }
 
@@ -805,6 +846,99 @@ describe('GET /semesters/:semesterId/submissions', () => {
     });
   });
 
+  it('sort=ingested_desc cursor round-trip', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+
+      const user = await seedUser(db);
+      const sessionId = await seedSession(db, user.id);
+      const { semester } = await seedCourseAndSemester(db);
+      await seedMembership(db, user.id, semester.id, 'admin');
+
+      const a = await seedAssignment(db, semester.id);
+      const job = await seedIngestJob(db, semester.id, user.id);
+
+      // Seed 5 submissions with distinct ingested_at timestamps
+      const submissionIds: string[] = [];
+      const baseTime = new Date('2025-01-15T10:00:00Z').getTime();
+      for (let i = 0; i < 5; i++) {
+        const s = await seedStudent(db, semester.id, `stu00${i}`);
+        const id = crypto.randomUUID();
+        submissionIds.push(id);
+        // Insert directly with distinct ingested_at times (descending)
+        await db.insert(submissions).values({
+          id,
+          semester_id: semester.id,
+          assignment_id: a.id,
+          student_id: s.id,
+          blob_object_key: `semesters/${semester.id}/submissions/${id}/bundle.zip`,
+          blob_sha256: `sha256-${id}`,
+          source_filename: 'test.zip',
+          ingest_job_id: job.id,
+          version_index: 1,
+          ingested_at: new Date(baseTime + (4 - i) * 5000), // 20s, 15s, 10s, 5s, 0s
+          score_total: 0,
+          score_max_severity: 'info',
+          validation_status: 'pass',
+          recorder_version: '1.0.0',
+        });
+      }
+
+      const app = createV1App();
+      const base = `http://localhost/semesters/${semester.id}/submissions`;
+
+      // Page 1: limit=2, sort=ingested_desc
+      const res1 = await app.fetch(
+        new Request(`${base}?limit=2&sort=ingested_desc`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
+      );
+      expect(res1.status).toBe(200);
+      const body1 = (await res1.json()) as {
+        items: { id: string }[];
+        next_cursor: string | null;
+      };
+      expect(body1.items).toHaveLength(2);
+      expect(body1.next_cursor).not.toBeNull();
+
+      // Page 2: limit=2 with cursor
+      const res2 = await app.fetch(
+        new Request(`${base}?limit=2&sort=ingested_desc&cursor=${body1.next_cursor!}`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
+      );
+      expect(res2.status).toBe(200);
+      const body2 = (await res2.json()) as {
+        items: { id: string }[];
+        next_cursor: string | null;
+      };
+      expect(body2.items).toHaveLength(2);
+
+      // Page 3: remaining
+      const res3 = await app.fetch(
+        new Request(`${base}?limit=2&sort=ingested_desc&cursor=${body2.next_cursor!}`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
+      );
+      expect(res3.status).toBe(200);
+      const body3 = (await res3.json()) as {
+        items: { id: string }[];
+        next_cursor: string | null;
+      };
+      expect(body3.items).toHaveLength(1);
+      expect(body3.next_cursor).toBeNull();
+
+      // All 5 unique IDs with no duplicates
+      const allIds = [
+        ...body1.items.map((i) => i.id),
+        ...body2.items.map((i) => i.id),
+        ...body3.items.map((i) => i.id),
+      ];
+      expect(new Set(allIds).size).toBe(5);
+    });
+  });
+
   it('facets respect filter-minus-dimension semantics', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
@@ -822,12 +956,22 @@ describe('GET /semesters/:semesterId/submissions', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
 
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a1.id, studentId: s1.id,
-        ingestJobId: job.id, scoreSeverity: 'high', validationStatus: 'fail', versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a1.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        scoreSeverity: 'high',
+        validationStatus: 'fail',
+        versionIndex: 1,
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a2.id, studentId: s2.id,
-        ingestJobId: job.id, scoreSeverity: 'low', validationStatus: 'pass', versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a2.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        scoreSeverity: 'low',
+        validationStatus: 'pass',
+        versionIndex: 1,
       });
 
       const app = createV1App();
@@ -897,8 +1041,12 @@ describe('GET /semesters/:semesterId/students', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
 
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, scoreTotal: 15, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        scoreTotal: 15,
+        versionIndex: 1,
       });
 
       const app = createV1App();
@@ -948,8 +1096,12 @@ describe('GET /semesters/:semesterId/students', () => {
       for (let i = 0; i < 4; i++) {
         const s = await seedStudent(db, semester.id, `stu00${i}`, `Student ${i}`);
         await seedSubmission(db, {
-          semesterId: semester.id, assignmentId: a.id, studentId: s.id,
-          ingestJobId: job.id, scoreTotal: (4 - i) * 10, versionIndex: 1,
+          semesterId: semester.id,
+          assignmentId: a.id,
+          studentId: s.id,
+          ingestJobId: job.id,
+          scoreTotal: (4 - i) * 10,
+          versionIndex: 1,
         });
       }
 
@@ -1014,12 +1166,22 @@ describe('GET /semesters/:semesterId/assignments', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
 
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a1.id, studentId: s1.id,
-        ingestJobId: job.id, scoreTotal: 10, versionIndex: 1, validationStatus: 'pass',
+        semesterId: semester.id,
+        assignmentId: a1.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        scoreTotal: 10,
+        versionIndex: 1,
+        validationStatus: 'pass',
       });
       await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a1.id, studentId: s2.id,
-        ingestJobId: job.id, scoreTotal: 20, versionIndex: 1, validationStatus: 'fail',
+        semesterId: semester.id,
+        assignmentId: a1.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        scoreTotal: 20,
+        versionIndex: 1,
+        validationStatus: 'fail',
       });
 
       const app = createV1App();
@@ -1097,12 +1259,18 @@ describe('GET /semesters/:semesterId/cross-flags', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, user.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
       const sub2 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s2.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       // Insert cross_flag + participants
@@ -1175,8 +1343,11 @@ describe('GET /semesters/:semesterId/cross-flags', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, user.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       // Two cross-flags with different heuristic_ids
@@ -1235,8 +1406,11 @@ describe('GET /semesters/:semesterId/cross-flags', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, user.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       const [cfLow] = await db
@@ -1267,10 +1441,9 @@ describe('GET /semesters/:semesterId/cross-flags', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(
-          `http://localhost/semesters/${semester.id}/cross-flags?severity_min=medium`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/semesters/${semester.id}/cross-flags?severity_min=medium`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
 
       expect(res.status).toBe(200);
@@ -1295,12 +1468,18 @@ describe('GET /semesters/:semesterId/cross-flags', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, user.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
       const sub2 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s2.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       const [cf1] = await db
@@ -1361,8 +1540,11 @@ describe('GET /semesters/:semesterId/cross-flags', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, user.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       // Seed 3 cross_flags
@@ -1377,9 +1559,9 @@ describe('GET /semesters/:semesterId/cross-flags', () => {
             heuristic_config_version: 1,
           })
           .returning();
-        await db.insert(cross_flag_participants).values([
-          { cross_flag_id: cf!.id, submission_id: sub1.id },
-        ]);
+        await db
+          .insert(cross_flag_participants)
+          .values([{ cross_flag_id: cf!.id, submission_id: sub1.id }]);
       }
 
       const app = createV1App();
@@ -1437,12 +1619,18 @@ describe('GET /cross-flags/:crossFlagId', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, user.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
       const sub2 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s2.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       const [cf] = await db
@@ -1525,8 +1713,11 @@ describe('GET /cross-flags/:crossFlagId', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, owner.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
 
       const [cf] = await db
@@ -1539,9 +1730,9 @@ describe('GET /cross-flags/:crossFlagId', () => {
           heuristic_config_version: 1,
         })
         .returning();
-      await db.insert(cross_flag_participants).values([
-        { cross_flag_id: cf!.id, submission_id: sub1.id },
-      ]);
+      await db
+        .insert(cross_flag_participants)
+        .values([{ cross_flag_id: cf!.id, submission_id: sub1.id }]);
 
       const app = createV1App();
       const res = await app.fetch(
@@ -1565,8 +1756,11 @@ describe('GET /cross-flags/:crossFlagId', () => {
       const a = await seedAssignment(db, semester.id);
       const job = await seedIngestJob(db, semester.id, user.id);
       const sub1 = await seedSubmission(db, {
-        semesterId: semester.id, assignmentId: a.id, studentId: s1.id,
-        ingestJobId: job.id, versionIndex: 1,
+        semesterId: semester.id,
+        assignmentId: a.id,
+        studentId: s1.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
       });
       const [cf] = await db
         .insert(cross_flags)
@@ -1578,14 +1772,12 @@ describe('GET /cross-flags/:crossFlagId', () => {
           heuristic_config_version: 1,
         })
         .returning();
-      await db.insert(cross_flag_participants).values([
-        { cross_flag_id: cf!.id, submission_id: sub1.id },
-      ]);
+      await db
+        .insert(cross_flag_participants)
+        .values([{ cross_flag_id: cf!.id, submission_id: sub1.id }]);
 
       const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/cross-flags/${cf!.id}`),
-      );
+      const res = await app.fetch(new Request(`http://localhost/cross-flags/${cf!.id}`));
       expect(res.status).toBe(401);
     });
   });
