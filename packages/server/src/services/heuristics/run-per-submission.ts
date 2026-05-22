@@ -47,16 +47,19 @@ import { flags, submissions } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';
 import { DEFAULT_CONFIG_V0, HEURISTIC_CONFIG_VERSION_V0 } from './default-config.js';
+import { getActiveConfig, DEFAULT_SERVER_CONFIG } from './config.js';
 import { computeScore } from '../scoring/compute.js';
 
 // ---------------------------------------------------------------------------
 // Server-side scoring config (PRD §10.2)
 //
-// Phase 12 uses hard-coded defaults. Phase 13 will replace this with a
-// DB-sourced lookup via the heuristic_configs table.
+// Phase 13b: looks up the active config from the heuristic_configs table.
+// Falls back to DEFAULT_SERVER_CONFIG if no active config exists yet.
+// Phase 12 used hard-coded DEFAULT_CONFIG_V0 (sentinel version=0); the
+// backfill migration moved those flags to version=1.
 // ---------------------------------------------------------------------------
 
-/** Default severity weights per PRD §10.2. */
+/** Default severity weights per PRD §10.2 (matches DEFAULT_SERVER_CONFIG). */
 const DEFAULT_SEVERITY_WEIGHTS: Record<Severity, number> = {
   info: 0,
   low: 1,
@@ -66,21 +69,11 @@ const DEFAULT_SEVERITY_WEIGHTS: Record<Severity, number> = {
 
 /**
  * Per-heuristic config entry (PRD §10.2).
- * Phase 12 always uses defaults; Phase 13 reads from heuristic_configs table.
  */
 type PerFlagConfig = {
   enabled: boolean;
   weight: number;
 };
-
-const DEFAULT_WEIGHT = 1.0;
-
-/** Get per-flag config with sensible defaults when not explicitly configured. */
-function getPerFlagConfig(_heuristicId: string): PerFlagConfig {
-  // Phase 12: all heuristics are enabled with weight 1.0.
-  // Phase 13 will replace this with a DB lookup.
-  return { enabled: true, weight: DEFAULT_WEIGHT };
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -107,35 +100,43 @@ export async function runAndStoreHeuristics(
   validationReport: ValidationReport,
 ): Promise<void> {
   // -------------------------------------------------------------------------
-  // Step 1: Build EventIndex from bundle.
+  // Step 1: Look up the active server-side config for this semester.
+  //
+  // Phase 13b: look up from heuristic_configs table.
+  // Falls back to DEFAULT_SERVER_CONFIG if no active config exists.
+  // This happens for semesters created after migration 0010 but before any
+  // admin sets a config (e.g. in tests, or during initial semester setup).
+  //
+  // configVersion=0 sentinel: if no config exists yet, use version 0.
+  // The backfill migration updated existing version=0 rows to version=1.
+  // New submissions before any config is set will use version=0 until an
+  // admin commits a config.
+  // -------------------------------------------------------------------------
+  const activeConfigRow = await getActiveConfig(db, semesterId);
+  const serverConfig = activeConfigRow?.config ?? DEFAULT_SERVER_CONFIG;
+  const configVersion = activeConfigRow?.version ?? HEURISTIC_CONFIG_VERSION_V0;
+
+  // -------------------------------------------------------------------------
+  // Step 2: Build EventIndex from bundle.
   // -------------------------------------------------------------------------
   const index = buildIndex(bundle);
 
   // -------------------------------------------------------------------------
-  // Step 2: Run v2's heuristic suite.
+  // Step 3: Run v2's heuristic suite.
   //
-  // Pass undefined as configOverride — we always use the full DEFAULT_CONFIG_V0
-  // which mergeConfig() returns when override is undefined. We do NOT pass the
-  // server-side per_flag config to runHeuristics because v2's HeuristicConfig
-  // has a different shape (threshold values, not enabled/weight per heuristic).
-  // The enabled/weight filtering and score_contribution computation is applied
-  // below, after collecting flags from runHeuristics.
-  //
-  // v2 internally calls mergeConfig(undefined) which returns DEFAULT_CONFIG_V0.
+  // Pass undefined as configOverride — v2's HeuristicConfig (threshold values)
+  // is separate from the server-side ServerHeuristicConfig (enabled/weight).
+  // We use DEFAULT_CONFIG_V0 for v2 thresholds. The server-side enabled/weight
+  // filtering is applied below using serverConfig.
   // -------------------------------------------------------------------------
   const v2Config = DEFAULT_CONFIG_V0;
-  // v2's runHeuristics accepts a Partial<HeuristicConfig> configOverride.
-  // Passing undefined means it will use DEFAULT_HEURISTIC_CONFIG internally
-  // (same value as v2Config above) — no double-computation.
   const rawFlags = runHeuristics(index, bundle, validationReport, undefined);
 
   // -------------------------------------------------------------------------
-  // Step 3: Filter disabled heuristics and translate each Flag to a DB row.
+  // Step 4: Filter disabled heuristics and translate each Flag to a DB row.
   //
-  // PRD §10.3: disabled heuristics contribute zero. Since runHeuristics
-  // already ran them (v2 config enablement is threshold-based, not boolean),
-  // we apply the server-side enabled gate here. In Phase 12, all heuristics
-  // are enabled so this filter is a no-op.
+  // PRD §10.3: disabled heuristics contribute zero and are not stored.
+  // The server-side per_flag[id].enabled gate is applied here.
   // -------------------------------------------------------------------------
   type FlagRow = typeof flags.$inferInsert;
 
@@ -143,7 +144,8 @@ export async function runAndStoreHeuristics(
   const scoreInputs: Array<{ severity: string; score_contribution: number }> = [];
 
   for (const flag of rawFlags) {
-    const perFlagCfg = getPerFlagConfig(flag.heuristic);
+    const perFlagEntry = serverConfig.per_flag[flag.heuristic];
+    const perFlagCfg: PerFlagConfig = perFlagEntry ?? { enabled: true, weight: 1.0 };
 
     // PRD §10.3: disabled heuristics contribute zero (and we do not store them).
     if (!perFlagCfg.enabled) {
@@ -195,9 +197,12 @@ export async function runAndStoreHeuristics(
     // -----------------------------------------------------------------------
     // Compute score_contribution per PRD §10.3:
     //   score_contribution = severity_weights[severity] * confidence * weight
+    // Use server-side severity_weights from the active config.
     // -----------------------------------------------------------------------
     const severityWeight =
-      DEFAULT_SEVERITY_WEIGHTS[flag.severity as Severity] ?? DEFAULT_SEVERITY_WEIGHTS.info;
+      serverConfig.severity_weights[flag.severity as Severity] ??
+      DEFAULT_SEVERITY_WEIGHTS[flag.severity as Severity] ??
+      DEFAULT_SEVERITY_WEIGHTS.info;
     const scoreContribution = severityWeight * flag.confidence * perFlagCfg.weight;
 
     const row: FlagRow = {
@@ -212,7 +217,7 @@ export async function runAndStoreHeuristics(
       detail: (flag.detail ?? {}) as any,
       supporting_seqs: globalIdxs,
       session_id: sessionId,
-      heuristic_config_version: HEURISTIC_CONFIG_VERSION_V0,
+      heuristic_config_version: configVersion,
     };
 
     flagRows.push(row);
