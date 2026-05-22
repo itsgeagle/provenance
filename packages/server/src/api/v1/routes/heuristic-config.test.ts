@@ -18,6 +18,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { withTestDb } from '../../../../test/helpers/db.js';
+import { waitForAuditRow } from '../../../../test/helpers/audit.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
 import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
@@ -442,6 +443,10 @@ describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
         const v2Row = allConfigs.find((r) => r.version === 2);
         expect(v1Row?.is_active).toBe(false);
         expect(v2Row?.is_active).toBe(true);
+
+        // V20 rule: assert audit row was written for the commit action.
+        const auditRow = await waitForAuditRow(db, 'heuristic_config.commit', semester.id, 50);
+        expect(auditRow).toBeDefined();
       } finally {
         _testDb = null;
       }
@@ -1211,6 +1216,15 @@ describe('POST /semesters/:semesterId/recompute', () => {
           .where(eq(recompute_jobs.id, body.recompute_job.id));
         expect(jobRows).toHaveLength(1);
         expect(jobRows[0]?.status).toBe('queued');
+
+        // V20 rule: assert audit row was written for the recompute trigger action.
+        const auditRow = await waitForAuditRow(
+          db,
+          'heuristic_config.recompute',
+          semester.id,
+          50,
+        );
+        expect(auditRow).toBeDefined();
       } finally {
         _testDb = null;
       }
