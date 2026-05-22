@@ -22,7 +22,7 @@
  * concurrent allocation of the same index.
  */
 
-import { sql } from 'drizzle-orm';
+import { sql, and, eq, inArray } from 'drizzle-orm';
 import { assignments, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { putBlob, deleteBlob, getBlob } from '../storage/blobs.js';
@@ -54,6 +54,8 @@ export interface CreateSubmissionArgs {
 
 export interface CreateSubmissionResult {
   submissionId: string;
+  /** UUID of the assignments row (for writing matched_assignment_id on ingest_files). */
+  assignmentId: string;
   versionIndex: number;
   finalBlobKey: string;
   /** IDs of submissions that were superseded by this one. */
@@ -94,26 +96,45 @@ export async function createSubmission(
   return db.transaction(async (tx) => {
     // -----------------------------------------------------------------------
     // Step 1: Upsert assignment row.
+    //
+    // Plan §Phase 9: INSERT … ON CONFLICT DO NOTHING RETURNING id.
+    // DO NOTHING avoids an unnecessary write-lock on the conflicting row
+    // under concurrent load. If RETURNING is empty (conflict), fall back
+    // to a SELECT to fetch the existing id.
     // -----------------------------------------------------------------------
-    const [assignmentRow] = await tx
+    const insertedAssignment = await tx
       .insert(assignments)
       .values({
         semester_id: semesterId,
         assignment_id_str: assignmentIdStr,
         label: assignmentIdStr,
       })
-      .onConflictDoUpdate({
+      .onConflictDoNothing({
         target: [assignments.semester_id, assignments.assignment_id_str],
-        // On conflict just return the existing row — label is not updated.
-        set: { assignment_id_str: assignmentIdStr },
       })
       .returning({ id: assignments.id });
 
-    if (!assignmentRow) {
-      throw Errors.internal(undefined, 'createSubmission: assignment upsert returned no rows');
-    }
+    let assignmentId: string;
+    if (insertedAssignment.length > 0) {
+      assignmentId = insertedAssignment[0]!.id;
+    } else {
+      // Conflict — row already exists; fetch it.
+      const existingAssignment = await tx
+        .select({ id: assignments.id })
+        .from(assignments)
+        .where(
+          and(
+            eq(assignments.semester_id, semesterId),
+            eq(assignments.assignment_id_str, assignmentIdStr),
+          ),
+        )
+        .limit(1);
 
-    const assignmentId = assignmentRow.id;
+      if (existingAssignment.length === 0) {
+        throw Errors.internal(undefined, 'createSubmission: assignment row missing after conflict');
+      }
+      assignmentId = existingAssignment[0]!.id;
+    }
 
     // -----------------------------------------------------------------------
     // Step 2: Lock existing submissions for this cohort and compute max version.
@@ -136,7 +157,7 @@ export async function createSubmission(
     // `lockResult` is an array of rows (postgres.js returns Row[]).
     // Extract max version_index; default to 0 so first submission gets index 1.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: postgres.js raw result
-    const existingRows = (lockResult as any) as Array<{ id: string; version_index: number }>;
+    const existingRows = lockResult as any as Array<{ id: string; version_index: number }>;
     const maxVersion = existingRows.reduce((m, r) => Math.max(m, r.version_index), 0);
     const versionIndex = maxVersion + 1;
 
@@ -216,11 +237,15 @@ export async function createSubmission(
     const supersededIds: string[] = existingRows.map((r) => r.id);
 
     if (supersededIds.length > 0) {
-      await tx.execute(sql`
-        UPDATE submissions
-        SET superseded_by_submission_id = ${submissionId}
-        WHERE id = ANY(${sql.raw(`ARRAY[${supersededIds.map((id) => `'${id}'`).join(',')}]::uuid[]`)})
-      `);
+      // Use Drizzle's typed update + inArray() for full parameterization.
+      // submissions.superseded_by_submission_id is omitted from the Drizzle
+      // schema (self-referential FK not expressible at declaration time), so we
+      // use sql`` only for the SET clause value while letting Drizzle build the
+      // WHERE clause via inArray — which emits a safe parameterized IN list.
+      await tx
+        .update(submissions)
+        .set({ superseded_by_submission_id: submissionId })
+        .where(inArray(submissions.id, supersededIds));
     }
 
     // -----------------------------------------------------------------------
@@ -238,6 +263,7 @@ export async function createSubmission(
 
     return {
       submissionId,
+      assignmentId,
       versionIndex,
       finalBlobKey,
       supersededIds,
