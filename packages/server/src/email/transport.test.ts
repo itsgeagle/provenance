@@ -2,8 +2,33 @@
  * Email transport unit tests.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getRealEmailTransport } from './transport.js';
+import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
+import { _resetLoggerForTest } from '../logging.js';
+import { parseEnv } from '../config/env.js';
+
+const BASE_ENV: Record<string, string> = {
+  NODE_ENV: 'test',
+  PUBLIC_BASE_URL: 'http://localhost:3000',
+  DATABASE_URL: 'postgres://user:pass@localhost:5432/provenance',
+  OBJECT_STORAGE_ENDPOINT: 'http://localhost:9000',
+  OBJECT_STORAGE_BUCKET: 'provenance',
+  OBJECT_STORAGE_ACCESS_KEY_ID: 'minioadmin',
+  OBJECT_STORAGE_SECRET_ACCESS_KEY: 'minioadmin',
+  GOOGLE_OAUTH_CLIENT_ID: 'client-id',
+  GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+  AUTH_ALLOWED_HOSTED_DOMAINS: '["berkeley.edu"]',
+  AUTH_SUPERADMIN_EMAILS: '[]',
+  AUTH_COOKIE_SIGNING_SECRET: 'test-signing-secret-transport-tests-123456789',
+  SESSION_TTL_DAYS: '14',
+};
+
+beforeEach(() => {
+  _resetConfigForTest();
+  _resetLoggerForTest();
+  _setConfigForTest(parseEnv(BASE_ENV));
+});
 
 // ---------------------------------------------------------------------------
 // SMTP disabled (empty SMTP_URL) — stub path
