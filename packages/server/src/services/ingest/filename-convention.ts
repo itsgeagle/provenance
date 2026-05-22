@@ -60,7 +60,7 @@ export function validateFilenameConvention(regex: string): ValidateResult {
   if (!hasSidGroup(regex)) {
     return {
       ok: false,
-      error: "Filename convention regex must contain a (?<sid>...) named capture group",
+      error: 'Filename convention regex must contain a (?<sid>...) named capture group',
     };
   }
 

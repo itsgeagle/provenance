@@ -5,10 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  validateFilenameConvention,
-  parseFilenameWithConvention,
-} from './filename-convention.js';
+import { validateFilenameConvention, parseFilenameWithConvention } from './filename-convention.js';
 
 // ---------------------------------------------------------------------------
 // validateFilenameConvention
