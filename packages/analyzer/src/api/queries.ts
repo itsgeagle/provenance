@@ -38,6 +38,7 @@ import {
   RecomputeJobSchema,
   CrossFlagListResponseSchema,
   CrossFlagDetailResponseSchema,
+  ExportJobSchema,
 } from '@provenance/shared/api-schemas';
 import type { Membership, HeuristicConfigBody } from '@provenance/shared/api-schemas';
 
@@ -874,11 +875,15 @@ export function useCrossFlagDetail(crossFlagId: string) {
 export function useStartExport(submissionId: string) {
   return useMutation({
     mutationFn: (format: 'markdown' | 'pdf') =>
-      apiFetch(`/submissions/${submissionId}/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ format }),
-      }),
+      apiFetch(
+        `/submissions/${submissionId}/export`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ format }),
+        },
+        ExportJobSchema,
+      ),
   });
 }
 

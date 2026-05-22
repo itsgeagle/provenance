@@ -67,10 +67,13 @@ describe('ExportPanel', () => {
     mswServer.use(
       http.post(`/api/v1/submissions/${SUBMISSION_ID}/export`, () =>
         HttpResponse.json({
-          artifact_id: 'a0000000-0000-4000-8000-000000000001',
-          format: 'markdown',
-          expires_at: '2025-01-17T12:00:00.000Z',
-          download_url: 'https://storage.example.com/exports/report.md',
+          type: 'sync',
+          data: {
+            artifact_id: 'a0000000-0000-4000-8000-000000000001',
+            format: 'markdown',
+            expires_at: '2025-01-17T12:00:00.000Z',
+            download_url: 'https://storage.example.com/exports/report.md',
+          },
         }),
       ),
     );
@@ -95,8 +98,11 @@ describe('ExportPanel', () => {
     mswServer.use(
       http.post(`/api/v1/submissions/${SUBMISSION_ID}/export`, () =>
         HttpResponse.json({
-          job_id: 'a0000000-0000-4000-8000-000000000002',
-          status: 'queued',
+          type: 'async',
+          data: {
+            job_id: 'a0000000-0000-4000-8000-000000000002',
+            status: 'queued',
+          },
         }),
       ),
     );
@@ -120,8 +126,11 @@ describe('ExportPanel', () => {
     mswServer.use(
       http.post(`/api/v1/submissions/${SUBMISSION_ID}/export`, () =>
         HttpResponse.json({
-          job_id: 'a0000000-0000-4000-8000-000000000002',
-          status: 'queued',
+          type: 'async',
+          data: {
+            job_id: 'a0000000-0000-4000-8000-000000000002',
+            status: 'queued',
+          },
         }),
       ),
     );

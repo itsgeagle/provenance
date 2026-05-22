@@ -17,27 +17,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useStartExport } from '../../api/queries.js';
+import type { ExportJob } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
-// Types for the expected server responses
+// Type guard for discriminated union
 // ---------------------------------------------------------------------------
 
-interface SyncExportResult {
-  artifact_id: string;
-  format: 'markdown' | 'pdf';
-  expires_at: string;
-  download_url: string;
-}
-
-interface AsyncExportResult {
-  job_id: string;
-  status: 'queued';
-}
-
-type ExportResult = SyncExportResult | AsyncExportResult;
-
-function isSyncResult(r: ExportResult): r is SyncExportResult {
-  return 'download_url' in r;
+function isSyncResult(job: ExportJob): job is ExportJob & { type: 'sync' } {
+  return job.type === 'sync';
 }
 
 // ---------------------------------------------------------------------------
@@ -92,12 +79,12 @@ export function ExportPanel() {
     if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
 
     try {
-      const result = (await exportMutation.mutateAsync(format)) as ExportResult;
+      const result = await exportMutation.mutateAsync(format);
 
       if (isSyncResult(result)) {
         // Markdown (sync): trigger download immediately
-        triggerDownload(result.download_url);
-        setDownloadUrl(result.download_url);
+        triggerDownload(result.data.download_url);
+        setDownloadUrl(result.data.download_url);
         setPollStatus('ready');
       } else {
         // PDF (async): start polling
@@ -105,7 +92,7 @@ export function ExportPanel() {
         // NOTE: Phase 25 will add GET /submissions/:id/export/:jobId polling.
         // For Phase 24, we simulate the async flow with a stub that resolves
         // after a short delay (no real poll endpoint yet).
-        schedulePoll(result.job_id);
+        schedulePoll(result.data.job_id);
       }
     } catch (err: unknown) {
       const e = err as { message?: string };
