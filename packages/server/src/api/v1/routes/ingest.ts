@@ -31,7 +31,7 @@ import { requireAuth } from '../../middleware/authorize.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
 import { audit } from '../../middleware/audit.js';
 import { Errors, ApiError } from '../errors.js';
-import { ingest_jobs, ingest_files, roster_entries } from '../../../db/schema.js';
+import { ingest_jobs, ingest_files, roster_entries, assignments } from '../../../db/schema.js';
 import {
   enqueueIngestJob,
   cancelIngestJob,
@@ -139,7 +139,11 @@ interface RawFileRow {
   blob_sha256: string;
   status: string;
   matched_student_id: string | null;
+  matched_student_sid: string | null;
+  matched_student_display_name: string | null;
   matched_assignment_id: string | null;
+  matched_assignment_id_str: string | null;
+  matched_assignment_label: string | null;
   submission_id: string | null;
   filename_capture: unknown;
   error: unknown;
@@ -147,7 +151,11 @@ interface RawFileRow {
 }
 
 /**
- * Map a raw ingest_files row to the IngestFileSummary shape from PRD §8.6.
+ * Map a raw ingest_files row (with joined roster/assignment columns) to the
+ * IngestFileSummary shape from PRD §8.6.
+ *
+ * matched_student and matched_assignment are nested objects when the file was
+ * successfully matched, per PRD §8.6.
  */
 function formatFileSummary(row: RawFileRow): Record<string, unknown> {
   const out: Record<string, unknown> = {
@@ -159,10 +167,18 @@ function formatFileSummary(row: RawFileRow): Record<string, unknown> {
   };
 
   if (row.matched_student_id !== null) {
-    out['matched_student'] = row.matched_student_id;
+    out['matched_student'] = {
+      id: row.matched_student_id,
+      sid: row.matched_student_sid,
+      display_name: row.matched_student_display_name,
+    };
   }
   if (row.matched_assignment_id !== null) {
-    out['matched_assignment'] = row.matched_assignment_id;
+    out['matched_assignment'] = {
+      id: row.matched_assignment_id,
+      assignment_id_str: row.matched_assignment_id_str,
+      label: row.matched_assignment_label,
+    };
   }
   if (row.submission_id !== null) {
     out['submission_id'] = row.submission_id;
@@ -384,7 +400,12 @@ export function createIngestRouter(): Hono {
         .where(eq(ingest_files.ingest_job_id, jobId));
 
       for (const { id: ingestFileId } of stagedFileIds) {
-        await boss.send(JOB_KINDS.INGEST_FILE, { ingestFileId, ingestJobId: jobId });
+        // PRD §12.3: ingest_file retries up to 3 times on transient failure.
+        await boss.send(
+          JOB_KINDS.INGEST_FILE,
+          { ingestFileId, ingestJobId: jobId },
+          { retryLimit: 3 },
+        );
       }
 
       // Set auditDetail so the audit middleware can log job_id as target_id.
@@ -527,7 +548,8 @@ export function createIngestRouter(): Hono {
         summary.total += row.cnt;
       }
 
-      // Fetch first 200 files inline.
+      // Fetch first 200 files inline, joining roster_entries and assignments for
+      // the nested matched_student / matched_assignment objects (PRD §8.6).
       const fileRows = await db
         .select({
           id: ingest_files.id,
@@ -536,13 +558,19 @@ export function createIngestRouter(): Hono {
           blob_sha256: ingest_files.blob_sha256,
           status: ingest_files.status,
           matched_student_id: ingest_files.matched_student_id,
+          matched_student_sid: roster_entries.sid,
+          matched_student_display_name: roster_entries.display_name,
           matched_assignment_id: ingest_files.matched_assignment_id,
+          matched_assignment_id_str: assignments.assignment_id_str,
+          matched_assignment_label: assignments.label,
           submission_id: ingest_files.submission_id,
           filename_capture: ingest_files.filename_capture,
           error: ingest_files.error,
           created_at: ingest_files.created_at,
         })
         .from(ingest_files)
+        .leftJoin(roster_entries, eq(ingest_files.matched_student_id, roster_entries.id))
+        .leftJoin(assignments, eq(ingest_files.matched_assignment_id, assignments.id))
         .where(eq(ingest_files.ingest_job_id, jobId))
         .orderBy(ingest_files.created_at)
         .limit(200);
@@ -607,13 +635,19 @@ export function createIngestRouter(): Hono {
           blob_sha256: ingest_files.blob_sha256,
           status: ingest_files.status,
           matched_student_id: ingest_files.matched_student_id,
+          matched_student_sid: roster_entries.sid,
+          matched_student_display_name: roster_entries.display_name,
           matched_assignment_id: ingest_files.matched_assignment_id,
+          matched_assignment_id_str: assignments.assignment_id_str,
+          matched_assignment_label: assignments.label,
           submission_id: ingest_files.submission_id,
           filename_capture: ingest_files.filename_capture,
           error: ingest_files.error,
           created_at: ingest_files.created_at,
         })
         .from(ingest_files)
+        .leftJoin(roster_entries, eq(ingest_files.matched_student_id, roster_entries.id))
+        .leftJoin(assignments, eq(ingest_files.matched_assignment_id, assignments.id))
         .where(
           and(
             eq(ingest_files.ingest_job_id, jobId),
