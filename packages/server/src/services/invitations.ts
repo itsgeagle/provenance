@@ -19,8 +19,6 @@ import { users, memberships, pending_invitations } from '../db/schema.js';
 import type { DrizzleDb } from '../db/client.js';
 import { withTransaction } from '../db/client.js';
 import { Errors } from '../api/v1/errors.js';
-import type { SendEmailFn } from '../email/transport.js';
-
 // ---------------------------------------------------------------------------
 // Type aliases
 // ---------------------------------------------------------------------------
@@ -71,8 +69,19 @@ function isUniqueConstraintViolation(err: unknown): boolean {
 // inviteMember
 // ---------------------------------------------------------------------------
 
+/**
+ * Zero-arg async callback that sends the invitation email.
+ *
+ * The route builds the email content (with course/semester slug context) and
+ * passes a closure that already has everything baked in. The service just calls
+ * it — it has no visibility into `to`, `subject`, `text`, or `html`. This keeps
+ * the service decoupled from the email template and makes the interface honest:
+ * there are no "dummy" args that callers ignore.
+ */
+export type SendInviteEmail = () => Promise<void>;
+
 export interface InviteMemberDeps {
-  sendEmail?: SendEmailFn;
+  sendEmail?: SendInviteEmail;
 }
 
 /**
@@ -86,6 +95,12 @@ export interface InviteMemberDeps {
  *
  * Email sending (if applicable) happens OUTSIDE the transaction so a nodemailer
  * failure doesn't roll back the DB state.
+ *
+ * `deps.sendEmail` is a zero-arg callback: the route builds the full email
+ * content (using course/semester slugs that the service doesn't have access to)
+ * and passes a pre-baked closure. The service just calls it. This ensures the
+ * `to`, `subject`, `text`, and `html` fields are always meaningful — there are
+ * no dummy/empty args that callers silently ignore.
  */
 export async function inviteMember(
   db: DrizzleDb,
@@ -96,9 +111,6 @@ export async function inviteMember(
   deps: InviteMemberDeps = {},
 ): Promise<InviteResult> {
   const normalizedEmail = email.toLowerCase();
-  let emailSendArgs:
-    | { to: string; subject: string; text: string; html: string; pendingSummary: PendingSummary }
-    | undefined;
   const txResult = await withTransaction(db, async (tx) => {
     // (a) Look up existing user by email (case-insensitive, uses functional index).
     const existingUsers = await tx
@@ -195,41 +207,18 @@ export async function inviteMember(
       invited_by_email: inviterEmail,
     };
 
-    // Stash the pending email address so we can call sendEmail after the TX.
-    // The route builds the full email template (with course/semester slugs) and
-    // passes a pre-baked sendEmail closure that already has content.
-    // We store the recipient so we can call deps.sendEmail({ to, ... }).
-    emailSendArgs = {
-      to: normalizedEmail,
-      // subject/text/html come from the route's pre-built closure; the service
-      // passes them through. When the route injects deps.sendEmail as a closure
-      // that ignores these fields and uses pre-built content, they're irrelevant.
-      // When tests inject a vi.fn(), the spy captures these values for assertion.
-      subject: '',
-      text: '',
-      html: '',
-      pendingSummary: pending,
-    };
-
     return { kind: 'pending' as const, pending };
   });
 
   // Fire-and-forget email send outside transaction.
-  // deps.sendEmail is injected by the route, which wraps the real transport in
-  // a closure that already has course/semester slug context baked in.
-  // We call it with { to } only; the closure rebuilds the full content.
-  if (txResult.kind === 'pending' && deps.sendEmail !== undefined && emailSendArgs !== undefined) {
-    deps
-      .sendEmail({
-        to: emailSendArgs.to,
-        subject: emailSendArgs.subject,
-        text: emailSendArgs.text,
-        html: emailSendArgs.html,
-      })
-      .catch(() => {
-        // Email sending failures are non-fatal. The pending row is already created.
-        // In production, a failed send is logged by the transport layer.
-      });
+  // deps.sendEmail is a zero-arg closure built by the route; the route bakes in
+  // all email content (to, subject, text, html) before passing it here. The
+  // service just triggers it — no dummy args, no silent mismatches.
+  if (txResult.kind === 'pending' && deps.sendEmail !== undefined) {
+    deps.sendEmail().catch(() => {
+      // Email sending failures are non-fatal. The pending row is already created.
+      // In production, a failed send is logged by the transport layer.
+    });
   }
 
   return txResult;

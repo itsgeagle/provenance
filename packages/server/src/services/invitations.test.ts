@@ -196,11 +196,13 @@ describe('inviteMember — new email', () => {
       expect(pendingRows).toHaveLength(1);
       expect(pendingRows[0]!.role).toBe('grader');
 
-      // Email called once
+      // Email called once (zero-arg closure — content is baked into the closure
+      // by the caller, not passed as args here).
       // The sendEmail call is fire-and-forget; give it a tick to settle.
       await new Promise((r) => setTimeout(r, 10));
       expect(sendEmail).toHaveBeenCalledOnce();
-      expect(sendEmail.mock.calls[0]?.[0]).toMatchObject({ to: 'newuser@other.edu' });
+      // sendEmail is now a () => Promise<void>; no args to assert on.
+      expect(sendEmail.mock.calls[0]).toHaveLength(0);
     });
   });
 

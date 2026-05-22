@@ -28,7 +28,7 @@ import { Errors, Warnings } from '../errors.js';
 import * as invitationsService from '../../../services/invitations.js';
 import { buildInvitationEmail } from '../../../email/templates/invitation.js';
 import { getRealEmailTransport } from '../../../email/transport.js';
-import type { SendEmailFn } from '../../../email/transport.js';
+import type { SendInviteEmail } from '../../../services/invitations.js';
 import { semesters, courses, users } from '../../../db/schema.js';
 import { eq } from 'drizzle-orm';
 
@@ -51,11 +51,20 @@ const updateRoleBodySchema = z.object({
 
 /**
  * Deps are injected for testability (sendEmail override).
+ *
+ * `sendEmail` is a factory: given a zero-arg `SendInviteEmail` closure (which
+ * has email content baked in), it returns a replacement closure. Tests inject
+ * a vi.fn() here to capture calls without actually sending.
+ *
+ * In practice, tests pass `sendEmail: vi.fn().mockResolvedValue(undefined)` as
+ * a zero-arg spy — the createMembersRouter factory wraps it before handing off
+ * to inviteMember.
+ *
  * Production: call createMembersRouter() with no args.
- * Tests: call createMembersRouter({ sendEmail: vi.fn() }) to intercept emails.
  */
 export interface MembersRouterDeps {
-  sendEmail?: SendEmailFn;
+  /** Optional override for the zero-arg email sender used in tests. */
+  sendEmail?: SendInviteEmail;
 }
 
 export function createMembersRouter(deps: MembersRouterDeps = {}): Hono {
@@ -163,20 +172,28 @@ export function createMembersRouter(deps: MembersRouterDeps = {}): Hono {
         loginUrl,
       });
 
-      // Resolve transport: use injected dep (tests) or real transport (production).
-      const transport = deps.sendEmail ?? getRealEmailTransport(cfg);
-
-      // Build a SendEmailFn closure that uses the pre-built template content.
-      // The service calls this with `{ to }` from its side; we ignore those
-      // values and use the template content baked in here.
-      const sendEmailForInvite: SendEmailFn = async (_args) => {
-        await transport({
-          to: email.toLowerCase(),
-          subject: emailContent.subject,
-          text: emailContent.text,
-          html: emailContent.html,
-        });
-      };
+      // Resolve the real SMTP transport (or the dev-mode logger stub).
+      // Tests inject deps.sendEmail as a zero-arg spy that replaces the whole
+      // closure; production uses a real transport closure built here.
+      let sendEmailForInvite: SendInviteEmail;
+      if (deps.sendEmail !== undefined) {
+        // Test override: use the injected spy directly.
+        sendEmailForInvite = deps.sendEmail;
+      } else {
+        // Production: build a zero-arg closure that has `to`, `subject`,
+        // `text`, `html` baked in from the already-resolved email content.
+        // This is the canonical pattern: the route owns email content; the
+        // service just triggers the send.
+        const transport = getRealEmailTransport(cfg);
+        sendEmailForInvite = async () => {
+          await transport({
+            to: email.toLowerCase(),
+            subject: emailContent.subject,
+            text: emailContent.text,
+            html: emailContent.html,
+          });
+        };
+      }
 
       const result = await invitationsService.inviteMember(
         db,
