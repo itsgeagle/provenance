@@ -12,7 +12,12 @@ export const ingestPaths = {
       summary: 'List assignments with summary stats',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -56,8 +61,18 @@ export const ingestPaths = {
       summary: 'Update assignment label or sort order (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'assignmentId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'assignmentId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         content: {
@@ -85,10 +100,16 @@ export const ingestPaths = {
     post: {
       tags: ['Ingest'],
       summary: 'Start an ingest job (semester admin)',
-      description: 'Upload one or more .zip bundles (or a single zip-of-zips). Returns 202 immediately; processing is async.',
+      description:
+        'Upload one or more .zip bundles (or a single zip-of-zips). Returns 202 immediately; processing is async.',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         required: true,
@@ -127,7 +148,12 @@ export const ingestPaths = {
       summary: 'List ingest jobs (paginated)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'status', in: 'query', schema: { type: 'string' } },
         { name: 'cursor', in: 'query', schema: { type: 'string' } },
         { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
@@ -159,8 +185,18 @@ export const ingestPaths = {
       summary: 'Get ingest job detail + first 200 files',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'jobId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'jobId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -193,8 +229,18 @@ export const ingestPaths = {
       summary: 'Paginated file list for an ingest job',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'jobId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'jobId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'cursor', in: 'query', schema: { type: 'string' } },
         { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
       ],
@@ -225,8 +271,18 @@ export const ingestPaths = {
       summary: 'Cancel an in-progress ingest job (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'jobId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'jobId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '202': { description: 'Cancellation accepted' },
@@ -244,7 +300,12 @@ export const ingestPaths = {
       summary: 'List unmatched ingest files (paginated)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'cursor', in: 'query', schema: { type: 'string' } },
         { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
       ],
@@ -275,8 +336,18 @@ export const ingestPaths = {
       summary: 'Manually attach unmatched file (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'ingestFileId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'ingestFileId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         required: true,
@@ -313,8 +384,18 @@ export const ingestPaths = {
       summary: 'Discard an unmatched file (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'ingestFileId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'ingestFileId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         content: {

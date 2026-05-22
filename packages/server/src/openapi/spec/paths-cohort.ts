@@ -10,20 +10,49 @@ export const cohortPaths = {
     get: {
       tags: ['Cohort'],
       summary: 'Cohort list — the workhorse endpoint',
-      description: 'Returns filtered, sorted, paginated submissions with facets. Rate: read.cohort.',
+      description:
+        'Returns filtered, sorted, paginated submissions with facets. Rate: read.cohort.',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'assignment_id', in: 'query', schema: { $ref: '#/components/schemas/UUID' } },
         { name: 'student_id', in: 'query', schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'flag_id', in: 'query', schema: { type: 'string' }, description: 'Repeat for multiple flag IDs' },
+        {
+          name: 'flag_id',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Repeat for multiple flag IDs',
+        },
         { name: 'severity_min', in: 'query', schema: { $ref: '#/components/schemas/Severity' } },
-        { name: 'validation_status', in: 'query', schema: { $ref: '#/components/schemas/ValidationStatus' } },
+        {
+          name: 'validation_status',
+          in: 'query',
+          schema: { $ref: '#/components/schemas/ValidationStatus' },
+        },
         { name: 'score_min', in: 'query', schema: { type: 'number' } },
         { name: 'score_max', in: 'query', schema: { type: 'number' } },
         { name: 'include_superseded', in: 'query', schema: { type: 'boolean', default: false } },
         { name: 'q', in: 'query', schema: { type: 'string' } },
-        { name: 'sort', in: 'query', schema: { type: 'string', enum: ['score_desc', 'score_asc', 'ingested_desc', 'student_asc', 'student_desc', 'assignment_asc'] } },
+        {
+          name: 'sort',
+          in: 'query',
+          schema: {
+            type: 'string',
+            enum: [
+              'score_desc',
+              'score_asc',
+              'ingested_desc',
+              'student_asc',
+              'student_desc',
+              'assignment_asc',
+            ],
+          },
+        },
         { name: 'cursor', in: 'query', schema: { type: 'string' } },
         { name: 'limit', in: 'query', schema: { type: 'integer', default: 50, maximum: 500 } },
       ],
@@ -77,8 +106,17 @@ export const cohortPaths = {
       summary: 'Per-student aggregation',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'sort', in: 'query', schema: { type: 'string', enum: ['score_sum_desc', 'score_max_desc', 'student_asc'] } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'sort',
+          in: 'query',
+          schema: { type: 'string', enum: ['score_sum_desc', 'score_max_desc', 'student_asc'] },
+        },
         { name: 'cursor', in: 'query', schema: { type: 'string' } },
         { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
       ],
@@ -130,7 +168,12 @@ export const cohortPaths = {
       summary: 'List cross-submission flags (paginated)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'heuristic_id', in: 'query', schema: { type: 'string' } },
         { name: 'severity_min', in: 'query', schema: { $ref: '#/components/schemas/Severity' } },
         { name: 'submission_id', in: 'query', schema: { $ref: '#/components/schemas/UUID' } },
@@ -145,7 +188,10 @@ export const cohortPaths = {
               schema: {
                 type: 'object',
                 properties: {
-                  items: { type: 'array', items: { $ref: '#/components/schemas/CrossFlagSummary' } },
+                  items: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/CrossFlagSummary' },
+                  },
                   next_cursor: { oneOf: [{ type: 'string' }, { type: 'null' }] },
                 },
               },
@@ -161,7 +207,12 @@ export const cohortPaths = {
       summary: 'Get cross-flag detail with participants',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'crossFlagId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'crossFlagId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {

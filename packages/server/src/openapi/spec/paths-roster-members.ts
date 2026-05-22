@@ -12,7 +12,12 @@ export const rosterMembersPaths = {
       summary: 'List semester members and pending invitations',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -63,7 +68,12 @@ export const rosterMembersPaths = {
       summary: 'Invite or add a member (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         required: true,
@@ -92,8 +102,18 @@ export const rosterMembersPaths = {
       summary: 'Change member role (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'userId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'userId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         required: true,
@@ -117,8 +137,18 @@ export const rosterMembersPaths = {
       summary: 'Remove member (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'userId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'userId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '204': { description: 'Member removed' },
@@ -132,8 +162,18 @@ export const rosterMembersPaths = {
       summary: 'Cancel a pending invitation (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'invitationId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'invitationId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '204': { description: 'Invitation cancelled' },
@@ -151,10 +191,20 @@ export const rosterMembersPaths = {
       summary: 'List roster entries (paginated)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'cursor', in: 'query', schema: { type: 'string' } },
         { name: 'limit', in: 'query', schema: { type: 'integer', default: 50 } },
-        { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Free-text search on display_name or email' },
+        {
+          name: 'q',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Free-text search on display_name or email',
+        },
       ],
       responses: {
         '200': {
@@ -184,7 +234,12 @@ export const rosterMembersPaths = {
       summary: 'Upload roster CSV — returns diff preview (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         required: true,
@@ -198,7 +253,10 @@ export const rosterMembersPaths = {
         },
       },
       responses: {
-        '200': { description: 'Diff preview with upload_id, parsed_rows, to_add, to_update, to_delete, errors' },
+        '200': {
+          description:
+            'Diff preview with upload_id, parsed_rows, to_add, to_update, to_delete, errors',
+        },
         '413': { description: 'ROSTER_CSV_TOO_LARGE' },
       },
     },
@@ -209,7 +267,12 @@ export const rosterMembersPaths = {
       summary: 'Commit roster upload (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         required: true,
@@ -237,8 +300,18 @@ export const rosterMembersPaths = {
       summary: 'Update a roster entry (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'rosterEntryId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'rosterEntryId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         content: {

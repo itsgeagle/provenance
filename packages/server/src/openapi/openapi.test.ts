@@ -82,10 +82,7 @@ describe('OpenAPI spec structure', () => {
       for (const method of methods) {
         if (method in pathItem) {
           const op = (pathItem as Record<string, unknown>)[method] as Record<string, unknown>;
-          expect(
-            op['responses'],
-            `${method.toUpperCase()} ${path} has no responses`,
-          ).toBeDefined();
+          expect(op['responses'], `${method.toUpperCase()} ${path} has no responses`).toBeDefined();
         }
       }
     }

@@ -68,7 +68,12 @@ export const coursesPaths = {
       summary: 'Get course by ID',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'courseId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'courseId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': { description: 'Course detail' },
@@ -80,7 +85,12 @@ export const coursesPaths = {
       summary: 'Update course (superadmin only)',
       security: [{ SessionCookie: [] }],
       parameters: [
-        { name: 'courseId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'courseId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         content: {
@@ -103,7 +113,12 @@ export const coursesPaths = {
       summary: 'Archive course (superadmin only)',
       security: [{ SessionCookie: [] }],
       parameters: [
-        { name: 'courseId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'courseId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '204': { description: 'Course archived' },
@@ -116,7 +131,12 @@ export const coursesPaths = {
       summary: 'List semesters for a course',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'courseId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'courseId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -142,7 +162,12 @@ export const coursesPaths = {
       summary: 'Create a semester (superadmin only)',
       security: [{ SessionCookie: [] }],
       parameters: [
-        { name: 'courseId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'courseId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         required: true,
@@ -177,7 +202,12 @@ export const coursesPaths = {
       summary: 'Get semester by ID',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -196,7 +226,12 @@ export const coursesPaths = {
       summary: 'Update semester (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       requestBody: {
         content: {
@@ -224,7 +259,12 @@ export const coursesPaths = {
       summary: 'Archive semester (superadmin only)',
       security: [{ SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '204': { description: 'Semester archived' },

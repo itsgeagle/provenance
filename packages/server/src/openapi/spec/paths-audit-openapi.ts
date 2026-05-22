@@ -21,7 +21,8 @@ export const auditOpenApiPaths = {
           name: 'semester_id',
           in: 'query',
           schema: { $ref: '#/components/schemas/UUID' },
-          description: 'Filter to a specific semester. For semester admins: must be a semester they admin.',
+          description:
+            'Filter to a specific semester. For semester admins: must be a semester they admin.',
         },
         {
           name: 'actor_user_id',

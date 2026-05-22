@@ -67,6 +67,7 @@ print("Logged in as:", me.json()["user"]["email"])
 ```
 
 Expected output:
+
 ```
 Logged in as: you@berkeley.edu
 ```
@@ -120,6 +121,7 @@ print(f"High-risk submissions: {len(high_risk)}")
 ```
 
 Sample output:
+
 ```
   Fetched 500 / 1247 submissions...
   Fetched 1000 / 1247 submissions...
@@ -192,15 +194,15 @@ for rank, sub in enumerate(flagged, 1):
 
 ## Useful query parameters
 
-| Parameter | Type | Description |
-|---|---|---|
-| `assignment_id` | UUID | Filter to one assignment |
-| `severity_min` | string | `info`, `low`, `medium`, or `high` |
-| `validation_status` | string | `pass`, `warn`, or `fail` |
-| `score_min` / `score_max` | number | Score range filter |
-| `include_superseded` | boolean | Include older submissions (default: false) |
-| `sort` | string | `score_desc` (default), `student_asc`, `ingested_desc`, etc. |
-| `limit` | int | 1–500, default 50 |
+| Parameter                 | Type    | Description                                                  |
+| ------------------------- | ------- | ------------------------------------------------------------ |
+| `assignment_id`           | UUID    | Filter to one assignment                                     |
+| `severity_min`            | string  | `info`, `low`, `medium`, or `high`                           |
+| `validation_status`       | string  | `pass`, `warn`, or `fail`                                    |
+| `score_min` / `score_max` | number  | Score range filter                                           |
+| `include_superseded`      | boolean | Include older submissions (default: false)                   |
+| `sort`                    | string  | `score_desc` (default), `student_asc`, `ingested_desc`, etc. |
+| `limit`                   | int     | 1–500, default 50                                            |
 
 ## API reference
 

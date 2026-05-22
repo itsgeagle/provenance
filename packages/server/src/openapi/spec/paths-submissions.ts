@@ -12,7 +12,12 @@ export const submissionsPaths = {
       summary: 'Submission summary',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -33,7 +38,12 @@ export const submissionsPaths = {
       summary: 'List per-submission flags (sorted by severity desc)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -58,7 +68,12 @@ export const submissionsPaths = {
       summary: 'Per-file stats for a submission',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -83,7 +98,12 @@ export const submissionsPaths = {
       summary: 'Validation results for a submission',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -103,7 +123,12 @@ export const submissionsPaths = {
       summary: 'List files in a submission',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -132,12 +157,27 @@ export const submissionsPaths = {
       description: 'Rate: read.detail. Supports cursor pagination, kind/seq/time/session filters.',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'kind', in: 'query', schema: { type: 'string' }, description: 'Repeat for multiple event kinds' },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'kind',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Repeat for multiple event kinds',
+        },
         { name: 'seq_from', in: 'query', schema: { type: 'integer' } },
         { name: 'seq_to', in: 'query', schema: { type: 'integer' } },
         { name: 'session_id', in: 'query', schema: { type: 'string' } },
-        { name: 'file', in: 'query', schema: { type: 'string' }, description: 'Filter by file path' },
+        {
+          name: 'file',
+          in: 'query',
+          schema: { type: 'string' },
+          description: 'Filter by file path',
+        },
         { name: 'cursor', in: 'query', schema: { type: 'string' } },
         { name: 'limit', in: 'query', schema: { type: 'integer', default: 200, maximum: 2000 } },
       ],
@@ -166,7 +206,12 @@ export const submissionsPaths = {
       summary: 'Get a single event by seq',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'seq', in: 'path', required: true, schema: { type: 'integer' } },
       ],
       responses: {
@@ -184,12 +229,29 @@ export const submissionsPaths = {
     get: {
       tags: ['Submissions'],
       summary: 'Reconstructed file content at a given seq',
-      description: 'Cache-Control: max-age=60, private. Returns 200 even for tainted files (with warning).',
+      description:
+        'Cache-Control: max-age=60, private. Returns 200 even for tainted files (with warning).',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'path', in: 'path', required: true, schema: { type: 'string' }, description: 'URL-encoded file path (may contain slashes)' },
-        { name: 'at_seq', in: 'query', schema: { type: 'integer' }, description: 'Event seq at which to reconstruct. Defaults to last doc.save.' },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'path',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'URL-encoded file path (may contain slashes)',
+        },
+        {
+          name: 'at_seq',
+          in: 'query',
+          schema: { type: 'integer' },
+          description: 'Event seq at which to reconstruct. Defaults to last doc.save.',
+        },
       ],
       responses: {
         '200': {
@@ -226,7 +288,12 @@ export const submissionsPaths = {
       summary: 'Per-character provenance map (RLE) for a file',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'path', in: 'path', required: true, schema: { type: 'string' } },
         { name: 'at_seq', in: 'query', schema: { type: 'integer' } },
       ],
@@ -244,7 +311,10 @@ export const submissionsPaths = {
                   },
                   warnings: {
                     type: 'array',
-                    items: { type: 'object', properties: { code: { type: 'string' }, message: { type: 'string' } } },
+                    items: {
+                      type: 'object',
+                      properties: { code: { type: 'string' }, message: { type: 'string' } },
+                    },
                   },
                 },
               },
@@ -261,7 +331,12 @@ export const submissionsPaths = {
       description: 'Rate: blob.download. Token principals require scopes.include_blobs=true.',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'submissionId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '302': { description: 'Redirect to pre-signed S3 URL (valid 5 min)' },
@@ -280,7 +355,12 @@ export const submissionsPaths = {
       summary: 'Get active heuristic config for a semester',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -296,10 +376,16 @@ export const submissionsPaths = {
     put: {
       tags: ['HeuristicConfig'],
       summary: 'Dry-run or commit a new heuristic config version (semester admin)',
-      description: 'Add ?dryRun=true to preview the diff without committing. Requires If-Match header with current version.',
+      description:
+        'Add ?dryRun=true to preview the diff without committing. Requires If-Match header with current version.',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
         { name: 'dryRun', in: 'query', schema: { type: 'boolean', default: false } },
       ],
       requestBody: {
@@ -329,7 +415,12 @@ export const submissionsPaths = {
       summary: 'List heuristic config history',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {
@@ -339,7 +430,10 @@ export const submissionsPaths = {
               schema: {
                 type: 'object',
                 properties: {
-                  configs: { type: 'array', items: { $ref: '#/components/schemas/HeuristicConfigSummary' } },
+                  configs: {
+                    type: 'array',
+                    items: { $ref: '#/components/schemas/HeuristicConfigSummary' },
+                  },
                 },
               },
             },
@@ -354,7 +448,12 @@ export const submissionsPaths = {
       summary: 'Enqueue a semester-wide recompute job (semester admin)',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '202': {
@@ -377,8 +476,18 @@ export const submissionsPaths = {
       summary: 'Poll recompute job status',
       security: [{ BearerAuth: [] }, { SessionCookie: [] }],
       parameters: [
-        { name: 'semesterId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
-        { name: 'jobId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'jobId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': {

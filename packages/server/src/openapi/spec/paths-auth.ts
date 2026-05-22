@@ -134,7 +134,12 @@ export const authPaths = {
       summary: 'Revoke an API token',
       security: [{ SessionCookie: [] }],
       parameters: [
-        { name: 'tokenId', in: 'path', required: true, schema: { $ref: '#/components/schemas/UUID' } },
+        {
+          name: 'tokenId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
       ],
       responses: {
         '200': { description: 'Token revoked' },
