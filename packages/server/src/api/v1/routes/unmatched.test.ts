@@ -376,9 +376,10 @@ describe('POST /semesters/:semesterId/unmatched/:id/discard', () => {
         .from(ingest_files)
         .where(eq(ingest_files.id, file.id));
       expect(updated!.status).toBe('discarded');
-      expect((updated!.error as Record<string, unknown>)['discard_reason']).toBe(
-        'student withdrew',
-      );
+      const error = updated!.error as Record<string, unknown>;
+      expect(error['code']).toBe('DISCARDED');
+      expect(error['message']).toBe('student withdrew');
+      expect((error['details'] as Record<string, unknown>)['reason']).toBe('student withdrew');
 
       // V20: assert audit row.
       const auditRow = await waitForAuditRow(db, 'ingest.unmatched.discard', file.id);
