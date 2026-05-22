@@ -1,0 +1,371 @@
+/**
+ * TuningView — heuristic weight + enable/disable tuning with dry-run preview.
+ *
+ * Phase 24. Route: /s/:semesterSlug/tuning
+ *
+ * Layout:
+ * - Left pane: scrollable heuristic list. Each row: name, enabled toggle, weight slider (0.0–2.0).
+ * - Right pane: dry-run preview (histogram + top movers).
+ * - Top bar: "Save & Recompute" button + "Reset to current" button.
+ *
+ * Design decisions:
+ * - Slider drag debounces 300ms before triggering dry-run (avoids per-pixel API calls).
+ * - Recompute progress tracked via URL query param ?recompute_job=<id> so refresh works.
+ * - 409 CONFIG_VERSION_CONFLICT → toast + offer reload.
+ * - If-Match header set to current active config version.
+ */
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import {
+  useActiveConfig,
+  useCommitConfig,
+  useDryRunConfig,
+  useSemesters,
+} from '../../api/queries.js';
+import type { HeuristicConfigBody } from '@provenance/shared/api-schemas';
+import { RecomputeProgress } from './RecomputeProgress.js';
+
+// ---------------------------------------------------------------------------
+// All known heuristic IDs (from Phase 13a)
+// ---------------------------------------------------------------------------
+
+const KNOWN_HEURISTIC_IDS = [
+  'large_paste',
+  'external_edits',
+  'low_typing_high_output',
+  'chain_broken',
+  'paste_is_solution',
+  'mass_external_replacement',
+  'time_to_first_save_anomaly',
+  'idle_then_complete',
+  'no_intermediate_errors',
+  'paste_matches_known_source',
+  'ai_extension_active',
+  'extension_hash_mismatch',
+  'extension_set_changed_mid_assignment',
+  'clock_jumps',
+  'gap_in_heartbeats',
+  'manifest_sig_invalid',
+  'session_binding_invalid',
+  'monotonic_t_regression',
+  'monotonic_wall_regression',
+  'shell_integration_disabled',
+  'terminal_active_during_external_change',
+  'multiple_sessions_overlap',
+  'editing_pattern_clone',
+  'paste_shared_across_students',
+] as const;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function configFromActive(active: { config: HeuristicConfigBody }): HeuristicConfigBody {
+  // Deep clone so mutations don't affect cached query data
+  return JSON.parse(JSON.stringify(active.config)) as HeuristicConfigBody;
+}
+
+// ---------------------------------------------------------------------------
+// TuningView
+// ---------------------------------------------------------------------------
+
+export function TuningView() {
+  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const { data: semesters } = useSemesters();
+  const semester = semesters?.find((s) => s.semester_slug === semesterSlug);
+  const semesterId = semester?.semester_id ?? '';
+
+  const { data: activeConfig, isLoading: configLoading } = useActiveConfig(semesterId);
+
+  // Local candidate config — initialized from active config once it loads.
+  const [candidate, setCandidate] = useState<HeuristicConfigBody | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Dry-run preview
+  const dryRunMutation = useDryRunConfig(semesterId);
+  const commitMutation = useCommitConfig(semesterId);
+
+  // Debounce timer ref
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Recompute job tracking via URL query param
+  const recomputeJobId = searchParams.get('recompute_job') ?? '';
+
+  // Initialize candidate from active config
+  useEffect(() => {
+    if (activeConfig && candidate === null) {
+      setCandidate(configFromActive(activeConfig));
+    }
+  }, [activeConfig, candidate]);
+
+  // Trigger dry-run after 300ms debounce
+  const triggerDryRun = useCallback(
+    (config: HeuristicConfigBody) => {
+      if (!activeConfig) return;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        void dryRunMutation.mutate({
+          config,
+          currentVersion: activeConfig.version,
+        });
+      }, 300);
+    },
+    [activeConfig, dryRunMutation],
+  );
+
+  function handleToggle(heuristicId: string, enabled: boolean) {
+    if (!candidate) return;
+    const next: HeuristicConfigBody = {
+      ...candidate,
+      per_flag: {
+        ...candidate.per_flag,
+        [heuristicId]: { ...candidate.per_flag[heuristicId]!, enabled },
+      },
+    };
+    setCandidate(next);
+    triggerDryRun(next);
+  }
+
+  function handleWeight(heuristicId: string, weight: number) {
+    if (!candidate) return;
+    const next: HeuristicConfigBody = {
+      ...candidate,
+      per_flag: {
+        ...candidate.per_flag,
+        [heuristicId]: { ...candidate.per_flag[heuristicId]!, weight },
+      },
+    };
+    setCandidate(next);
+    triggerDryRun(next);
+  }
+
+  function handleReset() {
+    if (!activeConfig) return;
+    const reset = configFromActive(activeConfig);
+    setCandidate(reset);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    dryRunMutation.reset();
+  }
+
+  async function handleSaveAndRecompute() {
+    if (!candidate || !activeConfig) return;
+    try {
+      const result = await commitMutation.mutateAsync({
+        config: candidate,
+        currentVersion: activeConfig.version,
+      });
+      // Navigate to same page with recompute_job param
+      const next = new URLSearchParams(searchParams);
+      next.set('recompute_job', result.recompute_job.id);
+      setSearchParams(next, { replace: true });
+    } catch (err: unknown) {
+      const errorObj = err as { code?: string };
+      if (errorObj?.code === 'CONFIG_VERSION_CONFLICT') {
+        setToast('Config was updated by another admin. Click "Reset to current" to reload.');
+      } else {
+        setToast('Failed to save config. Please try again.');
+      }
+    }
+  }
+
+  if (configLoading || candidate === null) {
+    return (
+      <div
+        className="flex items-center justify-center h-64 text-gray-500"
+        data-testid="tuning-loading"
+      >
+        Loading heuristic config…
+      </div>
+    );
+  }
+
+  const dryRunData = dryRunMutation.data?.diff;
+
+  // Build histogram data for recharts
+  const histogramData = dryRunData
+    ? dryRunData.score_histogram_old.map((old, i) => ({
+        bucket: i,
+        before: old,
+        after: dryRunData.score_histogram_new[i] ?? 0,
+      }))
+    : [];
+
+  return (
+    <div className="flex flex-col min-h-0" data-testid="tuning-view">
+      {/* In-flight recompute banner */}
+      {recomputeJobId && (
+        <RecomputeProgress
+          semesterId={semesterId}
+          jobId={recomputeJobId}
+          semesterSlug={semesterSlug}
+          onClose={() => {
+            const next = new URLSearchParams(searchParams);
+            next.delete('recompute_job');
+            setSearchParams(next, { replace: true });
+          }}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div
+          className="mx-4 mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800 flex justify-between"
+          data-testid="tuning-toast"
+        >
+          <span>{toast}</span>
+          <button onClick={() => setToast(null)} className="ml-4 text-yellow-600 hover:underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Action bar */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 bg-white">
+        <h1 className="text-sm font-semibold text-gray-900 mr-4">Heuristic Tuning</h1>
+        <button
+          onClick={() => void handleSaveAndRecompute()}
+          disabled={commitMutation.isPending || dryRunMutation.isPending || !candidate}
+          className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
+          data-testid="save-recompute-btn"
+        >
+          {commitMutation.isPending ? 'Saving…' : 'Save & Recompute'}
+        </button>
+        <button
+          onClick={handleReset}
+          className="px-4 py-1.5 border border-gray-300 text-sm rounded hover:bg-gray-50"
+          data-testid="reset-btn"
+        >
+          Reset to current
+        </button>
+      </div>
+
+      {/* Main layout */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Left pane — heuristic list */}
+        <div
+          className="w-96 flex-shrink-0 overflow-y-auto border-r border-gray-200 bg-white"
+          data-testid="heuristic-list"
+        >
+          {KNOWN_HEURISTIC_IDS.map((id) => {
+            const flagCfg = candidate.per_flag[id] ?? { enabled: true, weight: 1.0 };
+            return (
+              <div key={id} className="px-4 py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-gray-700 font-mono">{id}</span>
+                  <label className="flex items-center gap-1 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={flagCfg.enabled}
+                      onChange={(e) => handleToggle(id, e.target.checked)}
+                      className="h-3 w-3"
+                      data-testid={`toggle-${id}`}
+                    />
+                    <span className="text-xs text-gray-500">{flagCfg.enabled ? 'on' : 'off'}</span>
+                  </label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={flagCfg.weight}
+                    onChange={(e) => handleWeight(id, parseFloat(e.target.value))}
+                    className="flex-1 h-1"
+                    data-testid={`slider-${id}`}
+                  />
+                  <span className="text-xs text-gray-500 w-8 text-right">
+                    {flagCfg.weight.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Right pane — dry-run preview */}
+        <div className="flex-1 overflow-y-auto bg-gray-50 p-4" data-testid="dryrun-preview">
+          {dryRunMutation.isPending && (
+            <div className="text-sm text-gray-500 mb-4">Computing dry-run diff…</div>
+          )}
+
+          {dryRunData && !dryRunMutation.isPending && (
+            <>
+              <div className="mb-4 p-3 bg-white border border-gray-200 rounded">
+                <p className="text-sm font-medium text-gray-800">
+                  Submissions with tier change:{' '}
+                  <span className="text-blue-600">{dryRunData.submissions_with_tier_change}</span>
+                </p>
+              </div>
+
+              {/* Histogram */}
+              <div
+                className="mb-4 bg-white border border-gray-200 rounded p-4"
+                data-testid="score-histogram"
+              >
+                <h3 className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+                  Score Distribution
+                </h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={histogramData}>
+                    <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="before" fill="#94a3b8" name="Before" />
+                    <Bar dataKey="after" fill="#3b82f6" name="After" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Top movers */}
+              {dryRunData.top_movers.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded" data-testid="top-movers">
+                  <h3 className="text-xs font-semibold text-gray-600 px-4 py-2 border-b border-gray-100 uppercase tracking-wide">
+                    Top Movers
+                  </h3>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="px-4 py-2 text-left text-gray-500 font-medium">Student</th>
+                        <th className="px-4 py-2 text-left text-gray-500 font-medium">
+                          Assignment
+                        </th>
+                        <th className="px-4 py-2 text-right text-gray-500 font-medium">
+                          Before → After
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dryRunData.top_movers.slice(0, 20).map((m) => (
+                        <tr key={m.submission_id} className="border-b border-gray-50">
+                          <td className="px-4 py-1.5">{m.student.display_name}</td>
+                          <td className="px-4 py-1.5 text-gray-500">
+                            {m.assignment.assignment_id_str}
+                          </td>
+                          <td className="px-4 py-1.5 text-right font-mono">
+                            {m.old_score.toFixed(1)} → {m.new_score.toFixed(1)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {!dryRunData && !dryRunMutation.isPending && (
+            <p className="text-sm text-gray-400 text-center mt-16">
+              Adjust sliders or toggles to see a dry-run preview.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
