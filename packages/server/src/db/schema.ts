@@ -767,6 +767,85 @@ export const recompute_jobs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// cross_flags  (PRD §5.4 / migration 0012)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per cross-heuristic finding for a semester.
+ *
+ * Unlike per-submission `flags`, these are semester-scoped: the entire set is
+ * replaced atomically on each recompute_cross_flags run (DELETE-then-INSERT
+ * contract in run-cross.ts).
+ *
+ * `severity` CHECK is defined here and in the SQL migration for defence-in-depth.
+ * The SQL migration is the authority.
+ */
+export const cross_flags = pgTable(
+  'cross_flags',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    heuristic_id: text('heuristic_id').notNull(),
+    severity: text('severity').notNull(),
+    confidence: doublePrecision('confidence').notNull(),
+    detail: jsonb('detail')
+      .notNull()
+      .default(sql`'{}'`),
+    heuristic_config_version: integer('heuristic_config_version').notNull(),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    // cross_flags_sem_h_idx is created in SQL migration; mirrors are defined
+    // here for Drizzle query-builder index hints (not relied on for DDL).
+    index('cross_flags_sem_h_idx').on(t.semester_id, t.heuristic_id),
+    check('cross_flags_severity_check', sql`${t.severity} IN ('info','low','medium','high')`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// cross_flag_participants  (PRD §5.4 / migration 0012)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per (cross_flag, submission) pair.
+ *
+ * `supporting_seqs` mirrors the per-submission `flags.supporting_seqs` type:
+ * int[] of globalIdx values (events.seq) that constitute the evidence for this
+ * submission's involvement in the cross flag.
+ *
+ * CASCADE on cross_flag_id means deleting a cross_flags row removes all
+ * participant rows — this is what the DELETE-then-INSERT contract relies on.
+ * CASCADE on submission_id means deleting a submission removes its participant
+ * rows without orphaning the cross_flags row (other participants remain).
+ */
+export const cross_flag_participants = pgTable(
+  'cross_flag_participants',
+  {
+    cross_flag_id: uuid('cross_flag_id')
+      .notNull()
+      .references(() => cross_flags.id, { onDelete: 'cascade' }),
+    submission_id: uuid('submission_id')
+      .notNull()
+      .references(() => submissions.id, { onDelete: 'cascade' }),
+    supporting_seqs: integer('supporting_seqs')
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+  },
+  (t) => [
+    primaryKey({ columns: [t.cross_flag_id, t.submission_id] }),
+    // cfp_submission_idx is created in SQL migration.
+    index('cfp_submission_idx').on(t.submission_id),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -810,3 +889,7 @@ export type HeuristicConfig = typeof heuristic_configs.$inferSelect;
 export type NewHeuristicConfig = typeof heuristic_configs.$inferInsert;
 export type RecomputeJob = typeof recompute_jobs.$inferSelect;
 export type NewRecomputeJob = typeof recompute_jobs.$inferInsert;
+export type CrossFlag = typeof cross_flags.$inferSelect;
+export type NewCrossFlag = typeof cross_flags.$inferInsert;
+export type CrossFlagParticipant = typeof cross_flag_participants.$inferSelect;
+export type NewCrossFlagParticipant = typeof cross_flag_participants.$inferInsert;

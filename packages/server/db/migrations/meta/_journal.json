@@ -71,6 +71,13 @@
       "when": 1748900000000,
       "tag": "0010_heuristic_configs_and_recompute",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1749000000000,
+      "tag": "0012_cross_flags",
+      "breakpoints": true
     }
   ]
 }
