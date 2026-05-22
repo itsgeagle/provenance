@@ -56,10 +56,10 @@ export function useMe() {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the user's accessible semesters, derived from /me memberships.
+ * Returns the user's accessible semesters as memberships.
  *
- * This is NOT a separate API call: it re-uses the /me endpoint and maps
- * memberships to the semester list.
+ * This is NOT a separate API call: it re-uses the /me endpoint and returns
+ * memberships directly.
  */
 export function useSemesters() {
   return useQuery<Membership[], Error>({
@@ -91,7 +91,6 @@ export function useLogout() {
       }),
     onSuccess: () => {
       // Purge all cached data — user is no longer authenticated.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       queryClient.clear();
     },
   });
