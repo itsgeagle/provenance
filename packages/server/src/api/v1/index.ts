@@ -36,6 +36,7 @@ import { createMembersRouter } from './routes/members.js';
 import { createRosterRouter } from './routes/roster.js';
 import { createIngestRouter } from './routes/ingest.js';
 import { createHeuristicConfigRouter } from './routes/heuristic-config.js';
+import { createUnmatchedRouter } from './routes/unmatched.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -78,6 +79,12 @@ export function createV1App(): Hono {
   // Paths: /semesters/:semesterId/heuristic-config (GET, PUT)
   //        /semesters/:semesterId/heuristic-configs (GET)
   app.route('/', createHeuristicConfigRouter());
+
+  // Unmatched tray routes (Phase 15).
+  // Paths: /semesters/:semesterId/unmatched (GET)
+  //        /semesters/:semesterId/unmatched/:ingestFileId (PATCH)
+  //        /semesters/:semesterId/unmatched/:ingestFileId/discard (POST)
+  app.route('/', createUnmatchedRouter());
 
   // Global error handler
   app.onError(errorFormatter);
