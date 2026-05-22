@@ -30,11 +30,9 @@
  * progress_done + progress_failed == progress_total. If so, send one
  * recompute_finalize with singletonKey = recomputeJobId.
  *
- * ## Phase 14 carry-over
+ * ## Phase 14 hook
  *
- * TODO(phase-14): recompute_finalize should enqueue a `recompute_cross_flags`
- * job for the semester here. The handler is a no-op for cross-flags in 13b.
- * See docs/analyzer-v3-implementation-plan.md §Phase 14.
+ * // Phase 14 hooks recompute_finalize to enqueue recompute_cross_flags (see lines ~388-397).
  */
 
 import { eq, sql, and } from 'drizzle-orm';
