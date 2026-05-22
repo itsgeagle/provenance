@@ -35,7 +35,7 @@ import type { Principal } from '../../middleware/auth-session.js';
 // ---------------------------------------------------------------------------
 
 interface AuditCursor {
-  at: string; // ISO date string
+  at: number; // Unix timestamp in milliseconds (numeric epoch for precision)
   id: number;
 }
 
@@ -47,7 +47,7 @@ const MAX_LIMIT = 200;
 // ---------------------------------------------------------------------------
 
 function encodeCursor(at: Date, id: number): string {
-  const payload: AuditCursor = { at: at.toISOString(), id };
+  const payload: AuditCursor = { at: at.getTime(), id };
   return Buffer.from(JSON.stringify(payload)).toString('base64url');
 }
 
@@ -60,7 +60,7 @@ function decodeCursor(raw: string): AuditCursor | null {
       parsed !== null &&
       'at' in parsed &&
       'id' in parsed &&
-      typeof (parsed as Record<string, unknown>).at === 'string' &&
+      typeof (parsed as Record<string, unknown>).at === 'number' &&
       typeof (parsed as Record<string, unknown>).id === 'number'
     ) {
       return parsed as AuditCursor;
@@ -219,13 +219,19 @@ export function createAuditRouter(): Hono {
       conditions.push(lte(audit_log.at, untilDate));
     }
 
-    // Cursor condition: (at < cursor.at) OR (at = cursor.at AND id < cursor.id)
+    // Cursor condition (DESC pagination):
+    // Rows before the cursor are those with:
+    //   (at < T_this_ms) OR (at <= T_this_ms AND id < cursor.id)
+    // where T_this_ms is cursor.at. To handle ms-precision boundaries,
+    // we use the numeric epoch directly, avoiding ISO string round-trip
+    // truncation (V33-style fix).
     if (cursor !== null) {
-      const cursorAt = new Date(cursor.at);
+      const cursorAtMs = cursor.at;
+      const cursorAtDate = new Date(cursorAtMs);
       conditions.push(
         or(
-          lt(audit_log.at, cursorAt),
-          and(eq(audit_log.at, cursorAt), lt(audit_log.id, cursor.id)),
+          lt(audit_log.at, cursorAtDate),
+          and(eq(audit_log.at, cursorAtDate), lt(audit_log.id, cursor.id)),
         ) as WhereCondition,
       );
     }
