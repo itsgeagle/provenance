@@ -121,4 +121,47 @@ describe('parseRosterCsv', () => {
     expect(result.rows).toHaveLength(0);
     expect(result.errors).toHaveLength(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // UTF-8 BOM handling
+  // ---------------------------------------------------------------------------
+
+  it('strips UTF-8 BOM and parses successfully', () => {
+    // U+FEFF prepended (as produced by Excel "Save As CSV UTF-8 with BOM").
+    const csv = `﻿sid,display_name\n12345,Alice Smith`;
+    const result = parseRosterCsv(csv);
+    expect(result.errors).toHaveLength(0);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.sid).toBe('12345');
+    expect(result.rows[0]?.display_name).toBe('Alice Smith');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Duplicate sid detection
+  // ---------------------------------------------------------------------------
+
+  it('reports row-level error for duplicate sid and excludes second occurrence', () => {
+    const csv = `sid,display_name\n12345,Alice Smith\n67890,Bob Jones\n12345,Alice Duplicate`;
+    const result = parseRosterCsv(csv);
+    // Only one error: the duplicate at row 4.
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.row).toBe(4);
+    expect(result.errors[0]?.message).toMatch(/duplicate sid/i);
+    expect(result.errors[0]?.message).toContain('12345');
+    expect(result.errors[0]?.message).toContain('row 2'); // first seen at row 2
+    // Only valid (non-duplicate) rows are in the output.
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map((r) => r.sid)).toEqual(['12345', '67890']);
+  });
+
+  it('duplicate sid check is case-insensitive', () => {
+    const csv = `sid,display_name\nSTU001,Alice Smith\nstu001,Alice Dupe`;
+    const result = parseRosterCsv(csv);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.row).toBe(3);
+    expect(result.errors[0]?.message).toMatch(/duplicate sid/i);
+    // Only the first occurrence is kept.
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.sid).toBe('STU001');
+  });
 });

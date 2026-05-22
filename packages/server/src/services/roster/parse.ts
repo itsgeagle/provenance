@@ -50,10 +50,13 @@ const KNOWN_COLUMNS = new Set(['sid', 'display_name', 'email']);
  * @throws ApiError(ROSTER_CSV_MISSING_REQUIRED_COLUMN) if required headers missing.
  */
 export function parseRosterCsv(input: string): ParseResult {
+  // Strip UTF-8 BOM (U+FEFF) if present. Excel and other tools often prepend it.
+  const sanitized = input.replace(/^﻿/, '');
+
   // Papa Parse with header mode and skipEmptyLines.
   // We use `dynamicTyping: false` to keep everything as strings — we do our
   // own coercion. `transform` trims whitespace from all values.
-  const result = Papa.parse<Record<string, string>>(input, {
+  const result = Papa.parse<Record<string, string>>(sanitized, {
     header: true,
     skipEmptyLines: true,
     dynamicTyping: false,
@@ -90,6 +93,9 @@ export function parseRosterCsv(input: string): ParseResult {
   const rows: ParsedRow[] = [];
   const errors: { row: number; message: string }[] = [];
 
+  // Track seen sids (normalized to lowercase) within this file to detect duplicates.
+  const seenSids = new Map<string, number>(); // lowercase sid → first row number
+
   // Row index starts at 2 (1-indexed, row 1 = header).
   result.data.forEach((rawRow, idx) => {
     const rowNum = idx + 2;
@@ -105,6 +111,18 @@ export function parseRosterCsv(input: string): ParseResult {
       errors.push({ row: rowNum, message: 'display_name is required and cannot be empty' });
       return;
     }
+
+    // Duplicate sid check (case-insensitive, matching diff normalization).
+    const sidLower = sid.toLowerCase();
+    const firstSeenAt = seenSids.get(sidLower);
+    if (firstSeenAt !== undefined) {
+      errors.push({
+        row: rowNum,
+        message: `duplicate sid: ${sid} (first seen at row ${firstSeenAt})`,
+      });
+      return;
+    }
+    seenSids.set(sidLower, rowNum);
 
     const emailRaw = emailHeader !== undefined ? (rawRow[emailHeader] ?? '') : '';
     const email = emailRaw === '' ? null : emailRaw;
