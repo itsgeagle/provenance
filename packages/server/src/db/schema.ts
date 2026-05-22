@@ -681,6 +681,92 @@ export const flags = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// heuristic_configs  (PRD §5.5 / migration 0010)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-semester heuristic configuration versioning.
+ *
+ * At most one row per semester has is_active=true; enforced by the partial
+ * unique index `heuristic_configs_active_idx` in migration 0010 (SQL-only —
+ * Drizzle cannot express partial unique indexes per V27 convention).
+ *
+ * `config` is a jsonb object conforming to PRD §10.2 schema.
+ */
+export const heuristic_configs = pgTable(
+  'heuristic_configs',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    config: jsonb('config').notNull(),
+    set_by: uuid('set_by')
+      .notNull()
+      .references(() => users.id),
+    set_at: timestamp('set_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    note: text('note').notNull().default(''),
+    is_active: boolean('is_active').notNull().default(false),
+  },
+  (t) => [
+    unique('heuristic_configs_semester_version_key').on(t.semester_id, t.version),
+    // heuristic_configs_active_idx is a partial unique index (WHERE is_active);
+    // Drizzle cannot express partial unique indexes in the schema; it is created
+    // in the migration SQL directly (V27 convention).
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// recompute_jobs  (PRD §5.5 / migration 0010)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tracks a single recompute run for a semester under a given config.
+ * Phase 13b will wire the pg-boss handlers that drive status transitions.
+ */
+export const recompute_jobs = pgTable(
+  'recompute_jobs',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    target_config_id: uuid('target_config_id')
+      .notNull()
+      .references(() => heuristic_configs.id),
+    triggered_by: uuid('triggered_by')
+      .notNull()
+      .references(() => users.id),
+    status: text('status').notNull(),
+    progress_total: integer('progress_total').notNull().default(0),
+    progress_done: integer('progress_done').notNull().default(0),
+    progress_failed: integer('progress_failed').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    started_at: timestamp('started_at', { withTimezone: true }),
+    completed_at: timestamp('completed_at', { withTimezone: true }),
+    summary: jsonb('summary')
+      .notNull()
+      .default(sql`'{}'`),
+  },
+  (t) => [
+    index('recompute_jobs_sem_idx').on(t.semester_id, t.created_at),
+    check(
+      'recompute_jobs_status_check',
+      sql`${t.status} IN ('queued','running','succeeded','partial','failed','cancelled')`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -720,3 +806,7 @@ export type ValidationResult = typeof validation_results.$inferSelect;
 export type NewValidationResult = typeof validation_results.$inferInsert;
 export type Flag = typeof flags.$inferSelect;
 export type NewFlag = typeof flags.$inferInsert;
+export type HeuristicConfig = typeof heuristic_configs.$inferSelect;
+export type NewHeuristicConfig = typeof heuristic_configs.$inferInsert;
+export type RecomputeJob = typeof recompute_jobs.$inferSelect;
+export type NewRecomputeJob = typeof recompute_jobs.$inferInsert;
