@@ -41,6 +41,7 @@ import { RosterView } from './views/roster/RosterView.js';
 import { MembersView } from './views/members/MembersView.js';
 import { AssignmentsView } from './views/assignments/AssignmentsView.js';
 import { SemesterSettingsView } from './views/settings/SemesterSettingsView.js';
+import { SubmissionShell } from './views/submission/SubmissionShell.js';
 
 // ---------------------------------------------------------------------------
 // Legacy v2 route guards
@@ -186,6 +187,17 @@ export function App() {
           <RequireAuth>
             <AppShell>
               <SemesterSettingsView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      {/* Phase 23: per-submission drill-in via SubmissionShell */}
+      <Route
+        path="/s/:semesterSlug/sub/:submissionId"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <SubmissionShell />
             </AppShell>
           </RequireAuth>
         }
