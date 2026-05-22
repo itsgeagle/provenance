@@ -16,6 +16,7 @@
  */
 
 import { useSearchParams } from 'react-router-dom';
+import { getBaseUrl } from '../../api/client.js';
 
 const ERROR_MESSAGES: Record<string, string> = {
   HOSTED_DOMAIN_MISMATCH:
@@ -58,7 +59,7 @@ export function LoginView() {
         {/* POST form — browser follows the 302 redirect automatically */}
         <form
           method="POST"
-          action={`/api/v1/auth/google/start?return_to=${encodeURIComponent(returnTo)}`}
+          action={`${getBaseUrl()}/auth/google/start?return_to=${encodeURIComponent(returnTo)}`}
         >
           <button
             type="submit"

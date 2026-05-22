@@ -52,7 +52,7 @@ const ErrorBodySchema = z.object({
 // Base URL
 // ---------------------------------------------------------------------------
 
-function getBaseUrl(): string {
+export function getBaseUrl(): string {
   // VITE_API_BASE_URL is set at build time or via .env.local.
   // Default to /api/v1 for same-origin dev proxy (Vite proxies /api to the server).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Vite injects import.meta.env at build time; type is `any` via Vite's glob typing
