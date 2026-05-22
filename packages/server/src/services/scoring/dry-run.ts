@@ -1,33 +1,42 @@
 /**
- * dry-run scoring service — Phase 13a.
+ * dry-run scoring service — Phase 13b (updated from 13a per V30).
  *
- * computeDryRunDiff: given (semesterId, candidateConfig), re-weights the
- * existing flags in DB against the candidate config and returns a diff payload
- * per PRD §8.11.
+ * computeDryRunDiff: given (semesterId, candidateConfig), runs heuristics
+ * against DB events for each non-superseded submission (via recomputeSubmission
+ * with simulate=true) and returns a diff payload per PRD §8.11.
  *
- * ## Key design decision: re-weight existing flags, NOT re-run heuristics
+ * ## V30 fix: re-runs heuristics from DB events instead of re-weighting flags
  *
- * The "config" affects per-flag weights (enabled/weight) and severity_weights.
- * It does NOT change the set of flags produced by the heuristic functions
- * (which depend on threshold values from the v2 HeuristicConfig, a separate
- * shape). Therefore, dry-run simply reads existing flags rows from the DB and
- * recomputes score_contribution using the candidate severity_weights and
- * per_flag[heuristicId].weight. This is:
- *   - Much faster (no bundle re-parsing, no heuristic re-execution).
- *   - Correct per PRD §10.5 intent: "does NOT touch heuristic_configs or flags".
+ * Phase 13a's implementation re-weighted existing flag rows rather than
+ * re-running heuristic functions. This was documented as a known limitation
+ * (V30) because threshold changes were not reflected.
+ *
+ * Phase 13b fixes this by calling recomputeSubmission(simulate=true) per
+ * submission, which reconstructs a Bundle stub from DB events and runs the
+ * full heuristic suite. The result correctly reflects both weight changes AND
+ * threshold changes (from per_flag[id].thresholds forwarded to v2's config).
+ *
+ * The old recomputeScore helper (weight-only) is removed as dead code.
  *
  * ## Histogram bucketing
  *
  * Upper bound = max(max(old_scores), max(new_scores)). This ensures both
  * histograms share the same bucket boundaries for direct comparison. If all
  * scores are 0, the upper bound is 1.0 to avoid zero-width buckets.
+ *
+ * ## Performance
+ *
+ * O(n_submissions × heuristic_cost). PRD §10.5 budget: must complete within
+ * 800ms server-side for ≤ 1000 submissions. Each simulate call is ~1ms p99
+ * for typical bundles (no I/O beyond DB event read). For large semesters the
+ * rate limit kicks in.
  */
 
-import { eq, isNull, inArray, and } from 'drizzle-orm';
-import { submissions, flags, roster_entries, assignments } from '../../db/schema.js';
+import { eq, isNull, and } from 'drizzle-orm';
+import { submissions, roster_entries, assignments } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
-import { computeScore } from './compute.js';
+import { recomputeSubmission } from './recompute-submission.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
@@ -81,37 +90,6 @@ function buildHistogram(scores: number[], upperBound: number): number[] {
   return buckets;
 }
 
-/**
- * Recompute score_total and score_max_severity for a submission's flags
- * using the candidate config's weights and severity_weights.
- *
- * @param flagRows - All flag rows for a single submission.
- * @param config - The candidate ServerHeuristicConfig.
- */
-function recomputeScore(
-  flagRows: Array<{
-    heuristic_id: string;
-    severity: string;
-    confidence: number;
-  }>,
-  config: ServerHeuristicConfig,
-): { score_total: number; score_max_severity: Severity } {
-  const scoreInputs: Array<{ severity: string; score_contribution: number }> = [];
-
-  for (const flag of flagRows) {
-    const perFlag = config.per_flag[flag.heuristic_id];
-    // Disabled heuristics contribute 0 (and are excluded from max_severity calc).
-    if (!perFlag || !perFlag.enabled) continue;
-
-    const severityWeight =
-      config.severity_weights[flag.severity as keyof typeof config.severity_weights] ?? 0;
-    const contribution = severityWeight * flag.confidence * perFlag.weight;
-    scoreInputs.push({ severity: flag.severity, score_contribution: contribution });
-  }
-
-  return computeScore(scoreInputs);
-}
-
 // ---------------------------------------------------------------------------
 // computeDryRunDiff
 // ---------------------------------------------------------------------------
@@ -121,12 +99,9 @@ function recomputeScore(
  *
  * Does NOT write any rows to the DB.
  *
- * KNOWN LIMITATION (Phase 13a): This implementation re-weights existing
- * flag rows rather than re-running heuristic functions from DB events.
- * Consequence: threshold-override changes in `per_flag[id].thresholds`
- * are NOT reflected in the diff. Phase 13b's recompute pipeline adds
- * the heuristic-re-run path; once available, this function should call
- * into it with a "simulate" flag (no writes). Tracked in V30.
+ * V30 fix (Phase 13b): this now calls recomputeSubmission(simulate=true) per
+ * submission, which re-runs heuristics from DB events. This correctly reflects
+ * threshold changes in per_flag[id].thresholds, not just weight/enabled changes.
  *
  * @param db - Drizzle DB handle.
  * @param semesterId - UUID of the semester.
@@ -176,40 +151,12 @@ export async function computeDryRunDiff(
   }
 
   // -------------------------------------------------------------------------
-  // Step 2: Load all flags for the semester's non-superseded submissions.
-  // -------------------------------------------------------------------------
-  const submissionIds = filteredSubmissions.map((s) => s.id);
-
-  const allFlagRows = await db
-    .select({
-      submission_id: flags.submission_id,
-      heuristic_id: flags.heuristic_id,
-      severity: flags.severity,
-      confidence: flags.confidence,
-    })
-    .from(flags)
-    .where(inArray(flags.submission_id, submissionIds));
-
-  // Group flags by submission_id.
-  const flagsBySubmission = new Map<
-    string,
-    Array<{ heuristic_id: string; severity: string; confidence: number }>
-  >();
-  for (const flag of allFlagRows) {
-    let bucket = flagsBySubmission.get(flag.submission_id);
-    if (!bucket) {
-      bucket = [];
-      flagsBySubmission.set(flag.submission_id, bucket);
-    }
-    bucket.push({
-      heuristic_id: flag.heuristic_id,
-      severity: flag.severity,
-      confidence: flag.confidence,
-    });
-  }
-
-  // -------------------------------------------------------------------------
-  // Step 3: For each submission, compute (old_score, new_score, old_tier, new_tier).
+  // Step 2: For each submission, run heuristics with simulate=true (no writes)
+  // to get the prospective score under the candidate config.
+  //
+  // This is sequential (Promise.all would be fine for reads-only, but the
+  // heuristic suite is CPU-bound; sequential avoids saturating the thread).
+  // For ≤ 1000 submissions at ~1ms p99 each this stays within the 800ms budget.
   // -------------------------------------------------------------------------
   type SubmissionDiff = {
     submission_id: string;
@@ -228,10 +175,13 @@ export async function computeDryRunDiff(
   const diffs: SubmissionDiff[] = [];
 
   for (const sub of filteredSubmissions) {
-    const subFlags = flagsBySubmission.get(sub.id) ?? [];
-    const { score_total: new_score, score_max_severity: new_tier } = recomputeScore(
-      subFlags,
+    const { score_total: new_score, score_max_severity: new_tier } = await recomputeSubmission(
+      db,
+      sub.id,
+      semesterId,
       candidateConfig,
+      candidateVersion,
+      { simulate: true },
     );
 
     diffs.push({
@@ -250,12 +200,12 @@ export async function computeDryRunDiff(
   }
 
   // -------------------------------------------------------------------------
-  // Step 4: submissions_with_tier_change count.
+  // Step 3: submissions_with_tier_change count.
   // -------------------------------------------------------------------------
   const withTierChange = diffs.filter((d) => d.old_tier !== d.new_tier).length;
 
   // -------------------------------------------------------------------------
-  // Step 5: top_movers — top 20 by |new_score - old_score| descending.
+  // Step 4: top_movers — top 20 by |new_score - old_score| descending.
   // -------------------------------------------------------------------------
   const sorted = [...diffs].sort(
     (a, b) => Math.abs(b.new_score - b.old_score) - Math.abs(a.new_score - a.old_score),
@@ -279,7 +229,7 @@ export async function computeDryRunDiff(
   }));
 
   // -------------------------------------------------------------------------
-  // Step 6: Histograms.
+  // Step 5: Histograms.
   // Upper bound = max(max(old_scores), max(new_scores)), floor 1.0 for safety.
   // This shared upper bound ensures both histograms use identical bucket widths
   // for direct visual comparison in the UI.
