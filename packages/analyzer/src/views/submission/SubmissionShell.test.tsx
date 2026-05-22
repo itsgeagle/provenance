@@ -124,22 +124,45 @@ describe('SubmissionShell — tab navigation', () => {
     );
   });
 
-  it('clicking Replay tab shows replay stub', () => {
+  it('clicking Replay tab shows replay tab content', async () => {
     setupMinimalHandlers();
+    mswServer.use(
+      http.get(`/api/v1/submissions/${SUBMISSION_ID}/files`, () =>
+        HttpResponse.json({
+          files: [{ path: 'hw1.py', final_length: 100, saves: 3, reconstruction_tainted: false }],
+        }),
+      ),
+      http.get(`/api/v1/submissions/${SUBMISSION_ID}/stats`, () =>
+        HttpResponse.json({
+          per_file: [],
+          aggregate: { total_events: 50, total_saves: 3, total_sessions: 1, total_wall_ms: 0 },
+        }),
+      ),
+    );
     renderShell();
 
     fireEvent.click(screen.getByTestId('tab-replay'));
 
-    expect(screen.getByTestId('replay-stub')).toBeInTheDocument();
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('replay-tab')).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
-  it('clicking Validation tab shows validation stub', () => {
+  it('clicking Validation tab shows validation panel', async () => {
     setupMinimalHandlers();
     renderShell();
 
     fireEvent.click(screen.getByTestId('tab-validation'));
 
-    expect(screen.getByTestId('validation-stub')).toBeInTheDocument();
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('validation-panel')).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
   });
 
   it('clicking Export tab shows export stub', () => {
