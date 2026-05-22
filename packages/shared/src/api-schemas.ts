@@ -206,16 +206,214 @@ export const AssignmentListResponseSchema = z.object({
 export type AssignmentListResponse = z.infer<typeof AssignmentListResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Ingest / submission stubs (Phase 20 minimal; kept for compatibility)
+// Phase 22 — Ingest schemas (PRD §8.6)
 // ---------------------------------------------------------------------------
+
+export const MatchedStudentSchema = z.object({
+  id: z.string().uuid(),
+  sid: z.string(),
+  display_name: z.string(),
+});
+export type MatchedStudent = z.infer<typeof MatchedStudentSchema>;
+
+export const MatchedAssignmentSchema = z.object({
+  id: z.string().uuid(),
+  assignment_id_str: z.string(),
+  label: z.string(),
+});
+export type MatchedAssignment = z.infer<typeof MatchedAssignmentSchema>;
 
 export const IngestFileSummarySchema = z.object({
   id: z.string().uuid(),
-  filename: z.string(),
-  status: z.string(),
-  created_at: z.string().datetime(),
+  original_filename: z.string(),
+  size_bytes: z.number().int(),
+  blob_sha256: z.string(),
+  status: z.enum([
+    'pending',
+    'matched',
+    'unmatched',
+    'duplicate',
+    'failed',
+    'superseded',
+    'discarded',
+  ]),
+  matched_student: MatchedStudentSchema.optional(),
+  matched_assignment: MatchedAssignmentSchema.optional(),
+  submission_id: z.string().uuid().optional(),
+  filename_capture: z.record(z.string(), z.string()).optional(),
+  error: z
+    .object({ code: z.string(), message: z.string(), details: z.unknown().optional() })
+    .optional(),
 });
 export type IngestFileSummary = z.infer<typeof IngestFileSummarySchema>;
+
+export const IngestJobSummarySchema = z.object({
+  total: z.number().int(),
+  matched: z.number().int(),
+  unmatched: z.number().int(),
+  duplicate: z.number().int(),
+  failed: z.number().int(),
+  superseded: z.number().int(),
+  discarded: z.number().int(),
+});
+export type IngestJobSummary = z.infer<typeof IngestJobSummarySchema>;
+
+export const IngestJobStatusSchema = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'partial',
+  'failed',
+  'cancelled',
+]);
+export type IngestJobStatus = z.infer<typeof IngestJobStatusSchema>;
+
+export const IngestJobSchema = z.object({
+  id: z.string().uuid(),
+  semester_id: z.string().uuid(),
+  status: IngestJobStatusSchema,
+  created_at: z.string().nullable(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  summary: IngestJobSummarySchema,
+  files: z.array(IngestFileSummarySchema),
+});
+export type IngestJob = z.infer<typeof IngestJobSchema>;
+
+export const IngestJobListItemSchema = z.object({
+  id: z.string().uuid(),
+  semester_id: z.string().uuid(),
+  status: IngestJobStatusSchema,
+  summary: IngestJobSummarySchema.nullable(),
+  created_at: z.string().nullable(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+});
+export type IngestJobListItem = z.infer<typeof IngestJobListItemSchema>;
+
+export const IngestJobListResponseSchema = z.object({
+  items: z.array(IngestJobListItemSchema),
+  next_cursor: z.string().nullable(),
+});
+export type IngestJobListResponse = z.infer<typeof IngestJobListResponseSchema>;
+
+export const IngestFileListResponseSchema = z.object({
+  items: z.array(IngestFileSummarySchema),
+  next_cursor: z.string().nullable(),
+});
+export type IngestFileListResponse = z.infer<typeof IngestFileListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Roster schemas (PRD §8.4)
+// ---------------------------------------------------------------------------
+
+export const RosterEntrySchema = z.object({
+  id: z.string().uuid(),
+  sid: z.string(),
+  display_name: z.string(),
+  email: z.string().nullable(),
+  extras: z.record(z.string(), z.string()).nullable(),
+});
+export type RosterEntry = z.infer<typeof RosterEntrySchema>;
+
+export const RosterListResponseSchema = z.object({
+  entries: z.array(RosterEntrySchema),
+  next_cursor: z.string().nullable(),
+  total_count: z.number().int(),
+});
+export type RosterListResponse = z.infer<typeof RosterListResponseSchema>;
+
+export const RosterDiffSchema = z.object({
+  upload_id: z.string().uuid(),
+  parsed_rows: z.number().int(),
+  to_add: z.number().int(),
+  to_update: z.number().int(),
+  to_delete: z.number().int(),
+  errors: z.array(z.object({ row: z.number().int().optional(), message: z.string() })),
+});
+export type RosterDiff = z.infer<typeof RosterDiffSchema>;
+
+export const RosterCommitResultSchema = z.object({
+  added: z.number().int(),
+  updated: z.number().int(),
+  deleted: z.number().int(),
+});
+export type RosterCommitResult = z.infer<typeof RosterCommitResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Assignment detail schema (PRD §8.5)
+// ---------------------------------------------------------------------------
+
+export const AssignmentDetailSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  sort_order: z.number().int(),
+});
+export type AssignmentDetail = z.infer<typeof AssignmentDetailSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Members/invitation schemas (PRD §8.3)
+// ---------------------------------------------------------------------------
+
+export const MemberSchema = z.object({
+  user_id: z.string().uuid(),
+  email: z.string(),
+  display_name: z.string().nullable(),
+  role: z.enum(['admin', 'grader']),
+  granted_at: z.string(),
+  granted_by_email: z.string().nullable(),
+});
+export type Member = z.infer<typeof MemberSchema>;
+
+export const InvitationSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  role: z.enum(['admin', 'grader']),
+  invited_at: z.string(),
+  invited_by_email: z.string().nullable(),
+});
+export type Invitation = z.infer<typeof InvitationSchema>;
+
+export const MembersListResponseSchema = z.object({
+  members: z.array(MemberSchema),
+  pending: z.array(InvitationSchema),
+});
+export type MembersListResponse = z.infer<typeof MembersListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Phase 22 — Semester detail schema
+// ---------------------------------------------------------------------------
+
+export const SemesterDetailSchema = z.object({
+  id: z.string().uuid(),
+  course_id: z.string().uuid(),
+  slug: z.string(),
+  term: z.string(),
+  year: z.number().int(),
+  display_name: z.string(),
+  filename_convention: z.string(),
+  blob_retention_days: z.number().int(),
+  derived_retention_days: z.number().int(),
+  archived: z.boolean(),
+  my_role: z.enum(['admin', 'grader']).nullable(),
+  created_at: z.string(),
+});
+export type SemesterDetail = z.infer<typeof SemesterDetailSchema>;
+
+export const SemesterDetailResponseSchema = z.object({
+  semester: SemesterDetailSchema,
+});
+export type SemesterDetailResponse = z.infer<typeof SemesterDetailResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Unmatched list response schema (PRD §8.7)
+// ---------------------------------------------------------------------------
+
+export const UnmatchedListResponseSchema = z.object({
+  items: z.array(IngestFileSummarySchema),
+  next_cursor: z.string().nullable(),
+});
+export type UnmatchedListResponse = z.infer<typeof UnmatchedListResponseSchema>;
 
 export const FlagRowSchema = z.object({
   id: z.string().uuid(),
