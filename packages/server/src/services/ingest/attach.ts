@@ -58,6 +58,7 @@ import { runAndStoreValidation } from './validation.js';
 import { runAndStoreHeuristics } from '../heuristics/run-per-submission.js';
 import { enqueueCrossFlagsJob } from '../../jobs/recompute-cross-flags.js';
 import { Errors } from '../../api/v1/errors.js';
+import { getLogger } from '../../logging.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -341,8 +342,12 @@ export async function attachUnmatchedFile(
   // -------------------------------------------------------------------------
   // Step 9: After transaction commits — enqueue cross-flag recompute.
   // -------------------------------------------------------------------------
-  await enqueueCrossFlagsJob(boss, semesterId).catch(() => {
+  await enqueueCrossFlagsJob(boss, semesterId).catch((err) => {
     // Non-fatal — cross-flag recompute is best-effort.
+    getLogger().warn(
+      { err, semesterId, submissionId: result.submissionId },
+      'attachUnmatchedFile: cross-flags enqueue failed (non-fatal)',
+    );
   });
 
   return {
