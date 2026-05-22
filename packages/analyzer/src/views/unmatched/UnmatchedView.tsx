@@ -165,9 +165,9 @@ export function UnmatchedView() {
         </div>
       )}
 
-      {!isLoading && !error && (
+      {!isLoading && !error && semesterId && (
         <>
-          {data?.items.length === 0 ? (
+          {(data?.items ?? []).length === 0 ? (
             <div className="py-8 text-center text-sm text-gray-400" data-testid="unmatched-empty">
               No unmatched files. Great job!
             </div>

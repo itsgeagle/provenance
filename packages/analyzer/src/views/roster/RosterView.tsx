@@ -229,7 +229,7 @@ export function RosterView() {
         </div>
       )}
 
-      {!isLoading && !error && (
+      {!isLoading && !error && semesterId && (
         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
           <table className="w-full text-sm" data-testid="roster-table">
             <thead className="bg-gray-50 text-xs text-gray-500">

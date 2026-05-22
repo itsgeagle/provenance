@@ -192,6 +192,120 @@ export function assignmentsHandler() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Phase 22 fixture factories
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_JOB_ID = 'aaaa0000-0000-0000-0000-000000000001';
+
+export function makeIngestJob(status: string = 'succeeded', files: object[] = []): object {
+  return {
+    id: DEFAULT_JOB_ID,
+    semester_id: DEFAULT_SEMESTER_ID,
+    status,
+    created_at: '2025-01-10T12:00:00.000Z',
+    started_at: '2025-01-10T12:00:05.000Z',
+    completed_at: status === 'succeeded' ? '2025-01-10T12:01:00.000Z' : null,
+    summary: {
+      total: files.length,
+      matched: files.length,
+      unmatched: 0,
+      duplicate: 0,
+      failed: 0,
+      superseded: 0,
+      discarded: 0,
+    },
+    files,
+  };
+}
+
+export function makeIngestFile(
+  overrides: Partial<{
+    id: string;
+    original_filename: string;
+    size_bytes: number;
+    blob_sha256: string;
+    status: string;
+    matched_student: { id: string; sid: string; display_name: string };
+    matched_assignment: { id: string; assignment_id_str: string; label: string };
+  }> = {},
+): object {
+  return {
+    id: overrides.id ?? 'ff000000-0000-0000-0000-000000000001',
+    original_filename: overrides.original_filename ?? 'alice_hw1.zip',
+    size_bytes: overrides.size_bytes ?? 1024,
+    blob_sha256: overrides.blob_sha256 ?? 'abc123',
+    status: overrides.status ?? 'matched',
+    matched_student: overrides.matched_student ?? {
+      id: '30000000-0000-0000-0000-000000000001',
+      sid: '3031234',
+      display_name: 'Alice Liddell',
+    },
+    matched_assignment: overrides.matched_assignment ?? {
+      id: '20000000-0000-0000-0000-000000000001',
+      assignment_id_str: 'hw1',
+      label: 'Homework 1',
+    },
+  };
+}
+
+export function ingestJobHandler(job: object) {
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/ingest/jobs/${DEFAULT_JOB_ID}`, () =>
+    HttpResponse.json(job),
+  );
+}
+
+export function ingestJobsListHandler(items: object[] = []) {
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/ingest/jobs`, () =>
+    HttpResponse.json({ items, next_cursor: null }),
+  );
+}
+
+export function unmatchedHandler(items: object[] = []) {
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/unmatched`, () =>
+    HttpResponse.json({ items, next_cursor: null }),
+  );
+}
+
+export function rosterHandler(entries: object[] = [], totalCount = 0) {
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/roster`, () =>
+    HttpResponse.json({ entries, next_cursor: null, total_count: totalCount }),
+  );
+}
+
+export function membersHandler(members: object[] = [], pending: object[] = []) {
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/members`, () =>
+    HttpResponse.json({ members, pending }),
+  );
+}
+
+export function semesterDetailHandler(
+  overrides: Partial<{
+    display_name: string;
+    filename_convention: string;
+  }> = {},
+) {
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}`, () =>
+    HttpResponse.json({
+      semester: {
+        id: DEFAULT_SEMESTER_ID,
+        course_id: 'cc000000-0000-0000-0000-000000000001',
+        slug: DEFAULT_SEMESTER_SLUG,
+        term: 'Spring',
+        year: 2025,
+        display_name: overrides.display_name ?? 'CS 61A Spring 2025',
+        filename_convention:
+          overrides.filename_convention ?? '(?<sid>\\d+)_(?<assignment_id>hw\\d+)',
+        blob_retention_days: 90,
+        derived_retention_days: 365,
+        archived: false,
+        my_role: 'admin',
+        created_at: '2025-01-01T00:00:00.000Z',
+      },
+    }),
+  );
+}
+
 export function makeStudentRollupRow(overrides: Partial<StudentRollupRow> = {}): StudentRollupRow {
   return {
     student: overrides.student ?? {

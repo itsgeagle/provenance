@@ -149,14 +149,6 @@ export function SemesterSettingsView() {
   const submitError =
     error instanceof ApiError ? error.message : error instanceof Error ? error.message : null;
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400">
-        Loading…
-      </div>
-    );
-  }
-
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
       <h1 className="mb-6 text-xl font-semibold text-gray-900">Semester Settings</h1>
@@ -251,7 +243,7 @@ export function SemesterSettingsView() {
 
         <button
           type="submit"
-          disabled={isPending || regexError !== null}
+          disabled={isPending || regexError !== null || isLoading || !semesterId}
           className="rounded-md bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
           data-testid="save-settings-btn"
         >

@@ -181,7 +181,7 @@ export function MembersView() {
       )}
 
       {/* Active members */}
-      {!isLoading && !error && (
+      {!isLoading && !error && semesterId && (
         <>
           <div className="mb-6 rounded-lg border border-gray-200 bg-white overflow-hidden">
             <table className="w-full text-sm" data-testid="members-table">
