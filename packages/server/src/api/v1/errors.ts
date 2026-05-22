@@ -36,6 +36,7 @@ export type ApiErrorCode =
   // Resource errors
   | 'NOT_FOUND'
   | 'FILE_NOT_FOUND'
+  | 'ROSTER_ENTRY_NOT_FOUND'
   // Conflict (409)
   | 'COURSE_SLUG_TAKEN'
   | 'SEMESTER_SLUG_TAKEN'
@@ -258,6 +259,15 @@ export const Errors = {
       404,
       'File not found in this submission',
       fileId ? { file_id: fileId } : undefined,
+    );
+  },
+
+  rosterEntryNotFound(studentId: string): ApiError {
+    return new ApiError(
+      'ROSTER_ENTRY_NOT_FOUND',
+      404,
+      'Student not found in the roster for this semester',
+      { student_id: studentId },
     );
   },
 
