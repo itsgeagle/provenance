@@ -80,7 +80,22 @@ export function buildInvitationEmail(args: BuildInvitationEmailArgs): Invitation
   const safeCourse = escapeHtml(courseSlug);
   const safeSemester = escapeHtml(semesterSlug);
   const safeRole = escapeHtml(role);
-  const safeLoginUrl = escapeHtml(loginUrl);
+  // loginUrl is constructed from cfg.PUBLIC_BASE_URL + '/login' (a server-
+  // controlled constant, no user input). We use encodeURI for the href value
+  // so that any reserved characters (spaces, non-ASCII) are percent-encoded
+  // correctly for use in a URL attribute. We do NOT run it through escapeHtml
+  // because:
+  //   - escapeHtml converts '&' → '&amp;', which is correct for HTML body text
+  //     but unnecessary in href attributes (browsers decode '&amp;' in attrs, so
+  //     it works either way, but it makes query-string URLs look misleading when
+  //     read as raw HTML).
+  //   - encodeURI leaves '&', '=', '/' etc. intact (they are valid URL chars)
+  //     while encoding chars that are truly illegal in URLs (spaces, etc.).
+  // IMPORTANT: loginUrl MUST be a same-origin URL; this is enforced by the
+  // route which always prepends cfg.PUBLIC_BASE_URL. Never construct this from
+  // untrusted user input.
+  const hrefLoginUrl = encodeURI(loginUrl);
+  const safeLoginUrlText = escapeHtml(loginUrl); // for display in <code> tag
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -95,7 +110,7 @@ export function buildInvitationEmail(args: BuildInvitationEmailArgs): Invitation
     To accept this invitation, sign in with your Google account:
   </p>
   <p>
-    <a href="${safeLoginUrl}" style="
+    <a href="${hrefLoginUrl}" style="
       display: inline-block;
       padding: 10px 20px;
       background: #1a73e8;
@@ -107,7 +122,7 @@ export function buildInvitationEmail(args: BuildInvitationEmailArgs): Invitation
   <p style="color: #666; font-size: 0.9em;">
     Your access will be granted automatically when you first log in.<br>
     If the button doesn't work, copy this URL into your browser:<br>
-    <code>${safeLoginUrl}</code>
+    <code>${safeLoginUrlText}</code>
   </p>
   <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
   <p style="color: #999; font-size: 0.8em;">Provenance</p>
