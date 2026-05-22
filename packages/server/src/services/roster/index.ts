@@ -23,7 +23,7 @@ export interface RosterListOptions {
 }
 
 export interface RosterListResult {
-  entries: typeof roster_entries.$inferSelect[];
+  entries: (typeof roster_entries.$inferSelect)[];
   next_cursor: string | null;
   total_count: number;
 }

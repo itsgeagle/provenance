@@ -13,7 +13,14 @@ import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
 import { createV1App } from '../index.js';
 import { _resetPreviewCacheForTest } from '../../../services/roster/preview-cache.js';
-import { users, sessions, courses, semesters, memberships, roster_entries } from '../../../db/schema.js';
+import {
+  users,
+  sessions,
+  courses,
+  semesters,
+  memberships,
+  roster_entries,
+} from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -175,7 +182,9 @@ describe('GET /semesters/:semesterId/roster', () => {
         const course = await insertCourse(db);
         const semester = await insertSemester(db, course.id);
         const app = createV1App();
-        const res = await app.fetch(new Request(`http://localhost/semesters/${semester.id}/roster`));
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/roster`),
+        );
         expect(res.status).toBe(401);
       } finally {
         _testDb = null;
@@ -223,7 +232,11 @@ describe('GET /semesters/:semesterId/roster', () => {
           }),
         );
         expect(res.status).toBe(200);
-        const body = await res.json() as { entries: unknown[]; next_cursor: null; total_count: number };
+        const body = (await res.json()) as {
+          entries: unknown[];
+          next_cursor: null;
+          total_count: number;
+        };
         expect(body.entries).toHaveLength(2);
         expect(body.total_count).toBe(2);
         expect(body.next_cursor).toBeNull();
@@ -252,7 +265,7 @@ describe('GET /semesters/:semesterId/roster', () => {
           }),
         );
         expect(res.status).toBe(200);
-        const body = await res.json() as { entries: { display_name: string }[] };
+        const body = (await res.json()) as { entries: { display_name: string }[] };
         expect(body.entries).toHaveLength(1);
         expect(body.entries[0]?.display_name).toBe('Alice Smith');
       } finally {
@@ -273,7 +286,10 @@ describe('GET /semesters/:semesterId/roster', () => {
 
         // Insert 3 entries.
         for (let i = 0; i < 3; i++) {
-          await insertRosterEntry(db, semester.id, { sid: `stu${i}`, display_name: `Student ${i}` });
+          await insertRosterEntry(db, semester.id, {
+            sid: `stu${i}`,
+            display_name: `Student ${i}`,
+          });
         }
 
         const app = createV1App();
@@ -283,7 +299,7 @@ describe('GET /semesters/:semesterId/roster', () => {
           }),
         );
         expect(res.status).toBe(200);
-        const body = await res.json() as { entries: unknown[]; next_cursor: string | null };
+        const body = (await res.json()) as { entries: unknown[]; next_cursor: string | null };
         expect(body.entries).toHaveLength(2);
         expect(body.next_cursor).not.toBeNull();
       } finally {
@@ -365,7 +381,7 @@ describe('POST /semesters/:semesterId/roster:upload', () => {
           ),
         );
         expect(res.status).toBe(200);
-        const body = await res.json() as {
+        const body = (await res.json()) as {
           upload_id: string;
           parsed_rows: number;
           to_add: number;
@@ -405,7 +421,7 @@ describe('POST /semesters/:semesterId/roster:upload', () => {
           ),
         );
         expect(res.status).toBe(400);
-        const body = await res.json() as { error: { code: string } };
+        const body = (await res.json()) as { error: { code: string } };
         expect(body.error.code).toBe('ROSTER_CSV_MISSING_REQUIRED_COLUMN');
       } finally {
         _testDb = null;
@@ -434,7 +450,7 @@ describe('POST /semesters/:semesterId/roster:upload', () => {
           ),
         );
         expect(res.status).toBe(200);
-        const body = await res.json() as {
+        const body = (await res.json()) as {
           parsed_rows: number;
           to_add: number;
           errors: { row: number; message: string }[];
@@ -472,7 +488,7 @@ describe('POST /semesters/:semesterId/roster:upload', () => {
           ),
         );
         expect(res.status).toBe(413);
-        const body = await res.json() as { error: { code: string } };
+        const body = (await res.json()) as { error: { code: string } };
         expect(body.error.code).toBe('ROSTER_CSV_TOO_LARGE');
       } finally {
         _testDb = null;
@@ -568,7 +584,7 @@ describe('POST /semesters/:semesterId/roster:commit', () => {
           ),
         );
         expect(uploadRes.status).toBe(200);
-        const { upload_id } = await uploadRes.json() as { upload_id: string };
+        const { upload_id } = (await uploadRes.json()) as { upload_id: string };
 
         // Commit.
         const commitRes = await app.fetch(
@@ -582,14 +598,18 @@ describe('POST /semesters/:semesterId/roster:commit', () => {
           }),
         );
         expect(commitRes.status).toBe(200);
-        const counts = await commitRes.json() as { added: number; updated: number; deleted: number };
+        const counts = (await commitRes.json()) as {
+          added: number;
+          updated: number;
+          deleted: number;
+        };
         expect(counts.added).toBe(2);
         expect(counts.updated).toBe(0);
         expect(counts.deleted).toBe(0);
 
         // Verify DB has the entries.
         const allEntries = await db.select().from(roster_entries);
-        expect(allEntries.filter(e => e.semester_id === semester.id)).toHaveLength(2);
+        expect(allEntries.filter((e) => e.semester_id === semester.id)).toHaveLength(2);
 
         // Audit row.
         const auditRow = await waitForAuditRow(db, 'roster.commit', semester.id);
@@ -612,7 +632,10 @@ describe('POST /semesters/:semesterId/roster:commit', () => {
         await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
 
         // Pre-populate roster with one entry.
-        await insertRosterEntry(db, semester.id, { sid: 'existing', display_name: 'Existing Student' });
+        await insertRosterEntry(db, semester.id, {
+          sid: 'existing',
+          display_name: 'Existing Student',
+        });
 
         const app = createV1App();
 
@@ -625,7 +648,7 @@ describe('POST /semesters/:semesterId/roster:commit', () => {
             sessionId,
           ),
         );
-        const { upload_id } = await uploadRes.json() as { upload_id: string };
+        const { upload_id } = (await uploadRes.json()) as { upload_id: string };
 
         // Commit WITHOUT accepting deletions.
         const commitRes = await app.fetch(
@@ -639,13 +662,13 @@ describe('POST /semesters/:semesterId/roster:commit', () => {
           }),
         );
         expect(commitRes.status).toBe(200);
-        const counts = await commitRes.json() as { added: number; deleted: number };
+        const counts = (await commitRes.json()) as { added: number; deleted: number };
         expect(counts.added).toBe(1);
         expect(counts.deleted).toBe(0); // 'existing' should be kept
 
         // Both entries still in DB.
         const allEntries = await db.select().from(roster_entries);
-        expect(allEntries.filter(e => e.semester_id === semester.id)).toHaveLength(2);
+        expect(allEntries.filter((e) => e.semester_id === semester.id)).toHaveLength(2);
       } finally {
         _testDb = null;
       }
@@ -676,7 +699,7 @@ describe('POST /semesters/:semesterId/roster:commit', () => {
             sessionId,
           ),
         );
-        const { upload_id } = await uploadRes.json() as { upload_id: string };
+        const { upload_id } = (await uploadRes.json()) as { upload_id: string };
 
         // Commit WITH accept_deletions=true.
         const commitRes = await app.fetch(
@@ -690,13 +713,13 @@ describe('POST /semesters/:semesterId/roster:commit', () => {
           }),
         );
         expect(commitRes.status).toBe(200);
-        const counts = await commitRes.json() as { added: number; deleted: number };
+        const counts = (await commitRes.json()) as { added: number; deleted: number };
         expect(counts.added).toBe(1);
         expect(counts.deleted).toBe(1);
 
         // Only 'newstu' should remain.
         const allEntries = await db.select().from(roster_entries);
-        const semEntries = allEntries.filter(e => e.semester_id === semester.id);
+        const semEntries = allEntries.filter((e) => e.semester_id === semester.id);
         expect(semEntries).toHaveLength(1);
         expect(semEntries[0]?.sid).toBe('newstu');
       } finally {
@@ -720,7 +743,10 @@ describe('PATCH /semesters/:semesterId/roster/:rosterEntryId', () => {
         const course = await insertCourse(db);
         const semester = await insertSemester(db, course.id);
         await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
-        const entry = await insertRosterEntry(db, semester.id, { sid: 'stu001', display_name: 'Old Name' });
+        const entry = await insertRosterEntry(db, semester.id, {
+          sid: 'stu001',
+          display_name: 'Old Name',
+        });
 
         const app = createV1App();
         const res = await app.fetch(
@@ -734,7 +760,7 @@ describe('PATCH /semesters/:semesterId/roster/:rosterEntryId', () => {
           }),
         );
         expect(res.status).toBe(200);
-        const body = await res.json() as { display_name: string; sid: string };
+        const body = (await res.json()) as { display_name: string; sid: string };
         expect(body.display_name).toBe('New Name');
         expect(body.sid).toBe('stu001'); // sid unchanged
 
@@ -771,7 +797,7 @@ describe('PATCH /semesters/:semesterId/roster/:rosterEntryId', () => {
           }),
         );
         expect(res.status).toBe(400);
-        const body = await res.json() as { error: { code: string } };
+        const body = (await res.json()) as { error: { code: string } };
         expect(body.error.code).toBe('VALIDATION');
       } finally {
         _testDb = null;
