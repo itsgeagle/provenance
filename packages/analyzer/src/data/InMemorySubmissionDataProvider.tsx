@@ -150,7 +150,7 @@ function bundleToSubmissionSummary(
 /**
  * Build SubmissionStats from computeStats output.
  */
-function bundleStatsToSubmissionStats(index: EventIndex, bundle: Bundle): SubmissionStats {
+function bundleStatsToSubmissionStats(index: EventIndex, _bundle: Bundle): SubmissionStats {
   const stats = computeStats(index);
   const perFile = Array.from(stats.perFile.entries()).map(([path, fs]) => ({
     path,
@@ -175,7 +175,6 @@ function bundleStatsToSubmissionStats(index: EventIndex, bundle: Bundle): Submis
       total_wall_ms: totalWallMs,
     },
   };
-  void bundle; // bundle available for future use
 }
 
 // ---------------------------------------------------------------------------

@@ -9,9 +9,9 @@
  * 5. Provider parity test: same fixture data, both providers → identical rendered output
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../test-setup.js';
@@ -19,9 +19,6 @@ import { BundleProvider } from '../context/BundleContext.js';
 import { InMemorySubmissionDataProviderContext } from './InMemorySubmissionDataProvider.js';
 import { ApiSubmissionDataProviderContext } from './ApiSubmissionDataProvider.js';
 import { Overview } from '../views/submission/Overview.js';
-import type { Bundle } from '../loader/types.js';
-import type { ValidationReport } from '../validation/check-types.js';
-import type { Flag } from '../heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -55,9 +52,7 @@ function makeQueryClient() {
 // Since there's no inject-bundle API on BundleProvider, we'll mock at the
 // context level using a custom provider component.
 
-import type { BundleContextValue, LoadingStage } from '../context/BundleContext.js';
-import React, { createContext, useContext } from 'react';
-import type { EventIndex } from '../index/event-index.js';
+import React from 'react';
 
 // Re-export BundleContext internals via a manual import trick:
 // We can't easily inject into BundleProvider from outside, so let's just
@@ -247,7 +242,7 @@ function setupApiHandlers() {
 // Render helpers
 // ---------------------------------------------------------------------------
 
-function renderWithMockProvider(provider: SubmissionDataProvider, queryKey: string) {
+function renderWithMockProvider(provider: SubmissionDataProvider, _queryKey: string) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, retryDelay: 0 } },
   });

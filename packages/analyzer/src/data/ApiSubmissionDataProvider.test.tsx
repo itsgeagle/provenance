@@ -99,6 +99,8 @@ function submissionFlagsHandler() {
   );
 }
 
+// Stats endpoint handler for future integration tests that exercise the stats section.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function submissionStatsHandler() {
   return http.get(`/api/v1/submissions/${SUBMISSION_ID}/stats`, () =>
     HttpResponse.json(statsFixture),
