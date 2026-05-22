@@ -15,11 +15,11 @@ export type Role = 'admin' | 'grader';
 
 export interface BuildInvitationEmailArgs {
   recipientEmail: string;
-  invitedBy: string;      // display name or email of the person who invited
+  invitedBy: string; // display name or email of the person who invited
   courseSlug: string;
   semesterSlug: string;
   role: Role;
-  loginUrl: string;       // PUBLIC_BASE_URL + /login
+  loginUrl: string; // PUBLIC_BASE_URL + /login
 }
 
 export interface InvitationEmailContent {

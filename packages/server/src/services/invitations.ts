@@ -219,15 +219,17 @@ export async function inviteMember(
   // a closure that already has course/semester slug context baked in.
   // We call it with { to } only; the closure rebuilds the full content.
   if (txResult.kind === 'pending' && deps.sendEmail !== undefined && emailSendArgs !== undefined) {
-    deps.sendEmail({
-      to: emailSendArgs.to,
-      subject: emailSendArgs.subject,
-      text: emailSendArgs.text,
-      html: emailSendArgs.html,
-    }).catch(() => {
-      // Email sending failures are non-fatal. The pending row is already created.
-      // In production, a failed send is logged by the transport layer.
-    });
+    deps
+      .sendEmail({
+        to: emailSendArgs.to,
+        subject: emailSendArgs.subject,
+        text: emailSendArgs.text,
+        html: emailSendArgs.html,
+      })
+      .catch(() => {
+        // Email sending failures are non-fatal. The pending row is already created.
+        // In production, a failed send is logged by the transport layer.
+      });
   }
 
   return txResult;
@@ -449,11 +451,7 @@ export async function updateMemberRole(
 /**
  * Remove a membership (hard delete).
  */
-export async function removeMember(
-  db: DrizzleDb,
-  semesterId: UUID,
-  userId: UUID,
-): Promise<void> {
+export async function removeMember(db: DrizzleDb, semesterId: UUID, userId: UUID): Promise<void> {
   await db
     .delete(memberships)
     .where(and(eq(memberships.user_id, userId), eq(memberships.semester_id, semesterId)));

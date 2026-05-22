@@ -207,7 +207,10 @@ export function createAuthRouter(): Hono {
     });
 
     if (activatedCount > 0) {
-      getLogger().info({ userId: userId!, email: claims.email, activated: activatedCount }, 'Pending invitations activated');
+      getLogger().info(
+        { userId: userId!, email: claims.email, activated: activatedCount },
+        'Pending invitations activated',
+      );
     }
 
     // Create session.

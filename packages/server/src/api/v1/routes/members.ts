@@ -149,7 +149,8 @@ export function createMembersRouter(deps: MembersRouterDeps = {}): Hono {
         .from(users)
         .where(eq(users.id, principal.user.id))
         .limit(1);
-      const inviterName = inviterRows[0]?.display_name || inviterRows[0]?.email || principal.user.id;
+      const inviterName =
+        inviterRows[0]?.display_name || inviterRows[0]?.email || principal.user.id;
 
       // Build email content now (before service call) so we have course/semester context.
       const loginUrl = `${cfg.PUBLIC_BASE_URL}/login`;

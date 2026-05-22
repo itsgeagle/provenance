@@ -21,7 +21,14 @@ import {
   jwksFromPair,
 } from '../../../../test/helpers/mint-jwt.js';
 import type { JwkSet } from '../../../auth/jwks.js';
-import { users, sessions, pending_invitations, memberships, courses, semesters } from '../../../db/schema.js';
+import {
+  users,
+  sessions,
+  pending_invitations,
+  memberships,
+  courses,
+  semesters,
+} from '../../../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import type { DrizzleDb } from '../../../db/client.js';
 
@@ -624,7 +631,10 @@ describe('GET /google/callback — pending invitation activation (DB injected)',
       _testDb = db;
       try {
         // Create a course + semester for the invitation.
-        const [course] = await db.insert(courses).values({ name: 'CS 61A', slug: 'cs61a-act' }).returning();
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a-act' })
+          .returning();
         const [semester] = await db
           .insert(semesters)
           .values({
@@ -694,10 +704,7 @@ describe('GET /google/callback — pending invitation activation (DB injected)',
           .select()
           .from(memberships)
           .where(
-            and(
-              eq(memberships.user_id, newUserId),
-              eq(memberships.semester_id, semester!.id),
-            ),
+            and(eq(memberships.user_id, newUserId), eq(memberships.semester_id, semester!.id)),
           );
         expect(memberRows).toHaveLength(1);
         expect(memberRows[0]!.role).toBe('grader');

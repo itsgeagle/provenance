@@ -47,10 +47,7 @@ export function getRealEmailTransport(config: Pick<Env, 'SMTP_URL' | 'SMTP_FROM'
   if (config.SMTP_URL === '') {
     // Dev-mode stub: log instead of sending.
     return async (args: SendEmailArgs): Promise<void> => {
-      getLogger().info(
-        { to: args.to, subject: args.subject },
-        'Email not sent — SMTP disabled',
-      );
+      getLogger().info({ to: args.to, subject: args.subject }, 'Email not sent — SMTP disabled');
     };
   }
 

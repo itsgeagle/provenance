@@ -122,8 +122,6 @@ describe('getRealEmailTransport — SMTP configured', () => {
       await sendMailMock({ to: args.to, subject: args.subject, text: args.text, html: args.html });
     };
     await mockSend({ to: 'a@b.com', subject: 'sub', text: 'body', html: '<p>body</p>' });
-    expect(sendMailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ html: '<p>body</p>' }),
-    );
+    expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({ html: '<p>body</p>' }));
   });
 });

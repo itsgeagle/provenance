@@ -129,7 +129,9 @@ async function insertMembership(
   role: 'admin' | 'grader',
   grantedBy: string,
 ) {
-  await db.insert(memberships).values({ user_id: userId, semester_id: semesterId, role, granted_by: grantedBy });
+  await db
+    .insert(memberships)
+    .values({ user_id: userId, semester_id: semesterId, role, granted_by: grantedBy });
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +222,10 @@ describe('GET /semesters/:semesterId/members', () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
-        const superadmin = await insertUser(db, { email: 'admin@berkeley.edu', is_superadmin: true });
+        const superadmin = await insertUser(db, {
+          email: 'admin@berkeley.edu',
+          is_superadmin: true,
+        });
         const sessionId = await insertSession(db, superadmin.id);
         const course = await insertCourse(db);
         const semester = await insertSemester(db, course.id);
@@ -929,14 +934,20 @@ describe('Full invitation round-trip', () => {
         // Step 2: Invited user signs up (simulate activation)
         const newUser = await insertUser(db, { email: 'roundtrip@berkeley.edu' });
         const { activatePendingInvitations } = await import('../../../services/invitations.js');
-        const { activated } = await activatePendingInvitations(db, 'roundtrip@berkeley.edu', newUser.id);
+        const { activated } = await activatePendingInvitations(
+          db,
+          'roundtrip@berkeley.edu',
+          newUser.id,
+        );
         expect(activated).toBe(1);
 
         // Step 3: Verify membership exists
         const memberRows = await db
           .select()
           .from(memberships)
-          .where(and(eq(memberships.user_id, newUser.id), eq(memberships.semester_id, semester.id)));
+          .where(
+            and(eq(memberships.user_id, newUser.id), eq(memberships.semester_id, semester.id)),
+          );
         expect(memberRows).toHaveLength(1);
         expect(memberRows[0]!.role).toBe('grader');
 

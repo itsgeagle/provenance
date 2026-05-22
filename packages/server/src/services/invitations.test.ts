@@ -10,19 +10,9 @@ import { withTestDb } from '../../test/helpers/db.js';
 import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
 import { parseEnv } from '../config/env.js';
-import {
-  users,
-  courses,
-  semesters,
-  memberships,
-  pending_invitations,
-} from '../db/schema.js';
+import { users, courses, semesters, memberships, pending_invitations } from '../db/schema.js';
 import type { DrizzleDb } from '../db/client.js';
-import {
-  inviteMember,
-  activatePendingInvitations,
-  revokeInvitation,
-} from './invitations.js';
+import { inviteMember, activatePendingInvitations, revokeInvitation } from './invitations.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -116,9 +106,7 @@ describe('inviteMember — existing user', () => {
       const memberRows = await db
         .select()
         .from(memberships)
-        .where(
-          and(eq(memberships.user_id, invitee.id), eq(memberships.semester_id, semester.id)),
-        );
+        .where(and(eq(memberships.user_id, invitee.id), eq(memberships.semester_id, semester.id)));
       expect(memberRows).toHaveLength(1);
       expect(memberRows[0]!.role).toBe('grader');
 
@@ -139,7 +127,13 @@ describe('inviteMember — existing user', () => {
       const course = await insertCourse(db);
       const semester = await insertSemester(db, course.id);
 
-      const result = await inviteMember(db, semester.id, 'MIXEDCASE@berkeley.edu', 'admin', admin.id);
+      const result = await inviteMember(
+        db,
+        semester.id,
+        'MIXEDCASE@berkeley.edu',
+        'admin',
+        admin.id,
+      );
       expect(result.kind).toBe('member');
     });
   });
@@ -179,14 +173,9 @@ describe('inviteMember — new email', () => {
 
       const sendEmail = vi.fn().mockResolvedValue(undefined);
 
-      const result = await inviteMember(
-        db,
-        semester.id,
-        'newuser@other.edu',
-        'grader',
-        admin.id,
-        { sendEmail },
-      );
+      const result = await inviteMember(db, semester.id, 'newuser@other.edu', 'grader', admin.id, {
+        sendEmail,
+      });
 
       expect(result.kind).toBe('pending');
       if (result.kind !== 'pending') return;
@@ -292,7 +281,11 @@ describe('activatePendingInvitations', () => {
         })
         .returning();
 
-      const { activated } = await activatePendingInvitations(db, 'invited@berkeley.edu', invitee.id);
+      const { activated } = await activatePendingInvitations(
+        db,
+        'invited@berkeley.edu',
+        invitee.id,
+      );
 
       expect(activated).toBe(2);
 
@@ -386,9 +379,7 @@ describe('activatePendingInvitations', () => {
       const memRows = await db
         .select()
         .from(memberships)
-        .where(
-          and(eq(memberships.user_id, invitee.id), eq(memberships.semester_id, semester.id)),
-        );
+        .where(and(eq(memberships.user_id, invitee.id), eq(memberships.semester_id, semester.id)));
       expect(memRows).toHaveLength(1);
     });
   });
