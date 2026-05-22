@@ -34,6 +34,13 @@ import { HomeView } from './views/home/HomeView.js';
 import { AppShell } from './components/nav/AppShell.js';
 import { RequireAuth } from './auth/RequireAuth.js';
 import { CohortView } from './views/cohort/CohortView.js';
+import { IngestStartView } from './views/ingest/IngestStartView.js';
+import { IngestJobView } from './views/ingest/IngestJobView.js';
+import { UnmatchedView } from './views/unmatched/UnmatchedView.js';
+import { RosterView } from './views/roster/RosterView.js';
+import { MembersView } from './views/members/MembersView.js';
+import { AssignmentsView } from './views/assignments/AssignmentsView.js';
+import { SemesterSettingsView } from './views/settings/SemesterSettingsView.js';
 
 // ---------------------------------------------------------------------------
 // Legacy v2 route guards
@@ -101,13 +108,84 @@ export function App() {
         }
       />
 
-      {/* /s/:semesterSlug — cohort view (Phase 21) */}
+      {/* /s/:semesterSlug — cohort + admin views (Phase 21/22) */}
+      {/* Wrap all /s/:semesterSlug routes in RequireAuth + AppShell once */}
       <Route
-        path="/s/:semesterSlug/*"
+        path="/s/:semesterSlug"
         element={
           <RequireAuth>
             <AppShell>
               <CohortView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/s/:semesterSlug/ingest"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <IngestStartView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/s/:semesterSlug/ingest/jobs/:jobId"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <IngestJobView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/s/:semesterSlug/unmatched"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <UnmatchedView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/s/:semesterSlug/roster"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <RosterView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/s/:semesterSlug/members"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <MembersView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/s/:semesterSlug/assignments"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <AssignmentsView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/s/:semesterSlug/settings"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <SemesterSettingsView />
             </AppShell>
           </RequireAuth>
         }
