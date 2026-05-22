@@ -18,6 +18,7 @@
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
+    "@provenance/analyzer": "*",
     "@hono/node-server": "^1.14.4",
     "@hono/zod-openapi": "^0.19.4",
     "@types/nodemailer": "^8.0.0",
