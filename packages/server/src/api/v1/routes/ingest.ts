@@ -24,7 +24,7 @@
 
 import { Hono } from 'hono';
 import JSZip from 'jszip';
-import { eq, and, desc, lt, sql } from 'drizzle-orm';
+import { eq, and, desc, lt, sql, count } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { getConfig } from '../../../config/index.js';
 import { requireAuth } from '../../middleware/authorize.js';
@@ -39,6 +39,7 @@ import {
 } from '../../../services/ingest/job-control.js';
 import { stageBlob } from '../../../services/ingest/stage-blob.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
+import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,6 +126,55 @@ async function tryExpandZipBundle(
 interface FileToStage {
   filename: string;
   body: ArrayBuffer;
+}
+
+// ---------------------------------------------------------------------------
+// IngestFileSummary formatter (PRD §8.6)
+// ---------------------------------------------------------------------------
+
+interface RawFileRow {
+  id: string;
+  original_filename: string;
+  size_bytes: number;
+  blob_sha256: string;
+  status: string;
+  matched_student_id: string | null;
+  matched_assignment_id: string | null;
+  submission_id: string | null;
+  filename_capture: unknown;
+  error: unknown;
+  created_at: Date | null;
+}
+
+/**
+ * Map a raw ingest_files row to the IngestFileSummary shape from PRD §8.6.
+ */
+function formatFileSummary(row: RawFileRow): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    id: row.id,
+    original_filename: row.original_filename,
+    size_bytes: row.size_bytes,
+    blob_sha256: row.blob_sha256,
+    status: row.status,
+  };
+
+  if (row.matched_student_id !== null) {
+    out['matched_student'] = row.matched_student_id;
+  }
+  if (row.matched_assignment_id !== null) {
+    out['matched_assignment'] = row.matched_assignment_id;
+  }
+  if (row.submission_id !== null) {
+    out['submission_id'] = row.submission_id;
+  }
+  if (row.filename_capture !== null && row.filename_capture !== undefined) {
+    out['filename_capture'] = row.filename_capture;
+  }
+  if (row.error !== null && row.error !== undefined) {
+    out['error'] = row.error;
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +371,22 @@ export function createIngestRouter(): Hono {
         throw stagingErr;
       }
 
+      // -----------------------------------------------------------------------
+      // Enqueue one ingest_file job per staged file.
+      //
+      // We get the boss after all staging succeeds so any pg-boss connection
+      // error doesn't leave files staged without queue entries.
+      // -----------------------------------------------------------------------
+      const boss = await getBoss();
+      const stagedFileIds = await db
+        .select({ id: ingest_files.id })
+        .from(ingest_files)
+        .where(eq(ingest_files.ingest_job_id, jobId));
+
+      for (const { id: ingestFileId } of stagedFileIds) {
+        await boss.send(JOB_KINDS.INGEST_FILE, { ingestFileId, ingestJobId: jobId });
+      }
+
       // Set auditDetail so the audit middleware can log job_id as target_id.
       c.set('auditDetail', { job_id: jobId, file_count: filesToStage.length });
 
@@ -395,6 +461,174 @@ export function createIngestRouter(): Hono {
           started_at: r.started_at?.toISOString() ?? null,
           completed_at: r.completed_at?.toISOString() ?? null,
         })),
+        next_cursor: nextCursor,
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /semesters/:semesterId/ingest/jobs/:jobId
+  // -------------------------------------------------------------------------
+  // PRD §8.6: returns job detail with summary counts + first 200 files inline.
+
+  router.get(
+    '/semesters/:semesterId/ingest/jobs/:jobId',
+    rateLimit('read.cohort'),
+    requireAuth({
+      action: 'read',
+      target: (c) => ({ semesterId: c.req.param('semesterId')! }),
+    }),
+    async (c) => {
+      const semesterId = c.req.param('semesterId')!;
+      const jobId = c.req.param('jobId')!;
+      const db = getDb();
+
+      const jobRows = await db
+        .select()
+        .from(ingest_jobs)
+        .where(and(eq(ingest_jobs.id, jobId), eq(ingest_jobs.semester_id, semesterId)));
+
+      if (jobRows.length === 0) {
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+
+      const job = jobRows[0]!;
+
+      // Compute summary counts from ingest_files.
+      const fileStatusCounts = await db
+        .select({ status: ingest_files.status, cnt: count() })
+        .from(ingest_files)
+        .where(eq(ingest_files.ingest_job_id, jobId))
+        .groupBy(ingest_files.status);
+
+      const summary: {
+        total: number;
+        matched: number;
+        unmatched: number;
+        duplicate: number;
+        failed: number;
+        superseded: number;
+        discarded: number;
+      } = {
+        total: 0,
+        matched: 0,
+        unmatched: 0,
+        duplicate: 0,
+        failed: 0,
+        superseded: 0,
+        discarded: 0,
+      };
+
+      for (const row of fileStatusCounts) {
+        const s = row.status as keyof typeof summary;
+        if (s in summary && s !== 'total') {
+          (summary as Record<string, number>)[s] = row.cnt;
+        }
+        summary.total += row.cnt;
+      }
+
+      // Fetch first 200 files inline.
+      const fileRows = await db
+        .select({
+          id: ingest_files.id,
+          original_filename: ingest_files.original_filename,
+          size_bytes: ingest_files.size_bytes,
+          blob_sha256: ingest_files.blob_sha256,
+          status: ingest_files.status,
+          matched_student_id: ingest_files.matched_student_id,
+          matched_assignment_id: ingest_files.matched_assignment_id,
+          submission_id: ingest_files.submission_id,
+          filename_capture: ingest_files.filename_capture,
+          error: ingest_files.error,
+          created_at: ingest_files.created_at,
+        })
+        .from(ingest_files)
+        .where(eq(ingest_files.ingest_job_id, jobId))
+        .orderBy(ingest_files.created_at)
+        .limit(200);
+
+      return c.json({
+        id: job.id,
+        semester_id: job.semester_id,
+        status: job.status,
+        created_at: job.created_at?.toISOString() ?? null,
+        started_at: job.started_at?.toISOString() ?? null,
+        completed_at: job.completed_at?.toISOString() ?? null,
+        summary,
+        files: fileRows.map(formatFileSummary),
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /semesters/:semesterId/ingest/jobs/:jobId/files
+  // -------------------------------------------------------------------------
+  // PRD §8.6: paginated full file list.
+
+  router.get(
+    '/semesters/:semesterId/ingest/jobs/:jobId/files',
+    rateLimit('read.cohort'),
+    requireAuth({
+      action: 'read',
+      target: (c) => ({ semesterId: c.req.param('semesterId')! }),
+    }),
+    async (c) => {
+      const semesterId = c.req.param('semesterId')!;
+      const jobId = c.req.param('jobId')!;
+      const db = getDb();
+
+      // Verify job exists in this semester.
+      const jobRows = await db
+        .select({ id: ingest_jobs.id })
+        .from(ingest_jobs)
+        .where(and(eq(ingest_jobs.id, jobId), eq(ingest_jobs.semester_id, semesterId)));
+
+      if (jobRows.length === 0) {
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+
+      const rawLimit = parseInt(c.req.query('limit') ?? '50', 10);
+      const limit = isNaN(rawLimit) || rawLimit < 1 || rawLimit > 200 ? 50 : rawLimit;
+
+      const cursorStr = c.req.query('cursor');
+      let cursorDate: Date | null = null;
+      if (cursorStr !== undefined) {
+        const parsed = new Date(cursorStr);
+        if (!isNaN(parsed.getTime())) {
+          cursorDate = parsed;
+        }
+      }
+
+      const fileRows = await db
+        .select({
+          id: ingest_files.id,
+          original_filename: ingest_files.original_filename,
+          size_bytes: ingest_files.size_bytes,
+          blob_sha256: ingest_files.blob_sha256,
+          status: ingest_files.status,
+          matched_student_id: ingest_files.matched_student_id,
+          matched_assignment_id: ingest_files.matched_assignment_id,
+          submission_id: ingest_files.submission_id,
+          filename_capture: ingest_files.filename_capture,
+          error: ingest_files.error,
+          created_at: ingest_files.created_at,
+        })
+        .from(ingest_files)
+        .where(
+          and(
+            eq(ingest_files.ingest_job_id, jobId),
+            cursorDate !== null ? lt(ingest_files.created_at, cursorDate) : undefined,
+          ),
+        )
+        .orderBy(ingest_files.created_at)
+        .limit(limit + 1);
+
+      const hasMore = fileRows.length > limit;
+      const items = hasMore ? fileRows.slice(0, limit) : fileRows;
+      const nextCursor = hasMore ? (items.at(-1)?.created_at?.toISOString() ?? null) : null;
+
+      return c.json({
+        items: items.map(formatFileSummary),
         next_cursor: nextCursor,
       });
     },

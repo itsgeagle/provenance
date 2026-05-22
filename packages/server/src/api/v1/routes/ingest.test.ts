@@ -12,6 +12,26 @@ import JSZip from 'jszip';
 import { eq } from 'drizzle-orm';
 import { withTestDb } from '../../../../test/helpers/db.js';
 import { withTestMinio } from '../../../../test/helpers/minio.js';
+
+// ---------------------------------------------------------------------------
+// Mock pg-boss so POST /ingest doesn't require a real pg-boss connection.
+// The ingest route calls getBoss() after staging to enqueue ingest_file jobs.
+// In unit/integration tests we verify the DB state; actual job execution is
+// covered by worker tests elsewhere.
+// ---------------------------------------------------------------------------
+vi.mock('../../../jobs/pg-boss.js', () => ({
+  getBoss: vi.fn().mockResolvedValue({
+    send: vi.fn().mockResolvedValue(null),
+    work: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue(undefined),
+  }),
+  stopBoss: vi.fn().mockResolvedValue(undefined),
+  JOB_KINDS: {
+    INGEST_FILE: 'ingest_file',
+    INGEST_FINALIZE: 'ingest_finalize',
+  },
+  _resetBossForTest: vi.fn(),
+}));
 import { waitForAuditRow } from '../../../../test/helpers/audit.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
 import { _resetLoggerForTest } from '../../../logging.js';
