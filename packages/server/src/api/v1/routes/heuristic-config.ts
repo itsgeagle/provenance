@@ -320,10 +320,17 @@ export function createHeuristicConfigRouter(): Hono {
       });
 
       return c.json({
-        id: newConfigId,
-        version: newVersion,
-        set_at: newConfigSetAt.toISOString(),
-        recompute_job_id: recomputeJobId,
+        new_config: {
+          id: newConfigId,
+          version: newVersion,
+          set_at: newConfigSetAt.toISOString(),
+          note: noteStr,
+          is_active: true,
+        },
+        recompute_job: {
+          id: recomputeJobId,
+          status: 'queued',
+        },
       });
     },
   );

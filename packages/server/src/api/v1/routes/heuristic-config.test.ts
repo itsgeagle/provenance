@@ -423,14 +423,14 @@ describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
         );
         expect(res.status).toBe(200);
         const body = (await res.json()) as {
-          id: string;
-          version: number;
-          set_at: string;
-          recompute_job_id: string;
+          new_config: { id: string; version: number; set_at: string; note: string; is_active: boolean };
+          recompute_job: { id: string; status: string };
         };
-        expect(body.version).toBe(2);
-        expect(body.id).toBeTruthy();
-        expect(body.recompute_job_id).toBeTruthy();
+        expect(body.new_config.version).toBe(2);
+        expect(body.new_config.id).toBeTruthy();
+        expect(body.new_config.is_active).toBe(true);
+        expect(body.recompute_job.id).toBeTruthy();
+        expect(body.recompute_job.status).toBe('queued');
 
         // Verify the old row is now inactive and new row is active in DB.
         const allConfigs = await db
@@ -472,8 +472,8 @@ describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
           }),
         );
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { version: number };
-        expect(body.version).toBe(1);
+        const body = (await res.json()) as { new_config: { version: number } };
+        expect(body.new_config.version).toBe(1);
       } finally {
         _testDb = null;
       }
@@ -504,8 +504,8 @@ describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
           }),
         );
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { recompute_job_id: string };
-        const recomputeJobId = body.recompute_job_id;
+        const body = (await res.json()) as { recompute_job: { id: string; status: string } };
+        const recomputeJobId = body.recompute_job.id;
 
         // Verify a recompute_jobs row was created.
         const jobRows = await db
@@ -578,8 +578,8 @@ describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
           }),
         );
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { version: number };
-        expect(body.version).toBe(2);
+        const body = (await res.json()) as { new_config: { version: number } };
+        expect(body.new_config.version).toBe(2);
       } finally {
         _testDb = null;
       }
