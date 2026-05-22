@@ -29,17 +29,26 @@
 
 import { runValidation } from '@provenance/analyzer/src/validation/run-validation.js';
 import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
+import type { ValidationReport } from '@provenance/analyzer/src/validation/check-types.js';
 import { validation_results, submissions } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';
 
 const EXPECTED_CHECK_COUNT = 8;
 
+/**
+ * Run v2 validation, persist results, and return the ValidationReport.
+ *
+ * The caller (ingest worker) passes the returned report to
+ * runAndStoreHeuristics so that integrity flags (chain_broken etc.) from the
+ * validation report can be surfaced as heuristic flags without re-running
+ * runValidation a second time.
+ */
 export async function runAndStoreValidation(
   db: DrizzleDb,
   submissionId: string,
   bundle: Bundle,
-): Promise<void> {
+): Promise<ValidationReport> {
   const report = await runValidation(bundle);
 
   // Defensive assertion: v2 must return exactly 8 checks in spec order.
@@ -92,4 +101,6 @@ export async function runAndStoreValidation(
     .update(submissions)
     .set({ validation_status: report.overall })
     .where(eq(submissions.id, submissionId));
+
+  return report;
 }
