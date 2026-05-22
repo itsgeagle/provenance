@@ -21,6 +21,7 @@ import { eq, desc, and, count, sql } from 'drizzle-orm';
 import { heuristic_configs, recompute_jobs, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';
+import { Errors } from '../../api/v1/errors.js';
 
 // ---------------------------------------------------------------------------
 // PRD §10.2 server-side config shape
@@ -333,28 +334,28 @@ export type CommitNewVersionResult = {
  * Transaction contract:
  *   1. SELECT ... FOR UPDATE on the current active config row (advisory row-lock
  *      prevents concurrent commits from racing past the version bump).
- *   2. UPDATE prior active row → is_active=false.
- *   3. INSERT new row → version=prior.version+1, is_active=true.
- *   4. INSERT recompute_jobs row → status='queued',
+ *   2. If-Match check INSIDE the transaction, after the lock is held.
+ *      The loser of a concurrent race will observe the updated version under
+ *      lock and throw CONFIG_VERSION_CONFLICT → 409 instead of a unique
+ *      constraint violation → 500.
+ *   3. UPDATE prior active row → is_active=false.
+ *   4. INSERT new row → version=prior.version+1, is_active=true.
+ *   5. INSERT recompute_jobs row → status='queued',
  *        progress_total = count of non-superseded submissions.
  *
  * The pg-boss enqueue (boss.send) MUST happen OUTSIDE this transaction so the
  * queue insert is not blocked by the row lock. Callers are responsible for
  * calling boss.send after the transaction commits.
  *
- * If no active config exists, version starts at 1.
- *
- * The partial unique index (heuristic_configs WHERE is_active) guarantees
- * at most one active row per semester — this is the DB-level safety net if
- * two concurrent transactions both see no active row and both try to insert
- * version=1. In that case, the second INSERT will fail with a unique violation
- * (the transaction will be rolled back) and the caller should retry.
+ * If no active config exists, version starts at 1 (and expectedVersion must be 0).
  *
  * @param db - Drizzle DB handle (transaction-capable).
  * @param semesterId - UUID of the semester.
  * @param candidateConfig - Already-validated ServerHeuristicConfig.
  * @param triggeredBy - UUID of the user committing the config.
  * @param note - Optional admin note for the config version.
+ * @param expectedVersion - The If-Match version the caller observed before the
+ *   transaction. Checked again after FOR UPDATE to close the TOCTOU race.
  */
 export async function commitNewVersion(
   db: DrizzleDb,
@@ -362,6 +363,7 @@ export async function commitNewVersion(
   candidateConfig: ServerHeuristicConfig,
   triggeredBy: string,
   note: string,
+  expectedVersion: number,
 ): Promise<CommitNewVersionResult> {
   let newConfigId: string;
   let newVersion: number;
@@ -388,6 +390,19 @@ export async function commitNewVersion(
     const currentActive = lockedRowsArr[0];
     const priorVersion = currentActive?.version ?? 0;
     newVersion = priorVersion + 1;
+
+    // -------------------------------------------------------------------------
+    // Step 1b: If-Match check INSIDE the transaction, after the lock is held.
+    //
+    // This closes the TOCTOU race: both concurrent requests can pass the
+    // pre-tx If-Match check, but only the winner's committed version is visible
+    // here under the FOR UPDATE lock. The loser sees priorVersion != expectedVersion
+    // and throws CONFIG_VERSION_CONFLICT → 409 instead of crashing with a
+    // unique constraint violation → 500.
+    // -------------------------------------------------------------------------
+    if (priorVersion !== expectedVersion) {
+      throw Errors.configVersionConflict(priorVersion);
+    }
 
     // -------------------------------------------------------------------------
     // Step 2: Deactivate the current active config (if one exists).

@@ -283,6 +283,7 @@ export function createHeuristicConfigRouter(): Hono {
         candidateConfig,
         actorUserId,
         noteStr,
+        ifMatchVersion,
       );
 
       // Enqueue the recompute_semester job (outside transaction).
