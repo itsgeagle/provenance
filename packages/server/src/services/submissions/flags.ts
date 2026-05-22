@@ -6,7 +6,7 @@
  * Returns all flags for a submission ordered by severity desc, confidence desc.
  */
 
-import { eq, desc } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { flags } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 
@@ -53,8 +53,10 @@ export async function getSubmissionFlags(
     .from(flags)
     .where(eq(flags.submission_id, submissionId))
     .orderBy(
-      desc(flags.severity),
-      desc(flags.confidence),
+      // Severity rank: high=3 > medium=2 > low=1 > info=0 (descending)
+      // Alphabetical sort on severity text does NOT match severity rank.
+      sql`CASE ${flags.severity} WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC`,
+      sql`${flags.confidence} DESC`,
     );
 
   return rows.map((r) => ({
