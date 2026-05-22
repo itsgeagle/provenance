@@ -181,10 +181,11 @@ export function createUnmatchedRouter(): Hono {
       // ingest_files_unmatched_idx partial index when status='unmatched').
       //
       // Keyset pagination: (created_at, id) compound cursor.
-      //   next page condition:  created_at < cursor.ca
-      //                      OR (created_at = cursor.ca AND id < cursor.id)
-      // We order by (created_at ASC, id ASC) so the cursor advances forward
-      // through older → newer files (ascending chronological order).
+      //   next page condition:  (created_at >= T_next_ms)
+      //                      OR (created_at >= T_this_ms AND id > cursor_id)
+      // We order by (created_at ASC, id ASC) and use the millisecond+1 trick
+      // to disambiguate same-ms rows by UUID (Postgres timestamptz has µs precision,
+      // but JS Date.toISOString() truncates to ms).
       let cursorCondition = undefined;
       if (cursor !== null && cursor.ca !== '') {
         const cursorDate = new Date(cursor.ca);
@@ -414,7 +415,9 @@ export function createUnmatchedRouter(): Hono {
         .set({
           status: 'discarded',
           resolved_at: sql`now()`,
-          ...(reason !== undefined && { error: { discard_reason: reason } }),
+          ...(reason !== undefined && {
+            error: { code: 'DISCARDED', message: reason, details: { reason } },
+          }),
         })
         .where(and(eq(ingest_files.id, ingestFileId), eq(ingest_files.status, 'unmatched')))
         .returning({ id: ingest_files.id, status: ingest_files.status });
