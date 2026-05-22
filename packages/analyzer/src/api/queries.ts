@@ -31,8 +31,15 @@ import {
   RosterCommitResultSchema,
   MembersListResponseSchema,
   SemesterDetailResponseSchema,
+  HeuristicConfigSchema,
+  HeuristicConfigHistoryResponseSchema,
+  DryRunDiffSchema,
+  CommitConfigResponseSchema,
+  RecomputeJobSchema,
+  CrossFlagListResponseSchema,
+  CrossFlagDetailResponseSchema,
 } from '@provenance/shared/api-schemas';
-import type { Membership } from '@provenance/shared/api-schemas';
+import type { Membership, HeuristicConfigBody } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -53,6 +60,13 @@ export const queryKeys = {
   roster: (semesterId: string) => ['roster', semesterId] as const,
   members: (semesterId: string) => ['members', semesterId] as const,
   semester: (semesterId: string) => ['semester', semesterId] as const,
+  activeConfig: (semesterId: string) => ['heuristic-config', semesterId, 'active'] as const,
+  configHistory: (semesterId: string) => ['heuristic-config', semesterId, 'history'] as const,
+  recomputeJob: (semesterId: string, jobId: string) =>
+    ['recompute', semesterId, 'job', jobId] as const,
+  crossFlags: (semesterId: string, params: Record<string, unknown>) =>
+    ['cross-flags', semesterId, params] as const,
+  crossFlagDetail: (crossFlagId: string) => ['cross-flag', crossFlagId] as const,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -674,6 +688,197 @@ export function useUpdateSemester(semesterId: string) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.semester(semesterId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Heuristic config hooks
+// ---------------------------------------------------------------------------
+
+/** Fetches the active heuristic config for a semester. */
+export function useActiveConfig(semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.activeConfig(semesterId),
+    queryFn: () =>
+      apiFetch(`/semesters/${semesterId}/heuristic-config`, undefined, HeuristicConfigSchema),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/** Fetches the heuristic config version history for a semester. */
+export function useConfigHistory(semesterId: string) {
+  return useQuery({
+    queryKey: queryKeys.configHistory(semesterId),
+    queryFn: () =>
+      apiFetch(
+        `/semesters/${semesterId}/heuristic-configs`,
+        undefined,
+        HeuristicConfigHistoryResponseSchema,
+      ),
+    staleTime: 60 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/** Mutation: PUT /semesters/:semesterId/heuristic-config?dryRun=true */
+export function useDryRunConfig(semesterId: string) {
+  return useMutation({
+    mutationFn: ({
+      config,
+      currentVersion,
+    }: {
+      config: HeuristicConfigBody;
+      currentVersion: number;
+    }) =>
+      apiFetch(
+        `/semesters/${semesterId}/heuristic-config?dryRun=true`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'If-Match': String(currentVersion),
+          },
+          body: JSON.stringify(config),
+        },
+        DryRunDiffSchema,
+      ),
+  });
+}
+
+/** Mutation: PUT /semesters/:semesterId/heuristic-config (commit) */
+export function useCommitConfig(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      config,
+      currentVersion,
+      note,
+    }: {
+      config: HeuristicConfigBody;
+      currentVersion: number;
+      note?: string;
+    }) =>
+      apiFetch(
+        `/semesters/${semesterId}/heuristic-config`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'If-Match': String(currentVersion),
+          },
+          body: JSON.stringify({ ...config, note: note ?? '' }),
+        },
+        CommitConfigResponseSchema,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.activeConfig(semesterId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.configHistory(semesterId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Recompute job polling hook
+// ---------------------------------------------------------------------------
+
+/**
+ * Polls a recompute job until it reaches a terminal status.
+ * Polls every 2s while not terminal.
+ */
+export function useRecomputeJob(semesterId: string, jobId: string) {
+  return useQuery({
+    queryKey: queryKeys.recomputeJob(semesterId, jobId),
+    queryFn: () =>
+      apiFetch(`/semesters/${semesterId}/recompute/${jobId}`, undefined, RecomputeJobSchema),
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      const terminal =
+        status === 'succeeded' ||
+        status === 'partial' ||
+        status === 'failed' ||
+        status === 'cancelled';
+      return terminal ? false : 2000;
+    },
+    retry: noRetryOn401,
+    enabled: jobId !== '' && semesterId !== '',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Cross-flag hooks
+// ---------------------------------------------------------------------------
+
+export type CrossFlagFilters = {
+  heuristicId?: string;
+  severityMin?: 'info' | 'low' | 'medium' | 'high';
+  submissionId?: string;
+  cursor?: string;
+  limit?: number;
+};
+
+/** Lists cross-flags for a semester with optional filters. */
+export function useCrossFlagList(semesterId: string, filters: CrossFlagFilters = {}) {
+  const params: QueryParams = {};
+  if (filters.heuristicId) params['heuristic_id'] = filters.heuristicId;
+  if (filters.severityMin) params['severity_min'] = filters.severityMin;
+  if (filters.submissionId) params['submission_id'] = filters.submissionId;
+  if (filters.cursor) params['cursor'] = filters.cursor;
+  if (filters.limit) params['limit'] = String(filters.limit);
+
+  return useQuery({
+    queryKey: queryKeys.crossFlags(semesterId, params),
+    queryFn: () => {
+      const qs = buildQueryString(params);
+      return apiFetch(
+        `/semesters/${semesterId}/cross-flags${qs ? `?${qs}` : ''}`,
+        undefined,
+        CrossFlagListResponseSchema,
+      );
+    },
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '',
+  });
+}
+
+/** Fetches a single cross-flag detail by ID. */
+export function useCrossFlagDetail(crossFlagId: string) {
+  return useQuery({
+    queryKey: queryKeys.crossFlagDetail(crossFlagId),
+    queryFn: () =>
+      apiFetch(`/cross-flags/${crossFlagId}`, undefined, CrossFlagDetailResponseSchema),
+    staleTime: 60 * 1000,
+    retry: noRetryOn401,
+    enabled: crossFlagId !== '',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 24 — Export hook
+// ---------------------------------------------------------------------------
+
+/**
+ * Mutation: POST /submissions/:submissionId/export
+ *
+ * - markdown (sync): returns { artifact_id, format, expires_at, download_url }
+ * - pdf (async): returns { job_id, status: 'queued' }
+ *
+ * NOTE: The server-side export endpoint is not yet fully implemented.
+ * This hook stubs the mutation for Phase 24 UI; the server will return
+ * an appropriate response shape when Phase 25 implements the export service.
+ */
+export function useStartExport(submissionId: string) {
+  return useMutation({
+    mutationFn: (format: 'markdown' | 'pdf') =>
+      apiFetch(`/submissions/${submissionId}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format }),
+      }),
   });
 }
 
