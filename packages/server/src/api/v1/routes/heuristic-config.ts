@@ -4,7 +4,7 @@
  * GET    /semesters/:semesterId/heuristic-config          — get active config (semester member)
  * GET    /semesters/:semesterId/heuristic-configs         — list history (semester member)
  * PUT    /semesters/:semesterId/heuristic-config          — dry-run or commit (semester admin)
- * POST   /semesters/:semesterId/heuristic-config/recompute — enqueue recompute (semester admin)
+ * POST   /semesters/:semesterId/recompute               — enqueue recompute (semester admin)
  * GET    /semesters/:semesterId/recompute/:jobId           — poll recompute job status
  *
  * ## PUT ?dryRun=true
@@ -26,8 +26,9 @@
  * ## POST /recompute
  *
  * - Enqueues a recompute_semester job for the current active config.
- * - 409 if no active config exists.
- * - Returns { recompute_job_id, message }.
+ * - 404 if no active config exists.
+ * - Body: { note?: string } optional admin note.
+ * - Returns { recompute_job: { id, semester_id, target_config_id, ... } }.
  *
  * ## GET /recompute/:jobId
  *
@@ -336,14 +337,15 @@ export function createHeuristicConfigRouter(): Hono {
   );
 
   // -------------------------------------------------------------------------
-  // POST /semesters/:semesterId/heuristic-config/recompute
+  // POST /semesters/:semesterId/recompute — PRD §8.11
   //
   // Enqueues a recompute of the current active config without changing it.
-  // Returns 409 if no active config exists for the semester.
+  // Returns 404 if no active config exists for the semester.
+  // Body: { note?: string } — optional admin note stored on the job row.
   // -------------------------------------------------------------------------
 
   router.post(
-    '/semesters/:semesterId/heuristic-config/recompute',
+    '/semesters/:semesterId/recompute',
     rateLimit('write.config'),
     requireAuth({
       action: 'write',
@@ -355,7 +357,19 @@ export function createHeuristicConfigRouter(): Hono {
       const db = getDb();
       const principal = c.var.principal!;
 
-      const result = await createRecomputeJob(db, semesterId, principal.user.id);
+      // Read optional note from request body (PRD §8.11 body: { note?: string }).
+      let note: string | undefined;
+      try {
+        const rawBody = await c.req.json().catch(() => null);
+        if (rawBody !== null && typeof rawBody === 'object' && !Array.isArray(rawBody)) {
+          const n = (rawBody as Record<string, unknown>)['note'];
+          if (typeof n === 'string') note = n;
+        }
+      } catch {
+        // Body is optional; ignore parse errors
+      }
+
+      const result = await createRecomputeJob(db, semesterId, principal.user.id, note);
       if (!result) {
         // No active config — cannot recompute against a default config.
         return c.json(
@@ -369,7 +383,7 @@ export function createHeuristicConfigRouter(): Hono {
         );
       }
 
-      const { recomputeJobId, targetConfigId } = result;
+      const { recomputeJobId, targetConfigId, jobRow } = result;
 
       // Enqueue the recompute_semester job.
       const boss = await getBoss();
@@ -388,8 +402,7 @@ export function createHeuristicConfigRouter(): Hono {
       c.set('auditDetail', { semesterId, recompute_job_id: recomputeJobId });
 
       return c.json({
-        recompute_job_id: recomputeJobId,
-        message: 'Recompute job enqueued',
+        recompute_job: jobRow,
       });
     },
   );

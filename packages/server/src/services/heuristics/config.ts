@@ -457,17 +457,35 @@ export async function commitNewVersion(
   };
 }
 
+export type CreateRecomputeJobRow = {
+  id: string;
+  semester_id: string;
+  target_config_id: string;
+  triggered_by: string;
+  status: string;
+  progress_total: number;
+  progress_done: number;
+  progress_failed: number;
+  created_at: Date;
+  started_at: Date | null;
+  completed_at: Date | null;
+  summary: unknown;
+};
+
 /**
  * Insert a recompute_jobs row against the CURRENT active config (no config change).
  * Used by POST /recompute.
  *
  * Returns null if no active config exists for the semester.
+ *
+ * @param note - Optional admin note passed as { note?: string } in the request body.
  */
 export async function createRecomputeJob(
   db: DrizzleDb,
   semesterId: string,
   triggeredBy: string,
-): Promise<{ recomputeJobId: string; targetConfigId: string } | null> {
+  note?: string,
+): Promise<{ recomputeJobId: string; targetConfigId: string; jobRow: CreateRecomputeJobRow } | null> {
   const active = await getActiveConfig(db, semesterId);
   if (!active) return null;
 
@@ -483,7 +501,7 @@ export async function createRecomputeJob(
     );
   const progressTotal = countResult[0]?.cnt ?? 0;
 
-  const [jobRow] = await db
+  const [insertedRow] = await db
     .insert(recompute_jobs)
     .values({
       semester_id: semesterId,
@@ -491,12 +509,28 @@ export async function createRecomputeJob(
       triggered_by: triggeredBy,
       status: 'queued',
       progress_total: progressTotal,
-      summary: {},
+      summary: note !== undefined ? { note } : {},
     })
-    .returning({ id: recompute_jobs.id });
+    .returning();
+
+  const jobRow: CreateRecomputeJobRow = {
+    id: insertedRow!.id,
+    semester_id: insertedRow!.semester_id,
+    target_config_id: insertedRow!.target_config_id,
+    triggered_by: insertedRow!.triggered_by,
+    status: insertedRow!.status,
+    progress_total: insertedRow!.progress_total,
+    progress_done: insertedRow!.progress_done,
+    progress_failed: insertedRow!.progress_failed,
+    created_at: insertedRow!.created_at,
+    started_at: insertedRow!.started_at ?? null,
+    completed_at: insertedRow!.completed_at ?? null,
+    summary: insertedRow!.summary,
+  };
 
   return {
-    recomputeJobId: jobRow!.id,
+    recomputeJobId: insertedRow!.id,
     targetConfigId: active.id,
+    jobRow,
   };
 }

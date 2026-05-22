@@ -1086,8 +1086,8 @@ describe('PUT ?dryRun=true — concurrent If-Match regression', () => {
 // POST /semesters/:semesterId/heuristic-config/recompute
 // ---------------------------------------------------------------------------
 
-describe('POST /semesters/:semesterId/heuristic-config/recompute', () => {
-  it('enqueues a recompute job and returns recompute_job_id', async () => {
+describe('POST /semesters/:semesterId/recompute', () => {
+  it('enqueues a recompute job and returns recompute_job shape (PRD §8.11)', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
@@ -1100,21 +1100,41 @@ describe('POST /semesters/:semesterId/heuristic-config/recompute', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/semesters/${semester.id}/heuristic-config/recompute`, {
+          new Request(`http://localhost/semesters/${semester.id}/recompute`, {
             method: 'POST',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ note: 'triggered from test' }),
           }),
         );
         expect(res.status).toBe(200);
-        const body = (await res.json()) as { recompute_job_id: string; message: string };
-        expect(body.recompute_job_id).toBeTruthy();
-        expect(body.message).toContain('enqueued');
+        const body = (await res.json()) as {
+          recompute_job: {
+            id: string;
+            semester_id: string;
+            target_config_id: string;
+            triggered_by: string;
+            status: string;
+            progress_total: number;
+            progress_done: number;
+            progress_failed: number;
+            created_at: string;
+            started_at: string | null;
+            completed_at: string | null;
+            summary: unknown;
+          };
+        };
+        expect(body.recompute_job.id).toBeTruthy();
+        expect(body.recompute_job.semester_id).toBe(semester.id);
+        expect(body.recompute_job.status).toBe('queued');
 
         // Verify the recompute_jobs row exists in DB.
         const jobRows = await db
           .select({ id: recompute_jobs.id, status: recompute_jobs.status })
           .from(recompute_jobs)
-          .where(eq(recompute_jobs.id, body.recompute_job_id));
+          .where(eq(recompute_jobs.id, body.recompute_job.id));
         expect(jobRows).toHaveLength(1);
         expect(jobRows[0]?.status).toBe('queued');
       } finally {
@@ -1136,7 +1156,7 @@ describe('POST /semesters/:semesterId/heuristic-config/recompute', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/semesters/${semester.id}/heuristic-config/recompute`, {
+          new Request(`http://localhost/semesters/${semester.id}/recompute`, {
             method: 'POST',
             headers: { Cookie: `__Host-prov_sess=${sessionId}` },
           }),
@@ -1157,7 +1177,7 @@ describe('POST /semesters/:semesterId/heuristic-config/recompute', () => {
 
         const app = createV1App();
         const res = await app.fetch(
-          new Request(`http://localhost/semesters/${semester.id}/heuristic-config/recompute`, {
+          new Request(`http://localhost/semesters/${semester.id}/recompute`, {
             method: 'POST',
           }),
         );
