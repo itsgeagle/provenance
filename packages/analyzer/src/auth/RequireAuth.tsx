@@ -31,9 +31,18 @@ export function RequireAuth({ children }: RequireAuthProps) {
     );
   }
 
-  if (error instanceof UnauthorizedError || (error !== null && !data)) {
+  if (error instanceof UnauthorizedError) {
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
+  }
+
+  if (error !== null) {
+    // Non-401 error: show error UI, don't redirect to login.
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <span className="text-sm text-red-600">Failed to load. Please refresh.</span>
+      </div>
+    );
   }
 
   if (!data) {

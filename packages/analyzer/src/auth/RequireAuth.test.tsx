@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { http, HttpResponse } from 'msw';
 import { mswServer } from '../test-setup.js';
 import { meUnauthorizedHandler } from '../test/msw-handlers.js';
 import { RequireAuth } from './RequireAuth.js';
@@ -81,5 +82,36 @@ describe('RequireAuth', () => {
       expect(screen.getByTestId('protected-content')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+  });
+
+  it('shows error UI on non-401 errors (e.g. 5xx)', async () => {
+    // Override with a handler that returns a 500 error
+    mswServer.use(
+      http.get('/api/v1/me', () => {
+        // Return a 500 error that will NOT be retried (retry is disabled in test setup)
+        return HttpResponse.json(
+          {
+            error: {
+              code: 'SERVER_ERROR',
+              message: 'Internal server error',
+            },
+          },
+          { status: 500 },
+        );
+      }),
+    );
+
+    renderWithProviders(<div />);
+
+    // Wait for the error to be rendered (after retries exhaust)
+    await waitFor(
+      () => {
+        expect(screen.getByText('Failed to load. Please refresh.')).toBeInTheDocument();
+      },
+      { timeout: 5000 },
+    );
+    // Should NOT redirect to login
+    expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
   });
 });
