@@ -45,6 +45,7 @@ import { getLogger } from '../logging.js';
 export const JOB_KINDS = {
   INGEST_FILE: 'ingest_file',
   INGEST_FINALIZE: 'ingest_finalize',
+  RECOMPUTE_SEMESTER: 'recompute_semester',
   RECOMPUTE_SUBMISSION: 'recompute_submission',
   RECOMPUTE_FINALIZE: 'recompute_finalize',
   RECOMPUTE_CROSS_FLAGS: 'recompute_cross_flags',

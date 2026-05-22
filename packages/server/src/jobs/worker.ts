@@ -55,6 +55,7 @@ import { computeAndStoreStats } from '../services/ingest/stats.js';
 import { runAndStoreValidation } from '../services/ingest/validation.js';
 import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission.js';
 import { withTransaction } from '../db/client.js';
+import { registerRecomputeHandlers } from './recompute.js';
 
 // ---------------------------------------------------------------------------
 // Payload types (mirrored from POST /ingest enqueue calls)
@@ -444,7 +445,10 @@ export async function startWorker(): Promise<() => Promise<void>> {
     },
   );
 
-  logger.info('worker started (phase 9b: ingest handlers registered)');
+  // Register recompute handlers (Phase 13b).
+  await registerRecomputeHandlers(boss);
+
+  logger.info('worker started (phase 13b: ingest + recompute handlers registered)');
 
   return async () => {
     await stopBoss();
