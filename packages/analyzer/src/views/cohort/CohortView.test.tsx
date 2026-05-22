@@ -317,6 +317,110 @@ describe('CohortView', () => {
 
     expect(screen.queryByTestId('load-more-button')).not.toBeInTheDocument();
   });
+
+  it('load-more uses accumulated cursor state, not first-page query result', async () => {
+    // Track which cursors are requested
+    const requestedCursors: (string | null)[] = [];
+
+    // Helper to create a handler that records the cursor and returns different results
+    const createDynamicSubmissionsHandler = () =>
+      http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/submissions`, ({ request }) => {
+        const url = new URL(request.url);
+        const cursor = url.searchParams.get('cursor');
+        requestedCursors.push(cursor);
+
+        // First request: cursor=null, return cursor='c1'
+        if (cursor === null) {
+          return HttpResponse.json({
+            items: [makeSubmissionRow({ id: '10000000-0000-0000-0000-000000000001' })],
+            next_cursor: 'c1',
+            total_count: 3,
+            facets: {
+              by_severity: { info: 0, low: 0, medium: 0, high: 0 },
+              by_validation: { pass: 0, warn: 0, fail: 0 },
+              by_assignment: [],
+            },
+          });
+        }
+        // Second request: cursor='c1', return cursor='c2'
+        if (cursor === 'c1') {
+          return HttpResponse.json({
+            items: [makeSubmissionRow({ id: '10000000-0000-0000-0000-000000000002' })],
+            next_cursor: 'c2',
+            total_count: 3,
+            facets: {
+              by_severity: { info: 0, low: 0, medium: 0, high: 0 },
+              by_validation: { pass: 0, warn: 0, fail: 0 },
+              by_assignment: [],
+            },
+          });
+        }
+        // Third request: cursor='c2', return cursor=null (last page)
+        if (cursor === 'c2') {
+          return HttpResponse.json({
+            items: [makeSubmissionRow({ id: '10000000-0000-0000-0000-000000000003' })],
+            next_cursor: null,
+            total_count: 3,
+            facets: {
+              by_severity: { info: 0, low: 0, medium: 0, high: 0 },
+              by_validation: { pass: 0, warn: 0, fail: 0 },
+              by_assignment: [],
+            },
+          });
+        }
+
+        return HttpResponse.json({
+          items: [],
+          next_cursor: null,
+          total_count: 0,
+          facets: {
+            by_severity: { info: 0, low: 0, medium: 0, high: 0 },
+            by_validation: { pass: 0, warn: 0, fail: 0 },
+            by_assignment: [],
+          },
+        });
+      });
+
+    mswServer.use(
+      createDynamicSubmissionsHandler(),
+      cohortStudentsHandler([]),
+      assignmentsHandler(),
+    );
+
+    renderCohortView();
+
+    // Wait for initial load
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('load-more-button')).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+
+    // First load-more click
+    fireEvent.click(screen.getByTestId('load-more-button'));
+
+    // Wait a bit for the network call to complete
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Second load-more click
+    fireEvent.click(screen.getByTestId('load-more-button'));
+
+    // Wait for the async operations to settle
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Allow React Query to process the responses
+    await vi.waitFor(
+      () => {
+        // Should have made 3 requests total: [null, 'c1', 'c2']
+        expect(requestedCursors.length).toBe(3);
+      },
+      { timeout: 3000 },
+    );
+
+    // Verify the cursor progression: should be [null, 'c1', 'c2']
+    expect(requestedCursors).toEqual([null, 'c1', 'c2']);
+  });
 });
 
 // ---------------------------------------------------------------------------

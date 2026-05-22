@@ -24,7 +24,13 @@
 import { useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useCohortFilters } from './use-cohort-filters.js';
-import { useCohortSubmissions, useCohortStudents, useAssignments } from '../../api/queries.js';
+import {
+  useCohortSubmissions,
+  useCohortStudents,
+  useAssignments,
+  buildQueryString,
+} from '../../api/queries.js';
+import { apiFetch } from '../../api/client.js';
 import { CohortTable } from './CohortTable.js';
 import { StudentRollupTable } from './StudentRollupTable.js';
 import { FilterRail } from './FilterRail.js';
@@ -34,6 +40,10 @@ import { useSemesters } from '../../api/queries.js';
 import type { SubmissionRow, StudentRollupRow } from '@provenance/shared/api-schemas';
 import type { CohortSort, StudentSort } from '../../api/queries.js';
 import type { SavedView } from './SavedViews.js';
+import {
+  CohortListResponseSchema,
+  StudentListResponseSchema,
+} from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
 // Tab type
@@ -119,14 +129,11 @@ export function CohortView() {
 
   // Load more: fetch next page of submissions, append to accumulated list
   async function handleLoadMoreSubmissions() {
-    const cursor = submissionsQuery.data?.next_cursor ?? null;
+    const cursor =
+      (submissionRows.length > 0 ? submissionCursor : submissionsQuery.data?.next_cursor) ?? null;
     if (!cursor || loadingMoreSubmissions || !semesterId) return;
     setLoadingMoreSubmissions(true);
     try {
-      // Use apiFetch directly for the next page
-      const { apiFetch } = await import('../../api/client.js');
-      const { CohortListResponseSchema } = await import('@provenance/shared/api-schemas');
-      const { buildQueryString } = await import('../../api/queries.js');
       const params: Record<string, string | string[] | undefined> = {
         cursor,
         limit: '50',
@@ -148,13 +155,11 @@ export function CohortView() {
   }
 
   async function handleLoadMoreStudents() {
-    const cursor = studentsQuery.data?.next_cursor ?? null;
+    const cursor =
+      (studentRows.length > 0 ? studentCursor : studentsQuery.data?.next_cursor) ?? null;
     if (!cursor || loadingMoreStudents || !semesterId) return;
     setLoadingMoreStudents(true);
     try {
-      const { apiFetch } = await import('../../api/client.js');
-      const { StudentListResponseSchema } = await import('@provenance/shared/api-schemas');
-      const { buildQueryString } = await import('../../api/queries.js');
       const params: Record<string, string | string[] | undefined> = {
         cursor,
         limit: '50',
