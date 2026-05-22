@@ -20,7 +20,8 @@
 import { MinioContainer } from '@testcontainers/minio';
 import { createStorageClient, type StorageClient } from '../../src/services/storage/client.js';
 
-const MINIO_IMAGE = 'minio/minio:latest';
+// Pinned tag for deterministic CI; bump when intentionally upgrading.
+const MINIO_IMAGE = 'minio/minio:RELEASE.2025-04-22T22-12-26Z';
 const MINIO_USER = 'minioadmin';
 const MINIO_PASSWORD = 'minioadmin';
 const BUCKET_NAME = 'test-bucket';
