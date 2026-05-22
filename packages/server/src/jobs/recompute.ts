@@ -49,6 +49,7 @@ import {
   markSubmissionRecomputeError,
 } from '../services/scoring/recompute-submission.js';
 import { enqueueCrossFlagsJob } from './recompute-cross-flags.js';
+import { recordRecomputeJobTerminal } from '../api/middleware/metrics.js';
 
 // ---------------------------------------------------------------------------
 // Payload types
@@ -377,6 +378,9 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
             completed_at: new Date(),
           })
           .where(eq(recompute_jobs.id, recomputeJobId));
+
+        // Record the terminal status to metrics.
+        recordRecomputeJobTerminal(terminalStatus);
 
         logger.info(
           { recomputeJobId, terminalStatus, progress_done, progress_failed },

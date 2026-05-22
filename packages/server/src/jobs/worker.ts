@@ -46,6 +46,7 @@ import {
   markIngestJobRunning,
   failIngestJob,
 } from '../services/ingest/job-control.js';
+import { recordIngestJobTerminal } from '../api/middleware/metrics.js';
 import { dedupFile } from '../services/ingest/dedup.js';
 import { parseBundlePhase } from '../services/ingest/parse-bundle-phase.js';
 import { matchStudent } from '../services/ingest/match-student.js';
@@ -432,6 +433,19 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
       try {
         await finalizeIngestJob(db, ingestJobId);
+
+        // Record the terminal status to metrics.
+        const statusRows = await db
+          .select({ status: ingest_jobs.status })
+          .from(ingest_jobs)
+          .where(eq(ingest_jobs.id, ingestJobId))
+          .limit(1);
+
+        const finalStatus = statusRows[0]?.status ?? 'unknown';
+        if (['succeeded', 'partial', 'failed'].includes(finalStatus)) {
+          recordIngestJobTerminal(finalStatus);
+        }
+
         logger.info({ ingestJobId }, 'ingest_finalize: completed');
 
         // Enqueue cross-flag recompute for the semester (Phase 14).
