@@ -95,7 +95,7 @@ export function createCoursesRouter(): Hono {
     '/',
     rateLimit('write.misc'),
     requireAuth({ action: 'admin', target: 'global' }),
-    audit('course.create', 'course', (c) => (c.var.target ? 'global' : 'global')),
+    audit('course.create', 'course', (c) => (c.var.auditDetail?.id as string) ?? 'unknown'),
     async (c) => {
       let body;
       try {
@@ -115,6 +115,9 @@ export function createCoursesRouter(): Hono {
       try {
         const course = await structureService.createCourse(db, { name, slug });
 
+        // Set auditDetail so the audit middleware captures the created entity's UUID.
+        c.set('auditDetail', { id: course.id });
+
         const response = createCourseResponseSchema.parse({
           course: courseToCourseDetail(course),
         });
@@ -131,41 +134,48 @@ export function createCoursesRouter(): Hono {
 
   // -------------------------------------------------------------------------
   // GET /courses/:courseId — get course detail
+  //
+  // Uses a manual auth check rather than requireAuth('global') because
+  // 'global' implies superadmin-only. Any authenticated user with visibility
+  // into the course (member of at least one semester in it) may fetch the
+  // course detail; the service layer enforces visibility.
   // -------------------------------------------------------------------------
 
-  router.get(
-    '/:courseId',
-    rateLimit('read.detail'),
-    requireAuth({ action: 'read', target: 'global' }),
-    async (c) => {
-      const courseId = c.req.param('courseId');
-      const principal = c.var.principal!;
-      const db = getDb();
+  router.get('/:courseId', rateLimit('read.detail'), async (c) => {
+    const principal = c.var.principal ?? null;
+    if (principal === null) {
+      const returnTo = encodeURIComponent(c.req.path);
+      return c.json(
+        Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(),
+        401,
+      );
+    }
+    const courseId = c.req.param('courseId');
+    const db = getDb();
 
-      // Check if user can see this course
-      try {
-        const courses_list = await structureService.listCoursesForPrincipal(db, principal);
-        if (!courses_list.find((course) => course.id === courseId)) {
-          throw Errors.notFound();
-        }
-      } catch (err) {
-        if (err instanceof Error && err.message.includes('NOT_FOUND')) {
-          throw err;
-        }
-      }
-
-      const course = await structureService.getCourse(db, courseId);
-      if (!course) {
+    // Check if user can see this course
+    try {
+      const courses_list = await structureService.listCoursesForPrincipal(db, principal);
+      if (!courses_list.find((course) => course.id === courseId)) {
         throw Errors.notFound();
       }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('NOT_FOUND')) {
+        throw err;
+      }
+    }
 
-      const response = getCourseResponseSchema.parse({
-        course: courseToCourseDetail(course),
-      });
+    const course = await structureService.getCourse(db, courseId);
+    if (!course) {
+      throw Errors.notFound();
+    }
 
-      return c.json(response);
-    },
-  );
+    const response = getCourseResponseSchema.parse({
+      course: courseToCourseDetail(course),
+    });
+
+    return c.json(response);
+  });
 
   // -------------------------------------------------------------------------
   // PATCH /courses/:courseId — update course (superadmin only)
