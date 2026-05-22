@@ -17,7 +17,7 @@
  * docs/analyzer-v3-implementation-plan.md §13a.
  */
 
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { heuristic_configs } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 
@@ -133,6 +133,9 @@ export async function getActiveConfig(
   db: DrizzleDb,
   semesterId: string,
 ): Promise<ActiveConfigRow | null> {
+  // Use is_active = true in the WHERE clause so Postgres can use the partial
+  // unique index heuristic_configs_active_idx (WHERE is_active) — at most one
+  // row is returned without a full table scan.
   const rows = await db
     .select({
       id: heuristic_configs.id,
@@ -140,14 +143,14 @@ export async function getActiveConfig(
       config: heuristic_configs.config,
       set_at: heuristic_configs.set_at,
       note: heuristic_configs.note,
-      is_active: heuristic_configs.is_active,
     })
     .from(heuristic_configs)
-    .where(eq(heuristic_configs.semester_id, semesterId));
+    .where(
+      and(eq(heuristic_configs.semester_id, semesterId), eq(heuristic_configs.is_active, true)),
+    )
+    .limit(1);
 
-  // There is at most 1 active row per semester (enforced by the partial unique
-  // index heuristic_configs_active_idx in migration 0010).
-  const activeRow = rows.find((r) => r.is_active);
+  const activeRow = rows[0];
   if (!activeRow) return null;
 
   return {
