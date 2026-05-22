@@ -41,7 +41,7 @@ import { eq, sql, and } from 'drizzle-orm';
 import type PgBoss from 'pg-boss';
 import { getDb } from '../db/client.js';
 import { getLogger } from '../logging.js';
-import { recompute_jobs } from '../db/schema.js';
+import { recompute_jobs, submissions } from '../db/schema.js';
 import { JOB_KINDS } from './pg-boss.js';
 import { DEFAULT_SERVER_CONFIG } from '../services/heuristics/config.js';
 import {
@@ -195,23 +195,59 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
   );
 
   // -------------------------------------------------------------------------
-  // recompute_submission handler
+  // recompute_submission handler (includeMetadata: true for retryCount access)
   //
-  // 1. Read the target config.
-  // 2. Call recomputeSubmission (writes flags + score).
-  // 3. Increment progress_done (or progress_failed on error).
-  // 4. Check if done+failed == total → enqueue finalize if so.
+  // 1. Idempotency check: if submission already recomputed for this configVersion,
+  //    skip all work and return without incrementing progress_done (I-Quality-1).
+  // 2. Read the target config.
+  // 3. Call recomputeSubmission (writes flags + score).
+  // 4. Increment progress_done.
+  // 5. On error: re-throw so pg-boss can retry (I-Spec-3 PRD §12.3 retryLimit:3).
+  //    Only on final retry (retryCount >= retryLimit): mark terminal failure +
+  //    increment progress_failed, then check if finalize should be enqueued.
+  //    (Re-throw after marking so pg-boss moves to 'failed' state cleanly.)
   // -------------------------------------------------------------------------
   await boss.work<RecomputeSubmissionPayload>(
     JOB_KINDS.RECOMPUTE_SUBMISSION,
-    { batchSize: 1 },
+    { batchSize: 1, includeMetadata: true },
     async (jobs) => {
       const job = jobs[0]!;
       const { recomputeJobId, semesterId, submissionId, targetConfigId, configVersion } = job.data;
       const db = getDb();
-      logger.info({ recomputeJobId, submissionId }, 'recompute_submission: started');
+      const isLastAttempt = job.retryCount >= job.retryLimit;
+      logger.info(
+        { recomputeJobId, submissionId, retryCount: job.retryCount, retryLimit: job.retryLimit },
+        'recompute_submission: started',
+      );
 
-      let succeeded = false;
+      // -----------------------------------------------------------------------
+      // Idempotency guard (I-Quality-1):
+      //
+      // If this submission has already been successfully recomputed for the target
+      // config version, skip all work and return. This handles the case where a
+      // prior attempt succeeded (wrote flags + set recompute_status='fresh') but
+      // pg-boss retried the job before the ack propagated.
+      // -----------------------------------------------------------------------
+      const [subCheck] = await db
+        .select({
+          recompute_status: submissions.recompute_status,
+          heuristic_config_version: submissions.heuristic_config_version,
+        })
+        .from(submissions)
+        .where(eq(submissions.id, submissionId))
+        .limit(1);
+
+      if (
+        subCheck?.recompute_status === 'fresh' &&
+        subCheck?.heuristic_config_version === configVersion
+      ) {
+        logger.info(
+          { recomputeJobId, submissionId, configVersion },
+          'recompute_submission: already fresh for this config version — skipping (idempotent)',
+        );
+        return;
+      }
+
       try {
         // Look up the config object.
         const hcRows = await db.execute(sql`
@@ -228,42 +264,49 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
         // Run the per-submission recompute.
         await recomputeSubmission(db, submissionId, semesterId, config, configVersion);
 
-        succeeded = true;
         logger.info({ recomputeJobId, submissionId }, 'recompute_submission: succeeded');
       } catch (err) {
         const cause = err instanceof Error ? err.message : String(err);
-        logger.error({ recomputeJobId, submissionId, err }, 'recompute_submission: failed');
+        logger.error(
+          { recomputeJobId, submissionId, retryCount: job.retryCount, err },
+          'recompute_submission: failed',
+        );
 
-        // Mark the submission as error.
-        await markSubmissionRecomputeError(db, submissionId).catch(() => {
-          /* best-effort */
-        });
+        if (isLastAttempt) {
+          // Final attempt exhausted: mark terminal failure in our tracking tables.
+          // This runs before the re-throw so the DB state is consistent even if
+          // the handler is killed mid-flight (pg-boss will still move to 'failed').
+          await markSubmissionRecomputeError(db, submissionId).catch(() => {
+            /* best-effort */
+          });
 
-        // Record error in the job's summary JSONB (append-style via SQL jsonb concat).
-        await db.execute(sql`
-          UPDATE recompute_jobs
-          SET
-            progress_failed = progress_failed + 1,
-            summary = summary || ${sql`jsonb_build_object(${submissionId}, ${cause})`}
-          WHERE id = ${recomputeJobId}
-        `);
+          // Record error in the job's summary JSONB (append-style via SQL jsonb concat).
+          await db.execute(sql`
+            UPDATE recompute_jobs
+            SET
+              progress_failed = progress_failed + 1,
+              summary = summary || ${sql`jsonb_build_object(${submissionId}, ${cause})`}
+            WHERE id = ${recomputeJobId}
+          `);
 
-        // Check if all work is complete now (including this failure).
-        await maybeEnqueueRecomputeFinalize(boss, db, recomputeJobId);
-        return; // Don't throw — pg-boss has retried up to retryLimit already.
+          // Check if all work is complete now (including this terminal failure).
+          await maybeEnqueueRecomputeFinalize(boss, db, recomputeJobId);
+        }
+
+        // Re-throw so pg-boss sees this as a failure and schedules a retry
+        // (or moves to 'failed' state on final attempt).
+        throw err;
       }
 
-      if (succeeded) {
-        // Increment progress_done.
-        await db.execute(sql`
-          UPDATE recompute_jobs
-          SET progress_done = progress_done + 1
-          WHERE id = ${recomputeJobId}
-        `);
+      // Increment progress_done on success.
+      await db.execute(sql`
+        UPDATE recompute_jobs
+        SET progress_done = progress_done + 1
+        WHERE id = ${recomputeJobId}
+      `);
 
-        // Check if all work is complete.
-        await maybeEnqueueRecomputeFinalize(boss, db, recomputeJobId);
-      }
+      // Check if all work is complete.
+      await maybeEnqueueRecomputeFinalize(boss, db, recomputeJobId);
     },
   );
 

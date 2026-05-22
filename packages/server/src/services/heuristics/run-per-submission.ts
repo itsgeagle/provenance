@@ -46,7 +46,7 @@ import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
 import { flags, submissions } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';
-import { DEFAULT_CONFIG_V0, HEURISTIC_CONFIG_VERSION_V0 } from './default-config.js';
+import { HEURISTIC_CONFIG_VERSION_V0 } from './default-config.js';
 import { getActiveConfig, DEFAULT_SERVER_CONFIG } from './config.js';
 import { computeScore } from '../scoring/compute.js';
 
@@ -126,10 +126,10 @@ export async function runAndStoreHeuristics(
   //
   // Pass undefined as configOverride — v2's HeuristicConfig (threshold values)
   // is separate from the server-side ServerHeuristicConfig (enabled/weight).
-  // We use DEFAULT_CONFIG_V0 for v2 thresholds. The server-side enabled/weight
-  // filtering is applied below using serverConfig.
+  // v2's runHeuristics uses its own DEFAULT_HEURISTIC_CONFIG internally for
+  // threshold-based logic (same as recompute-submission.ts). The server-side
+  // enabled/weight filtering is applied below using serverConfig.
   // -------------------------------------------------------------------------
-  const v2Config = DEFAULT_CONFIG_V0;
   const rawFlags = runHeuristics(index, bundle, validationReport, undefined);
 
   // -------------------------------------------------------------------------
@@ -248,8 +248,4 @@ export async function runAndStoreHeuristics(
     .set({ score_total, score_max_severity })
     .where(eq(submissions.id, submissionId));
 
-  // v2Config is used for threshold-based checks — referenced here to satisfy
-  // the TypeScript 'declared but never read' rule. Phase 13 will use it to
-  // pass thresholds into runHeuristics as configOverride.
-  void v2Config;
 }

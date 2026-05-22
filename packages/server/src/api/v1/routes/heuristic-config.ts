@@ -418,6 +418,10 @@ export function createHeuristicConfigRouter(): Hono {
       action: 'read',
       target: (c) => ({ semesterId: c.req.param('semesterId')! }),
     }),
+    // Audit polling: kept intentionally low-noise (one row per actual poll request).
+    // High-frequency polling by clients will produce many rows; if this becomes
+    // too noisy in production, move to a sampled audit approach in Phase 19.
+    audit('heuristic_config.read_job', 'semester', (c) => c.req.param('semesterId')!),
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
       const jobId = c.req.param('jobId')!;
