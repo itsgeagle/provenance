@@ -11,7 +11,7 @@ import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js
 import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
 import { createMeRouter } from './me.js';
-import { users, sessions } from '../../../db/schema.js';
+import { users, sessions, courses, semesters, memberships } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -71,11 +71,12 @@ function makeMeApp(): Hono {
 
 /** Inserts a user and returns it. */
 async function insertUser(db: DrizzleDb, overrides?: Partial<typeof users.$inferInsert>) {
+  const randomId = Math.random().toString(36).slice(2);
   const rows = await db
     .insert(users)
     .values({
-      google_subject: `sub-${Math.random()}`,
-      email: 'test@berkeley.edu',
+      google_subject: `sub-${randomId}`,
+      email: `test-${randomId}@berkeley.edu`,
       display_name: 'Test User',
       is_superadmin: false,
       ...overrides,
@@ -280,6 +281,66 @@ describe('GET /me — authenticated', () => {
           semester_ids: null,
           include_blobs: false,
         });
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns memberships when user is part of semesters', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db);
+        const admin = await insertUser(db, { is_superadmin: true });
+        const sessionId = await insertSession(db, user.id);
+
+        // Create course and semester
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+
+        const [semester] = await db
+          .insert(semesters)
+          .values({
+            course_id: course!.id,
+            term: 'fa',
+            year: 2024,
+            slug: 'fa2024',
+            display_name: 'Fall 2024',
+            filename_convention: '(?<sid>[a-z0-9]+)_hw',
+          })
+          .returning();
+
+        // Add user as grader to the semester
+        await db.insert(memberships).values({
+          user_id: user.id,
+          semester_id: semester!.id,
+          role: 'grader',
+          granted_by: admin.id,
+        });
+
+        const app = makeMeApp();
+        const res = await app.fetch(
+          new Request('http://localhost/', {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+
+        expect(body.memberships).toBeTruthy();
+        expect(Array.isArray(body.memberships)).toBe(true);
+        expect(body.memberships.length).toBe(1);
+
+        const mem = body.memberships[0];
+        expect(mem.semester_id).toBe(semester!.id);
+        expect(mem.semester_slug).toBe('fa2024');
+        expect(mem.course_slug).toBe('cs61a');
+        expect(mem.role).toBe('grader');
+        expect(mem.granted_at).toBeTruthy();
       } finally {
         _testDb = null;
       }

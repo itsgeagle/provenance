@@ -15,6 +15,8 @@
 
 import { Hono } from 'hono';
 import { resolvePrincipal } from '../../middleware/auth-session.js';
+import { getDb } from '../../../db/client.js';
+import * as structureService from '../../../services/structure.js';
 import type { TokenScopes } from '../../../auth/tokens.js';
 
 // ---------------------------------------------------------------------------
@@ -30,15 +32,23 @@ interface UserSummary {
   last_login_at: string | null;
 }
 
+interface MembershipSummary {
+  semester_id: string;
+  semester_slug: string;
+  course_slug: string;
+  role: 'admin' | 'grader';
+  granted_at: string;
+}
+
 type MeResponse =
   | {
       user: UserSummary;
-      memberships: never[];
+      memberships: MembershipSummary[];
       principal_kind: 'session';
     }
   | {
       user: UserSummary;
-      memberships: never[];
+      memberships: MembershipSummary[];
       principal_kind: 'token';
       token: { id: string; label: string; scopes: TokenScopes };
     };
@@ -97,6 +107,17 @@ export function createMeRouter(): Hono {
       last_login_at: user.last_login_at !== null ? user.last_login_at.toISOString() : null,
     };
 
+    // Fetch user's memberships from database
+    const db = getDb();
+    const membershipRows = await structureService.getUserMemberships(db, user.id);
+    const memberships: MembershipSummary[] = membershipRows.map((m) => ({
+      semester_id: m.semester_id,
+      semester_slug: m.semester_slug,
+      course_slug: m.course_slug,
+      role: m.role as 'admin' | 'grader',
+      granted_at: m.granted_at.toISOString(),
+    }));
+
     if (principal_kind === 'token') {
       const token = principal.token;
       const scopes: TokenScopes =
@@ -105,7 +126,7 @@ export function createMeRouter(): Hono {
           : (token.scopes as TokenScopes);
       const response: MeResponse = {
         user: userSummary,
-        memberships: [],
+        memberships,
         principal_kind: 'token',
         token: { id: token.id, label: token.label, scopes },
       };
@@ -114,7 +135,7 @@ export function createMeRouter(): Hono {
 
     const response: MeResponse = {
       user: userSummary,
-      memberships: [],
+      memberships,
       principal_kind: 'session',
     };
     return c.json(response);

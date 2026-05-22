@@ -30,8 +30,11 @@ import { Hono } from 'hono';
 import { createAuthRouter } from './routes/auth.js';
 import { createMeRouter } from './routes/me.js';
 import { createMeTokensRouter } from './routes/me-tokens.js';
+import { createCoursesRouter } from './routes/courses.js';
+import { createSemestersRouter } from './routes/semesters.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
+import { errorFormatter } from '../middleware/error.js';
 
 export function createV1App(): Hono {
   const app = new Hono();
@@ -47,6 +50,12 @@ export function createV1App(): Hono {
   // Mount /me/tokens before /me to prevent prefix shadowing.
   app.route('/me/tokens', createMeTokensRouter());
   app.route('/me', createMeRouter());
+  // Mount courses and semesters routes
+  app.route('/', createCoursesRouter());
+  app.route('/', createSemestersRouter());
+
+  // Global error handler
+  app.onError(errorFormatter);
 
   return app;
 }
