@@ -21,8 +21,8 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { ApiSubmissionDataProviderContext } from '../../data/ApiSubmissionDataProvider.js';
 import { Overview } from './Overview.js';
 import { Timeline } from './Timeline.js';
-import { ReplayStub } from './ReplayStub.js';
-import { ValidationStub } from './ValidationStub.js';
+import { Replay } from './Replay.js';
+import { Validation } from './Validation.js';
 import { ExportStub } from './ExportStub.js';
 
 // ---------------------------------------------------------------------------
@@ -90,8 +90,8 @@ export function SubmissionShell() {
         <div className="flex-1 overflow-auto bg-gray-50" data-testid="tab-content">
           {activeTab === 'overview' && <Overview />}
           {activeTab === 'timeline' && <Timeline />}
-          {activeTab === 'replay' && <ReplayStub />}
-          {activeTab === 'validation' && <ValidationStub />}
+          {activeTab === 'replay' && <Replay />}
+          {activeTab === 'validation' && <Validation />}
           {activeTab === 'export' && <ExportStub />}
         </div>
       </div>
