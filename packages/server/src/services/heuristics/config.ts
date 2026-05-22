@@ -485,7 +485,11 @@ export async function createRecomputeJob(
   semesterId: string,
   triggeredBy: string,
   note?: string,
-): Promise<{ recomputeJobId: string; targetConfigId: string; jobRow: CreateRecomputeJobRow } | null> {
+): Promise<{
+  recomputeJobId: string;
+  targetConfigId: string;
+  jobRow: CreateRecomputeJobRow;
+} | null> {
   const active = await getActiveConfig(db, semesterId);
   if (!active) return null;
 

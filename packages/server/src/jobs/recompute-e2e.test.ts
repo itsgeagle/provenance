@@ -280,12 +280,9 @@ describe('recompute e2e pipeline (POST /recompute → worker → status=succeede
       const recomputeStart = Date.now();
       while (Date.now() - recomputeStart < POLL_TIMEOUT_MS) {
         const getRes = await app.fetch(
-          new Request(
-            `http://localhost/semesters/${semester!.id}/recompute/${recomputeJobId}`,
-            {
-              headers: { Cookie: `__Host-prov_sess=${sessionToken}` },
-            },
-          ),
+          new Request(`http://localhost/semesters/${semester!.id}/recompute/${recomputeJobId}`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionToken}` },
+          }),
         );
         expect(getRes.status).toBe(200);
         const getBody = (await getRes.json()) as {
@@ -295,10 +292,7 @@ describe('recompute e2e pipeline (POST /recompute → worker → status=succeede
           progress_failed: number;
         };
 
-        if (
-          getBody.status !== 'queued' &&
-          getBody.status !== 'running'
-        ) {
+        if (getBody.status !== 'queued' && getBody.status !== 'running') {
           recomputeFinalStatus = getBody.status;
           // Assert final progress state.
           expect(getBody.progress_done, 'progress_done must equal progress_total').toBe(
@@ -310,21 +304,15 @@ describe('recompute e2e pipeline (POST /recompute → worker → status=succeede
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       }
 
-      expect(
-        recomputeFinalStatus,
-        `Recompute job never reached terminal status (timed out)`,
-      ).toBe('succeeded');
+      expect(recomputeFinalStatus, `Recompute job never reached terminal status (timed out)`).toBe(
+        'succeeded',
+      );
 
       // Assert all non-superseded submissions have recompute_status='fresh'.
       const subsRows = await db
         .select({ id: submissions.id, recompute_status: submissions.recompute_status })
         .from(submissions)
-        .where(
-          and(
-            eq(submissions.semester_id, semester!.id),
-            eq(submissions.id, submissionId),
-          ),
-        );
+        .where(and(eq(submissions.semester_id, semester!.id), eq(submissions.id, submissionId)));
       expect(subsRows).toHaveLength(1);
       expect(subsRows[0]!.recompute_status).toBe('fresh');
 

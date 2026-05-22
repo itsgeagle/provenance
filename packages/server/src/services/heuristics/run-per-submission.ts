@@ -247,5 +247,4 @@ export async function runAndStoreHeuristics(
     .update(submissions)
     .set({ score_total, score_max_severity })
     .where(eq(submissions.id, submissionId));
-
 }

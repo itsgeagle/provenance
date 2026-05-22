@@ -424,7 +424,13 @@ describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
         );
         expect(res.status).toBe(200);
         const body = (await res.json()) as {
-          new_config: { id: string; version: number; set_at: string; note: string; is_active: boolean };
+          new_config: {
+            id: string;
+            version: number;
+            set_at: string;
+            note: string;
+            is_active: boolean;
+          };
           recompute_job: { id: string; status: string };
         };
         expect(body.new_config.version).toBe(2);
@@ -1218,12 +1224,7 @@ describe('POST /semesters/:semesterId/recompute', () => {
         expect(jobRows[0]?.status).toBe('queued');
 
         // V20 rule: assert audit row was written for the recompute trigger action.
-        const auditRow = await waitForAuditRow(
-          db,
-          'heuristic_config.recompute',
-          semester.id,
-          50,
-        );
+        const auditRow = await waitForAuditRow(db, 'heuristic_config.recompute', semester.id, 50);
         expect(auditRow).toBeDefined();
       } finally {
         _testDb = null;
