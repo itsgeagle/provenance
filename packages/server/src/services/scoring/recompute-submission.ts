@@ -15,16 +15,9 @@
  *     in their `run()` functions.
  *   - 1 heuristic: `extension_hash_mismatch` reads `bundle.manifest.extension_hash`.
  *
- * Strategy A: build a minimal Bundle stub with:
- *   1. `sessions[].sessionId + events[]` — reconstructed from DB `events` table.
- *      DB events carry (seq, session_id, t, wall, kind, payload) — enough for
- *      buildIndex to produce the same EventIndex as the original ingest.
- *   2. `manifest.extension_hash` — recovered from the existing `extension_hash_mismatch`
- *      flag's detail.extensionHash if one exists. If no such flag exists, the original
- *      bundle's hash was in the known-good list at ingest time; we use a known-good
- *      sentinel so extension_hash_mismatch does NOT fire (matching original behavior).
- *
- * This produces correct flag output for all heuristics without reading the blob.
+ * Bundle reconstruction is delegated to the shared helper in
+ * services/heuristics/reconstruct-bundle.ts (extracted in Phase 14 so
+ * run-cross.ts can reuse the same logic). See V31 + V32 for design decisions.
  *
  * ## ValidationReport reconstruction
  *
@@ -53,31 +46,13 @@
 import { eq, inArray, isNull, and } from 'drizzle-orm';
 import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
 import { runHeuristics } from '@provenance/analyzer/src/heuristics/run-heuristics.js';
-import type { Bundle, ParsedSession } from '@provenance/analyzer/src/loader/types.js';
-import type {
-  ValidationReport,
-  ValidationCheck,
-} from '@provenance/analyzer/src/validation/check-types.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
-import type { HashedEnvelope } from '@provenance/log-core';
-import { events, flags, submissions, validation_results } from '../../db/schema.js';
+import { flags, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
+import { reconstructBundleFromDb } from '../heuristics/reconstruct-bundle.js';
 import { computeScore } from './compute.js';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/**
- * A known-good extension hash (from known-good-extension-hashes.json).
- * Used as the bundle.manifest.extension_hash stub when the original submission
- * had NO extension_hash_mismatch flag (meaning the original hash was known-good).
- * This prevents extension_hash_mismatch from spuriously firing during recompute.
- */
-const KNOWN_GOOD_EXTENSION_HASH_SENTINEL =
-  'eb452af1aca3234fcdd23708e491d18b37ae26e2c46df893f787cf2fd9a13932';
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -88,243 +63,6 @@ export type RecomputeResult = {
   score_max_severity: Severity;
   flag_count: number;
 };
-
-// ---------------------------------------------------------------------------
-// Internal: reconstruct Bundle from DB events
-// ---------------------------------------------------------------------------
-
-/**
- * Reconstruct a minimal Bundle stub from DB events for a submission.
- *
- * The stub satisfies buildIndex (needs sessions[].sessionId + events[]).
- * bundle.manifest.extension_hash is recovered from the existing
- * extension_hash_mismatch flag if one exists; otherwise a known-good sentinel
- * is used to preserve original flag-absence behavior.
- *
- * bundle.manifestSigHex / manifest.sessions etc. are empty stubs — no
- * heuristic reads them (confirmed by V31 audit).
- */
-async function reconstructBundleStub(db: DrizzleDb, submissionId: string): Promise<Bundle> {
-  // -------------------------------------------------------------------------
-  // Step 1: Read events ordered by seq (= globalIdx from original buildIndex).
-  // Group by session_id to reconstruct Bundle.sessions[].
-  // -------------------------------------------------------------------------
-  const eventRows = await db
-    .select({
-      seq: events.seq,
-      session_id: events.session_id,
-      t: events.t,
-      wall: events.wall,
-      kind: events.kind,
-      payload: events.payload,
-      prev_hash: events.prev_hash,
-      hash: events.hash,
-    })
-    .from(events)
-    .where(eq(events.submission_id, submissionId))
-    .orderBy(events.seq);
-
-  // Group events by session_id preserving insertion order (events are sorted by seq = globalIdx).
-  const sessionMap = new Map<string, Array<(typeof eventRows)[0]>>();
-  for (const ev of eventRows) {
-    let bucket = sessionMap.get(ev.session_id);
-    if (!bucket) {
-      bucket = [];
-      sessionMap.set(ev.session_id, bucket);
-    }
-    bucket.push(ev);
-  }
-
-  // -------------------------------------------------------------------------
-  // Step 2: Recover extension_hash.
-  //
-  // If the original ingest flagged extension_hash_mismatch, the heuristic
-  // stored the actual extension_hash in flag.detail.extensionHash. We recover
-  // it here so the recompute produces the same flag behavior.
-  //
-  // If no such flag exists, the original hash was known-good; use the
-  // KNOWN_GOOD_EXTENSION_HASH_SENTINEL so the heuristic does NOT fire.
-  // -------------------------------------------------------------------------
-  const existingMismatchFlags = await db
-    .select({ detail: flags.detail })
-    .from(flags)
-    .where(
-      and(eq(flags.submission_id, submissionId), eq(flags.heuristic_id, 'extension_hash_mismatch')),
-    )
-    .limit(1);
-
-  let extensionHash = KNOWN_GOOD_EXTENSION_HASH_SENTINEL;
-  if (existingMismatchFlags.length > 0) {
-    const detail = existingMismatchFlags[0]!.detail;
-    // detail is typed as unknown (jsonb); we narrow it.
-    if (
-      detail !== null &&
-      typeof detail === 'object' &&
-      !Array.isArray(detail) &&
-      'extensionHash' in detail &&
-      typeof (detail as Record<string, unknown>)['extensionHash'] === 'string'
-    ) {
-      extensionHash = (detail as Record<string, unknown>)['extensionHash'] as string;
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Step 3: Build Bundle.sessions[].
-  //
-  // Each DB event is converted to a HashedEnvelope. The seq values are global
-  // indices (assigned by the original buildIndex) — so buildIndex on this
-  // reconstructed bundle will produce the same EventIndex as the original.
-  //
-  // session.start events may not be present in the events table for older
-  // ingests; we construct a minimal firstEvent stub for those sessions.
-  // -------------------------------------------------------------------------
-  const sessions: ParsedSession[] = [];
-
-  for (const [sessionId, evRows] of sessionMap.entries()) {
-    const envelopes: HashedEnvelope[] = evRows.map((ev) => ({
-      seq: ev.seq,
-      t: ev.t,
-      // wall is stored as a Date by Drizzle; convert back to ISO string
-      wall: ev.wall instanceof Date ? ev.wall.toISOString() : String(ev.wall),
-      kind: ev.kind as HashedEnvelope['kind'],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: payload is jsonb → any
-      data: ev.payload as any,
-      prev_hash: ev.prev_hash,
-      hash: ev.hash,
-    }));
-
-    // Find the session.start event (first event in the session, kind='session.start').
-    // If it doesn't exist in DB (shouldn't happen for well-formed ingests), use a stub.
-    const firstEnvelope = envelopes.find((e) => e.kind === 'session.start') ?? envelopes[0]!;
-
-    sessions.push({
-      sessionId,
-      events: envelopes,
-      // meta is only needed by a few heuristics that check session-level fields.
-      // All registered heuristics access meta via index.sessions or don't use it.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: synthetic stub
-      meta: {} as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: synthetic stub
-      firstEvent: firstEnvelope as any,
-    });
-  }
-
-  const bundle: Bundle = {
-    id: crypto.randomUUID(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: only extension_hash is read by heuristics
-    manifest: { extension_hash: extensionHash } as any,
-    manifestSigHex: '',
-    sessions,
-    sourceFilename: `recompute-stub-${submissionId}`,
-    loadedAt: new Date().toISOString(),
-  };
-
-  return bundle;
-}
-
-// ---------------------------------------------------------------------------
-// Internal: reconstruct ValidationReport from DB
-// ---------------------------------------------------------------------------
-
-/**
- * Reconstruct a ValidationReport from the DB validation_results row.
- *
- * If no row exists, returns a default "all-pass" report (integrity flags
- * will not fire). This is conservative — in practice all ingested submissions
- * should have a validation_results row (written by Phase 11).
- */
-async function reconstructValidationReport(
-  db: DrizzleDb,
-  submissionId: string,
-): Promise<ValidationReport> {
-  const rows = await db
-    .select({
-      check_1_status: validation_results.check_1_status,
-      check_2_status: validation_results.check_2_status,
-      check_3_status: validation_results.check_3_status,
-      check_4_status: validation_results.check_4_status,
-      check_5_status: validation_results.check_5_status,
-      check_6_status: validation_results.check_6_status,
-      check_7_status: validation_results.check_7_status,
-      check_8_status: validation_results.check_8_status,
-      overall: validation_results.overall,
-      detail: validation_results.detail,
-    })
-    .from(validation_results)
-    .where(eq(validation_results.submission_id, submissionId))
-    .limit(1);
-
-  if (rows.length === 0) {
-    // No validation row — return a permissive default so recompute doesn't crash.
-    // This shouldn't happen for correctly ingested submissions but is defensive.
-    return {
-      overall: 'warn',
-      checks: [
-        { id: 'manifest_sig', label: 'Manifest signature', status: 'skipped' },
-        { id: 'session_binding', label: 'Session binding', status: 'skipped' },
-        { id: 'chain_integrity', label: 'Hash chain integrity', status: 'skipped' },
-        { id: 'seq_gaps', label: 'Sequence gaps', status: 'skipped' },
-        { id: 'monotonic_t', label: 'Monotonic t', status: 'skipped' },
-        { id: 'monotonic_wall', label: 'Monotonic wall', status: 'skipped' },
-        { id: 'doc_save_hashes', label: 'Doc save hashes', status: 'skipped' },
-        {
-          id: 'submitted_code_match',
-          label: 'Submitted code match',
-          status: 'skipped',
-          detail: 'v1 skip',
-        },
-      ],
-    };
-  }
-
-  const row = rows[0]!;
-
-  // The `detail` column stores the full checks array as jsonb (written by
-  // runAndStoreValidation). If it's a valid array, use it directly.
-  const detailChecks = Array.isArray(row.detail) ? (row.detail as ValidationCheck[]) : null;
-
-  if (detailChecks && detailChecks.length === 8) {
-    return {
-      overall: row.overall as ValidationReport['overall'],
-      checks: detailChecks,
-    };
-  }
-
-  // Fallback: reconstruct from individual status columns.
-  // This is the conservative path if detail JSON is malformed.
-  const checkIds = [
-    'manifest_sig',
-    'session_binding',
-    'chain_integrity',
-    'seq_gaps',
-    'monotonic_t',
-    'monotonic_wall',
-    'doc_save_hashes',
-    'submitted_code_match',
-  ] as const;
-
-  const statusValues = [
-    row.check_1_status,
-    row.check_2_status,
-    row.check_3_status,
-    row.check_4_status,
-    row.check_5_status,
-    row.check_6_status,
-    row.check_7_status,
-    row.check_8_status,
-  ] as const;
-
-  const checks: ValidationCheck[] = checkIds.map((id, i) => ({
-    id,
-    label: id,
-    status: (statusValues[i] ?? 'skipped') as ValidationCheck['status'],
-  }));
-
-  return {
-    overall: row.overall as ValidationReport['overall'],
-    checks,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Internal: translate Flag[] to DB rows (same logic as run-per-submission.ts)
@@ -431,17 +169,22 @@ export async function recomputeSubmission(
   { simulate = false }: { simulate?: boolean } = {},
 ): Promise<RecomputeResult> {
   // -------------------------------------------------------------------------
-  // Step 1: Reconstruct Bundle stub from DB events.
+  // Step 1: Reconstruct Bundle + EventIndex + ValidationReport from DB.
+  //
+  // Delegates to the shared reconstructBundleFromDb helper (extracted in
+  // Phase 14 for reuse by run-cross.ts). See V31/V32 for strategy rationale.
   // -------------------------------------------------------------------------
-  const bundle = await reconstructBundleStub(db, submissionId);
+  const { bundle, index: reconstructedIndex, validationReport } = await reconstructBundleFromDb(
+    db,
+    submissionId,
+  );
 
   // -------------------------------------------------------------------------
-  // Step 2: Reconstruct ValidationReport from DB.
-  // -------------------------------------------------------------------------
-  const validationReport = await reconstructValidationReport(db, submissionId);
-
-  // -------------------------------------------------------------------------
-  // Step 3: Build EventIndex and run heuristics.
+  // Step 2: Build EventIndex and run heuristics.
+  //
+  // reconstructBundleFromDb already calls buildIndex; we call it again here
+  // to get the same index as a ReturnType<typeof buildIndex> for translateFlagsToRows.
+  // This is a cheap O(n_events) operation (~1ms for typical bundles; V27).
   //
   // Pass undefined configOverride — the server-side ServerHeuristicConfig
   // (enabled/weight/severity_weights) is distinct from v2's HeuristicConfig
@@ -450,10 +193,11 @@ export async function recomputeSubmission(
   // applied below when translating flags to DB rows.
   // -------------------------------------------------------------------------
   const index = buildIndex(bundle);
+  void reconstructedIndex; // the helper's copy; we rebuild for type compatibility
   const rawFlags = runHeuristics(index, bundle, validationReport, undefined);
 
   // -------------------------------------------------------------------------
-  // Step 4: Translate flags to DB rows using the server-side config.
+  // Step 3: Translate flags to DB rows using the server-side config.
   // -------------------------------------------------------------------------
   const { flagRows, scoreInputs } = translateFlagsToRows(
     rawFlags,
@@ -465,7 +209,7 @@ export async function recomputeSubmission(
   );
 
   // -------------------------------------------------------------------------
-  // Step 5: Compute aggregate score.
+  // Step 4: Compute aggregate score.
   // -------------------------------------------------------------------------
   const { score_total, score_max_severity } = computeScore(scoreInputs);
   const flag_count = flagRows.length;
@@ -476,31 +220,31 @@ export async function recomputeSubmission(
   }
 
   // -------------------------------------------------------------------------
-  // Step 6: Write to DB in a single transaction.
+  // Step 5: Write to DB in a single transaction.
   //
-  // 6a. Mark submission as recomputing (visible to other readers during recompute).
-  // 6b. Delete all existing flags.
-  // 6c. Insert new flags.
-  // 6d. Update submission score + heuristic_config_version + recompute_status='fresh'.
+  // 5a. Mark submission as recomputing (visible to other readers during recompute).
+  // 5b. Delete all existing flags.
+  // 5c. Insert new flags.
+  // 5d. Update submission score + heuristic_config_version + recompute_status='fresh'.
   //
   // All 4 writes are atomic: a retry after crash sees a clean state.
   // -------------------------------------------------------------------------
   await withTransaction(db, async (tx) => {
-    // 6a: recomputing sentinel
+    // 5a: recomputing sentinel
     await tx
       .update(submissions)
       .set({ recompute_status: 'recomputing' })
       .where(eq(submissions.id, submissionId));
 
-    // 6b: DELETE old flags
+    // 5b: DELETE old flags
     await tx.delete(flags).where(eq(flags.submission_id, submissionId));
 
-    // 6c: INSERT new flags (skip if empty)
+    // 5c: INSERT new flags (skip if empty)
     if (flagRows.length > 0) {
       await tx.insert(flags).values(flagRows);
     }
 
-    // 6d: UPDATE submission
+    // 5d: UPDATE submission
     await tx
       .update(submissions)
       .set({
