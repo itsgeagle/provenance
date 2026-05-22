@@ -67,7 +67,6 @@ export async function runAndStoreValidation(
       overall: report.overall,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: jsonb accepts JSON-serializable value
       detail: report.checks as any,
-      validated_at: new Date(),
     })
     .onConflictDoUpdate({
       target: validation_results.submission_id,
@@ -82,7 +81,7 @@ export async function runAndStoreValidation(
         check_8_status: sql`EXCLUDED.check_8_status`,
         overall: sql`EXCLUDED.overall`,
         detail: sql`EXCLUDED.detail`,
-        validated_at: sql`EXCLUDED.validated_at`,
+        validated_at: sql`now()`,
       },
     });
 
