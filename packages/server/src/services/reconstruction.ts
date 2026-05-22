@@ -1,0 +1,191 @@
+/**
+ * File reconstruction service — Phase 18 (PRD §11.1).
+ *
+ * Server-side wrapper around v2's `reconstructFileWithProvenance`. Adds:
+ *  - DB event loading via `reconstructBundleFromDb` (same as Phase 13b/14).
+ *  - LRU cache keyed by `${submissionId}:${filePath}:${atSeq ?? 'last'}`.
+ *  - `tainted` flag from `per_file_stats.reconstruction_tainted`.
+ *
+ * Cache capacity: `RECONSTRUCTION_CACHE_SIZE` env var (default 100).
+ * Cache is process-local and invalidated on process restart; no explicit
+ * cache invalidation on supersede (the signed-URL TTL of 60s is the
+ * client-side staleness bound).
+ *
+ * LRU is hand-rolled as a Map-based doubly-linked list (< 30 lines)
+ * because `lru-cache` is not in the server's deps and adding it requires
+ * explicit approval per CLAUDE.md.
+ */
+
+import { eq, and } from 'drizzle-orm';
+import { reconstructBundleFromDb } from './heuristics/reconstruct-bundle.js';
+import { reconstructFileWithProvenance } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
+import type { ProvenanceKind } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
+import { per_file_stats } from '../db/schema.js';
+import type { DrizzleDb } from '../db/client.js';
+import { getConfig } from '../config/index.js';
+import { getLogger } from '../logging.js';
+
+// ---------------------------------------------------------------------------
+// Return type
+// ---------------------------------------------------------------------------
+
+export type ReconstructedFile = {
+  content: string;
+  /** globalIdx values; will be RLE-encoded at the API boundary. */
+  provenance: number[];
+  kindByGlobalIdx: Map<number, ProvenanceKind>;
+  computedAtMs: number;
+  tainted: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Minimal hand-rolled LRU cache (Map-based doubly-linked list)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map-based LRU cache with a fixed capacity cap.
+ *
+ * Uses Map's insertion-order iteration property (ECMA spec §23.1.3.5):
+ * the oldest entry is always `map.keys().next().value`. On access, the
+ * entry is deleted and re-inserted to move it to the "most recent" tail.
+ *
+ * ~25 lines. No external dependency.
+ */
+class LruCache<K, V> {
+  private readonly capacity: number;
+  private readonly map: Map<K, V>;
+
+  constructor(capacity: number) {
+    if (capacity < 1) throw new RangeError('LruCache capacity must be >= 1');
+    this.capacity = capacity;
+    this.map = new Map();
+  }
+
+  get(key: K): V | undefined {
+    const v = this.map.get(key);
+    if (v === undefined) return undefined;
+    // Re-insert to mark as most recently used.
+    this.map.delete(key);
+    this.map.set(key, v);
+    return v;
+  }
+
+  set(key: K, value: V): void {
+    if (this.map.has(key)) this.map.delete(key);
+    this.map.set(key, value);
+    if (this.map.size > this.capacity) {
+      // Evict the least-recently-used (first) entry.
+      const lruKey = this.map.keys().next().value as K;
+      this.map.delete(lruKey);
+    }
+  }
+
+  /** Returns current cache size. Exposed for tests. */
+  get size(): number {
+    return this.map.size;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Module-level cache (process singleton)
+// ---------------------------------------------------------------------------
+
+let _cache: LruCache<string, ReconstructedFile> | null = null;
+
+function getCache(): LruCache<string, ReconstructedFile> {
+  if (_cache !== null) return _cache;
+  const capacity = getConfig().RECONSTRUCTION_CACHE_SIZE;
+  _cache = new LruCache(capacity);
+  return _cache;
+}
+
+/**
+ * Reset cache for tests. Not exported in production — only for unit tests.
+ * @internal
+ */
+export function _resetReconstructionCacheForTest(): void {
+  _cache = null;
+}
+
+// ---------------------------------------------------------------------------
+// reconstructFile
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconstruct the content and provenance of `filePath` in a submission.
+ *
+ * Steps:
+ *  1. Check LRU cache. Cache hit → return immediately.
+ *  2. Check `per_file_stats` for the file path. Missing row → throw FILE_NOT_FOUND.
+ *  3. Build EventIndex from DB events via `reconstructBundleFromDb`.
+ *  4. Call v2's `reconstructFileWithProvenance(index, filePath, atSeq)`.
+ *  5. Convert Uint32Array → number[].
+ *  6. Populate cache. Return.
+ *
+ * @param db           - Drizzle DB handle.
+ * @param submissionId - Submission UUID.
+ * @param filePath     - File path as stored in per_file_stats.file_path.
+ * @param atSeq        - Optional globalIdx upper bound (exclusive). `undefined`
+ *                       means replay to the end of the event stream.
+ */
+export async function reconstructFile(
+  db: DrizzleDb,
+  submissionId: string,
+  filePath: string,
+  atSeq?: number,
+): Promise<ReconstructedFile> {
+  const cacheKey = `${submissionId}:${filePath}:${atSeq ?? 'last'}`;
+  const cache = getCache();
+
+  const cached = cache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  // Look up per_file_stats to (a) validate the file exists and (b) get tainted flag.
+  const statsRows = await db
+    .select({
+      reconstruction_tainted: per_file_stats.reconstruction_tainted,
+    })
+    .from(per_file_stats)
+    .where(
+      and(eq(per_file_stats.submission_id, submissionId), eq(per_file_stats.file_path, filePath)),
+    )
+    .limit(1);
+
+  if (statsRows.length === 0) {
+    // FILE_NOT_FOUND: path not in per_file_stats for this submission.
+    // Throw a structured object the route handler converts to the right error response.
+    const err = new Error(`File not found: ${filePath}`);
+    (err as unknown as Record<string, unknown>)['code'] = 'FILE_NOT_FOUND';
+    throw err;
+  }
+
+  const tainted = statsRows[0]!.reconstruction_tainted;
+
+  const t0 = Date.now();
+
+  // Build EventIndex from DB.
+  const { index } = await reconstructBundleFromDb(db, submissionId);
+
+  // Run v2 reconstructor. `upToGlobalIdx` semantics: exclusive upper bound.
+  const replayState = reconstructFileWithProvenance(index, filePath, atSeq);
+
+  const computedAtMs = Date.now() - t0;
+
+  getLogger().debug(
+    { submissionId, filePath, atSeq, computedAtMs, tainted },
+    'file reconstruction completed',
+  );
+
+  const result: ReconstructedFile = {
+    content: replayState.content,
+    provenance: Array.from(replayState.provenance),
+    kindByGlobalIdx: replayState.kindByGlobalIdx,
+    computedAtMs,
+    tainted,
+  };
+
+  cache.set(cacheKey, result);
+  return result;
+}

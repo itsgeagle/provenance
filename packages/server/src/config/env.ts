@@ -89,6 +89,13 @@ const rawEnvSchema = z.object({
   RECOMPUTE_MAX_PARALLEL: intStr(4),
   BLOB_DOWNLOAD_URL_TTL_SECONDS: intStr(300),
   ROSTER_CSV_MAX_BYTES: intStr(10485760),
+  /**
+   * Phase 18: LRU cache capacity for reconstructed file content.
+   * Each entry holds the full reconstructed content + per-character provenance
+   * array. With typical file sizes (~10–50 KB), 100 entries ≈ 5 MB.
+   * Increase if the analyzer serves many concurrent file-replay requests.
+   */
+  RECONSTRUCTION_CACHE_SIZE: intStr(100),
 });
 
 // ---------------------------------------------------------------------------
