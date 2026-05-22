@@ -21,8 +21,8 @@ import {
   jwksFromPair,
 } from '../../../../test/helpers/mint-jwt.js';
 import type { JwkSet } from '../../../auth/jwks.js';
-import { users, sessions } from '../../../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { users, sessions, pending_invitations, memberships, courses, semesters } from '../../../db/schema.js';
+import { eq, and, isNull } from 'drizzle-orm';
 import type { DrizzleDb } from '../../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -607,6 +607,100 @@ describe('GET /google/callback — real verifyIdToken path wired through route (
           .where(eq(users.google_subject, 'route-integ-sub'));
         expect(userRows).toHaveLength(1);
         expect(userRows[0]!.email).toBe('routetest@berkeley.edu');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /google/callback — pending invitation activation (Phase 6)
+// ---------------------------------------------------------------------------
+
+describe('GET /google/callback — pending invitation activation (DB injected)', () => {
+  it('activates pending invitation on first login: membership created + consumed_at set', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        // Create a course + semester for the invitation.
+        const [course] = await db.insert(courses).values({ name: 'CS 61A', slug: 'cs61a-act' }).returning();
+        const [semester] = await db
+          .insert(semesters)
+          .values({
+            course_id: course!.id,
+            term: 'fa',
+            year: 2024,
+            slug: 'fa2024-act',
+            display_name: 'Fall 2024',
+            filename_convention: '(?<sid>[a-z0-9]+)_hw',
+          })
+          .returning();
+
+        // Create the inviter user (so granted_by FK is valid).
+        const [inviter] = await db
+          .insert(users)
+          .values({
+            google_subject: 'sub-inviter-act',
+            email: 'inviter@berkeley.edu',
+            display_name: 'Inviter',
+            is_superadmin: false,
+          })
+          .returning();
+
+        // Pre-insert a pending invitation for the not-yet-existing user.
+        const [invite] = await db
+          .insert(pending_invitations)
+          .values({
+            email: 'newinvited@berkeley.edu',
+            semester_id: semester!.id,
+            role: 'grader',
+            invited_by: inviter!.id,
+          })
+          .returning();
+
+        // Simulate OAuth callback for the invited email.
+        const fake = new FakeGoogleOAuthClient({ state: 'st-act' });
+        fake.setClaims({
+          sub: 'sub-newinvited',
+          email: 'newinvited@berkeley.edu',
+          email_verified: true,
+          hd: 'berkeley.edu',
+          name: 'New Invited',
+        });
+        const app = makeApp(fake);
+
+        const { oauthCookie } = await doStart(app, '/');
+        const res = await doCallback(app, oauthCookie, 'code', 'st-act');
+        expect(res.status).toBe(302);
+
+        // User row created.
+        const userRows = await db
+          .select()
+          .from(users)
+          .where(eq(users.google_subject, 'sub-newinvited'));
+        expect(userRows).toHaveLength(1);
+        const newUserId = userRows[0]!.id;
+
+        // Invitation consumed_at is set.
+        const inviteRows = await db
+          .select()
+          .from(pending_invitations)
+          .where(eq(pending_invitations.id, invite!.id));
+        expect(inviteRows[0]!.consumed_at).not.toBeNull();
+
+        // Membership created.
+        const memberRows = await db
+          .select()
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.user_id, newUserId),
+              eq(memberships.semester_id, semester!.id),
+            ),
+          );
+        expect(memberRows).toHaveLength(1);
+        expect(memberRows[0]!.role).toBe('grader');
       } finally {
         _testDb = null;
       }

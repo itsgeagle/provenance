@@ -23,6 +23,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { users } from '../../../db/schema.js';
 import { getDb } from '../../../db/client.js';
+import { withTransaction } from '../../../db/client.js';
 import { getConfig } from '../../../config/index.js';
 import {
   setOAuthStateCookie,
@@ -35,6 +36,8 @@ import {
 import { createSession, deleteSession, sessionExpiresAt } from '../../../auth/sessions.js';
 import { getRealGoogleOAuthClient, type GoogleOAuthClient } from '../../../auth/google.js';
 import { Errors } from '../errors.js';
+import { activatePendingInvitations } from '../../../services/invitations.js';
+import { getLogger } from '../../../logging.js';
 
 // ---------------------------------------------------------------------------
 // Validation helpers
@@ -148,50 +151,61 @@ export function createAuthRouter(): Hono {
       return c.json(err.toBody(), err.status as 403);
     }
 
-    // Look up or create the user.
-    const existingRows = await db
-      .select()
-      .from(users)
-      .where(eq(users.google_subject, claims.sub))
-      .limit(1);
+    // Look up or create the user, then activate any pending invitations.
+    // Both operations are wrapped in a single transaction so partial failures
+    // don't leave the user without their invited memberships.
+    // eslint-disable-next-line prefer-const -- assigned inside async callback; TS can't infer
+    let userId!: string;
+    let activatedCount = 0;
 
-    let userId: string;
+    await withTransaction(db, async (tx) => {
+      const existingRows = await tx
+        .select()
+        .from(users)
+        .where(eq(users.google_subject, claims.sub))
+        .limit(1);
 
-    if (existingRows.length > 0 && existingRows[0] !== undefined) {
-      // Found — update mutable fields.
-      const existing = existingRows[0];
-      userId = existing.id;
-      await db
-        .update(users)
-        .set({
-          last_login_at: new Date(),
-          display_name: claims.name ?? existing.display_name,
-          email: claims.email,
-        })
-        .where(eq(users.id, userId));
-    } else {
-      // Not found — create a new user.
-      const isSuperadmin = cfg.AUTH_SUPERADMIN_EMAILS.includes(claims.email);
-      const inserted = await db
-        .insert(users)
-        .values({
-          google_subject: claims.sub,
-          email: claims.email,
-          display_name: claims.name ?? '',
-          is_superadmin: isSuperadmin,
-          last_login_at: new Date(),
-        })
-        .returning({ id: users.id });
+      if (existingRows.length > 0 && existingRows[0] !== undefined) {
+        // Found — update mutable fields.
+        const existing = existingRows[0];
+        userId = existing.id;
+        await tx
+          .update(users)
+          .set({
+            last_login_at: new Date(),
+            display_name: claims.name ?? existing.display_name,
+            email: claims.email,
+          })
+          .where(eq(users.id, userId));
+      } else {
+        // Not found — create a new user.
+        const isSuperadmin = cfg.AUTH_SUPERADMIN_EMAILS.includes(claims.email);
+        const inserted = await tx
+          .insert(users)
+          .values({
+            google_subject: claims.sub,
+            email: claims.email,
+            display_name: claims.name ?? '',
+            is_superadmin: isSuperadmin,
+            last_login_at: new Date(),
+          })
+          .returning({ id: users.id });
 
-      const newUser = inserted[0];
-      if (newUser === undefined) {
-        throw new Error('User insert returned no rows');
+        const newUser = inserted[0];
+        if (newUser === undefined) {
+          throw new Error('User insert returned no rows');
+        }
+        userId = newUser.id;
       }
-      userId = newUser.id;
 
-      // TODO(phase-6): activate pending invitations for this email address.
-      // This is where the invitation activation hook will go after the
-      // pending_invitations table is fully wired in Phase 6.
+      // Activate any pending invitations for this verified email address.
+      // Idempotent: only consumes rows where consumed_at IS NULL.
+      const { activated } = await activatePendingInvitations(tx, claims.email, userId);
+      activatedCount = activated;
+    });
+
+    if (activatedCount > 0) {
+      getLogger().info({ userId: userId!, email: claims.email, activated: activatedCount }, 'Pending invitations activated');
     }
 
     // Create session.
