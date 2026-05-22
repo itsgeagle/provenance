@@ -1,29 +1,27 @@
 /**
  * App — top-level routes.
  *
- * Route structure:
- *   /          → redirect to /load
+ * Route structure (v3 + legacy v2 routes preserved):
+ *
+ *   /                  → redirect to /home
+ *   /login             → LoginView (no auth required)
+ *   /home              → RequireAuth + AppShell + HomeView
+ *   /s/:semesterSlug/* → (Phase 21+) cohort + drill-in views (placeholder until Phase 21)
+ *
+ * Legacy v2 SPA routes (preserved; move to /local in Phase 25):
  *   /load      → LoadView (drop zone; not guarded)
- *   /overview  → OverviewView (guarded by RequireBundle: bundles.length >= 1)
- *   /timeline  → TimelineView (guarded by RequireBundle: bundles.length >= 1)
- *   /compare        → CompareView (guarded by RequireMultiBundles: bundles.length >= 2)
- *   /replay/:id     → ReplayView (guarded by RequireBundle; inner guard checks session exists)
+ *   /overview  → OverviewView (guarded by RequireBundle)
+ *   /timeline  → TimelineView (guarded by RequireBundle)
+ *   /compare   → CompareView (guarded by RequireMultiBundles)
+ *   /replay/:sessionId → ReplayView (guarded by RequireBundle)
  *
- * <BundleProvider> wraps <Routes> so all routes can read the context.
- * <BundleProvider> itself sits inside <BrowserRouter> (set up in main.tsx).
- *
- * <RequireBundle> redirects to /load whenever status is not 'loaded'.
- * This ensures guarded routes are only accessible when a bundle is fully loaded.
- *
- * <RequireMultiBundles> redirects to /load when fewer than 2 bundles are loaded.
- * Used for the /compare route (Phase 11).
- *
- * LoadView redirects to /overview via useEffect when status transitions to
- * 'loaded'.
+ * Legacy routes are grouped under a layout route whose element is
+ * <BundleProviderLayout> so that <BundleProvider> wraps exactly those routes.
+ * <QueryClientProvider> is set up in main.tsx and wraps the entire app.
  */
 
 import type { ReactNode } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { BundleProvider, useBundle } from './context/BundleContext.js';
 import { LoadView } from './views/load/LoadView.js';
 import { OverviewView } from './views/overview/OverviewView.js';
@@ -31,10 +29,23 @@ import { TimelineView } from './views/timeline/TimelineView.js';
 import { CompareView } from './views/compare/CompareView.js';
 import { ReplayView } from './views/replay/ReplayView.js';
 import { Layout } from './components/Layout.js';
+import { LoginView } from './views/login/LoginView.js';
+import { HomeView } from './views/home/HomeView.js';
+import { AppShell } from './components/nav/AppShell.js';
+import { RequireAuth } from './auth/RequireAuth.js';
 
 // ---------------------------------------------------------------------------
-// Route guards
+// Legacy v2 route guards
 // ---------------------------------------------------------------------------
+
+/** Layout route element that provides BundleContext to legacy routes. */
+function BundleProviderLayout() {
+  return (
+    <BundleProvider>
+      <Outlet />
+    </BundleProvider>
+  );
+}
 
 function RequireBundle({ children }: { children: ReactNode }) {
   const { status } = useBundle();
@@ -74,8 +85,38 @@ function RequireMultiBundles({ children }: { children: ReactNode }) {
 
 export function App() {
   return (
-    <BundleProvider>
-      <Routes>
+    <Routes>
+      {/* ── v3 routes ───────────────────────────────────────────────────── */}
+      <Route path="/login" element={<LoginView />} />
+
+      <Route
+        path="/home"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <HomeView />
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+
+      {/* /s/:semesterSlug/* — placeholder until Phase 21 wires the cohort view */}
+      <Route
+        path="/s/:semesterSlug/*"
+        element={
+          <RequireAuth>
+            <AppShell>
+              <div className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400">
+                Cohort view coming in Phase 21.
+              </div>
+            </AppShell>
+          </RequireAuth>
+        }
+      />
+
+      {/* ── legacy v2 SPA routes (preserved until Phase 25) ─────────────── */}
+      {/* Grouped under a layout route so BundleProvider wraps them all.     */}
+      <Route element={<BundleProviderLayout />}>
         <Route path="/load" element={<LoadView />} />
         <Route
           path="/overview"
@@ -115,9 +156,12 @@ export function App() {
             </RequireBundle>
           }
         />
-        <Route path="/" element={<Navigate to="/load" replace />} />
-        <Route path="*" element={<Navigate to="/load" replace />} />
-      </Routes>
-    </BundleProvider>
+      </Route>
+
+      {/* ── root redirect ────────────────────────────────────────────────── */}
+      {/* / → /home (RequireAuth on /home redirects to /login if unauthed) */}
+      <Route path="/" element={<Navigate to="/home" replace />} />
+      <Route path="*" element={<Navigate to="/home" replace />} />
+    </Routes>
   );
 }
