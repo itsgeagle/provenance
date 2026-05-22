@@ -63,27 +63,41 @@ CREATE INDEX recompute_jobs_sem_idx ON recompute_jobs(semester_id, created_at DE
 -- will create the first row for those semesters).
 -- ---------------------------------------------------------------------------
 
+-- NOTE FOR DEVELOPERS: If you applied an earlier draft of this migration
+-- (which had only 15 per_flag entries and used "extension_set_changed"
+-- instead of "extension_set_changed_mid_assignment"), run `npm run db:reset`
+-- to get a clean local DB with the correct 24-entry config.
+
 INSERT INTO heuristic_configs (semester_id, version, config, set_by, is_active, note)
 SELECT
   s.id,
   1,
   '{
     "per_flag": {
-      "large_paste":               {"enabled": true, "weight": 1.0},
-      "external_edits":            {"enabled": true, "weight": 1.0},
-      "low_typing_high_output":    {"enabled": true, "weight": 1.0},
-      "chain_broken":              {"enabled": true, "weight": 1.0},
-      "paste_is_solution":         {"enabled": true, "weight": 1.0},
-      "mass_external_replacement": {"enabled": true, "weight": 1.0},
-      "time_to_first_save_anomaly":{"enabled": true, "weight": 1.0},
-      "idle_then_complete":        {"enabled": true, "weight": 1.0},
-      "no_intermediate_errors":    {"enabled": true, "weight": 1.0},
-      "paste_matches_known_source":{"enabled": true, "weight": 1.0},
-      "ai_extension_active":       {"enabled": true, "weight": 1.0},
-      "extension_hash_mismatch":   {"enabled": true, "weight": 1.0},
-      "extension_set_changed":     {"enabled": true, "weight": 1.0},
-      "clock_jumps":               {"enabled": true, "weight": 1.0},
-      "gap_in_heartbeats":         {"enabled": true, "weight": 1.0}
+      "large_paste":                           {"enabled": true, "weight": 1.0},
+      "external_edits":                        {"enabled": true, "weight": 1.0},
+      "low_typing_high_output":                {"enabled": true, "weight": 1.0},
+      "chain_broken":                          {"enabled": true, "weight": 1.0},
+      "paste_is_solution":                     {"enabled": true, "weight": 1.0},
+      "mass_external_replacement":             {"enabled": true, "weight": 1.0},
+      "time_to_first_save_anomaly":            {"enabled": true, "weight": 1.0},
+      "idle_then_complete":                    {"enabled": true, "weight": 1.0},
+      "no_intermediate_errors":                {"enabled": true, "weight": 1.0},
+      "paste_matches_known_source":            {"enabled": true, "weight": 1.0},
+      "ai_extension_active":                   {"enabled": true, "weight": 1.0},
+      "extension_hash_mismatch":               {"enabled": true, "weight": 1.0},
+      "extension_set_changed_mid_assignment":  {"enabled": true, "weight": 1.0},
+      "clock_jumps":                           {"enabled": true, "weight": 1.0},
+      "gap_in_heartbeats":                     {"enabled": true, "weight": 1.0},
+      "manifest_sig_invalid":                  {"enabled": true, "weight": 1.0},
+      "session_binding_invalid":               {"enabled": true, "weight": 1.0},
+      "monotonic_t_regression":                {"enabled": true, "weight": 1.0},
+      "monotonic_wall_regression":             {"enabled": true, "weight": 1.0},
+      "shell_integration_disabled":            {"enabled": true, "weight": 1.0},
+      "terminal_active_during_external_change":{"enabled": true, "weight": 1.0},
+      "multiple_sessions_overlap":             {"enabled": true, "weight": 1.0},
+      "editing_pattern_clone":                 {"enabled": true, "weight": 1.0},
+      "paste_shared_across_students":          {"enabled": true, "weight": 1.0}
     },
     "severity_weights": {"info": 0, "low": 1, "medium": 3, "high": 8},
     "config_format_version": 1
