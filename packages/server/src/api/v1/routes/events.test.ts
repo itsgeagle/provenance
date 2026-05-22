@@ -328,9 +328,39 @@ describe('GET /submissions/:id/events', () => {
       const sessA = crypto.randomUUID();
       const sessB = crypto.randomUUID();
       await db.insert(eventsTable).values([
-        { submission_id: sub.id, seq: 1, session_id: sessA, t: 1000, wall: new Date(), kind: 'session.heartbeat', payload: {}, prev_hash: 'p1', hash: 'h1' },
-        { submission_id: sub.id, seq: 2, session_id: sessA, t: 2000, wall: new Date(), kind: 'session.heartbeat', payload: {}, prev_hash: 'p2', hash: 'h2' },
-        { submission_id: sub.id, seq: 3, session_id: sessB, t: 3000, wall: new Date(), kind: 'session.heartbeat', payload: {}, prev_hash: 'p3', hash: 'h3' },
+        {
+          submission_id: sub.id,
+          seq: 1,
+          session_id: sessA,
+          t: 1000,
+          wall: new Date(),
+          kind: 'session.heartbeat',
+          payload: {},
+          prev_hash: 'p1',
+          hash: 'h1',
+        },
+        {
+          submission_id: sub.id,
+          seq: 2,
+          session_id: sessA,
+          t: 2000,
+          wall: new Date(),
+          kind: 'session.heartbeat',
+          payload: {},
+          prev_hash: 'p2',
+          hash: 'h2',
+        },
+        {
+          submission_id: sub.id,
+          seq: 3,
+          session_id: sessB,
+          t: 3000,
+          wall: new Date(),
+          kind: 'session.heartbeat',
+          payload: {},
+          prev_hash: 'p3',
+          hash: 'h3',
+        },
       ]);
 
       const app = createV1App();
@@ -366,19 +396,48 @@ describe('GET /submissions/:id/events', () => {
 
       await db.insert(eventsTable).values([
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { submission_id: sub.id, seq: 1, session_id: 'sess1', t: 1000, wall: new Date(), kind: 'doc.change', payload: { path: 'main.py' } as any, prev_hash: 'p1', hash: 'h1' },
+        {
+          submission_id: sub.id,
+          seq: 1,
+          session_id: 'sess1',
+          t: 1000,
+          wall: new Date(),
+          kind: 'doc.change',
+          payload: { path: 'main.py' } as any,
+          prev_hash: 'p1',
+          hash: 'h1',
+        },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { submission_id: sub.id, seq: 2, session_id: 'sess1', t: 2000, wall: new Date(), kind: 'doc.change', payload: { path: 'utils.py' } as any, prev_hash: 'p2', hash: 'h2' },
+        {
+          submission_id: sub.id,
+          seq: 2,
+          session_id: 'sess1',
+          t: 2000,
+          wall: new Date(),
+          kind: 'doc.change',
+          payload: { path: 'utils.py' } as any,
+          prev_hash: 'p2',
+          hash: 'h2',
+        },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { submission_id: sub.id, seq: 3, session_id: 'sess1', t: 3000, wall: new Date(), kind: 'doc.change', payload: { path: 'main.py' } as any, prev_hash: 'p3', hash: 'h3' },
+        {
+          submission_id: sub.id,
+          seq: 3,
+          session_id: 'sess1',
+          t: 3000,
+          wall: new Date(),
+          kind: 'doc.change',
+          payload: { path: 'main.py' } as any,
+          prev_hash: 'p3',
+          hash: 'h3',
+        },
       ]);
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(
-          `http://localhost/submissions/${sub.id}/events?file=main.py`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/submissions/${sub.id}/events?file=main.py`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
 
       expect(res.status).toBe(200);
@@ -406,10 +465,9 @@ describe('GET /submissions/:id/events', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(
-          `http://localhost/submissions/${sub.id}/events?seq_from=3&seq_to=6`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/submissions/${sub.id}/events?seq_from=3&seq_to=6`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
 
       expect(res.status).toBe(200);
@@ -435,10 +493,9 @@ describe('GET /submissions/:id/events', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(
-          `http://localhost/submissions/${sub.id}/events?t_from=2000&t_to=4000`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/submissions/${sub.id}/events?t_from=2000&t_to=4000`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
 
       expect(res.status).toBe(200);
@@ -474,10 +531,9 @@ describe('GET /submissions/:id/events', () => {
 
       // With kind filter: total_count included
       const resWithKind = await app.fetch(
-        new Request(
-          `http://localhost/submissions/${sub.id}/events?kind=session.heartbeat`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/submissions/${sub.id}/events?kind=session.heartbeat`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
       const bodyWithKind = (await resWithKind.json()) as Record<string, unknown>;
       expect('total_count' in bodyWithKind).toBe(true);
@@ -652,6 +708,54 @@ describe('GET /submissions/:id/events', () => {
     });
   });
 
+  it('returns EVENT_QUERY_RANGE_INVALID for invalid wall_from string', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+
+      const user = await seedUser(db);
+      const sessionId = await seedSession(db, user.id);
+      const { semester } = await seedCourseAndSemester(db);
+      await seedMembership(db, user.id, semester.id, 'admin');
+      const sub = await seedSubmission(db, semester.id, user.id);
+
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request(`http://localhost/submissions/${sub.id}/events?wall_from=not-a-date`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
+      );
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe('EVENT_QUERY_RANGE_INVALID');
+    });
+  });
+
+  it('returns EVENT_QUERY_RANGE_INVALID for invalid wall_to string', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+
+      const user = await seedUser(db);
+      const sessionId = await seedSession(db, user.id);
+      const { semester } = await seedCourseAndSemester(db);
+      await seedMembership(db, user.id, semester.id, 'admin');
+      const sub = await seedSubmission(db, semester.id, user.id);
+
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request(`http://localhost/submissions/${sub.id}/events?wall_to=garbage`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
+      );
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe('EVENT_QUERY_RANGE_INVALID');
+    });
+  });
+
   it('returns 404 for unknown submission', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
@@ -766,10 +870,9 @@ describe('GET /submissions/:id/events', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(
-          `http://localhost/submissions/${sub.id}/events?kind=doc.save&kind=doc.change`,
-          { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
-        ),
+        new Request(`http://localhost/submissions/${sub.id}/events?kind=doc.save&kind=doc.change`, {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
       );
 
       expect(res.status).toBe(200);

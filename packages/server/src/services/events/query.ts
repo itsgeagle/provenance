@@ -128,20 +128,25 @@ export async function queryEvents(
   ) {
     throw Errors.eventQueryRangeInvalid('seq_from must be <= seq_to');
   }
-  if (
-    params.t_from !== undefined &&
-    params.t_to !== undefined &&
-    params.t_from > params.t_to
-  ) {
+  if (params.t_from !== undefined && params.t_to !== undefined && params.t_from > params.t_to) {
     throw Errors.eventQueryRangeInvalid('t_from must be <= t_to');
   }
-  if (params.wall_from !== undefined && params.wall_to !== undefined) {
-    const from = new Date(params.wall_from).getTime();
-    const to = new Date(params.wall_to).getTime();
-    if (isNaN(from) || isNaN(to)) {
-      throw Errors.eventQueryRangeInvalid('wall_from and wall_to must be valid ISO dates');
+  if (params.wall_from !== undefined) {
+    const fromMs = new Date(params.wall_from).getTime();
+    if (isNaN(fromMs)) {
+      throw Errors.eventQueryRangeInvalid('wall_from must be a valid ISO date');
     }
-    if (from > to) {
+  }
+  if (params.wall_to !== undefined) {
+    const toMs = new Date(params.wall_to).getTime();
+    if (isNaN(toMs)) {
+      throw Errors.eventQueryRangeInvalid('wall_to must be a valid ISO date');
+    }
+  }
+  if (params.wall_from !== undefined && params.wall_to !== undefined) {
+    const fromMs = new Date(params.wall_from).getTime();
+    const toMs = new Date(params.wall_to).getTime();
+    if (fromMs > toMs) {
       throw Errors.eventQueryRangeInvalid('wall_from must be <= wall_to');
     }
   }
