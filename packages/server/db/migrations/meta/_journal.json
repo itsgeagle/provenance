@@ -50,6 +50,13 @@
       "when": 1748600000000,
       "tag": "0007_events_per_file_stats",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1748700000000,
+      "tag": "0008_validation_results",
+      "breakpoints": true
     }
   ]
 }
