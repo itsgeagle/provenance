@@ -66,22 +66,6 @@ export const MeResponseSchema = z.discriminatedUnion('principal_kind', [
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Semester / Course (derived from /me memberships — no separate endpoint)
-//
-// The server exposes semester/course data as part of MeResponse.memberships.
-// A "semester" for the frontend is constructed from a membership row.
-// ---------------------------------------------------------------------------
-
-export const SemesterSummarySchema = z.object({
-  semester_id: z.string().uuid(),
-  semester_slug: z.string(),
-  course_slug: z.string(),
-  role: z.enum(['admin', 'grader']),
-  granted_at: z.string().datetime(),
-});
-export type SemesterSummary = z.infer<typeof SemesterSummarySchema>;
-
-// ---------------------------------------------------------------------------
 // Submission/ingest schemas (minimal stubs for Phase 20)
 //
 // These will be expanded in Phases 21–24 as the cohort view and drill-in
