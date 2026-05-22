@@ -37,6 +37,8 @@ import { createRosterRouter } from './routes/roster.js';
 import { createIngestRouter } from './routes/ingest.js';
 import { createHeuristicConfigRouter } from './routes/heuristic-config.js';
 import { createUnmatchedRouter } from './routes/unmatched.js';
+import { createCohortRouter } from './routes/cohort.js';
+import { createCrossFlagsRouter } from './routes/cross-flags.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -85,6 +87,17 @@ export function createV1App(): Hono {
   //        /semesters/:semesterId/unmatched/:ingestFileId (PATCH)
   //        /semesters/:semesterId/unmatched/:ingestFileId/discard (POST)
   app.route('/', createUnmatchedRouter());
+
+  // Cohort routes (Phase 16).
+  // Paths: /semesters/:semesterId/submissions (GET)
+  //        /semesters/:semesterId/students (GET)
+  //        /semesters/:semesterId/assignments (GET)
+  app.route('/', createCohortRouter());
+
+  // Cross-flags routes (Phase 16).
+  // Paths: /semesters/:semesterId/cross-flags (GET)
+  //        /cross-flags/:crossFlagId (GET — top-level)
+  app.route('/', createCrossFlagsRouter());
 
   // Global error handler
   app.onError(errorFormatter);
