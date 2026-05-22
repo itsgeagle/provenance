@@ -62,10 +62,7 @@ vi.mock('../../../db/client.js', async (importOriginal) => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function insertUser(
-  db: DrizzleDb,
-  overrides?: Partial<typeof users.$inferInsert>,
-) {
+async function insertUser(db: DrizzleDb, overrides?: Partial<typeof users.$inferInsert>) {
   const randomId = Math.random().toString(36).slice(2);
   const rows = await db
     .insert(users)
@@ -113,7 +110,10 @@ describe('POST /api/v1/courses', () => {
         const res = await app.fetch(
           new Request('http://localhost/courses', {
             method: 'POST',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({ name: 'CS 61A', slug: 'cs61a' }),
           }),
         );
@@ -140,7 +140,10 @@ describe('POST /api/v1/courses', () => {
         const res = await app.fetch(
           new Request('http://localhost/courses', {
             method: 'POST',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({ name: 'CS 61A', slug: 'cs61a' }),
           }),
         );
@@ -182,16 +185,17 @@ describe('POST /api/v1/courses', () => {
         const sessionId = await insertSession(db, admin.id);
 
         // Create first course
-        await db
-          .insert(courses)
-          .values({ name: 'CS 61A', slug: 'cs61a' });
+        await db.insert(courses).values({ name: 'CS 61A', slug: 'cs61a' });
 
         // Try to create duplicate
         const app = createV1App();
         const res = await app.fetch(
           new Request('http://localhost/courses', {
             method: 'POST',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({ name: 'Another', slug: 'cs61a' }),
           }),
         );
@@ -215,9 +219,7 @@ describe('GET /api/v1/courses', () => {
         const sessionId = await insertSession(db, user.id);
 
         // Insert a course
-        await db
-          .insert(courses)
-          .values({ name: 'CS 61A', slug: 'cs61a' });
+        await db.insert(courses).values({ name: 'CS 61A', slug: 'cs61a' });
 
         const app = createV1App();
         const res = await app.fetch(
@@ -240,9 +242,7 @@ describe('GET /api/v1/courses', () => {
       _testDb = db;
       try {
         const app = createV1App();
-        const res = await app.fetch(
-          new Request('http://localhost/courses'),
-        );
+        const res = await app.fetch(new Request('http://localhost/courses'));
 
         expect(res.status).toBe(401);
       } finally {
@@ -321,7 +321,10 @@ describe('PATCH /api/v1/courses/:id', () => {
         const res = await app.fetch(
           new Request(`http://localhost/courses/${course!.id}`, {
             method: 'PATCH',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({ name: 'Computer Science 61A' }),
           }),
         );

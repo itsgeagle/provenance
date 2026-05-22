@@ -60,33 +60,32 @@ export function createCoursesRouter(): Hono {
   // membership for non-superadmins.
   // -------------------------------------------------------------------------
 
-  router.get(
-    '/',
-    rateLimit('read.cohort'),
-    async (c) => {
-      const principal = c.var.principal ?? null;
-      if (principal === null) {
-        const returnTo = encodeURIComponent(c.req.path);
-        return c.json(Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(), 401);
+  router.get('/', rateLimit('read.cohort'), async (c) => {
+    const principal = c.var.principal ?? null;
+    if (principal === null) {
+      const returnTo = encodeURIComponent(c.req.path);
+      return c.json(
+        Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(),
+        401,
+      );
+    }
+    const db = getDb();
+
+    try {
+      const courseSummaries = await structureService.listCoursesForPrincipal(db, principal);
+
+      const response = listCoursesResponseSchema.parse({
+        courses: courseSummaries,
+      });
+
+      return c.json(response);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('validation')) {
+        return c.json(Errors.validation([{ error: err.message }]).toBody(), 400);
       }
-      const db = getDb();
-
-      try {
-        const courseSummaries = await structureService.listCoursesForPrincipal(db, principal);
-
-        const response = listCoursesResponseSchema.parse({
-          courses: courseSummaries,
-        });
-
-        return c.json(response);
-      } catch (err) {
-        if (err instanceof Error && err.message.includes('validation')) {
-          return c.json(Errors.validation([{ error: err.message }]).toBody(), 400);
-        }
-        throw err;
-      }
-    },
-  );
+      throw err;
+    }
+  });
 
   // -------------------------------------------------------------------------
   // POST /courses — create course (superadmin only)
@@ -96,7 +95,7 @@ export function createCoursesRouter(): Hono {
     '/',
     rateLimit('write.misc'),
     requireAuth({ action: 'admin', target: 'global' }),
-    audit('course.create', 'course', (c) => c.var.target ? 'global' : 'global'),
+    audit('course.create', 'course', (c) => (c.var.target ? 'global' : 'global')),
     async (c) => {
       let body;
       try {
@@ -107,10 +106,7 @@ export function createCoursesRouter(): Hono {
 
       const parseResult = createCourseRequestSchema.safeParse(body);
       if (!parseResult.success) {
-        return c.json(
-          Errors.validation(parseResult.error.issues).toBody(),
-          400,
-        );
+        return c.json(Errors.validation(parseResult.error.issues).toBody(), 400);
       }
 
       const { name, slug } = parseResult.data;
@@ -192,10 +188,7 @@ export function createCoursesRouter(): Hono {
 
       const parseResult = updateCourseRequestSchema.safeParse(body);
       if (!parseResult.success) {
-        return c.json(
-          Errors.validation(parseResult.error.issues).toBody(),
-          400,
-        );
+        return c.json(Errors.validation(parseResult.error.issues).toBody(), 400);
       }
 
       const db = getDb();

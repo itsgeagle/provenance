@@ -33,7 +33,10 @@ import * as structureService from '../../../services/structure.js';
 // Helper: serialize SemesterRow to SemesterDetail
 // ---------------------------------------------------------------------------
 
-function semesterToSemesterDetail(semester: typeof semesters.$inferSelect, myRole?: string | null): SemesterDetail {
+function semesterToSemesterDetail(
+  semester: typeof semesters.$inferSelect,
+  myRole?: string | null,
+): SemesterDetail {
   return {
     id: semester.id,
     course_id: semester.course_id,
@@ -111,10 +114,7 @@ export function createSemestersRouter(): Hono {
 
       const parseResult = createSemesterRequestSchema.safeParse(body);
       if (!parseResult.success) {
-        return c.json(
-          Errors.validation(parseResult.error.issues).toBody(),
-          400,
-        );
+        return c.json(Errors.validation(parseResult.error.issues).toBody(), 400);
       }
 
       const db = getDb();
@@ -124,8 +124,15 @@ export function createSemestersRouter(): Hono {
       }
 
       try {
-        const { term, year, slug, display_name, filename_convention, blob_retention_days, derived_retention_days } =
-          parseResult.data;
+        const {
+          term,
+          year,
+          slug,
+          display_name,
+          filename_convention,
+          blob_retention_days,
+          derived_retention_days,
+        } = parseResult.data;
 
         const semesterInput: {
           courseId: string;
@@ -227,14 +234,12 @@ export function createSemestersRouter(): Hono {
 
       const parseResult = updateSemesterRequestSchema.safeParse(body);
       if (!parseResult.success) {
-        return c.json(
-          Errors.validation(parseResult.error.issues).toBody(),
-          400,
-        );
+        return c.json(Errors.validation(parseResult.error.issues).toBody(), 400);
       }
 
       try {
-        const { display_name, filename_convention, blob_retention_days, derived_retention_days } = parseResult.data;
+        const { display_name, filename_convention, blob_retention_days, derived_retention_days } =
+          parseResult.data;
 
         const updateInput: {
           displayName?: string;
@@ -246,7 +251,8 @@ export function createSemestersRouter(): Hono {
         if (display_name !== undefined) updateInput.displayName = display_name;
         if (filename_convention !== undefined) updateInput.filenameConvention = filename_convention;
         if (blob_retention_days !== undefined) updateInput.blobRetentionDays = blob_retention_days;
-        if (derived_retention_days !== undefined) updateInput.derivedRetentionDays = derived_retention_days;
+        if (derived_retention_days !== undefined)
+          updateInput.derivedRetentionDays = derived_retention_days;
 
         await structureService.updateSemester(db, semesterId, updateInput);
 

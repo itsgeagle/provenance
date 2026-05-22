@@ -62,10 +62,7 @@ vi.mock('../../../db/client.js', async (importOriginal) => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function insertUser(
-  db: DrizzleDb,
-  overrides?: Partial<typeof users.$inferInsert>,
-) {
+async function insertUser(db: DrizzleDb, overrides?: Partial<typeof users.$inferInsert>) {
   const randomId = Math.random().toString(36).slice(2);
   const rows = await db
     .insert(users)
@@ -118,7 +115,10 @@ describe('POST /api/v1/courses/:courseId/semesters', () => {
         const res = await app.fetch(
           new Request(`http://localhost/courses/${course!.id}/semesters`, {
             method: 'POST',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({
               term: 'fa',
               year: 2024,
@@ -155,7 +155,10 @@ describe('POST /api/v1/courses/:courseId/semesters', () => {
         const res = await app.fetch(
           new Request(`http://localhost/courses/${course!.id}/semesters`, {
             method: 'POST',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({
               term: 'fa',
               year: 2024,
@@ -189,7 +192,10 @@ describe('POST /api/v1/courses/:courseId/semesters', () => {
         const res = await app.fetch(
           new Request(`http://localhost/courses/${course!.id}/semesters`, {
             method: 'POST',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({
               term: 'fa',
               year: 2024,
@@ -223,16 +229,14 @@ describe('GET /api/v1/courses/:courseId/semesters', () => {
           .values({ name: 'CS 61A', slug: 'cs61a' })
           .returning();
 
-        await db
-          .insert(semesters)
-          .values({
-            course_id: course!.id,
-            term: 'fa',
-            year: 2024,
-            slug: 'fa2024',
-            display_name: 'Fall 2024',
-            filename_convention: '(?<sid>[a-z0-9]+)_hw',
-          });
+        await db.insert(semesters).values({
+          course_id: course!.id,
+          term: 'fa',
+          year: 2024,
+          slug: 'fa2024',
+          display_name: 'Fall 2024',
+          filename_convention: '(?<sid>[a-z0-9]+)_hw',
+        });
 
         const app = createV1App();
         const res = await app.fetch(
@@ -381,7 +385,10 @@ describe('PATCH /api/v1/semesters/:semesterId', () => {
         const res = await app.fetch(
           new Request(`http://localhost/semesters/${semester!.id}`, {
             method: 'PATCH',
-            headers: { Cookie: `__Host-prov_sess=${sessionId}`, 'content-type': 'application/json' },
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
             body: JSON.stringify({ display_name: 'Fall 2024 (Updated)' }),
           }),
         );

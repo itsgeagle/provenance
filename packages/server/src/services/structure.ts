@@ -72,7 +72,8 @@ function isUniqueConstraintViolation(err: unknown): boolean {
   if ((err as unknown as { code?: string }).code === '23505') return true;
   // Wrapped by postgres.js query layer
   const cause = (err as { cause?: unknown }).cause;
-  if (cause instanceof Error && (cause as unknown as { code?: string }).code === '23505') return true;
+  if (cause instanceof Error && (cause as unknown as { code?: string }).code === '23505')
+    return true;
   return false;
 }
 
@@ -112,7 +113,10 @@ export async function createCourse(
  * - Superadmin: all courses
  * - Others: courses containing at least one semester the principal is a member of
  */
-export async function listCoursesForPrincipal(db: DrizzleDb, principal: Principal): Promise<CourseSummary[]> {
+export async function listCoursesForPrincipal(
+  db: DrizzleDb,
+  principal: Principal,
+): Promise<CourseSummary[]> {
   if (principal.user.is_superadmin) {
     // Superadmin: all courses with semester counts
     const rows = await db
@@ -221,10 +225,7 @@ export async function updateCourse(
  * Does NOT cascade to semesters; they remain accessible but with archived parent.
  */
 export async function archiveCourse(db: DrizzleDb, courseId: string): Promise<void> {
-  await db
-    .update(courses)
-    .set({ archived_at: new Date() })
-    .where(eq(courses.id, courseId));
+  await db.update(courses).set({ archived_at: new Date() }).where(eq(courses.id, courseId));
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +252,7 @@ export function validateFilenameConvention(pattern: string): void {
     if (!regex.source.includes('(?<sid>')) {
       throw Errors.validationRegex(
         'filename_convention',
-        "Pattern must contain a named group (?<sid>...)",
+        'Pattern must contain a named group (?<sid>...)',
       );
     }
   } catch (err) {
@@ -335,10 +336,7 @@ export async function listSemestersInCourse(
     .from(semesters)
     .leftJoin(
       memberships,
-      and(
-        eq(memberships.semester_id, semesters.id),
-        eq(memberships.user_id, principal.user.id),
-      ),
+      and(eq(memberships.semester_id, semesters.id), eq(memberships.user_id, principal.user.id)),
     )
     .where(eq(semesters.course_id, courseId))
     .orderBy(desc(semesters.created_at));
@@ -387,10 +385,7 @@ export async function getSemester(
     .leftJoin(
       memberships,
       principal
-        ? and(
-            eq(memberships.semester_id, semesters.id),
-            eq(memberships.user_id, principal.user.id),
-          )
+        ? and(eq(memberships.semester_id, semesters.id), eq(memberships.user_id, principal.user.id))
         : isNull(memberships.user_id),
     )
     .where(eq(semesters.id, semesterId));
@@ -439,7 +434,8 @@ export async function updateSemester(
 
   const updates: Record<string, unknown> = {};
   if (input.displayName !== undefined) updates.display_name = input.displayName;
-  if (input.filenameConvention !== undefined) updates.filename_convention = input.filenameConvention;
+  if (input.filenameConvention !== undefined)
+    updates.filename_convention = input.filenameConvention;
   if (input.blobRetentionDays !== undefined) updates.blob_retention_days = input.blobRetentionDays;
   if (input.derivedRetentionDays !== undefined)
     updates.derived_retention_days = input.derivedRetentionDays;
@@ -462,10 +458,7 @@ export async function updateSemester(
  * Archive a semester by setting archived_at to now.
  */
 export async function archiveSemester(db: DrizzleDb, semesterId: string): Promise<void> {
-  await db
-    .update(semesters)
-    .set({ archived_at: new Date() })
-    .where(eq(semesters.id, semesterId));
+  await db.update(semesters).set({ archived_at: new Date() }).where(eq(semesters.id, semesterId));
 }
 
 /**

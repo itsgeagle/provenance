@@ -282,7 +282,11 @@ describe('structureService.semesters', () => {
         filenameConvention: '(?<sid>[a-z0-9]+)_hw',
       });
 
-      const semesters = await structureService.listSemestersInCourse(db, course.id, superAdminPrincipal);
+      const semesters = await structureService.listSemestersInCourse(
+        db,
+        course.id,
+        superAdminPrincipal,
+      );
 
       expect(semesters.length).toBe(2);
       expect(semesters.some((s) => s.id === sem1.id)).toBe(true);
@@ -378,7 +382,10 @@ describe('structureService.memberships', () => {
       // This test would require inserting users and memberships,
       // which is more complex. For now, just verify the function exists
       // and returns an array for a user with no memberships.
-      const memberships = await structureService.getUserMemberships(db, '00000000-0000-0000-0000-000000000099');
+      const memberships = await structureService.getUserMemberships(
+        db,
+        '00000000-0000-0000-0000-000000000099',
+      );
       expect(Array.isArray(memberships)).toBe(true);
     });
   });
