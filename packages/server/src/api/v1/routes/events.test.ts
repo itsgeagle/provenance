@@ -395,7 +395,6 @@ describe('GET /submissions/:id/events', () => {
       const sub = await seedSubmission(db, semester.id, user.id);
 
       await db.insert(eventsTable).values([
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         {
           submission_id: sub.id,
           seq: 1,
@@ -403,11 +402,11 @@ describe('GET /submissions/:id/events', () => {
           t: 1000,
           wall: new Date(),
           kind: 'doc.change',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           payload: { path: 'main.py' } as any,
           prev_hash: 'p1',
           hash: 'h1',
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         {
           submission_id: sub.id,
           seq: 2,
@@ -415,11 +414,11 @@ describe('GET /submissions/:id/events', () => {
           t: 2000,
           wall: new Date(),
           kind: 'doc.change',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           payload: { path: 'utils.py' } as any,
           prev_hash: 'p2',
           hash: 'h2',
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         {
           submission_id: sub.id,
           seq: 3,
@@ -427,6 +426,7 @@ describe('GET /submissions/:id/events', () => {
           t: 3000,
           wall: new Date(),
           kind: 'doc.change',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           payload: { path: 'main.py' } as any,
           prev_hash: 'p3',
           hash: 'h3',

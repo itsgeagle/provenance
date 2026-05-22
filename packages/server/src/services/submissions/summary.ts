@@ -71,21 +71,13 @@ export type SubmissionSummary = {
  * We extract failed/skipped checks and format: "id=status (cause: detail)".
  * If all pass, return null.
  */
-function synthesizeValidationDetail(
-  detail: unknown,
-  overall: string,
-): string | null {
+function synthesizeValidationDetail(detail: unknown, overall: string): string | null {
   if (overall === 'pass') return null;
   if (!Array.isArray(detail)) return null;
 
   const failing: string[] = [];
   for (const check of detail) {
-    if (
-      check !== null &&
-      typeof check === 'object' &&
-      'id' in check &&
-      'status' in check
-    ) {
+    if (check !== null && typeof check === 'object' && 'id' in check && 'status' in check) {
       const c = check as { id: string; status: string; detail?: string };
       if (c.status === 'fail' || c.status === 'skipped') {
         const cause = c.detail ? ` (cause: ${c.detail})` : '';
@@ -185,9 +177,7 @@ export async function getSubmissionSummary(
     .limit(1);
 
   const validation_overall_detail =
-    valRows.length > 0
-      ? synthesizeValidationDetail(valRows[0]!.detail, valRows[0]!.overall)
-      : null;
+    valRows.length > 0 ? synthesizeValidationDetail(valRows[0]!.detail, valRows[0]!.overall) : null;
 
   return {
     id: row.id,

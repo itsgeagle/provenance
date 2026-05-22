@@ -160,7 +160,10 @@ describe('runAndStoreCrossHeuristics', () => {
       });
 
       // Seed paste events for both submissions with the same sha256.
-      await seedPasteEvents(db, sub1, { sha256: SHARED_PASTE_SHA256, content: SHARED_PASTE_CONTENT });
+      await seedPasteEvents(db, sub1, {
+        sha256: SHARED_PASTE_SHA256,
+        content: SHARED_PASTE_CONTENT,
+      });
       await seedPasteEvents(db, sub2Id, {
         sha256: SHARED_PASTE_SHA256,
         content: SHARED_PASTE_CONTENT,

@@ -32,10 +32,7 @@ export type FlagRow = {
 // Query
 // ---------------------------------------------------------------------------
 
-export async function getSubmissionFlags(
-  db: DrizzleDb,
-  submissionId: string,
-): Promise<FlagRow[]> {
+export async function getSubmissionFlags(db: DrizzleDb, submissionId: string): Promise<FlagRow[]> {
   const rows = await db
     .select({
       id: flags.id,

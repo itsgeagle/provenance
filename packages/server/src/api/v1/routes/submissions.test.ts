@@ -278,7 +278,12 @@ describe('GET /submissions/:id', () => {
         detail: [
           { id: 'manifest_sig', status: 'pass', label: 'Manifest signature' },
           { id: 'session_binding', status: 'pass', label: 'Session binding' },
-          { id: 'chain_integrity', status: 'fail', label: 'Chain integrity', detail: 'hash mismatch at seq 5' },
+          {
+            id: 'chain_integrity',
+            status: 'fail',
+            label: 'Chain integrity',
+            detail: 'hash mismatch at seq 5',
+          },
           { id: 'seq_gaps', status: 'pass', label: 'Seq gaps' },
           { id: 'monotonic_t', status: 'pass', label: 'Monotonic t' },
           { id: 'monotonic_wall', status: 'pass', label: 'Monotonic wall' },
@@ -312,7 +317,7 @@ describe('GET /submissions/:id', () => {
       expect(files[0]!.saves).toBe(3);
       // validation_overall_detail: chain_integrity=fail + submitted_code_match=skipped
       expect(typeof body['validation_overall_detail']).toBe('string');
-      expect((body['validation_overall_detail'] as string)).toContain('chain_integrity=fail');
+      expect(body['validation_overall_detail'] as string).toContain('chain_integrity=fail');
       const asgn = body['assignment'] as Record<string, unknown>;
       expect(asgn['label']).toBe('HW1');
     });

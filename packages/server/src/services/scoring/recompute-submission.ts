@@ -174,10 +174,11 @@ export async function recomputeSubmission(
   // Delegates to the shared reconstructBundleFromDb helper (extracted in
   // Phase 14 for reuse by run-cross.ts). See V31/V32 for strategy rationale.
   // -------------------------------------------------------------------------
-  const { bundle, index: reconstructedIndex, validationReport } = await reconstructBundleFromDb(
-    db,
-    submissionId,
-  );
+  const {
+    bundle,
+    index: reconstructedIndex,
+    validationReport,
+  } = await reconstructBundleFromDb(db, submissionId);
 
   // -------------------------------------------------------------------------
   // Step 2: Build EventIndex and run heuristics.
