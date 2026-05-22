@@ -11,16 +11,65 @@
  *   Phase 10+: remaining handlers added as phases land.
  *
  * PRD §12: pg-boss owns queue delivery; domain tables own domain state.
+ *
+ * ## Finalize dispatch strategy (Phase 9b)
+ *
+ * We use the "last-worker-enqueues-finalize" pattern rather than a fixed
+ * delay or a separate scheduler:
+ *
+ *   After each `ingest_file` job completes (success OR terminal failure):
+ *   - Check the count of `ingest_files` rows still in 'pending' status for
+ *     the parent job.
+ *   - If the count is 0 (all files processed), send one `ingest_finalize`
+ *     job with `singletonKey = ingestJobId` so duplicate sends collapse.
+ *
+ * Rationale: pg-boss `singletonKey` guarantees at most one queued+running
+ * instance of `ingest_finalize` per job id. Multiple workers that reach
+ * "I am last" simultaneously will each try to enqueue, but only one will
+ * actually queue — the others silently no-op. This is correct and race-safe.
+ *
+ * This avoids the complexity of a time-window approach (singletonSeconds)
+ * and does not require an external scheduler or the route handler to
+ * orchestrate the finalize dispatch.
  */
 
+import { eq, and, count } from 'drizzle-orm';
 import { getBoss, stopBoss, JOB_KINDS } from './pg-boss.js';
 import { getLogger } from '../logging.js';
+import { getDb } from '../db/client.js';
+import { getConfig } from '../config/index.js';
+import { ingest_files, ingest_jobs, semesters } from '../db/schema.js';
+import { createStorageClient, storageConfigFromEnv } from '../services/storage/client.js';
+import { ingestStagingKey } from '../services/storage/keys.js';
+import {
+  finalizeIngestJob,
+  markIngestJobRunning,
+  failIngestJob,
+} from '../services/ingest/job-control.js';
+import { dedupFile } from '../services/ingest/dedup.js';
+import { parseBundlePhase } from '../services/ingest/parse-bundle-phase.js';
+import { matchStudent } from '../services/ingest/match-student.js';
+import { createSubmission } from '../services/ingest/create-submission.js';
+
+// ---------------------------------------------------------------------------
+// Payload types (mirrored from POST /ingest enqueue calls)
+// ---------------------------------------------------------------------------
+
+interface IngestFilePayload {
+  ingestFileId: string;
+  ingestJobId: string;
+}
+
+interface IngestFinalizePayload {
+  ingestJobId: string;
+}
+
+// ---------------------------------------------------------------------------
+// startWorker
+// ---------------------------------------------------------------------------
 
 /**
  * Start the job worker: connect pg-boss and register all known handlers.
- *
- * Registers an empty handler stub for each phase-9a-defined kind so pg-boss
- * recognises the queues. Real handlers are registered in later phases.
  *
  * Returns a teardown function. Call it to stop pg-boss gracefully.
  */
@@ -29,28 +78,329 @@ export async function startWorker(): Promise<() => Promise<void>> {
   const boss = await getBoss();
 
   // -------------------------------------------------------------------------
-  // Job handler registrations.
+  // ingest_file handler
   //
-  // Phase 9a stubs: each kind is registered so pg-boss acknowledges queue
-  // creation. Handlers added in 9b+ replace these.
+  // Per-file pipeline phases 2–5 (dedup → parseBundle → matchStudent →
+  // createSubmission). Updates ingest_files.status on each outcome.
+  // On completion (success or terminal failure), checks if all sibling files
+  // are done and enqueues an ingest_finalize job if so.
   // -------------------------------------------------------------------------
 
-  // ingest_file: full per-file pipeline (phases 9b+).
-  // WorkHandler receives Job<T>[] (batch); batchSize: 1 means one job per call.
-  await boss.work(JOB_KINDS.INGEST_FILE, { batchSize: 1 }, async (jobs) => {
-    const job = jobs[0]!;
-    logger.warn({ jobId: job.id, name: job.name }, 'ingest_file handler not yet implemented');
-  });
+  await boss.work<IngestFilePayload>(
+    JOB_KINDS.INGEST_FILE,
+    { batchSize: 1 },
+    async (jobs) => {
+      const job = jobs[0]!;
+      const { ingestFileId, ingestJobId } = job.data;
 
-  // ingest_finalize: aggregate file statuses → job terminal status (phases 9b+).
-  await boss.work(JOB_KINDS.INGEST_FINALIZE, { batchSize: 1 }, async (jobs) => {
-    const job = jobs[0]!;
-    logger.warn({ jobId: job.id, name: job.name }, 'ingest_finalize handler not yet implemented');
-  });
+      const db = getDb();
+      const cfg = getConfig();
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
 
-  logger.info('worker started (phase 9a: handlers registered as stubs)');
+      logger.info({ ingestFileId, ingestJobId }, 'ingest_file: started');
+
+      try {
+        // -----------------------------------------------------------------------
+        // Look up the ingest_files row.
+        // -----------------------------------------------------------------------
+        const fileRows = await db
+          .select()
+          .from(ingest_files)
+          .where(eq(ingest_files.id, ingestFileId));
+
+        if (fileRows.length === 0) {
+          logger.warn({ ingestFileId }, 'ingest_file: file row not found, skipping');
+          return;
+        }
+
+        const fileRow = fileRows[0]!;
+
+        // Skip if already processed (idempotency).
+        if (fileRow.status !== 'pending') {
+          logger.info({ ingestFileId, status: fileRow.status }, 'ingest_file: already processed');
+          return;
+        }
+
+        // Mark parent job as running (idempotent — only transitions queued→running).
+        await markIngestJobRunning(db, ingestJobId);
+
+        // -----------------------------------------------------------------------
+        // Fetch the semester's filename_convention for matchStudent.
+        // -----------------------------------------------------------------------
+        const jobRows = await db
+          .select({ semester_id: ingest_jobs.semester_id })
+          .from(ingest_jobs)
+          .where(eq(ingest_jobs.id, ingestJobId));
+
+        if (jobRows.length === 0) {
+          logger.warn({ ingestJobId }, 'ingest_file: parent ingest_job not found, skipping');
+          return;
+        }
+
+        const semesterId = jobRows[0]!.semester_id;
+
+        const semesterRows = await db
+          .select({ filename_convention: semesters.filename_convention })
+          .from(semesters)
+          .where(eq(semesters.id, semesterId));
+
+        if (semesterRows.length === 0) {
+          logger.warn({ semesterId }, 'ingest_file: semester not found, skipping');
+          return;
+        }
+
+        const filenameConvention = semesterRows[0]!.filename_convention;
+
+        // -----------------------------------------------------------------------
+        // Phase 2: Dedup
+        // -----------------------------------------------------------------------
+        const dedupResult = await dedupFile(db, semesterId, fileRow.blob_sha256);
+
+        if (dedupResult.isDuplicate) {
+          await db
+            .update(ingest_files)
+            .set({
+              status: 'duplicate',
+              submission_id: dedupResult.existingSubmissionId,
+              resolved_at: new Date(),
+            })
+            .where(eq(ingest_files.id, ingestFileId));
+
+          logger.info({ ingestFileId }, 'ingest_file: duplicate detected');
+          await maybeEnqueueFinalize(boss, db, ingestJobId);
+          return;
+        }
+
+        // -----------------------------------------------------------------------
+        // Phase 3: Parse bundle
+        // -----------------------------------------------------------------------
+        const stagingKey = ingestStagingKey(ingestJobId, ingestFileId);
+        const parsedResult = await parseBundlePhase(
+          storageClient,
+          stagingKey,
+          fileRow.original_filename,
+        );
+
+        if (!parsedResult.ok) {
+          await db
+            .update(ingest_files)
+            .set({
+              status: 'failed',
+              error: {
+                phase: parsedResult.phase,
+                cause: parsedResult.cause,
+                ...(parsedResult.detail !== undefined && { detail: parsedResult.detail }),
+              },
+              resolved_at: new Date(),
+            })
+            .where(eq(ingest_files.id, ingestFileId));
+
+          logger.warn({ ingestFileId, cause: parsedResult.cause }, 'ingest_file: parse failed');
+          await maybeEnqueueFinalize(boss, db, ingestJobId);
+          return;
+        }
+
+        const { bundle } = parsedResult;
+
+        // -----------------------------------------------------------------------
+        // Phase 4: Match student
+        // -----------------------------------------------------------------------
+
+        // Roster resolver: looks up roster_entries.id by (semesterId, sid).
+        const rosterResolver = async (semId: string, sid: string) => {
+          const { roster_entries } = await import('../db/schema.js');
+          const rows = await db
+            .select({ id: roster_entries.id })
+            .from(roster_entries)
+            .where(
+              and(eq(roster_entries.semester_id, semId), eq(roster_entries.sid, sid)),
+            )
+            .limit(1);
+          return rows.length > 0 ? rows[0]!.id : null;
+        };
+
+        const matchResult = await matchStudent(
+          semesterId,
+          filenameConvention,
+          fileRow.original_filename,
+          bundle.manifest,
+          rosterResolver,
+        );
+
+        if (!matchResult.matched) {
+          await db
+            .update(ingest_files)
+            .set({
+              status: 'unmatched',
+              error: { phase: 'match_student', cause: matchResult.reason },
+              resolved_at: new Date(),
+            })
+            .where(eq(ingest_files.id, ingestFileId));
+
+          logger.info(
+            { ingestFileId, reason: matchResult.reason },
+            'ingest_file: no student match',
+          );
+          await maybeEnqueueFinalize(boss, db, ingestJobId);
+          return;
+        }
+
+        // -----------------------------------------------------------------------
+        // Phase 5: Create submission
+        // -----------------------------------------------------------------------
+        const { studentId, assignmentIdStr, filenameCapture } = matchResult;
+
+        // recorder_version is populated in Phase 10 from session metadata;
+        // for Phase 9b just store the format version from the manifest.
+        const recorderVersion = '';
+        const formatVersion = bundle.manifest.format_version;
+
+        const submissionResult = await createSubmission(
+          { db, storageClient },
+          {
+            semesterId,
+            assignmentIdStr,
+            studentId,
+            blobSha256: fileRow.blob_sha256,
+            stagingKey,
+            originalFilename: fileRow.original_filename,
+            ingestJobId,
+            recorderVersion,
+            formatVersion,
+          },
+        );
+
+        // Determine the final status: if this submission supersedes others,
+        // mark it as 'matched'; those older ones get 'superseded'.
+        if (submissionResult.supersededIds.length > 0) {
+          // Update older submissions' ingest_files rows to 'superseded'.
+          // Note: older ingest_files rows may be from a different ingest_job,
+          // so we look them up by submission_id.
+          for (const oldSubId of submissionResult.supersededIds) {
+            await db
+              .update(ingest_files)
+              .set({ status: 'superseded' })
+              .where(eq(ingest_files.submission_id, oldSubId));
+          }
+        }
+
+        await db
+          .update(ingest_files)
+          .set({
+            status: 'matched',
+            matched_student_id: studentId,
+            submission_id: submissionResult.submissionId,
+            filename_capture: filenameCapture,
+            resolved_at: new Date(),
+          })
+          .where(eq(ingest_files.id, ingestFileId));
+
+        logger.info(
+          {
+            ingestFileId,
+            submissionId: submissionResult.submissionId,
+            versionIndex: submissionResult.versionIndex,
+          },
+          'ingest_file: matched and submission created',
+        );
+      } catch (err) {
+        // Unhandled error — mark file as failed with the error detail.
+        const cause = err instanceof Error ? err.message : String(err);
+        logger.error({ ingestFileId, err }, 'ingest_file: unhandled error');
+
+        try {
+          await db
+            .update(ingest_files)
+            .set({
+              status: 'failed',
+              error: { phase: 'worker', cause },
+              resolved_at: new Date(),
+            })
+            .where(
+              and(eq(ingest_files.id, ingestFileId), eq(ingest_files.status, 'pending')),
+            );
+        } catch {
+          // Best-effort — do not re-throw from the error handler.
+        }
+      } finally {
+        // Always check if we're the last pending file, even on error.
+        try {
+          await maybeEnqueueFinalize(boss, db, ingestJobId);
+        } catch {
+          // Best-effort.
+        }
+      }
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // ingest_finalize handler
+  //
+  // Reads all ingest_files for the job, aggregates their statuses, and sets
+  // the terminal ingest_jobs.status.
+  // -------------------------------------------------------------------------
+
+  await boss.work<IngestFinalizePayload>(
+    JOB_KINDS.INGEST_FINALIZE,
+    { batchSize: 1 },
+    async (jobs) => {
+      const job = jobs[0]!;
+      const { ingestJobId } = job.data;
+
+      const db = getDb();
+      logger.info({ ingestJobId }, 'ingest_finalize: started');
+
+      try {
+        await finalizeIngestJob(db, ingestJobId);
+        logger.info({ ingestJobId }, 'ingest_finalize: completed');
+      } catch (err) {
+        logger.error({ ingestJobId, err }, 'ingest_finalize: error — marking job failed');
+        try {
+          const cause = err instanceof Error ? err.message : String(err);
+          await failIngestJob(db, ingestJobId, `finalize error: ${cause}`);
+        } catch {
+          // Best-effort.
+        }
+        throw err; // Let pg-boss retry.
+      }
+    },
+  );
+
+  logger.info('worker started (phase 9b: ingest handlers registered)');
 
   return async () => {
     await stopBoss();
   };
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * After a file transitions to a terminal status (any status other than
+ * 'pending'), check whether all sibling files for the job are also done.
+ *
+ * If the count of pending files drops to zero, enqueue one `ingest_finalize`
+ * job with `singletonKey = ingestJobId`. pg-boss deduplicates concurrent sends
+ * so only one finalize runs per job, even if multiple workers trigger this
+ * simultaneously.
+ */
+async function maybeEnqueueFinalize(
+  boss: Awaited<ReturnType<typeof getBoss>>,
+  db: ReturnType<typeof getDb>,
+  ingestJobId: string,
+): Promise<void> {
+  const pendingCount = await db
+    .select({ cnt: count() })
+    .from(ingest_files)
+    .where(and(eq(ingest_files.ingest_job_id, ingestJobId), eq(ingest_files.status, 'pending')));
+
+  const remaining = pendingCount[0]?.cnt ?? 0;
+  if (remaining === 0) {
+    await boss.send(JOB_KINDS.INGEST_FINALIZE, { ingestJobId } satisfies IngestFinalizePayload, {
+      singletonKey: ingestJobId,
+    });
+    getLogger().info({ ingestJobId }, 'ingest_finalize: enqueued');
+  }
 }
