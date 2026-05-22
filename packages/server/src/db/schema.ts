@@ -28,6 +28,7 @@ import {
   check,
   unique,
   jsonb,
+  bigint,
   bigserial,
   doublePrecision,
 } from 'drizzle-orm/pg-core';
@@ -327,6 +328,188 @@ export const audit_log = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// assignments  (PRD §5.2 / migration 0006)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per unique assignment within a semester.
+ * `assignment_id_str` is the canonical string id from the bundle manifest.
+ * `label` is human-readable and editable by admins.
+ */
+export const assignments = pgTable(
+  'assignments',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    assignment_id_str: text('assignment_id_str').notNull(),
+    label: text('label').notNull().default(''),
+    sort_order: integer('sort_order').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [unique('assignments_semester_assignment_key').on(t.semester_id, t.assignment_id_str)],
+);
+
+// ---------------------------------------------------------------------------
+// ingest_jobs  (PRD §5.3 / migration 0006)
+// ---------------------------------------------------------------------------
+
+export const ingest_jobs = pgTable(
+  'ingest_jobs',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    uploaded_by: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    status: text('status').notNull(),
+    summary: jsonb('summary')
+      .notNull()
+      .default(sql`'{}'`),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    started_at: timestamp('started_at', { withTimezone: true }),
+    completed_at: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    // ingest_jobs_semester_id_idx: defined in SQL with DESC ordering;
+    // Drizzle cannot express DESC in index definition, so we omit it here.
+    check(
+      'ingest_jobs_status_check',
+      sql`${t.status} IN ('queued','running','succeeded','partial','failed','cancelled')`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// submissions  (PRD §5.4 / migration 0006)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per (semester, assignment, student, version_index) tuple.
+ * Partial covering index `submissions_cohort_idx` is SQL-only (WHERE clause).
+ */
+export const submissions = pgTable(
+  'submissions',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    semester_id: uuid('semester_id')
+      .notNull()
+      .references(() => semesters.id, { onDelete: 'cascade' }),
+    assignment_id: uuid('assignment_id')
+      .notNull()
+      .references(() => assignments.id, { onDelete: 'restrict' }),
+    student_id: uuid('student_id')
+      .notNull()
+      .references(() => roster_entries.id, { onDelete: 'restrict' }),
+    blob_object_key: text('blob_object_key').notNull(),
+    blob_sha256: text('blob_sha256').notNull(),
+    recorder_version: text('recorder_version').notNull().default(''),
+    format_version: text('format_version').notNull().default(''),
+    source_filename: text('source_filename').notNull(),
+    // Forward reference: ingest_jobs is declared later but FK is fine in SQL.
+    ingest_job_id: uuid('ingest_job_id')
+      .notNull()
+      .references(() => ingest_jobs.id, { onDelete: 'restrict' }),
+    ingested_at: timestamp('ingested_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    version_index: integer('version_index').notNull(),
+    superseded_by_submission_id: uuid('superseded_by_submission_id'),
+    score_total: doublePrecision('score_total').notNull().default(0),
+    score_max_severity: text('score_max_severity').notNull().default('info'),
+    validation_status: text('validation_status').notNull().default('pending'),
+    heuristic_config_version: integer('heuristic_config_version').notNull().default(0),
+    recompute_status: text('recompute_status').notNull().default('fresh'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    unique('submissions_version_key').on(
+      t.semester_id,
+      t.assignment_id,
+      t.student_id,
+      t.version_index,
+    ),
+    index('submissions_student_idx').on(t.semester_id, t.student_id),
+    index('submissions_blob_sha_idx').on(t.semester_id, t.blob_sha256),
+    check(
+      'submissions_score_max_severity_check',
+      sql`${t.score_max_severity} IN ('info','low','medium','high')`,
+    ),
+    check(
+      'submissions_validation_status_check',
+      sql`${t.validation_status} IN ('pending','pass','warn','fail')`,
+    ),
+    check(
+      'submissions_recompute_status_check',
+      sql`${t.recompute_status} IN ('fresh','stale','recomputing','error')`,
+    ),
+    // submissions_cohort_idx (partial) is SQL-only; defined in migration 0006.
+  ],
+);
+
+// Self-referential FK: submissions.superseded_by_submission_id -> submissions.id
+// Cannot express this in Drizzle with references(() => submissions.id) at declaration
+// time because the table isn't fully built yet. The FK is defined in the SQL migration.
+
+// ---------------------------------------------------------------------------
+// ingest_files  (PRD §5.3 / migration 0006)
+// ---------------------------------------------------------------------------
+
+export const ingest_files = pgTable(
+  'ingest_files',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    ingest_job_id: uuid('ingest_job_id')
+      .notNull()
+      .references(() => ingest_jobs.id, { onDelete: 'cascade' }),
+    original_filename: text('original_filename').notNull(),
+    size_bytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    blob_sha256: text('blob_sha256').notNull(),
+    status: text('status').notNull(),
+    matched_student_id: uuid('matched_student_id').references(() => roster_entries.id, {
+      onDelete: 'set null',
+    }),
+    matched_assignment_id: uuid('matched_assignment_id').references(() => assignments.id, {
+      onDelete: 'set null',
+    }),
+    submission_id: uuid('submission_id').references(() => submissions.id, { onDelete: 'set null' }),
+    filename_capture: jsonb('filename_capture'),
+    error: jsonb('error'),
+    created_at: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    resolved_at: timestamp('resolved_at', { withTimezone: true }),
+    resolved_by: uuid('resolved_by').references(() => users.id),
+  },
+  (t) => [
+    index('ingest_files_job_idx').on(t.ingest_job_id),
+    index('ingest_files_blob_sha256_idx').on(t.blob_sha256),
+    // ingest_files_unmatched_idx (partial) is SQL-only; defined in migration 0006.
+    check(
+      'ingest_files_status_check',
+      sql`${t.status} IN ('pending','matched','unmatched','duplicate','failed','superseded','discarded')`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -350,3 +533,11 @@ export type RosterEntry = typeof roster_entries.$inferSelect;
 export type NewRosterEntry = typeof roster_entries.$inferInsert;
 export type AuditLog = typeof audit_log.$inferSelect;
 export type NewAuditLog = typeof audit_log.$inferInsert;
+export type Assignment = typeof assignments.$inferSelect;
+export type NewAssignment = typeof assignments.$inferInsert;
+export type IngestJob = typeof ingest_jobs.$inferSelect;
+export type NewIngestJob = typeof ingest_jobs.$inferInsert;
+export type IngestFile = typeof ingest_files.$inferSelect;
+export type NewIngestFile = typeof ingest_files.$inferInsert;
+export type Submission = typeof submissions.$inferSelect;
+export type NewSubmission = typeof submissions.$inferInsert;
