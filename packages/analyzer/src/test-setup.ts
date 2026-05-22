@@ -1,5 +1,24 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, beforeAll, afterEach, afterAll } from 'vitest';
+import { setupServer } from 'msw/node';
+import { handlers } from './test/msw-handlers.js';
+
+// ---------------------------------------------------------------------------
+// MSW server — intercepts fetch calls in test environment
+// ---------------------------------------------------------------------------
+//
+// The server is started once for all tests (beforeAll), handlers are reset
+// after each test to prevent state leakage (afterEach), and the server is
+// closed after all tests complete (afterAll).
+//
+// Individual tests can override handlers with server.use() for the duration
+// of that test.
+
+export const mswServer = setupServer(...handlers);
+
+beforeAll(() => mswServer.listen({ onUnhandledRequest: 'bypass' }));
+afterEach(() => mswServer.resetHandlers());
+afterAll(() => mswServer.close());
 
 // ---------------------------------------------------------------------------
 // jsdom layout shims
