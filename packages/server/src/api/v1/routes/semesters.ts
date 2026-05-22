@@ -66,32 +66,39 @@ export function createSemestersRouter(): Hono {
 
   // -------------------------------------------------------------------------
   // GET /courses/:courseId/semesters — list semesters in course
+  //
+  // Uses a manual auth check rather than requireAuth('global') because
+  // 'global' implies superadmin-only. Any authenticated user with visibility
+  // into the course (member of at least one semester in it) may list semesters;
+  // the service layer filters results by membership for non-superadmins.
   // -------------------------------------------------------------------------
 
-  router.get(
-    '/courses/:courseId/semesters',
-    rateLimit('read.cohort'),
-    requireAuth({ action: 'read', target: 'global' }),
-    async (c) => {
-      const courseId = c.req.param('courseId');
-      const principal = c.var.principal!;
-      const db = getDb();
+  router.get('/courses/:courseId/semesters', rateLimit('read.cohort'), async (c) => {
+    const principal = c.var.principal ?? null;
+    if (principal === null) {
+      const returnTo = encodeURIComponent(c.req.path);
+      return c.json(
+        Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(),
+        401,
+      );
+    }
+    const courseId = c.req.param('courseId');
+    const db = getDb();
 
-      // Check if user can see this course
-      const courses_list = await structureService.listCoursesForPrincipal(db, principal);
-      if (!courses_list.find((course) => course.id === courseId)) {
-        throw Errors.notFound();
-      }
+    // Check if user can see this course
+    const courses_list = await structureService.listCoursesForPrincipal(db, principal);
+    if (!courses_list.find((course) => course.id === courseId)) {
+      throw Errors.notFound();
+    }
 
-      const semesters_list = await structureService.listSemestersInCourse(db, courseId, principal);
+    const semesters_list = await structureService.listSemestersInCourse(db, courseId, principal);
 
-      const response = listSemestersResponseSchema.parse({
-        semesters: semesters_list,
-      });
+    const response = listSemestersResponseSchema.parse({
+      semesters: semesters_list,
+    });
 
-      return c.json(response);
-    },
-  );
+    return c.json(response);
+  });
 
   // -------------------------------------------------------------------------
   // POST /courses/:courseId/semesters — create semester (superadmin only)
@@ -101,7 +108,7 @@ export function createSemestersRouter(): Hono {
     '/courses/:courseId/semesters',
     rateLimit('write.misc'),
     requireAuth({ action: 'admin', target: 'global' }),
-    audit('semester.create', 'semester', (_c) => 'created-semester'),
+    audit('semester.create', 'semester', (c) => (c.var.auditDetail?.id as string) ?? 'unknown'),
     async (c) => {
       const courseId = c.req.param('courseId');
 
@@ -160,6 +167,9 @@ export function createSemestersRouter(): Hono {
         }
 
         const semester = await structureService.createSemester(db, semesterInput);
+
+        // Set auditDetail so the audit middleware captures the created entity's UUID.
+        c.set('auditDetail', { id: semester.id });
 
         const response = createSemesterResponseSchema.parse({
           semester: semesterToSemesterDetail(semester),
@@ -222,6 +232,7 @@ export function createSemestersRouter(): Hono {
       // Check if semester is archived (write not allowed)
       const isArchived = await structureService.isArchivedSemester(db, semesterId);
       if (isArchived) {
+        // TODO: add RESOURCE_ARCHIVED error code in a future PRD update; using INSUFFICIENT_ROLE as a stand-in per Phase 5 review.
         throw Errors.insufficientRole('admin');
       }
 
