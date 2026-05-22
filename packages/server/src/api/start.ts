@@ -5,6 +5,7 @@ import { getLogger } from '../logging.js';
 import { createV1App } from './v1/index.js';
 import { requestId } from './middleware/request-id.js';
 import { errorFormatter } from './middleware/error.js';
+import { createMetricsRouter, metricsMiddleware } from './middleware/metrics.js';
 
 /**
  * Creates and returns the Hono application instance.
@@ -28,12 +29,21 @@ export function createApp(): Hono {
   // Request ID must run first so it's available to errorFormatter.
   app.use('*', requestId);
 
+  // Metrics middleware — records request counters + duration histograms.
+  // Runs after requestId so the request is fully identified, before routes
+  // so all requests (including 4xx/5xx) are counted.
+  app.use('*', metricsMiddleware);
+
   // Global error handler — converts ApiError, ZodError, and unknown errors.
   app.onError(errorFormatter);
 
   app.get('/healthz', (c) => {
     return c.json({ status: 'ok' });
   });
+
+  // /metrics — Prometheus exposition (protected by METRICS_AUTH_TOKEN).
+  // Mounted at top level (not under /api/v1) to keep it off the public surface.
+  app.route('/', createMetricsRouter());
 
   app.route('/api/v1', createV1App());
 
