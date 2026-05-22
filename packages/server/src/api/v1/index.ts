@@ -43,12 +43,25 @@ import { createSubmissionsRouter } from './routes/submissions.js';
 import { createEventsRouter } from './routes/events.js';
 import { createFilesRouter } from './routes/files.js';
 import { createBundleRouter } from './routes/bundle.js';
+import { createAuditRouter } from './routes/audit.js';
+import { createOpenApiRouter } from './routes/openapi.js';
+import { createDocsRouter } from './routes/docs.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
 
 export function createV1App(): Hono {
   const app = new Hono();
+
+  // Cache-Control: no-store on all v1 responses by default (PRD §7.7).
+  // Individual routes may override this (e.g. /openapi.json, /docs, /files/*/content).
+  // We set it AFTER next() so routes that set their own Cache-Control win.
+  app.use('*', async (c, next) => {
+    await next();
+    if (!c.res.headers.has('Cache-Control')) {
+      c.res.headers.set('Cache-Control', 'no-store');
+    }
+  });
 
   // Auth resolution runs before all v1 routes.
   app.use('*', authSessionMiddleware);
@@ -124,6 +137,15 @@ export function createV1App(): Hono {
   // Bundle download route (Phase 18).
   // Paths: /submissions/:submissionId/bundle (GET → 302)
   app.route('/', createBundleRouter());
+
+  // Audit log route (Phase 19).
+  // Path: /audit (GET — semester admin or superadmin)
+  app.route('/', createAuditRouter());
+
+  // OpenAPI spec + Redoc docs (Phase 19).
+  // Paths: /openapi.json (GET — public), /docs (GET — public)
+  app.route('/', createOpenApiRouter());
+  app.route('/', createDocsRouter());
 
   // Global error handler
   app.onError(errorFormatter);
