@@ -19,14 +19,7 @@ import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js
 import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
 import { createV1App } from '../index.js';
-import {
-  users,
-  sessions,
-  courses,
-  semesters,
-  memberships,
-  audit_log,
-} from '../../../db/schema.js';
+import { users, sessions, courses, semesters, memberships, audit_log } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -199,7 +192,10 @@ describe('GET /audit — filter by action', () => {
       );
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { items: { action: string }[]; next_cursor: string | null };
+      const body = (await res.json()) as {
+        items: { action: string }[];
+        next_cursor: string | null;
+      };
       expect(body.items.length).toBeGreaterThanOrEqual(1);
       for (const item of body.items) {
         expect(item.action).toBe('semester.create');
@@ -235,7 +231,7 @@ describe('GET /audit — semester_id filter auth', () => {
     });
   });
 
-  it('returns 403 for admin requesting another admin\'s semester', async () => {
+  it("returns 403 for admin requesting another admin's semester", async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       _setConfigForTest(parseEnv(makeTestEnv()));
@@ -393,6 +389,32 @@ describe('GET /audit — authentication', () => {
       const res = await app.fetch(new Request('http://localhost/audit'));
 
       expect(res.status).toBe(401);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §6. 403 when user has no admin memberships
+// ---------------------------------------------------------------------------
+
+describe('GET /audit — §6 not an admin anywhere', () => {
+  it('returns 403 when user has no admin memberships', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+
+      const user = await seedUser(db);
+      const sessionId = await seedSession(db, user.id);
+      // Deliberately do NOT add any memberships.
+
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request('http://localhost/audit', {
+          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+        }),
+      );
+
+      expect(res.status).toBe(403);
     });
   });
 });
