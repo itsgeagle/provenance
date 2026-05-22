@@ -1,8 +1,37 @@
 /**
  * Email transport unit tests.
+ *
+ * vi.mock('nodemailer') is hoisted by Vitest so it intercepts the ESM import
+ * inside transport.ts. vi.hoisted() is used to declare shared spy variables
+ * that are referenced inside the vi.mock() factory — this avoids the
+ * "Cannot access before initialization" TDZ error that occurs when top-level
+ * const/let are referenced inside the hoisted factory.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// ---------------------------------------------------------------------------
+// Hoist shared spies — MUST use vi.hoisted() so they are available inside
+// the vi.mock() factory (which is moved to the top of the module by Vitest).
+// ---------------------------------------------------------------------------
+
+const { sendMailMock, createTransportMock } = vi.hoisted(() => {
+  const sendMailMock = vi.fn();
+  const createTransportMock = vi.fn(() => ({ sendMail: sendMailMock }));
+  return { sendMailMock, createTransportMock };
+});
+
+// Intercept `import nodemailer from 'nodemailer'` inside transport.ts.
+vi.mock('nodemailer', () => ({
+  default: {
+    createTransport: createTransportMock,
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Import under test — after vi.mock declaration so the factory is registered
+// ---------------------------------------------------------------------------
+
 import { getRealEmailTransport } from './transport.js';
 import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
@@ -28,6 +57,11 @@ beforeEach(() => {
   _resetConfigForTest();
   _resetLoggerForTest();
   _setConfigForTest(parseEnv(BASE_ENV));
+  // Reset mock call counts between tests so assertions are independent.
+  sendMailMock.mockReset();
+  createTransportMock.mockReset();
+  // Re-attach the sendMail spy to the freshly-reset createTransport mock.
+  createTransportMock.mockReturnValue({ sendMail: sendMailMock });
 });
 
 // ---------------------------------------------------------------------------
@@ -43,85 +77,106 @@ describe('getRealEmailTransport — SMTP disabled', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('stub does not call nodemailer', async () => {
-    // We verify the stub path by checking there's no network activity.
-    // Because nodemailer is a real dep we cannot mock it globally here without
-    // breaking the production path. We verify indirectly: SMTP_URL='' returns
-    // a function that resolves immediately (no network call possible in unit time).
+  it('stub does not call nodemailer createTransport', async () => {
     const send = getRealEmailTransport({ SMTP_URL: '', SMTP_FROM: '' });
-    const start = Date.now();
     await send({ to: 'a@b.com', subject: 'sub', text: 'body', html: '<p>body</p>' });
-    const elapsed = Date.now() - start;
-    // A nodemailer send would take much longer; the stub is essentially instant.
-    expect(elapsed).toBeLessThan(200);
+    expect(createTransportMock).not.toHaveBeenCalled();
+    expect(sendMailMock).not.toHaveBeenCalled();
   });
 });
 
 // ---------------------------------------------------------------------------
-// SMTP configured — nodemailer path
+// SMTP configured — nodemailer path (exercises getRealEmailTransport directly)
 // ---------------------------------------------------------------------------
 
 describe('getRealEmailTransport — SMTP configured', () => {
-  it('constructs transport and passes message to nodemailer sendMail', async () => {
-    // Mock nodemailer.createTransport to avoid real SMTP connections.
-    const sendMailMock = vi.fn().mockResolvedValue({ messageId: 'test-id' });
+  it('calls createTransport with the SMTP_URL on first send', async () => {
+    sendMailMock.mockResolvedValue({ messageId: 'test-id' });
 
-    // We inject via a lightweight approach: patch the module. Since we can't
-    // easily mock ESM imports here without vi.mock (which requires hoisting),
-    // we test the SMTP path by verifying the transport is called with right args.
-    // The actual nodemailer call is tested via the mock below.
+    const send = getRealEmailTransport({
+      SMTP_URL: 'smtp://localhost:25',
+      SMTP_FROM: '',
+    });
 
-    // Use vi.doMock for non-hoisted mocking within a describe block.
-    // NOTE: Because ESM mocking of nodemailer requires hoisting, we test the
-    // production SMTP path by passing a fake sendMail spy through the transport
-    // factory's closure. We verify the stub path above; the SMTP path here
-    // checks createTransport is called with the SMTP_URL string.
+    await send({ to: 'student@berkeley.edu', subject: 'Invite', text: 'Join us' });
 
-    // Since we cannot easily mock the ESM import of nodemailer without vi.mock
-    // at top-level, we validate the SMTP path behavior via the error path:
-    // a bogus SMTP_URL that fails to connect immediately.
-    // The key invariant is: SMTP_URL !== '' → nodemailer is used (not the stub).
-    // We test this by asserting the function returned is not the no-op stub:
-    // the stub resolves instantly; the SMTP path will try to connect and throw
-    // (or resolve if a real server is available). We check it rejects with a
-    // connection error (not silently logging).
+    // createTransport must have been called exactly once with the SMTP_URL.
+    expect(createTransportMock).toHaveBeenCalledOnce();
+    expect(createTransportMock).toHaveBeenCalledWith('smtp://localhost:25');
+  });
 
-    // This test verifies the behavior of the SMTP transport path when sendMail
-    // is mocked via DI. We manually build a SendEmailFn wrapping a mock
-    // transporter to simulate what getRealEmailTransport does in production.
-    const mockTransport = {
-      sendMail: sendMailMock,
-    };
-    // Bypass getRealEmailTransport and test the shape directly:
-    const send = async (args: { to: string; subject: string; text: string; html?: string }) => {
-      await mockTransport.sendMail({
-        from: 'noreply@example.com',
-        to: args.to,
-        subject: args.subject,
-        text: args.text,
-        ...(args.html !== undefined ? { html: args.html } : {}),
-      });
-    };
+  it('passes the correct message fields to sendMail (no html when omitted)', async () => {
+    sendMailMock.mockResolvedValue({ messageId: 'msg-1' });
+
+    const send = getRealEmailTransport({
+      SMTP_URL: 'smtp://localhost:25',
+      SMTP_FROM: 'noreply@example.com',
+    });
 
     await send({ to: 'student@berkeley.edu', subject: 'Invite', text: 'Join us' });
 
     expect(sendMailMock).toHaveBeenCalledOnce();
     expect(sendMailMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        from: 'noreply@example.com',
         to: 'student@berkeley.edu',
         subject: 'Invite',
         text: 'Join us',
       }),
     );
+    // html should NOT be present when not provided
     expect(sendMailMock.mock.calls[0]?.[0]).not.toHaveProperty('html');
   });
 
-  it('includes html when provided', async () => {
-    const sendMailMock = vi.fn().mockResolvedValue({ messageId: 'test-id' });
-    const mockSend = async (args: { to: string; subject: string; text: string; html?: string }) => {
-      await sendMailMock({ to: args.to, subject: args.subject, text: args.text, html: args.html });
-    };
-    await mockSend({ to: 'a@b.com', subject: 'sub', text: 'body', html: '<p>body</p>' });
+  it('includes html in sendMail call when provided', async () => {
+    sendMailMock.mockResolvedValue({ messageId: 'msg-2' });
+
+    const send = getRealEmailTransport({
+      SMTP_URL: 'smtp://localhost:25',
+      SMTP_FROM: '',
+    });
+
+    await send({
+      to: 'a@b.com',
+      subject: 'sub',
+      text: 'body',
+      html: '<p>body</p>',
+    });
+
     expect(sendMailMock).toHaveBeenCalledWith(expect.objectContaining({ html: '<p>body</p>' }));
+  });
+
+  it('sets from to undefined when SMTP_FROM is empty', async () => {
+    sendMailMock.mockResolvedValue({ messageId: 'msg-3' });
+
+    const send = getRealEmailTransport({
+      SMTP_URL: 'smtp://localhost:25',
+      SMTP_FROM: '',
+    });
+
+    await send({ to: 'a@b.com', subject: 'sub', text: 'body' });
+
+    expect(sendMailMock).toHaveBeenCalledOnce();
+    // When SMTP_FROM is empty, from is set to undefined so nodemailer falls
+    // back to the SMTP server's envelope-from address.
+    const callArgs = sendMailMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArgs['from']).toBeUndefined();
+  });
+
+  it('reuses the same transporter across multiple sends (lazy singleton)', async () => {
+    sendMailMock.mockResolvedValue({ messageId: 'x' });
+
+    const send = getRealEmailTransport({
+      SMTP_URL: 'smtp://localhost:25',
+      SMTP_FROM: '',
+    });
+
+    await send({ to: 'a@b.com', subject: 'first', text: 'first' });
+    await send({ to: 'b@c.com', subject: 'second', text: 'second' });
+
+    // createTransport should only have been called once (lazy singleton).
+    expect(createTransportMock).toHaveBeenCalledOnce();
+    // sendMail called twice.
+    expect(sendMailMock).toHaveBeenCalledTimes(2);
   });
 });
