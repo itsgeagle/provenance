@@ -175,19 +175,30 @@ export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<v
 
   for (const f of fileRows) {
     switch (f.status) {
-      case 'matched':    summary.matched++;    break;
-      case 'unmatched':  summary.unmatched++;  break;
-      case 'duplicate':  summary.duplicate++;  break;
-      case 'failed':     summary.failed++;     break;
-      case 'superseded': summary.superseded++; break;
-      case 'discarded':  summary.discarded++;  break;
+      case 'matched':
+        summary.matched++;
+        break;
+      case 'unmatched':
+        summary.unmatched++;
+        break;
+      case 'duplicate':
+        summary.duplicate++;
+        break;
+      case 'failed':
+        summary.failed++;
+        break;
+      case 'superseded':
+        summary.superseded++;
+        break;
+      case 'discarded':
+        summary.discarded++;
+        break;
       // 'pending' and any unrecognized status: ignored (not counted in named fields).
     }
   }
 
   // Determine terminal job status.
-  const hasProblems =
-    summary.failed > 0 || summary.unmatched > 0 || summary.discarded > 0;
+  const hasProblems = summary.failed > 0 || summary.unmatched > 0 || summary.discarded > 0;
 
   const terminalStatus = hasProblems ? 'partial' : 'succeeded';
 
