@@ -152,7 +152,7 @@ export function audit(
 // insertAuditRow
 // ---------------------------------------------------------------------------
 
-interface AuditRowInput {
+export interface AuditRowInput {
   actorUserId: string | null;
   actorTokenId: string | null;
   semesterId: string | null;
@@ -165,7 +165,15 @@ interface AuditRowInput {
   at: Date;
 }
 
-async function insertAuditRow(row: AuditRowInput): Promise<void> {
+/**
+ * Exported for route handlers that need to fire audit rows with a dynamically
+ * chosen action string (e.g. PUT heuristic-config chooses dry_run vs commit
+ * based on a query param, so it cannot use the middleware wrapper).
+ *
+ * Fire-and-forget pattern: caller should NOT await this in the response path.
+ * Errors are logged as warnings internally.
+ */
+export async function insertAuditRow(row: AuditRowInput): Promise<void> {
   const db = getDb();
   await db.insert(audit_log).values({
     actor_user_id: row.actorUserId ?? undefined,

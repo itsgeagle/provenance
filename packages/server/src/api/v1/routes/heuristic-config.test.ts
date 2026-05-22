@@ -29,6 +29,7 @@ import {
   semesters,
   memberships,
   heuristic_configs,
+  recompute_jobs,
   roster_entries,
   assignments,
   submissions,
@@ -38,6 +39,28 @@ import type { DrizzleDb } from '../../../db/client.js';
 import { DEFAULT_SERVER_CONFIG } from '../../../services/heuristics/config.js';
 import { computeDryRunDiff } from '../../../services/scoring/dry-run.js';
 import { sql } from 'drizzle-orm';
+
+// ---------------------------------------------------------------------------
+// Mock pg-boss so commit path doesn't require a real pg-boss connection.
+// The commit route calls getBoss() then boss.send() to enqueue recompute jobs.
+// ---------------------------------------------------------------------------
+vi.mock('../../../jobs/pg-boss.js', () => ({
+  getBoss: vi.fn().mockResolvedValue({
+    send: vi.fn().mockResolvedValue('mock-pg-boss-job-id'),
+  }),
+  JOB_KINDS: {
+    INGEST_FILE: 'ingest_file',
+    INGEST_FINALIZE: 'ingest_finalize',
+    RECOMPUTE_SEMESTER: 'recompute_semester',
+    RECOMPUTE_SUBMISSION: 'recompute_submission',
+    RECOMPUTE_FINALIZE: 'recompute_finalize',
+    RECOMPUTE_CROSS_FLAGS: 'recompute_cross_flags',
+    PURGE_EXPIRED_EXPORTS: 'purge_expired_exports',
+    PURGE_EXPIRED_SESSIONS: 'purge_expired_sessions',
+    RETENTION_SWEEP: 'retention_sweep',
+  },
+  _resetBossForTest: vi.fn(),
+}));
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -371,41 +394,11 @@ describe('GET /semesters/:semesterId/heuristic-configs', () => {
 // ---------------------------------------------------------------------------
 // PUT /semesters/:semesterId/heuristic-config (no dryRun) → 501
 // ---------------------------------------------------------------------------
+// PUT /semesters/:semesterId/heuristic-config?dryRun=false — commit path
+// ---------------------------------------------------------------------------
 
-describe('PUT /semesters/:semesterId/heuristic-config (no dryRun)', () => {
-  it('returns 501 when dryRun param is absent', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      try {
-        const admin = await insertUser(db);
-        const sessionId = await insertSession(db, admin.id);
-        const course = await insertCourse(db);
-        const semester = await insertSemester(db, course.id);
-        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
-        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
-
-        const app = createV1App();
-        const res = await app.fetch(
-          new Request(`http://localhost/semesters/${semester.id}/heuristic-config`, {
-            method: 'PUT',
-            headers: {
-              Cookie: `__Host-prov_sess=${sessionId}`,
-              'Content-Type': 'application/json',
-              'If-Match': '1',
-            },
-            body: JSON.stringify(validCandidateBody()),
-          }),
-        );
-        expect(res.status).toBe(501);
-        const body = (await res.json()) as { error: { code: string } };
-        expect(body.error.code).toBe('NOT_IMPLEMENTED');
-      } finally {
-        _testDb = null;
-      }
-    });
-  });
-
-  it('returns 501 when dryRun=false', async () => {
+describe('PUT /semesters/:semesterId/heuristic-config (commit path)', () => {
+  it('commits new version: inserts new active row, deactivates prior, returns new config', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       try {
@@ -428,7 +421,165 @@ describe('PUT /semesters/:semesterId/heuristic-config (no dryRun)', () => {
             body: JSON.stringify(validCandidateBody()),
           }),
         );
-        expect(res.status).toBe(501);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          id: string;
+          version: number;
+          set_at: string;
+          recompute_job_id: string;
+        };
+        expect(body.version).toBe(2);
+        expect(body.id).toBeTruthy();
+        expect(body.recompute_job_id).toBeTruthy();
+
+        // Verify the old row is now inactive and new row is active in DB.
+        const allConfigs = await db
+          .select({ version: heuristic_configs.version, is_active: heuristic_configs.is_active })
+          .from(heuristic_configs)
+          .where(eq(heuristic_configs.semester_id, semester.id));
+
+        const v1Row = allConfigs.find((r) => r.version === 1);
+        const v2Row = allConfigs.find((r) => r.version === 2);
+        expect(v1Row?.is_active).toBe(false);
+        expect(v2Row?.is_active).toBe(true);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('commit from no-config state creates version 1', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        // No prior config.
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=false`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '0', // current version is 0 (no config)
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { version: number };
+        expect(body.version).toBe(1);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('commit creates a recompute_jobs row', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=false`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { recompute_job_id: string };
+        const recomputeJobId = body.recompute_job_id;
+
+        // Verify a recompute_jobs row was created.
+        const jobRows = await db
+          .select({ id: recompute_jobs.id, status: recompute_jobs.status })
+          .from(recompute_jobs)
+          .where(eq(recompute_jobs.id, recomputeJobId));
+
+        expect(jobRows).toHaveLength(1);
+        expect(jobRows[0]?.status).toBe('queued');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('commit with stale If-Match returns 409', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=false`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '99', // stale
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(409);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe('CONFIG_VERSION_CONFLICT');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('commit (dryRun param absent) commits version', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        // No ?dryRun param — defaults to commit
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(validCandidateBody()),
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { version: number };
+        expect(body.version).toBe(2);
       } finally {
         _testDb = null;
       }
@@ -924,6 +1075,208 @@ describe('PUT ?dryRun=true — concurrent If-Match regression', () => {
         expect(staleRes.status).toBe(409);
         const staleBody = (await staleRes.json()) as { error: { code: string } };
         expect(staleBody.error.code).toBe('CONFIG_VERSION_CONFLICT');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /semesters/:semesterId/heuristic-config/recompute
+// ---------------------------------------------------------------------------
+
+describe('POST /semesters/:semesterId/heuristic-config/recompute', () => {
+  it('enqueues a recompute job and returns recompute_job_id', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config/recompute`, {
+            method: 'POST',
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { recompute_job_id: string; message: string };
+        expect(body.recompute_job_id).toBeTruthy();
+        expect(body.message).toContain('enqueued');
+
+        // Verify the recompute_jobs row exists in DB.
+        const jobRows = await db
+          .select({ id: recompute_jobs.id, status: recompute_jobs.status })
+          .from(recompute_jobs)
+          .where(eq(recompute_jobs.id, body.recompute_job_id));
+        expect(jobRows).toHaveLength(1);
+        expect(jobRows[0]?.status).toBe('queued');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 404 when no active config exists', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        // No config row inserted.
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config/recompute`, {
+            method: 'POST',
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(404);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config/recompute`, {
+            method: 'POST',
+          }),
+        );
+        expect(res.status).toBe(401);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /semesters/:semesterId/recompute/:jobId
+// ---------------------------------------------------------------------------
+
+describe('GET /semesters/:semesterId/recompute/:jobId', () => {
+  it('returns the recompute job row', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        const configRow = await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        // Insert a recompute_jobs row directly.
+        const [jobRow] = await db
+          .insert(recompute_jobs)
+          .values({
+            semester_id: semester.id,
+            target_config_id: configRow.id,
+            triggered_by: admin.id,
+            status: 'queued',
+            progress_total: 0,
+          })
+          .returning();
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/recompute/${jobRow!.id}`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          id: string;
+          status: string;
+          progress_total: number;
+        };
+        expect(body.id).toBe(jobRow!.id);
+        expect(body.status).toBe('queued');
+        expect(body.progress_total).toBe(0);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 404 for unknown job id', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(
+            `http://localhost/semesters/${semester.id}/recompute/00000000-0000-0000-0000-000000000000`,
+            {
+              headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+            },
+          ),
+        );
+        expect(res.status).toBe(404);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 404 when job belongs to a different semester', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db);
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester1 = await insertSemester(db, course.id);
+        const semester2 = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester1.id, 'admin', admin.id);
+        await insertMembership(db, admin.id, semester2.id, 'admin', admin.id);
+        const configRow = await insertHeuristicConfig(db, semester2.id, admin.id, 1, true);
+
+        // Job belongs to semester2.
+        const [jobRow] = await db
+          .insert(recompute_jobs)
+          .values({
+            semester_id: semester2.id,
+            target_config_id: configRow.id,
+            triggered_by: admin.id,
+            status: 'queued',
+            progress_total: 0,
+          })
+          .returning();
+
+        // Request with semester1 in URL — should be 404 (scope mismatch).
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester1.id}/recompute/${jobRow!.id}`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+        expect(res.status).toBe(404);
       } finally {
         _testDb = null;
       }

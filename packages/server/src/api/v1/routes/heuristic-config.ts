@@ -1,9 +1,11 @@
 /**
- * Heuristic config routes — Phase 13a (PRD §8.11).
+ * Heuristic config routes — Phase 13b (PRD §8.11).
  *
- * GET    /semesters/:semesterId/heuristic-config    — get active config (semester member)
- * GET    /semesters/:semesterId/heuristic-configs   — list history (semester member)
- * PUT    /semesters/:semesterId/heuristic-config    — dry-run only (semester admin)
+ * GET    /semesters/:semesterId/heuristic-config          — get active config (semester member)
+ * GET    /semesters/:semesterId/heuristic-configs         — list history (semester member)
+ * PUT    /semesters/:semesterId/heuristic-config          — dry-run or commit (semester admin)
+ * POST   /semesters/:semesterId/heuristic-config/recompute — enqueue recompute (semester admin)
+ * GET    /semesters/:semesterId/recompute/:jobId           — poll recompute job status
  *
  * ## PUT ?dryRun=true
  *
@@ -15,30 +17,58 @@
  *
  * ## PUT ?dryRun=false (or omitted)
  *
- * Returns 501 NOT_IMPLEMENTED — the commit path ships in Phase 13b.
- * No audit action is emitted for the 501 stub (no operation occurred).
+ * - Validates same as dry-run.
+ * - Requires If-Match: <currentVersion>.
+ * - Atomically commits the new active config via commitNewVersion().
+ * - Enqueues a recompute_semester pg-boss job.
+ * - Returns the new config row (id, version, set_at, recompute_job_id).
+ *
+ * ## POST /recompute
+ *
+ * - Enqueues a recompute_semester job for the current active config.
+ * - 409 if no active config exists.
+ * - Returns { recompute_job_id, message }.
+ *
+ * ## GET /recompute/:jobId
+ *
+ * - Returns the recompute_jobs row (status, progress, completed_at, etc.).
+ * - 404 if not found or not in this semester.
  *
  * ## Audit actions
  *
  *   heuristic_config.read     — GET active config
  *   heuristic_config.history  — GET history
  *   heuristic_config.dry_run  — PUT?dryRun=true
- *   heuristic_config.commit   — PUT?dryRun=false (Phase 13b, not yet implemented)
+ *   heuristic_config.commit   — PUT?dryRun=false
+ *   heuristic_config.recompute — POST /recompute
+ *
+ * ## PUT audit note
+ *
+ * The PUT handler fires the audit row manually inside the handler body (not via
+ * middleware) because the action string depends on ?dryRun. Both paths return
+ * 2xx and must emit different audit actions. Using audit() middleware with a
+ * fixed action would emit the wrong action for one path.
  */
 
 import { Hono } from 'hono';
+import { eq, and } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { requireAuth } from '../../middleware/authorize.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
-import { audit } from '../../middleware/audit.js';
+import { audit, insertAuditRow } from '../../middleware/audit.js';
 import { Errors } from '../errors.js';
 import {
   getActiveConfig,
   listConfigHistory,
   validateConfig,
   DEFAULT_SERVER_CONFIG,
+  commitNewVersion,
+  createRecomputeJob,
 } from '../../../services/heuristics/config.js';
 import { computeDryRunDiff } from '../../../services/scoring/dry-run.js';
+import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
+import type { RecomputeSemesterPayload } from '../../../jobs/recompute.js';
+import { recompute_jobs } from '../../../db/schema.js';
 
 // ---------------------------------------------------------------------------
 // Router factory
@@ -122,14 +152,9 @@ export function createHeuristicConfigRouter(): Hono {
   // -------------------------------------------------------------------------
   // PUT /semesters/:semesterId/heuristic-config — dry-run or commit
   //
-  // 13a: only ?dryRun=true is implemented.
-  // 13b: commit path (dryRun=false) replaces the 501 stub.
-  //
-  // Audit action: heuristic_config.dry_run, emitted only when dryRun=true
-  // succeeds (2xx). The audit middleware skips on non-2xx responses, so the
-  // 501 stub path (dryRun=false) produces no audit entry — correct because no
-  // operation occurred. Phase 13b's commit handler will wire its own
-  // audit('heuristic_config.commit', ...) in the same 3-line composition.
+  // Audit rows are fired manually inside the handler (not via middleware) because
+  // both ?dryRun=true and ?dryRun=false return 2xx but require different audit
+  // actions (heuristic_config.dry_run vs heuristic_config.commit).
   // -------------------------------------------------------------------------
 
   router.put(
@@ -139,36 +164,12 @@ export function createHeuristicConfigRouter(): Hono {
       action: 'write',
       target: (c) => ({ semesterId: c.req.param('semesterId')! }),
     }),
-    // audit placed before the final handler (V19 3-line composition pattern).
-    // Only fires on 2xx; the 501 stub path returns 501, so no audit row is
-    // written for the commit-not-implemented case.
-    audit('heuristic_config.dry_run', 'semester', (c) => c.req.param('semesterId')!),
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
       const isDryRun = c.req.query('dryRun') === 'true';
 
       // -----------------------------------------------------------------------
-      // 501 stub: commit path not available in Phase 13a.
-      // Returns 501 (non-2xx) → audit middleware does NOT insert a row.
-      // Phase 13b replaces this entire block with a real commit handler wired
-      // with audit('heuristic_config.commit', ...).
-      // -----------------------------------------------------------------------
-      if (!isDryRun) {
-        return c.json(
-          {
-            error: {
-              code: 'NOT_IMPLEMENTED',
-              message:
-                'commit path lands in Phase 13b; use ?dryRun=true to preview the diff without writing',
-            },
-          },
-          501,
-        );
-      }
-
-      // -----------------------------------------------------------------------
-      // If-Match header validation (required even in dry-run to prevent
-      // diffing against a stale version).
+      // If-Match header validation (required for both dry-run and commit).
       // -----------------------------------------------------------------------
       const ifMatch = c.req.header('If-Match');
       if (!ifMatch) {
@@ -223,26 +224,223 @@ export function createHeuristicConfigRouter(): Hono {
         throw Errors.heuristicConfigInvalid(validationResult.errors.join('; '));
       }
 
-      // -----------------------------------------------------------------------
-      // Compute the candidate version (current + 1).
-      // -----------------------------------------------------------------------
+      const candidateConfig = validationResult.config;
       const candidateVersion = currentVersion + 1;
 
-      // Set auditDetail so the audit middleware (wired above) includes it.
-      // The audit middleware reads c.var.auditDetail after the handler returns.
-      c.set('auditDetail', { semesterId, candidate_version: candidateVersion });
+      // -----------------------------------------------------------------------
+      // Helper: fire the audit row after the response is ready.
+      //
+      // Both paths return 2xx. We use insertAuditRow directly (not middleware)
+      // so we can choose the action string at runtime.
+      // -----------------------------------------------------------------------
+      const principal = c.var.principal!;
+      const actorUserId = principal.user.id;
+      const actorTokenId = principal.principal_kind === 'token' ? principal.token.id : null;
+      const ip = c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? null;
+      const userAgent = c.req.header('user-agent') ?? null;
 
       // -----------------------------------------------------------------------
-      // Run the dry-run diff.
+      // Branch: dry-run path.
       // -----------------------------------------------------------------------
-      const diff = await computeDryRunDiff(
+      if (isDryRun) {
+        const diff = await computeDryRunDiff(db, semesterId, candidateConfig, candidateVersion);
+
+        // Fire audit row fire-and-forget.
+        void insertAuditRow({
+          actorUserId,
+          actorTokenId,
+          semesterId,
+          action: 'heuristic_config.dry_run',
+          targetType: 'semester',
+          targetId: semesterId,
+          detail: { semesterId, candidate_version: candidateVersion },
+          ip,
+          userAgent,
+          at: new Date(),
+        }).catch(() => {
+          /* fire-and-forget */
+        });
+
+        return c.json(diff);
+      }
+
+      // -----------------------------------------------------------------------
+      // Branch: commit path.
+      //
+      // 1. commitNewVersion() atomically: deactivate old row, insert new row,
+      //    create recompute_jobs row — all in one transaction.
+      // 2. Enqueue a recompute_semester pg-boss job OUTSIDE the transaction.
+      //    (pg-boss send must not be inside the Drizzle transaction to avoid
+      //    deadlock with the pg-boss schema tables.)
+      // -----------------------------------------------------------------------
+      const note = (rawBody as Record<string, unknown>)['note'];
+      const noteStr = typeof note === 'string' ? note : '';
+
+      const { newConfigId, newVersion, newConfigSetAt, recomputeJobId } = await commitNewVersion(
         db,
         semesterId,
-        validationResult.config,
-        candidateVersion,
+        candidateConfig,
+        actorUserId,
+        noteStr,
       );
 
-      return c.json(diff);
+      // Enqueue the recompute_semester job (outside transaction).
+      const boss = await getBoss();
+      await boss.send(
+        JOB_KINDS.RECOMPUTE_SEMESTER,
+        {
+          recomputeJobId,
+          semesterId,
+          targetConfigId: newConfigId,
+        } satisfies RecomputeSemesterPayload,
+        {
+          retryLimit: 5, // PRD §12.3
+        },
+      );
+
+      // Fire audit row fire-and-forget.
+      void insertAuditRow({
+        actorUserId,
+        actorTokenId,
+        semesterId,
+        action: 'heuristic_config.commit',
+        targetType: 'semester',
+        targetId: semesterId,
+        detail: {
+          semesterId,
+          new_version: newVersion,
+          new_config_id: newConfigId,
+          recompute_job_id: recomputeJobId,
+        },
+        ip,
+        userAgent,
+        at: new Date(),
+      }).catch(() => {
+        /* fire-and-forget */
+      });
+
+      return c.json({
+        id: newConfigId,
+        version: newVersion,
+        set_at: newConfigSetAt.toISOString(),
+        recompute_job_id: recomputeJobId,
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /semesters/:semesterId/heuristic-config/recompute
+  //
+  // Enqueues a recompute of the current active config without changing it.
+  // Returns 409 if no active config exists for the semester.
+  // -------------------------------------------------------------------------
+
+  router.post(
+    '/semesters/:semesterId/heuristic-config/recompute',
+    rateLimit('write.config'),
+    requireAuth({
+      action: 'write',
+      target: (c) => ({ semesterId: c.req.param('semesterId')! }),
+    }),
+    audit('heuristic_config.recompute', 'semester', (c) => c.req.param('semesterId')!),
+    async (c) => {
+      const semesterId = c.req.param('semesterId')!;
+      const db = getDb();
+      const principal = c.var.principal!;
+
+      const result = await createRecomputeJob(db, semesterId, principal.user.id);
+      if (!result) {
+        // No active config — cannot recompute against a default config.
+        return c.json(
+          {
+            error: {
+              code: 'NOT_FOUND',
+              message: 'No active heuristic config found for this semester; commit one first',
+            },
+          },
+          404,
+        );
+      }
+
+      const { recomputeJobId, targetConfigId } = result;
+
+      // Enqueue the recompute_semester job.
+      const boss = await getBoss();
+      await boss.send(
+        JOB_KINDS.RECOMPUTE_SEMESTER,
+        {
+          recomputeJobId,
+          semesterId,
+          targetConfigId,
+        } satisfies RecomputeSemesterPayload,
+        {
+          retryLimit: 5, // PRD §12.3
+        },
+      );
+
+      c.set('auditDetail', { semesterId, recompute_job_id: recomputeJobId });
+
+      return c.json({
+        recompute_job_id: recomputeJobId,
+        message: 'Recompute job enqueued',
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // GET /semesters/:semesterId/recompute/:jobId — poll job status
+  // -------------------------------------------------------------------------
+
+  router.get(
+    '/semesters/:semesterId/recompute/:jobId',
+    rateLimit('read.detail'),
+    requireAuth({
+      action: 'read',
+      target: (c) => ({ semesterId: c.req.param('semesterId')! }),
+    }),
+    async (c) => {
+      const semesterId = c.req.param('semesterId')!;
+      const jobId = c.req.param('jobId')!;
+      const db = getDb();
+
+      const rows = await db
+        .select({
+          id: recompute_jobs.id,
+          semester_id: recompute_jobs.semester_id,
+          target_config_id: recompute_jobs.target_config_id,
+          triggered_by: recompute_jobs.triggered_by,
+          status: recompute_jobs.status,
+          progress_total: recompute_jobs.progress_total,
+          progress_done: recompute_jobs.progress_done,
+          progress_failed: recompute_jobs.progress_failed,
+          created_at: recompute_jobs.created_at,
+          started_at: recompute_jobs.started_at,
+          completed_at: recompute_jobs.completed_at,
+          summary: recompute_jobs.summary,
+        })
+        .from(recompute_jobs)
+        .where(and(eq(recompute_jobs.id, jobId), eq(recompute_jobs.semester_id, semesterId)))
+        .limit(1);
+
+      const jobRow = rows[0];
+      if (!jobRow) {
+        throw Errors.notFound();
+      }
+
+      return c.json({
+        id: jobRow.id,
+        semester_id: jobRow.semester_id,
+        target_config_id: jobRow.target_config_id,
+        triggered_by: jobRow.triggered_by,
+        status: jobRow.status,
+        progress_total: jobRow.progress_total,
+        progress_done: jobRow.progress_done,
+        progress_failed: jobRow.progress_failed,
+        created_at: jobRow.created_at.toISOString(),
+        started_at: jobRow.started_at?.toISOString() ?? null,
+        completed_at: jobRow.completed_at?.toISOString() ?? null,
+        summary: jobRow.summary,
+      });
     },
   );
 
