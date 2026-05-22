@@ -19,5 +19,8 @@ CREATE TABLE roster_entries (
 );
 
 CREATE INDEX roster_entries_semester_id_idx ON roster_entries(semester_id);
--- Case-insensitive search on display_name and email for the q= filter.
-CREATE INDEX roster_entries_display_name_lower_idx ON roster_entries(semester_id, LOWER(display_name));
+-- Functional index on LOWER(email) per PRD §5.2.
+-- The q= filter does ilike on both display_name + email; only the email side
+-- is index-assisted (the design choice in the PRD), which matches typical
+-- staff workflow of looking students up by email.
+CREATE INDEX roster_entries_semester_email_idx ON roster_entries(semester_id, LOWER(email));
