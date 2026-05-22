@@ -274,8 +274,16 @@ export async function startWorker(): Promise<() => Promise<void>> {
         },
       );
 
-      // Determine the final status: if this submission supersedes others,
-      // mark it as 'matched'; those older ones get 'superseded'.
+      // The supersede loop runs OUTSIDE the transaction below.
+      // Rationale: these are older submissions' ingest_files rows, possibly from
+      // different ingest_jobs. They're best-effort status updates and acceptable
+      // to leave at 'superseded' even if the tx below rolls back, because:
+      //   1. createSubmission's version_index allocation is FOR-UPDATE-locked, so
+      //      the new submission row is already durably committed at this point.
+      //   2. pg-boss retry of this file is idempotent — supersededIds will be the
+      //      same set, and the UPDATE is set-the-same-value (no-op on retry).
+      //   3. Moving this loop INTO the transaction would risk lock-ordering
+      //      issues across ingest_files rows from different jobs.
       if (submissionResult.supersededIds.length > 0) {
         // Update older submissions' ingest_files rows to 'superseded'.
         // Note: older ingest_files rows may be from a different ingest_job,
