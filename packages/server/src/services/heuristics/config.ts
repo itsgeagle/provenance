@@ -17,9 +17,10 @@
  * docs/analyzer-v3-implementation-plan.md §13a.
  */
 
-import { eq, desc, and } from 'drizzle-orm';
-import { heuristic_configs } from '../../db/schema.js';
+import { eq, desc, and, count, sql } from 'drizzle-orm';
+import { heuristic_configs, recompute_jobs, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
+import { withTransaction } from '../../db/client.js';
 
 // ---------------------------------------------------------------------------
 // PRD §10.2 server-side config shape
@@ -312,4 +313,190 @@ export function validateConfig(input: unknown): ValidateConfigResult {
   // Safe cast: all validation passed.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- validated above
   return { ok: true, config: input as any as ServerHeuristicConfig };
+}
+
+// ---------------------------------------------------------------------------
+// commitNewVersion — Phase 13b
+// ---------------------------------------------------------------------------
+
+export type CommitNewVersionResult = {
+  newConfigId: string;
+  newVersion: number;
+  newConfigSetAt: Date;
+  recomputeJobId: string;
+};
+
+/**
+ * Atomically commit a new active heuristic config version and create a
+ * recompute_jobs row for it.
+ *
+ * Transaction contract:
+ *   1. SELECT ... FOR UPDATE on the current active config row (advisory row-lock
+ *      prevents concurrent commits from racing past the version bump).
+ *   2. UPDATE prior active row → is_active=false.
+ *   3. INSERT new row → version=prior.version+1, is_active=true.
+ *   4. INSERT recompute_jobs row → status='queued',
+ *        progress_total = count of non-superseded submissions.
+ *
+ * The pg-boss enqueue (boss.send) MUST happen OUTSIDE this transaction so the
+ * queue insert is not blocked by the row lock. Callers are responsible for
+ * calling boss.send after the transaction commits.
+ *
+ * If no active config exists, version starts at 1.
+ *
+ * The partial unique index (heuristic_configs WHERE is_active) guarantees
+ * at most one active row per semester — this is the DB-level safety net if
+ * two concurrent transactions both see no active row and both try to insert
+ * version=1. In that case, the second INSERT will fail with a unique violation
+ * (the transaction will be rolled back) and the caller should retry.
+ *
+ * @param db - Drizzle DB handle (transaction-capable).
+ * @param semesterId - UUID of the semester.
+ * @param candidateConfig - Already-validated ServerHeuristicConfig.
+ * @param triggeredBy - UUID of the user committing the config.
+ * @param note - Optional admin note for the config version.
+ */
+export async function commitNewVersion(
+  db: DrizzleDb,
+  semesterId: string,
+  candidateConfig: ServerHeuristicConfig,
+  triggeredBy: string,
+  note: string,
+): Promise<CommitNewVersionResult> {
+  let newConfigId: string;
+  let newVersion: number;
+  let newConfigSetAt: Date;
+  let recomputeJobId: string;
+
+  await withTransaction(db, async (tx) => {
+    // -------------------------------------------------------------------------
+    // Step 1: Lock the current active config row.
+    //
+    // Using raw SQL for SELECT ... FOR UPDATE because Drizzle's typed builder
+    // does not expose the FOR UPDATE clause (V25 pattern).
+    // -------------------------------------------------------------------------
+    const lockedRows = await tx.execute(sql`
+      SELECT id, version
+      FROM heuristic_configs
+      WHERE semester_id = ${semesterId}
+        AND is_active = true
+      FOR UPDATE
+    `);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: postgres.js raw result
+    const lockedRowsArr = lockedRows as any as Array<{ id: string; version: number }>;
+    const currentActive = lockedRowsArr[0];
+    const priorVersion = currentActive?.version ?? 0;
+    newVersion = priorVersion + 1;
+
+    // -------------------------------------------------------------------------
+    // Step 2: Deactivate the current active config (if one exists).
+    // -------------------------------------------------------------------------
+    if (currentActive) {
+      await tx
+        .update(heuristic_configs)
+        .set({ is_active: false })
+        .where(eq(heuristic_configs.id, currentActive.id));
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 3: Insert the new active config row.
+    // -------------------------------------------------------------------------
+    const [inserted] = await tx
+      .insert(heuristic_configs)
+      .values({
+        semester_id: semesterId,
+        version: newVersion,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jsonb accepts validated config
+        config: candidateConfig as any,
+        set_by: triggeredBy,
+        is_active: true,
+        note,
+      })
+      .returning({ id: heuristic_configs.id, set_at: heuristic_configs.set_at });
+
+    newConfigId = inserted!.id;
+    newConfigSetAt = inserted!.set_at;
+
+    // -------------------------------------------------------------------------
+    // Step 4: Count non-superseded submissions for the recompute_jobs row.
+    // -------------------------------------------------------------------------
+    const countResult = await tx
+      .select({ cnt: count() })
+      .from(submissions)
+      .where(
+        and(
+          eq(submissions.semester_id, semesterId),
+          sql`${submissions.superseded_by_submission_id} IS NULL`,
+        ),
+      );
+    const progressTotal = countResult[0]?.cnt ?? 0;
+
+    // -------------------------------------------------------------------------
+    // Step 5: Insert the recompute_jobs row.
+    // -------------------------------------------------------------------------
+    const [jobRow] = await tx
+      .insert(recompute_jobs)
+      .values({
+        semester_id: semesterId,
+        target_config_id: newConfigId,
+        triggered_by: triggeredBy,
+        status: 'queued',
+        progress_total: progressTotal,
+      })
+      .returning({ id: recompute_jobs.id });
+
+    recomputeJobId = jobRow!.id;
+  });
+
+  return {
+    newConfigId: newConfigId!,
+    newVersion: newVersion!,
+    newConfigSetAt: newConfigSetAt!,
+    recomputeJobId: recomputeJobId!,
+  };
+}
+
+/**
+ * Insert a recompute_jobs row against the CURRENT active config (no config change).
+ * Used by POST /recompute.
+ *
+ * Returns null if no active config exists for the semester.
+ */
+export async function createRecomputeJob(
+  db: DrizzleDb,
+  semesterId: string,
+  triggeredBy: string,
+): Promise<{ recomputeJobId: string; targetConfigId: string } | null> {
+  const active = await getActiveConfig(db, semesterId);
+  if (!active) return null;
+
+  // Count non-superseded submissions for the progress_total field.
+  const countResult = await db
+    .select({ cnt: count() })
+    .from(submissions)
+    .where(
+      and(
+        eq(submissions.semester_id, semesterId),
+        sql`${submissions.superseded_by_submission_id} IS NULL`,
+      ),
+    );
+  const progressTotal = countResult[0]?.cnt ?? 0;
+
+  const [jobRow] = await db
+    .insert(recompute_jobs)
+    .values({
+      semester_id: semesterId,
+      target_config_id: active.id,
+      triggered_by: triggeredBy,
+      status: 'queued',
+      progress_total: progressTotal,
+      summary: {},
+    })
+    .returning({ id: recompute_jobs.id });
+
+  return {
+    recomputeJobId: jobRow!.id,
+    targetConfigId: active.id,
+  };
 }
