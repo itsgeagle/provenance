@@ -132,8 +132,7 @@ export const metricsMiddleware: MiddlewareHandler = async (c, next) => {
   // Use the matched route pattern if available (avoids UUID cardinality explosion).
   // Hono exposes the matched route as c.req.routePath (or falls back to path).
   // The `routePath` property is available on HonoRequest in Hono ≥4.
-  const route: string =
-    (c.req as unknown as { routePath?: string }).routePath ?? c.req.path;
+  const route: string = (c.req as unknown as { routePath?: string }).routePath ?? c.req.path;
   const status = String(c.res.status);
 
   incrementCounter('provenance_requests_total', { method, route, status });
@@ -242,7 +241,7 @@ export function createMetricsRouter(): Hono {
 
     let mismatch = padded1.length !== padded2.length ? 1 : 0;
     for (let i = 0; i < padded1.length; i++) {
-      mismatch |= (padded1[i]! ^ padded2[i]!);
+      mismatch |= padded1[i]! ^ padded2[i]!;
     }
 
     if (mismatch !== 0) {
