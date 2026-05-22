@@ -581,6 +581,47 @@ export const per_file_stats = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// validation_results  (PRD §5.4 / migration 0008)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per submission with the results of running v2's runValidation.
+ *
+ * The 8 check_N_status columns correspond to PRD §5.4 spec order:
+ *   1. manifest_sig        5. monotonic_t
+ *   2. session_binding     6. monotonic_wall
+ *   3. chain_integrity     7. doc_save_hashes
+ *   4. seq_gaps            8. submitted_code_match  (always 'skipped' in v1)
+ *
+ * CHECK constraints accept all four possible values ('pass'|'fail'|'warn'|'skipped');
+ * the SQL migration is the authority. Drizzle check() helpers are omitted here
+ * to keep the schema concise — the migration enforces them at the DB layer.
+ *
+ * `detail` stores the full ValidationReport.checks array for human-readable
+ * display by the API without re-running validation.
+ */
+export const validation_results = pgTable('validation_results', {
+  submission_id: uuid('submission_id')
+    .primaryKey()
+    .references(() => submissions.id, { onDelete: 'cascade' }),
+  check_1_status: text('check_1_status').notNull(),
+  check_2_status: text('check_2_status').notNull(),
+  check_3_status: text('check_3_status').notNull(),
+  check_4_status: text('check_4_status').notNull(),
+  check_5_status: text('check_5_status').notNull(),
+  check_6_status: text('check_6_status').notNull(),
+  check_7_status: text('check_7_status').notNull(),
+  check_8_status: text('check_8_status').notNull(),
+  overall: text('overall').notNull(),
+  detail: jsonb('detail')
+    .notNull()
+    .default(sql`'{}'`),
+  validated_at: timestamp('validated_at', { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+// ---------------------------------------------------------------------------
 // Re-exported for convenience
 // ---------------------------------------------------------------------------
 
@@ -616,3 +657,5 @@ export type Event = typeof events.$inferSelect;
 export type NewEvent = typeof events.$inferInsert;
 export type PerFileStat = typeof per_file_stats.$inferSelect;
 export type NewPerFileStat = typeof per_file_stats.$inferInsert;
+export type ValidationResult = typeof validation_results.$inferSelect;
+export type NewValidationResult = typeof validation_results.$inferInsert;
