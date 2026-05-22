@@ -50,6 +50,7 @@ import {
   markSubmissionsStale,
   markSubmissionRecomputeError,
 } from '../services/scoring/recompute-submission.js';
+import { enqueueCrossFlagsJob } from './recompute-cross-flags.js';
 
 // ---------------------------------------------------------------------------
 // Payload types
@@ -329,7 +330,8 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
   //
   // Updates recompute_jobs.status + completed_at.
   //
-  // TODO(phase-14): enqueue `recompute_cross_flags` for the semester here.
+  // After setting terminal status, enqueues recompute_cross_flags for the
+  // semester (Phase 14). singletonKey=semesterId collapses duplicate enqueues.
   // -------------------------------------------------------------------------
   await boss.work<RecomputeFinalizePayload>(
     JOB_KINDS.RECOMPUTE_FINALIZE,
@@ -343,6 +345,7 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
       try {
         const jobRows = await db
           .select({
+            semester_id: recompute_jobs.semester_id,
             progress_total: recompute_jobs.progress_total,
             progress_done: recompute_jobs.progress_done,
             progress_failed: recompute_jobs.progress_failed,
@@ -357,7 +360,7 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
           return;
         }
 
-        const { progress_total, progress_done, progress_failed } = jobRow;
+        const { semester_id: semesterId, progress_total, progress_done, progress_failed } = jobRow;
 
         let terminalStatus: 'succeeded' | 'partial' | 'failed';
         if (progress_failed === 0) {
@@ -382,8 +385,16 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
           'recompute_finalize: completed',
         );
 
-        // TODO(phase-14): enqueue `recompute_cross_flags` for the semester.
-        // Retrieve semesterId and enqueue here once Phase 14 is implemented.
+        // Enqueue cross-flag recompute for the semester (Phase 14).
+        // singletonKey=semesterId collapses concurrent enqueues to one pending job.
+        // Fire-and-forget: cross-flag failure doesn't affect the recompute job's
+        // terminal status (they are independent concerns).
+        await enqueueCrossFlagsJob(boss, semesterId).catch((err: unknown) => {
+          logger.warn(
+            { recomputeJobId, semesterId, err },
+            'recompute_finalize: failed to enqueue recompute_cross_flags (non-fatal)',
+          );
+        });
       } catch (err) {
         logger.error({ recomputeJobId, err }, 'recompute_finalize: error');
         throw err; // Let pg-boss retry (retryLimit: 5).

@@ -56,6 +56,7 @@ import { runAndStoreValidation } from '../services/ingest/validation.js';
 import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission.js';
 import { withTransaction } from '../db/client.js';
 import { registerRecomputeHandlers } from './recompute.js';
+import { registerCrossFlagsHandler, enqueueCrossFlagsJob } from './recompute-cross-flags.js';
 
 // ---------------------------------------------------------------------------
 // Payload types (mirrored from POST /ingest enqueue calls)
@@ -432,6 +433,27 @@ export async function startWorker(): Promise<() => Promise<void>> {
       try {
         await finalizeIngestJob(db, ingestJobId);
         logger.info({ ingestJobId }, 'ingest_finalize: completed');
+
+        // Enqueue cross-flag recompute for the semester (Phase 14).
+        // Look up semesterId from the ingest_job row.
+        // singletonKey=semesterId collapses concurrent enqueues to one pending job.
+        // Fire-and-forget: cross-flag failure doesn't affect the ingest job's
+        // terminal status (they are independent concerns).
+        const jobRows = await db
+          .select({ semester_id: ingest_jobs.semester_id })
+          .from(ingest_jobs)
+          .where(eq(ingest_jobs.id, ingestJobId))
+          .limit(1);
+
+        if (jobRows[0]?.semester_id) {
+          const semesterId = jobRows[0].semester_id;
+          await enqueueCrossFlagsJob(boss, semesterId).catch((err: unknown) => {
+            logger.warn(
+              { ingestJobId, semesterId, err },
+              'ingest_finalize: failed to enqueue recompute_cross_flags (non-fatal)',
+            );
+          });
+        }
       } catch (err) {
         logger.error({ ingestJobId, err }, 'ingest_finalize: error — marking job failed');
         try {
@@ -448,7 +470,10 @@ export async function startWorker(): Promise<() => Promise<void>> {
   // Register recompute handlers (Phase 13b).
   await registerRecomputeHandlers(boss);
 
-  logger.info('worker started (phase 13b: ingest + recompute handlers registered)');
+  // Register cross-flags handler (Phase 14).
+  await registerCrossFlagsHandler(boss);
+
+  logger.info('worker started (phase 14: ingest + recompute + cross-flags handlers registered)');
 
   return async () => {
     await stopBoss();
