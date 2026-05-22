@@ -53,6 +53,7 @@ import { createSubmission } from '../services/ingest/create-submission.js';
 import { materializeEvents } from '../services/ingest/materialize-events.js';
 import { computeAndStoreStats } from '../services/ingest/stats.js';
 import { runAndStoreValidation } from '../services/ingest/validation.js';
+import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission.js';
 import { withTransaction } from '../db/client.js';
 
 // ---------------------------------------------------------------------------
@@ -311,11 +312,28 @@ export async function startWorker(): Promise<() => Promise<void>> {
             const cause = e instanceof Error ? e.message : String(e);
             throw Object.assign(new Error(cause), { phase: 'compute_stats' as const });
           }
+          let validationReport;
           try {
-            await runAndStoreValidation(tx, submissionResult.submissionId, bundle);
+            validationReport = await runAndStoreValidation(
+              tx,
+              submissionResult.submissionId,
+              bundle,
+            );
           } catch (e) {
             const cause = e instanceof Error ? e.message : String(e);
             throw Object.assign(new Error(cause), { phase: 'run_validation' as const });
+          }
+          try {
+            await runAndStoreHeuristics(
+              tx,
+              submissionResult.submissionId,
+              semesterId,
+              bundle,
+              validationReport,
+            );
+          } catch (e) {
+            const cause = e instanceof Error ? e.message : String(e);
+            throw Object.assign(new Error(cause), { phase: 'run_heuristics' as const });
           }
           await tx
             .update(ingest_files)
@@ -333,7 +351,15 @@ export async function startWorker(): Promise<() => Promise<void>> {
         const cause = err instanceof Error ? err.message : String(err);
         const phase =
           typeof err === 'object' && err !== null && 'phase' in err
-            ? (err as { phase: 'materialize_events' | 'compute_stats' | 'run_validation' }).phase
+            ? (
+                err as {
+                  phase:
+                    | 'materialize_events'
+                    | 'compute_stats'
+                    | 'run_validation'
+                    | 'run_heuristics';
+                }
+              ).phase
             : 'worker_post_create';
         logger.error(
           { ingestFileId, submissionId: submissionResult.submissionId, err, phase },
