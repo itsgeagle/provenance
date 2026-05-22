@@ -39,6 +39,8 @@ import { createHeuristicConfigRouter } from './routes/heuristic-config.js';
 import { createUnmatchedRouter } from './routes/unmatched.js';
 import { createCohortRouter } from './routes/cohort.js';
 import { createCrossFlagsRouter } from './routes/cross-flags.js';
+import { createSubmissionsRouter } from './routes/submissions.js';
+import { createEventsRouter } from './routes/events.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
 import { initMembershipCache } from '../../auth/membership-cache.js';
 import { errorFormatter } from '../middleware/error.js';
@@ -98,6 +100,19 @@ export function createV1App(): Hono {
   // Paths: /semesters/:semesterId/cross-flags (GET)
   //        /cross-flags/:crossFlagId (GET — top-level)
   app.route('/', createCrossFlagsRouter());
+
+  // Per-submission routes (Phase 17).
+  // Paths: /submissions/:submissionId (GET)
+  //        /submissions/:submissionId/flags (GET)
+  //        /submissions/:submissionId/stats (GET)
+  //        /submissions/:submissionId/validation (GET)
+  //        /submissions/:submissionId/files (GET)
+  app.route('/', createSubmissionsRouter());
+
+  // Events routes (Phase 17).
+  // Paths: /submissions/:submissionId/events (GET)
+  //        /submissions/:submissionId/events/:seq (GET)
+  app.route('/', createEventsRouter());
 
   // Global error handler
   app.onError(errorFormatter);
