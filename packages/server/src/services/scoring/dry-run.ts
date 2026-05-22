@@ -121,6 +121,13 @@ function recomputeScore(
  *
  * Does NOT write any rows to the DB.
  *
+ * KNOWN LIMITATION (Phase 13a): This implementation re-weights existing
+ * flag rows rather than re-running heuristic functions from DB events.
+ * Consequence: threshold-override changes in `per_flag[id].thresholds`
+ * are NOT reflected in the diff. Phase 13b's recompute pipeline adds
+ * the heuristic-re-run path; once available, this function should call
+ * into it with a "simulate" flag (no writes). Tracked in V30.
+ *
  * @param db - Drizzle DB handle.
  * @param semesterId - UUID of the semester.
  * @param candidateConfig - Candidate PRD §10.2 config (already validated by caller).
@@ -153,10 +160,7 @@ export async function computeDryRunDiff(
     .innerJoin(roster_entries, eq(submissions.student_id, roster_entries.id))
     .innerJoin(assignments, eq(submissions.assignment_id, assignments.id))
     .where(
-      and(
-        eq(submissions.semester_id, semesterId),
-        isNull(submissions.superseded_by_submission_id),
-      ),
+      and(eq(submissions.semester_id, semesterId), isNull(submissions.superseded_by_submission_id)),
     );
 
   if (filteredSubmissions.length === 0) {
