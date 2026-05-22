@@ -51,7 +51,6 @@ export function CrossFlagListView() {
   const [heuristicId, setHeuristicId] = useState('');
   const [severityMin, setSeverityMin] = useState<CrossFlagFilters['severityMin']>(undefined);
   const [submissionId, setSubmissionId] = useState('');
-  const [cursor, setCursor] = useState<string | undefined>(undefined);
 
   // Accumulated items across pages
   const [allItems, setAllItems] = useState<CrossFlagDetailItem[]>([]);
@@ -70,20 +69,17 @@ export function CrossFlagListView() {
   // When filter changes, reset accumulated list
   function applyFilters() {
     setActiveCursor(undefined);
-    setCursor(undefined);
     setAllItems([]);
   }
 
   // Merge new page into accumulated list
   const currentItems = data?.items ?? [];
-  const displayItems =
-    activeCursor === cursor && cursor !== undefined ? [...allItems, ...currentItems] : currentItems;
+  const displayItems = activeCursor !== undefined ? [...allItems, ...currentItems] : currentItems;
 
   function handleLoadMore() {
     if (data?.next_cursor) {
       const prevItems = displayItems;
       setAllItems(prevItems);
-      setCursor(data.next_cursor);
       setActiveCursor(data.next_cursor);
     }
   }
