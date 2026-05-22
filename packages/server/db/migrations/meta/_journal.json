@@ -43,6 +43,13 @@
       "when": 1748500000000,
       "tag": "0006_ingest_and_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1748600000000,
+      "tag": "0007_events_per_file_stats",
+      "breakpoints": true
     }
   ]
 }
