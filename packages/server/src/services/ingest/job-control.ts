@@ -16,7 +16,7 @@
  */
 
 import type { DrizzleDb } from '../../db/client.js';
-import { ingest_jobs } from '../../db/schema.js';
+import { ingest_jobs, ingest_files } from '../../db/schema.js';
 import { eq, and, ne } from 'drizzle-orm';
 import { Errors } from '../../api/v1/errors.js';
 
@@ -46,6 +46,26 @@ export async function failIngestJob(
       summary: errorDetail !== undefined ? { error: errorDetail } : {},
     })
     .where(eq(ingest_jobs.id, jobId));
+}
+
+// ---------------------------------------------------------------------------
+// markIngestJobRunning
+// ---------------------------------------------------------------------------
+
+/**
+ * Transitions an ingest job from 'queued' to 'running'.
+ *
+ * Called when the first `ingest_file` worker picks up a file for this job.
+ * Idempotent: if the job is already 'running' (another worker beat us to it),
+ * the update is a no-op.
+ *
+ * Does not update 'cancelled', 'failed', or other terminal states.
+ */
+export async function markIngestJobRunning(db: DrizzleDb, jobId: string): Promise<void> {
+  await db
+    .update(ingest_jobs)
+    .set({ status: 'running', started_at: new Date() })
+    .where(and(eq(ingest_jobs.id, jobId), eq(ingest_jobs.status, 'queued')));
 }
 
 // ---------------------------------------------------------------------------
@@ -87,19 +107,39 @@ export async function enqueueIngestJob(
 }
 
 // ---------------------------------------------------------------------------
-// finalizeIngestJob  (Phase 9a stub)
+// finalizeIngestJob  (Phase 9b)
 // ---------------------------------------------------------------------------
+
+/**
+ * Summary counts computed from ingest_files rows.
+ */
+export interface IngestJobSummary {
+  total: number;
+  matched: number;
+  unmatched: number;
+  duplicate: number;
+  failed: number;
+  superseded: number;
+  discarded: number;
+}
 
 /**
  * Finalizes an ingest job after all files have been processed.
  *
- * Phase 9a stub: just validates the job exists and is not already terminal.
- * Phase 9b will replace the body with the full status-aggregation logic
- * (counting matched/unmatched/duplicate/failed file rows, computing
- * 'succeeded'/'partial'/'failed', updating summary jsonb).
+ * Reads all `ingest_files` for the job, counts statuses, computes the
+ * terminal job status, and updates `ingest_jobs`.
+ *
+ * Terminal status rules (PRD §9.3):
+ *   - 'succeeded'  — every file is in {matched, duplicate, superseded}.
+ *   - 'partial'    — at least one file is in {failed, unmatched, discarded}
+ *                    but the run otherwise completed.
+ *   - 'failed'     — the caller explicitly requests failure (e.g. unrecoverable
+ *                    worker error). Use `failIngestJob` for that path instead.
+ *
+ * Idempotent: silently no-ops if the job is already in a terminal or cancelled
+ * state.
  */
 export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<void> {
-  // Phase 9a: no-op beyond verifying the job exists and is not cancelled.
   const rows = await db
     .select({ status: ingest_jobs.status })
     .from(ingest_jobs)
@@ -111,12 +151,54 @@ export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<v
   }
 
   const job = rows[0]!;
-  if (job.status === 'cancelled') {
-    // Job was cancelled before finalize ran; leave it as is.
+  // If already terminal or cancelled, leave as-is (idempotent).
+  const terminalStatuses = ['succeeded', 'partial', 'failed', 'cancelled'];
+  if (terminalStatuses.includes(job.status)) {
     return;
   }
 
-  // Phase 9b will set terminal status here.
+  // Count file statuses.
+  const fileRows = await db
+    .select({ status: ingest_files.status })
+    .from(ingest_files)
+    .where(eq(ingest_files.ingest_job_id, jobId));
+
+  const summary: IngestJobSummary = {
+    total: fileRows.length,
+    matched: 0,
+    unmatched: 0,
+    duplicate: 0,
+    failed: 0,
+    superseded: 0,
+    discarded: 0,
+  };
+
+  for (const f of fileRows) {
+    switch (f.status) {
+      case 'matched':    summary.matched++;    break;
+      case 'unmatched':  summary.unmatched++;  break;
+      case 'duplicate':  summary.duplicate++;  break;
+      case 'failed':     summary.failed++;     break;
+      case 'superseded': summary.superseded++; break;
+      case 'discarded':  summary.discarded++;  break;
+      // 'pending' and any unrecognized status: ignored (not counted in named fields).
+    }
+  }
+
+  // Determine terminal job status.
+  const hasProblems =
+    summary.failed > 0 || summary.unmatched > 0 || summary.discarded > 0;
+
+  const terminalStatus = hasProblems ? 'partial' : 'succeeded';
+
+  await db
+    .update(ingest_jobs)
+    .set({
+      status: terminalStatus,
+      completed_at: new Date(),
+      summary: summary as unknown as Record<string, unknown>,
+    })
+    .where(eq(ingest_jobs.id, jobId));
 }
 
 // ---------------------------------------------------------------------------

@@ -92,22 +92,26 @@ describe('enqueueIngestJob', () => {
 });
 
 // ---------------------------------------------------------------------------
-// finalizeIngestJob (phase 9a stub)
+// finalizeIngestJob (phase 9b — full aggregation)
 // ---------------------------------------------------------------------------
 
 describe('finalizeIngestJob', () => {
-  it('no-ops on a queued job (phase 9a stub)', async () => {
+  it('sets status=succeeded on a running job with no files', async () => {
     await withTestDb(async (db) => {
       const user = await seedUser(db);
       const semester = await seedSemester(db, user.id);
       const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
 
-      // Should not throw.
+      // Move to running first (finalize only transitions from running).
+      await db
+        .update(ingest_jobs)
+        .set({ status: 'running', started_at: new Date() })
+        .where(eq(ingest_jobs.id, jobId));
+
       await expect(finalizeIngestJob(db, jobId)).resolves.toBeUndefined();
 
-      // Status should remain unchanged (9a doesn't update it).
       const rows = await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId));
-      expect(rows[0]!.status).toBe('queued');
+      expect(rows[0]!.status).toBe('succeeded');
     });
   });
 
@@ -127,6 +131,10 @@ describe('finalizeIngestJob', () => {
       await cancelIngestJob(db, jobId, semester.id);
       // Should not throw even though status is cancelled.
       await expect(finalizeIngestJob(db, jobId)).resolves.toBeUndefined();
+
+      // Status should remain cancelled.
+      const rows = await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId));
+      expect(rows[0]!.status).toBe('cancelled');
     });
   });
 });
