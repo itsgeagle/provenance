@@ -64,6 +64,13 @@
       "when": 1748800000000,
       "tag": "0009_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1748900000000,
+      "tag": "0010_heuristic_configs_and_recompute",
+      "breakpoints": true
     }
   ]
 }
