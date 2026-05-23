@@ -10,3 +10,4 @@ dist/
 dist-integration/
 dist-perf/
 test-workspace/.provenance/
+.env

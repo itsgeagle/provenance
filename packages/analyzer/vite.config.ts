@@ -17,6 +17,11 @@ export default defineConfig({
     }),
   ],
   base: './',
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3000',
+    },
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
