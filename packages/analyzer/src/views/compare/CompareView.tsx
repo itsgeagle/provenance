@@ -118,7 +118,9 @@ function CrossFlagDetailPane({ flag, bundles, onClose }: CrossFlagDetailPaneProp
                       <li key={key}>
                         <button
                           type="button"
-                          onClick={() => void navigate(`/timeline?seq=${encodeURIComponent(key)}`)}
+                          onClick={() =>
+                            void navigate(`/local/timeline?seq=${encodeURIComponent(key)}`)
+                          }
                           className="text-xs font-mono text-blue-600 hover:underline focus:outline-none focus:underline"
                           data-testid={`cross-flag-seq-link-${key}`}
                         >

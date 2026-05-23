@@ -4,8 +4,11 @@
  * Drag-and-drop uses native HTML5 events (no lib). The file picker is a
  * hidden <input type="file"> activated by the "Choose file" button.
  *
- * On status === 'loaded', navigates to /overview via useEffect so the
+ * On status === 'loaded', navigates to /local/overview via useEffect so the
  * navigation is decoupled from the async load pipeline.
+ *
+ * Phase 25: this view is now mounted under /local/load; navigation uses the
+ * /local prefix so it works correctly within the LocalShell subtree.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -22,10 +25,11 @@ export function LoadView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Navigate to overview once a bundle is successfully loaded.
+  // Navigate to /local/overview once a bundle is successfully loaded.
+  // The /local prefix matches the LocalShell subtree mounted in App.tsx (Phase 25).
   useEffect(() => {
     if (status === 'loaded') {
-      void navigate('/overview', { replace: true });
+      void navigate('/local/overview', { replace: true });
     }
   }, [status, navigate]);
 

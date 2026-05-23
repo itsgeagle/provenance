@@ -3,10 +3,11 @@
  *
  * Tests:
  * - / redirects to /home (v3 behavior; RequireAuth redirects to /login if unauthed)
- * - /load shows the drop zone (legacy v2 route preserved)
- * - /overview redirects to /load when no bundle loaded (legacy v2 guard preserved)
- * - /timeline redirects to /load when no bundle loaded (legacy v2 guard preserved)
- * - After loading a bundle, /load navigates to /overview (legacy v2 behavior preserved)
+ * - /local/load shows the drop zone (Phase 25: v2 routes moved under /local)
+ * - /load redirects to /local/load (legacy bookmark redirect preserved)
+ * - /local/overview redirects to /local/load when no bundle loaded
+ * - /local/timeline redirects to /local/load when no bundle loaded
+ * - After loading a bundle, /local/load navigates to /local/overview
  *
  * All tests wrap App with QueryClientProvider because App now renders RequireAuth
  * at /home which calls useMe().
@@ -59,29 +60,47 @@ describe('App routing', () => {
     });
   });
 
-  it('renders load view at /load', () => {
+  it('renders load view at /local/load', async () => {
+    renderApp('/local/load');
+    // React.lazy + Suspense: wait for the component to load.
+    await waitFor(() => {
+      expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+    });
+  });
+
+  it('/load redirects to /local/load (legacy bookmark redirect)', async () => {
     renderApp('/load');
-    expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+    // Legacy redirect: /load → /local/load → shows drop zone.
+    await waitFor(() => {
+      expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+    });
   });
 
-  it('RequireBundle redirects /overview to /load when no bundle is loaded', () => {
-    renderApp('/overview');
-    // Should redirect to /load and show the drop zone.
-    expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+  it('RequireLocalBundle redirects /local/overview to /local/load when no bundle is loaded', async () => {
+    renderApp('/local/overview');
+    // Should redirect to /local/load and show the drop zone.
+    await waitFor(() => {
+      expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+    });
   });
 
-  it('RequireBundle redirects /timeline to /load when no bundle is loaded', () => {
-    renderApp('/timeline');
-    expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+  it('RequireLocalBundle redirects /local/timeline to /local/load when no bundle is loaded', async () => {
+    renderApp('/local/timeline');
+    await waitFor(() => {
+      expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+    });
   });
 
-  it('after a bundle is loaded, /load navigates to /overview', async () => {
+  it('after a bundle is loaded, /local/load navigates to /local/overview', async () => {
     const { blob } = await buildTestBundle({ sessions: [{ eventCount: 2 }] });
     const file = new File([blob], 'bundle.zip', { type: 'application/zip' });
 
-    renderApp('/load');
+    renderApp('/local/load');
 
-    expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+    // Wait for lazy chunk to load.
+    await waitFor(() => {
+      expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
+    });
 
     act(() => {
       fireEvent.drop(screen.getByTestId('drop-zone'), {
@@ -89,7 +108,7 @@ describe('App routing', () => {
       });
     });
 
-    // After load completes, the app should navigate to /overview.
+    // After load completes, the app should navigate to /local/overview.
     await waitFor(
       () => {
         expect(screen.getByTestId('overview-view')).toBeInTheDocument();

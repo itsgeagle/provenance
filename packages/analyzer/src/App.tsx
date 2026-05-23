@@ -1,94 +1,131 @@
 /**
  * App — top-level routes.
  *
- * Route structure (v3 + legacy v2 routes preserved):
+ * Route structure (v3 + /local standalone v2 routes):
  *
  *   /                  → redirect to /home
  *   /login             → LoginView (no auth required)
  *   /home              → RequireAuth + AppShell + HomeView
- *   /s/:semesterSlug/* → (Phase 21+) cohort + drill-in views (placeholder until Phase 21)
+ *   /s/:semesterSlug/* → cohort + drill-in views (Phases 21–24)
  *
- * Legacy v2 SPA routes (preserved; move to /local in Phase 25):
- *   /load      → LoadView (drop zone; not guarded)
- *   /overview  → OverviewView (guarded by RequireBundle)
- *   /timeline  → TimelineView (guarded by RequireBundle)
- *   /compare   → CompareView (guarded by RequireMultiBundles)
- *   /replay/:sessionId → ReplayView (guarded by RequireBundle)
+ * Standalone /local subtree (v2 "drop a zip" UX — no auth required, §15):
+ *   /local/load                  → LoadView
+ *   /local/overview              → OverviewView (guarded by RequireLocalBundle)
+ *   /local/timeline              → TimelineView (guarded by RequireLocalBundle)
+ *   /local/compare               → CompareView (guarded by RequireLocalMultiBundles)
+ *   /local/replay/:sessionId     → ReplayView (guarded by RequireLocalBundle)
  *
- * Legacy routes are grouped under a layout route whose element is
- * <BundleProviderLayout> so that <BundleProvider> wraps exactly those routes.
+ * Legacy redirects (301-equivalent via <Navigate replace />) preserve bookmarks:
+ *   /load          → /local/load
+ *   /overview      → /local/overview
+ *   /timeline      → /local/timeline
+ *   /compare       → /local/compare
+ *   /replay/:id    → /local/replay/:id  (handled client-side via layout redirect)
+ *
+ * The /local routes are wrapped in LocalShell (BundleProvider chrome + banner).
+ * RequireAuth does NOT wrap /local routes.
  * <QueryClientProvider> is set up in main.tsx and wraps the entire app.
  */
 
-import type { ReactNode } from 'react';
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
-import { BundleProvider, useBundle } from './context/BundleContext.js';
-import { LoadView } from './views/load/LoadView.js';
-import { OverviewView } from './views/overview/OverviewView.js';
-import { TimelineView } from './views/timeline/TimelineView.js';
-import { CompareView } from './views/compare/CompareView.js';
-import { ReplayView } from './views/replay/ReplayView.js';
+import { lazy, Suspense } from 'react';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { Layout } from './components/Layout.js';
 import { LoginView } from './views/login/LoginView.js';
 import { HomeView } from './views/home/HomeView.js';
 import { AppShell } from './components/nav/AppShell.js';
 import { RequireAuth } from './auth/RequireAuth.js';
-import { CohortView } from './views/cohort/CohortView.js';
-import { IngestStartView } from './views/ingest/IngestStartView.js';
-import { IngestJobView } from './views/ingest/IngestJobView.js';
-import { UnmatchedView } from './views/unmatched/UnmatchedView.js';
-import { RosterView } from './views/roster/RosterView.js';
-import { MembersView } from './views/members/MembersView.js';
-import { AssignmentsView } from './views/assignments/AssignmentsView.js';
-import { SemesterSettingsView } from './views/settings/SemesterSettingsView.js';
-import { SubmissionShell } from './views/submission/SubmissionShell.js';
-import { TuningView } from './views/heuristics/TuningView.js';
-import { CrossFlagListView } from './views/cross-flags/CrossFlagListView.js';
-import { CrossFlagDetailView } from './views/cross-flags/CrossFlagDetailView.js';
+import {
+  LocalShell,
+  RequireLocalBundle,
+  RequireLocalMultiBundles,
+} from './views/local/LocalShell.js';
 
 // ---------------------------------------------------------------------------
-// Legacy v2 route guards
+// Lazy chunks: cohort/admin routes (server-backed, require auth)
 // ---------------------------------------------------------------------------
 
-/** Layout route element that provides BundleContext to legacy routes. */
-function BundleProviderLayout() {
+const CohortView = lazy(() =>
+  import('./views/cohort/CohortView.js').then((m) => ({ default: m.CohortView })),
+);
+const IngestStartView = lazy(() =>
+  import('./views/ingest/IngestStartView.js').then((m) => ({ default: m.IngestStartView })),
+);
+const IngestJobView = lazy(() =>
+  import('./views/ingest/IngestJobView.js').then((m) => ({ default: m.IngestJobView })),
+);
+const UnmatchedView = lazy(() =>
+  import('./views/unmatched/UnmatchedView.js').then((m) => ({ default: m.UnmatchedView })),
+);
+const RosterView = lazy(() =>
+  import('./views/roster/RosterView.js').then((m) => ({ default: m.RosterView })),
+);
+const MembersView = lazy(() =>
+  import('./views/members/MembersView.js').then((m) => ({ default: m.MembersView })),
+);
+const AssignmentsView = lazy(() =>
+  import('./views/assignments/AssignmentsView.js').then((m) => ({ default: m.AssignmentsView })),
+);
+const SemesterSettingsView = lazy(() =>
+  import('./views/settings/SemesterSettingsView.js').then((m) => ({
+    default: m.SemesterSettingsView,
+  })),
+);
+const SubmissionShell = lazy(() =>
+  import('./views/submission/SubmissionShell.js').then((m) => ({ default: m.SubmissionShell })),
+);
+const TuningView = lazy(() =>
+  import('./views/heuristics/TuningView.js').then((m) => ({ default: m.TuningView })),
+);
+const CrossFlagListView = lazy(() =>
+  import('./views/cross-flags/CrossFlagListView.js').then((m) => ({
+    default: m.CrossFlagListView,
+  })),
+);
+const CrossFlagDetailView = lazy(() =>
+  import('./views/cross-flags/CrossFlagDetailView.js').then((m) => ({
+    default: m.CrossFlagDetailView,
+  })),
+);
+
+// ---------------------------------------------------------------------------
+// Lazy chunks: /local routes (v2 standalone, no auth)
+// ---------------------------------------------------------------------------
+
+const LoadView = lazy(() =>
+  import('./views/load/LoadView.js').then((m) => ({ default: m.LoadView })),
+);
+const OverviewView = lazy(() =>
+  import('./views/overview/OverviewView.js').then((m) => ({ default: m.OverviewView })),
+);
+const TimelineView = lazy(() =>
+  import('./views/timeline/TimelineView.js').then((m) => ({ default: m.TimelineView })),
+);
+const CompareView = lazy(() =>
+  import('./views/compare/CompareView.js').then((m) => ({ default: m.CompareView })),
+);
+const ReplayView = lazy(() =>
+  import('./views/replay/ReplayView.js').then((m) => ({ default: m.ReplayView })),
+);
+
+// ---------------------------------------------------------------------------
+// Suspense fallback (shared by all lazy chunks)
+// ---------------------------------------------------------------------------
+
+function PageFallback() {
   return (
-    <BundleProvider>
-      <Outlet />
-    </BundleProvider>
+    <div className="flex min-h-screen items-center justify-center">
+      <span className="text-sm text-gray-400">Loading…</span>
+    </div>
   );
 }
 
-function RequireBundle({ children }: { children: ReactNode }) {
-  const { status } = useBundle();
-  if (status !== 'loaded') {
-    return <Navigate to="/load" replace />;
-  }
-  return <>{children}</>;
-}
+// ---------------------------------------------------------------------------
+// Legacy replay redirect helper (preserves /replay/:sessionId → /local/replay/:sessionId)
+// ---------------------------------------------------------------------------
 
-/**
- * Guard for routes that require at least 2 bundles (e.g. /compare).
- *
- * Design choice (A26): redirect to /load rather than showing a placeholder page.
- * Rationale: /load is where the user loads files; redirecting there with the
- * existing bundles list still in memory is confusing if bundles.length === 1.
- * Instead we redirect there only when nothing is loaded (status !== 'loaded');
- * when exactly 1 bundle is loaded we redirect to /overview so the user sees
- * something useful and can use the "Load more bundles" button in the header.
- */
-function RequireMultiBundles({ children }: { children: ReactNode }) {
-  const { status, bundles } = useBundle();
-  if (status !== 'loaded') {
-    return <Navigate to="/load" replace />;
-  }
-  if (bundles.length < 2) {
-    // One bundle loaded — redirect to overview. The "Load more bundles" header
-    // button gives the user a path to add a second bundle without going back to
-    // the drop zone.
-    return <Navigate to="/overview" replace />;
-  }
-  return <>{children}</>;
+function LegacyReplayRedirect() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  return <Navigate to={`/local/replay/${sessionId ?? ''}`} replace />;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,196 +134,203 @@ function RequireMultiBundles({ children }: { children: ReactNode }) {
 
 export function App() {
   return (
-    <Routes>
-      {/* ── v3 routes ───────────────────────────────────────────────────── */}
-      <Route path="/login" element={<LoginView />} />
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        {/* ── v3 routes ─────────────────────────────────────────────────── */}
+        <Route path="/login" element={<LoginView />} />
 
-      <Route
-        path="/home"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <HomeView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-
-      {/* /s/:semesterSlug — cohort + admin views (Phase 21/22) */}
-      {/* Wrap all /s/:semesterSlug routes in RequireAuth + AppShell once */}
-      <Route
-        path="/s/:semesterSlug"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <CohortView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/s/:semesterSlug/ingest"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <IngestStartView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/s/:semesterSlug/ingest/jobs/:jobId"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <IngestJobView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/s/:semesterSlug/unmatched"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <UnmatchedView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/s/:semesterSlug/roster"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <RosterView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/s/:semesterSlug/members"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <MembersView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/s/:semesterSlug/assignments"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <AssignmentsView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/s/:semesterSlug/settings"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <SemesterSettingsView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      {/* Phase 23: per-submission drill-in via SubmissionShell */}
-      <Route
-        path="/s/:semesterSlug/sub/:submissionId"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <SubmissionShell />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      {/* Phase 24: heuristic tuning */}
-      <Route
-        path="/s/:semesterSlug/tuning"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <TuningView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      {/* Phase 24: cross-flags list */}
-      <Route
-        path="/s/:semesterSlug/cross-flags"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <CrossFlagListView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-      {/* Phase 24: cross-flag detail */}
-      <Route
-        path="/s/:semesterSlug/cross-flags/:crossFlagId"
-        element={
-          <RequireAuth>
-            <AppShell>
-              <CrossFlagDetailView />
-            </AppShell>
-          </RequireAuth>
-        }
-      />
-
-      {/* ── legacy v2 SPA routes (preserved until Phase 25) ─────────────── */}
-      {/* Grouped under a layout route so BundleProvider wraps them all.     */}
-      <Route element={<BundleProviderLayout />}>
-        <Route path="/load" element={<LoadView />} />
         <Route
-          path="/overview"
+          path="/home"
           element={
-            <RequireBundle>
-              <Layout>
-                <OverviewView />
-              </Layout>
-            </RequireBundle>
+            <RequireAuth>
+              <AppShell>
+                <HomeView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+
+        {/* /s/:semesterSlug — cohort + admin views (Phases 21–24)          */}
+        {/* All wrapped in RequireAuth + AppShell.                           */}
+        <Route
+          path="/s/:semesterSlug"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <CohortView />
+              </AppShell>
+            </RequireAuth>
           }
         />
         <Route
-          path="/timeline"
+          path="/s/:semesterSlug/ingest"
           element={
-            <RequireBundle>
-              <Layout>
-                <TimelineView />
-              </Layout>
-            </RequireBundle>
+            <RequireAuth>
+              <AppShell>
+                <IngestStartView />
+              </AppShell>
+            </RequireAuth>
           }
         />
         <Route
-          path="/compare"
+          path="/s/:semesterSlug/ingest/jobs/:jobId"
           element={
-            <RequireMultiBundles>
-              <Layout>
-                <CompareView />
-              </Layout>
-            </RequireMultiBundles>
+            <RequireAuth>
+              <AppShell>
+                <IngestJobView />
+              </AppShell>
+            </RequireAuth>
           }
         />
         <Route
-          path="/replay/:sessionId"
+          path="/s/:semesterSlug/unmatched"
           element={
-            <RequireBundle>
-              <ReplayView />
-            </RequireBundle>
+            <RequireAuth>
+              <AppShell>
+                <UnmatchedView />
+              </AppShell>
+            </RequireAuth>
           }
         />
-      </Route>
+        <Route
+          path="/s/:semesterSlug/roster"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <RosterView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/s/:semesterSlug/members"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <MembersView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/s/:semesterSlug/assignments"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <AssignmentsView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/s/:semesterSlug/settings"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <SemesterSettingsView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/s/:semesterSlug/sub/:submissionId"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <SubmissionShell />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/s/:semesterSlug/tuning"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <TuningView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/s/:semesterSlug/cross-flags"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <CrossFlagListView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/s/:semesterSlug/cross-flags/:crossFlagId"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <CrossFlagDetailView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
 
-      {/* ── root redirect ────────────────────────────────────────────────── */}
-      {/* / → /home (RequireAuth on /home redirects to /login if unauthed) */}
-      <Route path="/" element={<Navigate to="/home" replace />} />
-      <Route path="*" element={<Navigate to="/home" replace />} />
-    </Routes>
+        {/* ── /local subtree — standalone v2 "drop a zip" UX (PRD §15) ─── */}
+        {/* No authentication required. LocalShell provides BundleProvider.  */}
+        <Route path="/local" element={<LocalShell />}>
+          <Route path="load" element={<LoadView />} />
+          <Route
+            path="overview"
+            element={
+              <RequireLocalBundle>
+                <Layout>
+                  <OverviewView />
+                </Layout>
+              </RequireLocalBundle>
+            }
+          />
+          <Route
+            path="timeline"
+            element={
+              <RequireLocalBundle>
+                <Layout>
+                  <TimelineView />
+                </Layout>
+              </RequireLocalBundle>
+            }
+          />
+          <Route
+            path="compare"
+            element={
+              <RequireLocalMultiBundles>
+                <Layout>
+                  <CompareView />
+                </Layout>
+              </RequireLocalMultiBundles>
+            }
+          />
+          <Route
+            path="replay/:sessionId"
+            element={
+              <RequireLocalBundle>
+                <ReplayView />
+              </RequireLocalBundle>
+            }
+          />
+          {/* /local with no sub-path → /local/load */}
+          <Route index element={<Navigate to="load" replace />} />
+        </Route>
+
+        {/* ── Legacy redirects (bookmark preservation) ──────────────────── */}
+        {/* Matches old v2 paths and redirects to their /local equivalents.  */}
+        <Route path="/load" element={<Navigate to="/local/load" replace />} />
+        <Route path="/overview" element={<Navigate to="/local/overview" replace />} />
+        <Route path="/timeline" element={<Navigate to="/local/timeline" replace />} />
+        <Route path="/compare" element={<Navigate to="/local/compare" replace />} />
+        <Route path="/replay/:sessionId" element={<LegacyReplayRedirect />} />
+
+        {/* ── root redirect ──────────────────────────────────────────────── */}
+        <Route path="/" element={<Navigate to="/home" replace />} />
+        <Route path="*" element={<Navigate to="/home" replace />} />
+      </Routes>
+    </Suspense>
   );
 }

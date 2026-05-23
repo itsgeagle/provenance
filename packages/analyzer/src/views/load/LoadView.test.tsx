@@ -4,7 +4,7 @@
  * Tests:
  * - Drop event triggers the bundle loader.
  * - File picker change event triggers the loader.
- * - On status === 'loaded', navigates to /overview.
+ * - On status === 'loaded', navigates to /local/overview (Phase 25: /local prefix).
  * - LoadingPanel displays the current loading stage.
  */
 
@@ -26,15 +26,15 @@ ed.hashes.sha512 = sha512;
 // Helper: wrap LoadView with router and provider
 // ---------------------------------------------------------------------------
 
-function renderLoadView(initialEntries = ['/load']) {
+function renderLoadView(initialEntries = ['/local/load']) {
   const overviewContent = <div data-testid="overview-reached">Overview</div>;
 
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <BundleProvider>
         <Routes>
-          <Route path="/load" element={<LoadView />} />
-          <Route path="/overview" element={overviewContent} />
+          <Route path="/local/load" element={<LoadView />} />
+          <Route path="/local/overview" element={overviewContent} />
         </Routes>
       </BundleProvider>
     </MemoryRouter>,
@@ -57,7 +57,7 @@ describe('LoadView', () => {
     expect(screen.getByTestId('file-input')).toBeInTheDocument();
   });
 
-  it('drop event on the drop zone triggers the loader and navigates to /overview', async () => {
+  it('drop event on the drop zone triggers the loader and navigates to /local/overview', async () => {
     const { blob } = await buildTestBundle({ sessions: [{ eventCount: 2 }] });
     const file = new File([blob], 'bundle.zip', { type: 'application/zip' });
 
@@ -79,7 +79,7 @@ describe('LoadView', () => {
       expect(screen.queryByTestId('loading-panel')).toBeInTheDocument();
     });
 
-    // After load completes, should navigate to /overview.
+    // After load completes, should navigate to /local/overview.
     await waitFor(
       () => {
         expect(screen.getByTestId('overview-reached')).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe('LoadView', () => {
       fireEvent.change(fileInput, { target: { files: [file] } });
     });
 
-    // Should eventually navigate to /overview.
+    // Should eventually navigate to /local/overview.
     await waitFor(
       () => {
         expect(screen.getByTestId('overview-reached')).toBeInTheDocument();

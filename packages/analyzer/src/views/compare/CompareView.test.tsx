@@ -471,7 +471,7 @@ describe('CompareView — seq-key deep-link uses navigate, not page reload', () 
     mockUseBundleReturn = null;
   });
 
-  it('clicking a seq-key button triggers navigate() to /timeline?seq=<key>', () => {
+  it('clicking a seq-key button triggers navigate() to /local/timeline?seq=<key>', () => {
     const flag = makeCrossFlag({
       eventsPerBundle: {
         'bundle-a': ['sess-a:42'],
@@ -483,10 +483,10 @@ describe('CompareView — seq-key deep-link uses navigate, not page reload', () 
     let capturedLocation = '';
 
     render(
-      <MemoryRouter initialEntries={['/compare']}>
+      <MemoryRouter initialEntries={['/local/compare']}>
         <Routes>
-          <Route path="/compare" element={<CompareView />} />
-          <Route path="/timeline" element={<div data-testid="timeline-page" />} />
+          <Route path="/local/compare" element={<CompareView />} />
+          <Route path="/local/timeline" element={<div data-testid="timeline-page" />} />
         </Routes>
         <LocationCapture
           onLocation={(l) => {
@@ -506,8 +506,8 @@ describe('CompareView — seq-key deep-link uses navigate, not page reload', () 
     expect(btn.tagName).toBe('BUTTON');
     fireEvent.click(btn);
 
-    // MemoryRouter should have navigated in-app to /timeline?seq=sess-a:42.
-    expect(capturedLocation).toBe('/timeline?seq=sess-a%3A42');
+    // MemoryRouter should have navigated in-app to /local/timeline?seq=sess-a:42.
+    expect(capturedLocation).toBe('/local/timeline?seq=sess-a%3A42');
   });
 });
 
