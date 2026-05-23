@@ -48,6 +48,23 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
     ResizeObserverStub as unknown as typeof ResizeObserver;
 }
 
+// jsdom also has no IntersectionObserver. The cohort tables use it to drive
+// infinite-scroll loading; tests never need it to fire, so a noop stub is
+// enough to keep React effects from throwing on construction.
+class IntersectionObserverStub {
+  root = null;
+  rootMargin = '';
+  thresholds: ReadonlyArray<number> = [];
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+  takeRecords = vi.fn(() => []);
+}
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  (globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
+    IntersectionObserverStub as unknown as typeof IntersectionObserver;
+}
+
 const VIEWPORT_WIDTH = 800;
 const VIEWPORT_HEIGHT = 600;
 

@@ -279,7 +279,7 @@ describe('CohortView', () => {
     );
   });
 
-  it('shows Load more button when next_cursor is non-null', async () => {
+  it('shows the infinite-scroll sentinel when next_cursor is non-null', async () => {
     mswServer.use(
       cohortSubmissionsHandler([makeSubmissionRow()], {
         next_cursor: 'cursor-abc',
@@ -293,13 +293,13 @@ describe('CohortView', () => {
 
     await waitFor(
       () => {
-        expect(screen.getByTestId('load-more-button')).toBeInTheDocument();
+        expect(screen.getByTestId('cohort-load-more-sentinel')).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
   });
 
-  it('does not show Load more button when next_cursor is null', async () => {
+  it('does not show the sentinel when next_cursor is null', async () => {
     mswServer.use(
       cohortSubmissionsHandler([makeSubmissionRow()], { next_cursor: null }),
       cohortStudentsHandler([]),
@@ -315,10 +315,32 @@ describe('CohortView', () => {
       { timeout: 3000 },
     );
 
-    expect(screen.queryByTestId('load-more-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cohort-load-more-sentinel')).not.toBeInTheDocument();
   });
 
   it('load-more uses accumulated cursor state, not first-page query result', async () => {
+    // Replace the noop IntersectionObserver stub from test-setup with one
+    // that auto-fires `isIntersecting: true` on observe() so the cohort
+    // table's infinite-scroll effect drives subsequent page fetches.
+    const originalIO = globalThis.IntersectionObserver;
+    type IOCallback = (entries: { isIntersecting: boolean }[]) => void;
+    const callbacks = new Set<IOCallback>();
+    class AutoFiringIO {
+      constructor(cb: IOCallback) {
+        callbacks.add(cb);
+      }
+      observe = () => {
+        for (const cb of callbacks) cb([{ isIntersecting: true }]);
+      };
+      unobserve = () => {};
+      disconnect = () => {
+        callbacks.clear();
+      };
+      takeRecords = () => [] as unknown[];
+    }
+    (globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
+      AutoFiringIO as unknown as typeof IntersectionObserver;
+
     // Track which cursors are requested
     const requestedCursors: (string | null)[] = [];
 
@@ -387,39 +409,24 @@ describe('CohortView', () => {
       assignmentsHandler(),
     );
 
-    renderCohortView();
+    try {
+      renderCohortView();
 
-    // Wait for initial load
-    await waitFor(
-      () => {
-        expect(screen.getByTestId('load-more-button')).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
+      // The auto-firing observer drives load-more each time the sentinel
+      // mounts; the effect re-runs on the new nextCursor and triggers the
+      // next page fetch. We should see [null, 'c1', 'c2'] requested.
+      await vi.waitFor(
+        () => {
+          expect(requestedCursors.length).toBe(3);
+        },
+        { timeout: 3000 },
+      );
 
-    // First load-more click
-    fireEvent.click(screen.getByTestId('load-more-button'));
-
-    // Wait a bit for the network call to complete
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Second load-more click
-    fireEvent.click(screen.getByTestId('load-more-button'));
-
-    // Wait for the async operations to settle
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
-    // Allow React Query to process the responses
-    await vi.waitFor(
-      () => {
-        // Should have made 3 requests total: [null, 'c1', 'c2']
-        expect(requestedCursors.length).toBe(3);
-      },
-      { timeout: 3000 },
-    );
-
-    // Verify the cursor progression: should be [null, 'c1', 'c2']
-    expect(requestedCursors).toEqual([null, 'c1', 'c2']);
+      expect(requestedCursors).toEqual([null, 'c1', 'c2']);
+    } finally {
+      (globalThis as { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
+        originalIO;
+    }
   });
 });
 

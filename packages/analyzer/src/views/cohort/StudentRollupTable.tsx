@@ -10,7 +10,7 @@
  * - Recompute status
  */
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -83,6 +83,29 @@ export function StudentRollupTable({
 }: StudentRollupTableProps) {
   const navigate = useNavigate();
   const { semesterSlug } = useParams<{ semesterSlug: string }>();
+
+  // Infinite-scroll sentinel — same pattern as CohortTable. The sentinel
+  // div lives INSIDE parentRef's scroll container and the observer roots
+  // against parentRef so unscrolled tables don't auto-trip.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const parentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    const root = parentRef.current;
+    if (!node || !root || nextCursor === null) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !isLoadingMore) {
+            onLoadMore();
+          }
+        }
+      },
+      { root, rootMargin: '200px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [nextCursor, isLoadingMore, onLoadMore]);
 
   const columns = useMemo(
     () => [
@@ -162,7 +185,8 @@ export function StudentRollupTable({
     manualSorting: true,
   });
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  // parentRef declared above (alongside the infinite-scroll observer setup)
+  // so both pieces share the same scroll container reference.
   const ROW_HEIGHT = 52;
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -243,20 +267,18 @@ export function StudentRollupTable({
             )}
           </tbody>
         </table>
-      </div>
-
-      {nextCursor !== null && (
-        <div className="flex justify-center py-2">
-          <button
-            onClick={onLoadMore}
-            disabled={isLoadingMore}
-            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            data-testid="student-load-more-button"
+        {/* Sentinel lives inside the scrollable parent so it only intersects
+            once the user has scrolled near the bottom. */}
+        {nextCursor !== null && (
+          <div
+            ref={sentinelRef}
+            className="flex justify-center py-3 text-xs text-gray-400"
+            data-testid="student-load-more-sentinel"
           >
-            {isLoadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        </div>
-      )}
+            {isLoadingMore ? 'Loading more…' : 'Scroll for more'}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

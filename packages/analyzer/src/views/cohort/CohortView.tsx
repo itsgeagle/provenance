@@ -29,6 +29,8 @@ import {
   useCohortStudents,
   useAssignments,
   buildQueryString,
+  buildSubmissionParams,
+  buildStudentParams,
 } from '../../api/queries.js';
 import { apiFetch } from '../../api/client.js';
 import { CohortTable } from './CohortTable.js';
@@ -127,19 +129,17 @@ export function CohortView() {
     clearFilters();
   }, [clearFilters]);
 
-  // Load more: fetch next page of submissions, append to accumulated list
+  // Load more: fetch next page of submissions, append to accumulated list.
+  // Reuses buildSubmissionParams so EVERY active filter (severity, validation,
+  // flag IDs, score range, etc.) is sent on subsequent pages — not just
+  // assignment_id like the original implementation.
   async function handleLoadMoreSubmissions() {
     const cursor =
       (submissionRows.length > 0 ? submissionCursor : submissionsQuery.data?.next_cursor) ?? null;
     if (!cursor || loadingMoreSubmissions || !semesterId) return;
     setLoadingMoreSubmissions(true);
     try {
-      const params: Record<string, string | string[] | undefined> = {
-        cursor,
-        limit: '50',
-        sort,
-      };
-      if (filters.assignmentId) params['assignment_id'] = filters.assignmentId;
+      const params = buildSubmissionParams(filters, sort, cursor, 50);
       const qs = buildQueryString(params);
       const result = await apiFetch(
         `/semesters/${semesterId}/submissions?${qs}`,
@@ -160,11 +160,7 @@ export function CohortView() {
     if (!cursor || loadingMoreStudents || !semesterId) return;
     setLoadingMoreStudents(true);
     try {
-      const params: Record<string, string | string[] | undefined> = {
-        cursor,
-        limit: '50',
-        sort: studentSort,
-      };
+      const params = buildStudentParams(filters, studentSort, cursor, 50);
       const qs = buildQueryString(params);
       const result = await apiFetch(
         `/semesters/${semesterId}/students?${qs}`,
@@ -272,8 +268,11 @@ export function CohortView() {
 
           {/* Export */}
           <ExportCurrentView
-            rows={activeTab === 'submissions' ? displaySubmissions : []}
+            semesterId={semesterId}
             semesterSlug={semesterSlug}
+            filters={filters}
+            sort={sort}
+            disabled={activeTab !== 'submissions'}
           />
 
           {/* Saved views */}

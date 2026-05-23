@@ -19,7 +19,7 @@
  * Load more: explicit "Load more" button when next_cursor is non-null.
  */
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   createColumnHelper,
   flexRender,
@@ -130,6 +130,32 @@ export function CohortTable({
 }: CohortTableProps) {
   const navigate = useNavigate();
   const { semesterSlug } = useParams<{ semesterSlug: string }>();
+
+  // Infinite-scroll sentinel: lives INSIDE the scrollable table container
+  // (see parentRef below) so it's only visible to the IntersectionObserver
+  // once the user has actually scrolled near the bottom. Observer roots
+  // against parentRef rather than the document so an unscrolled table doesn't
+  // immediately trip the sentinel just because it fits in the viewport.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  // Forward-declared here; assigned by the JSX below.
+  const parentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    const root = parentRef.current;
+    if (!node || !root || nextCursor === null) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !isLoadingMore) {
+            onLoadMore();
+          }
+        }
+      },
+      { root, rootMargin: '200px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [nextCursor, isLoadingMore, onLoadMore]);
 
   const columns = useMemo(
     () => [
@@ -245,8 +271,9 @@ export function CohortTable({
     manualSorting: true,
   });
 
-  // Virtualization setup
-  const parentRef = useRef<HTMLDivElement>(null);
+  // Virtualization setup. parentRef is declared above (alongside the
+  // infinite-scroll observer setup) so both pieces share the same scroll
+  // container reference.
   const ROW_HEIGHT = 52;
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -334,21 +361,19 @@ export function CohortTable({
             )}
           </tbody>
         </table>
-      </div>
-
-      {/* Load more */}
-      {nextCursor !== null && (
-        <div className="flex justify-center py-2">
-          <button
-            onClick={onLoadMore}
-            disabled={isLoadingMore}
-            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            data-testid="load-more-button"
+        {/* Infinite-scroll sentinel lives INSIDE the scrollable parent so the
+            IntersectionObserver (rooted on parentRef) only sees it after the
+            user has actually scrolled near the bottom of the table. */}
+        {nextCursor !== null && (
+          <div
+            ref={sentinelRef}
+            className="flex justify-center py-3 text-xs text-gray-400"
+            data-testid="cohort-load-more-sentinel"
           >
-            {isLoadingMore ? 'Loading…' : 'Load more'}
-          </button>
-        </div>
-      )}
+            {isLoadingMore ? 'Loading more…' : 'Scroll for more'}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -264,7 +264,7 @@ export function useAssignments(semesterId: string) {
 
 type QueryParams = Record<string, string | string[] | undefined>;
 
-function buildSubmissionParams(
+export function buildSubmissionParams(
   filters: CohortFilters,
   sort: CohortSort,
   cursor: string | null,
@@ -287,7 +287,7 @@ function buildSubmissionParams(
   return p;
 }
 
-function buildStudentParams(
+export function buildStudentParams(
   filters: CohortFilters,
   sort: StudentSort,
   cursor: string | null,

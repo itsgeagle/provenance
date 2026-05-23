@@ -1,27 +1,33 @@
 /**
- * ExportCurrentView — exports the currently visible rows as a CSV file.
+ * ExportCurrentView — exports ALL submissions matching the current filters,
+ * not just the rows already loaded in the table.
  *
- * Scope: only the rows currently rendered in the table (no additional API
- * calls). Export-all-filtered-rows would require fetching all pages, which
- * is a future feature.
+ * On click, walks the server's cursor-paginated list endpoint with the same
+ * filters + sort as the visible view, accumulates every page, then writes a
+ * single CSV. Bounded by MAX_EXPORT_ROWS to avoid runaway downloads if the
+ * filter is too broad.
  *
  * Filename: `cohort-<semester>-<YYYYMMDD>.csv`
- *
- * CSV format (no library — the payload is small and well-structured):
- * - Header row with column names
- * - One data row per SubmissionRow
- * - Values with commas/quotes are wrapped in double-quotes; embedded
- *   double-quotes are escaped as ""
  */
 
-import type { SubmissionRow } from '@provenance/shared/api-schemas';
+import { useState } from 'react';
+import { apiFetch } from '../../api/client.js';
+import { buildSubmissionParams, buildQueryString } from '../../api/queries.js';
+import type { CohortSort } from '../../api/queries.js';
+import type { CohortFilters } from './use-cohort-filters.js';
+import {
+  CohortListResponseSchema,
+  type SubmissionRow,
+} from '@provenance/shared/api-schemas';
+
+const PAGE_LIMIT = 200;
+const MAX_EXPORT_ROWS = 10_000;
 
 // ---------------------------------------------------------------------------
 // CSV helpers
 // ---------------------------------------------------------------------------
 
 function csvEscape(value: string): string {
-  // If value contains comma, double-quote, or newline → wrap in quotes
   if (value.includes(',') || value.includes('"') || value.includes('\n')) {
     return `"${value.replace(/"/g, '""')}"`;
   }
@@ -81,7 +87,7 @@ function formatDateYYYYMMDD(date: Date): string {
   return `${y}${m}${d}`;
 }
 
-export function downloadCsv(rows: SubmissionRow[], semesterSlug: string): void {
+function downloadCsv(rows: SubmissionRow[], semesterSlug: string): void {
   const csv = buildCsv(rows);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -96,27 +102,103 @@ export function downloadCsv(rows: SubmissionRow[], semesterSlug: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Cursor walker
+// ---------------------------------------------------------------------------
+
+async function fetchAllSubmissions(
+  semesterId: string,
+  filters: CohortFilters,
+  sort: CohortSort,
+): Promise<{ rows: SubmissionRow[]; truncated: boolean }> {
+  const accumulated: SubmissionRow[] = [];
+  let cursor: string | null = null;
+
+  // Iterate until the server returns no more pages OR we hit the safety cap.
+  for (let page = 0; page < Math.ceil(MAX_EXPORT_ROWS / PAGE_LIMIT) + 1; page++) {
+    const params = buildSubmissionParams(filters, sort, cursor, PAGE_LIMIT);
+    const qs = buildQueryString(params);
+    const result = await apiFetch(
+      `/semesters/${semesterId}/submissions${qs ? `?${qs}` : ''}`,
+      undefined,
+      CohortListResponseSchema,
+    );
+    accumulated.push(...result.items);
+
+    if (accumulated.length >= MAX_EXPORT_ROWS) {
+      return { rows: accumulated.slice(0, MAX_EXPORT_ROWS), truncated: true };
+    }
+
+    if (!result.next_cursor) {
+      return { rows: accumulated, truncated: false };
+    }
+    cursor = result.next_cursor;
+  }
+
+  return { rows: accumulated, truncated: true };
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 interface ExportCurrentViewProps {
-  rows: SubmissionRow[];
+  semesterId: string;
   semesterSlug: string;
+  filters: CohortFilters;
+  sort: CohortSort;
+  /** Disable when the student tab is active (CSV is submission-shaped). */
+  disabled?: boolean;
 }
 
-export function ExportCurrentView({ rows, semesterSlug }: ExportCurrentViewProps) {
-  function handleExport() {
-    downloadCsv(rows, semesterSlug);
+export function ExportCurrentView({
+  semesterId,
+  semesterSlug,
+  filters,
+  sort,
+  disabled,
+}: ExportCurrentViewProps) {
+  const [isExporting, setIsExporting] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  async function handleExport() {
+    if (isExporting || disabled) return;
+    setIsExporting(true);
+    setWarning(null);
+    try {
+      const { rows, truncated } = await fetchAllSubmissions(semesterId, filters, sort);
+      if (rows.length === 0) {
+        setWarning('No rows to export.');
+        return;
+      }
+      downloadCsv(rows, semesterSlug);
+      if (truncated) {
+        setWarning(
+          `Export capped at ${MAX_EXPORT_ROWS.toLocaleString()} rows. Narrow your filters to export the rest.`,
+        );
+      }
+    } catch (e) {
+      setWarning(`Export failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   return (
-    <button
-      onClick={handleExport}
-      disabled={rows.length === 0}
-      className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-      data-testid="export-button"
-    >
-      Export CSV ({rows.length} rows)
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => void handleExport()}
+        disabled={isExporting || disabled}
+        className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        data-testid="export-button"
+        title={disabled ? 'Switch to the submissions tab to export' : 'Export all matching rows'}
+      >
+        {isExporting ? 'Exporting…' : 'Export CSV'}
+      </button>
+      {warning && (
+        <span className="text-[11px] text-amber-600" data-testid="export-warning">
+          {warning}
+        </span>
+      )}
+    </div>
   );
 }
