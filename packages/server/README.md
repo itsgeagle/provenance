@@ -2,6 +2,8 @@
 
 Node.js API server for the Provenance Analyzer v3.
 
+Current schema version: **0012** (cross_flags + cross_flag_participants, Phases 0–14).
+
 ## Dev quickstart
 
 ### 1. Start backing services
@@ -46,16 +48,31 @@ curl localhost:3000/healthz
 ## Run modes
 
 ```bash
-# API server (default)
-node dist/index.js
+# API server only (no background jobs)
 node dist/index.js --mode=api
 
-# All modes (currently boots API only; worker added in Phase 12)
-node dist/index.js --mode=all
-
-# Worker only (stub until Phase 12)
+# Worker only (pg-boss job handlers + cron jobs)
 node dist/index.js --mode=worker
+
+# All-in-one — recommended for single-machine dev / staging
+node dist/index.js --mode=all
 ```
+
+In production, run `--mode=api` and `--mode=worker` as separate processes so they
+can be scaled independently.
+
+## Cron jobs (Phase 25)
+
+Three scheduled jobs are registered in pg-boss on worker startup:
+
+| Job | Cron (UTC) | Description |
+|-----|------------|-------------|
+| `retention_sweep` | `0 2 * * *` | Purge blobs past semester retention window (PRD §16) |
+| `purge_expired_sessions` | `0 * * * *` | DELETE expired session rows |
+| `purge_expired_exports` | `0 3 * * *` | Stub — export artifacts (v3.1) |
+
+Handler sources: `src/jobs/retention-sweep.ts`, `src/jobs/purge-expired-sessions.ts`,
+`src/jobs/purge-expired-exports.ts`. Registered via `boss.schedule()` in `src/jobs/worker.ts`.
 
 ## Database migrations
 
@@ -73,10 +90,30 @@ npm run db:migrate --workspace=packages/server
 # 2. Run drizzle-kit to generate the migration SQL:
 npm run db:generate --workspace=packages/server
 # 3. Review the generated file in packages/server/db/migrations/.
-#    If the generated SQL differs from the intended DDL (e.g. missing partial
-#    unique index, wrong expression default), hand-edit it to match.
-# 4. Commit both schema.ts and the new .sql file together.
+#    drizzle-kit cannot express partial/functional indexes — hand-edit those.
+#    Pattern: grep for "IMPORTANT: hand-edit" comments in the schema for known gaps.
+# 4. Apply to local dev DB:
+npm run db:migrate --workspace=packages/server
+# 5. Commit both schema.ts and the new .sql migration file together.
+# 6. Update the "Current schema version" in this README.
 ```
+
+**Migrations through 0012:**
+
+| Migration | Contents |
+|-----------|----------|
+| 0001 | users, sessions, courses, semesters, memberships, roster_entries, pending_invitations |
+| 0002 | api_tokens |
+| 0003 | rate_limit_buckets |
+| 0004 | audit_log |
+| 0005 | roster_entries (index fix) |
+| 0006 | ingest_jobs, ingest_files, assignments, submissions |
+| 0007 | events, per_file_stats |
+| 0008 | validation_results |
+| 0009 | flags |
+| 0010 | heuristic_configs, recompute_jobs |
+| 0011 | (reserved) |
+| 0012 | cross_flags, cross_flag_participants |
 
 Migrations are stored in `packages/server/db/migrations/` and tracked by
 `meta/_journal.json`. The `db:migrate` script runs `drizzle-orm`'s migrator
