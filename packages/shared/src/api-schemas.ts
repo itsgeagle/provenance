@@ -487,6 +487,7 @@ export const HeuristicConfigBodySchema = z.object({
     medium: z.number(),
     high: z.number(),
   }),
+  config_format_version: z.literal(1),
 });
 export type HeuristicConfigBody = z.infer<typeof HeuristicConfigBodySchema>;
 
@@ -543,6 +544,13 @@ export const DryRunDiffSchema = z.object({
     top_movers: z.array(TopMoverSchema),
     score_histogram_old: z.array(z.number()),
     score_histogram_new: z.array(z.number()),
+    /**
+     * Exclusive upper bound for the highest bucket. Each of the 10 buckets is
+     * `score_histogram_upper_bound / 10` wide; bucket i covers
+     * `[i * width, (i+1) * width)` (the top bucket is inclusive of the upper
+     * bound so scores at exactly upper_bound are still counted).
+     */
+    score_histogram_upper_bound: z.number(),
   }),
 });
 export type DryRunDiff = z.infer<typeof DryRunDiffSchema>;

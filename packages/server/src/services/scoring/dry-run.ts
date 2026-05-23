@@ -60,6 +60,8 @@ export type DryRunDiff = {
     top_movers: TierMover[];
     score_histogram_old: number[];
     score_histogram_new: number[];
+    /** Exclusive upper bound for the top bucket (bucket width = bound / 10). */
+    score_histogram_upper_bound: number;
   };
 };
 
@@ -146,6 +148,7 @@ export async function computeDryRunDiff(
         top_movers: [],
         score_histogram_old: new Array<number>(HISTOGRAM_BUCKETS).fill(0),
         score_histogram_new: new Array<number>(HISTOGRAM_BUCKETS).fill(0),
+        score_histogram_upper_bound: 1.0,
       },
     };
   }
@@ -253,6 +256,7 @@ export async function computeDryRunDiff(
       top_movers: topMovers,
       score_histogram_old: scoreHistogramOld,
       score_histogram_new: scoreHistogramNew,
+      score_histogram_upper_bound: upperBound,
     },
   };
 }

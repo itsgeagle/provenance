@@ -17,7 +17,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Label } from 'recharts';
 import {
   useActiveConfig,
   useCommitConfig,
@@ -92,15 +92,26 @@ export function TuningView() {
   // Debounce timer ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Tracks whether we've fired the initial "current distribution" dry-run.
+  const initialDryRunFiredRef = useRef(false);
+
   // Recompute job tracking via URL query param
   const recomputeJobId = searchParams.get('recompute_job') ?? '';
 
-  // Initialize candidate from active config
+  // Initialize candidate from active config + fire one immediate dry-run with
+  // the unchanged config so the chart shows the CURRENT score distribution on
+  // page load (the "Before" series), instead of an empty placeholder.
   useEffect(() => {
     if (activeConfig && candidate === null) {
-      setCandidate(configFromActive(activeConfig));
+      const initial = configFromActive(activeConfig);
+      setCandidate(initial);
+
+      if (!initialDryRunFiredRef.current) {
+        initialDryRunFiredRef.current = true;
+        dryRunMutation.mutate({ config: initial, currentVersion: activeConfig.version });
+      }
     }
-  }, [activeConfig, candidate]);
+  }, [activeConfig, candidate, dryRunMutation]);
 
   // Trigger dry-run after 300ms debounce
   const triggerDryRun = useCallback(
@@ -185,13 +196,21 @@ export function TuningView() {
 
   const dryRunData = dryRunMutation.data?.diff;
 
-  // Build histogram data for recharts
+  // Build histogram data for recharts. Each bucket label is its score range
+  // "lo–hi" using the server-provided upper bound so users can read the X
+  // axis as actual score values instead of opaque bucket indices.
   const histogramData = dryRunData
-    ? dryRunData.score_histogram_old.map((old, i) => ({
-        bucket: i,
-        before: old,
-        after: dryRunData.score_histogram_new[i] ?? 0,
-      }))
+    ? (() => {
+        const upper = dryRunData.score_histogram_upper_bound;
+        const width = upper / dryRunData.score_histogram_old.length;
+        const fmt = (n: number) =>
+          width >= 10 ? n.toFixed(0) : width >= 1 ? n.toFixed(1) : n.toFixed(2);
+        return dryRunData.score_histogram_old.map((old, i) => ({
+          bucket: `${fmt(i * width)}–${fmt((i + 1) * width)}`,
+          before: old,
+          after: dryRunData.score_histogram_new[i] ?? 0,
+        }));
+      })()
     : [];
 
   return (
@@ -310,12 +329,33 @@ export function TuningView() {
                 <h3 className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
                   Score Distribution
                 </h3>
-                <ResponsiveContainer width="100%" height={160}>
-                  <BarChart data={histogramData}>
-                    <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} />
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={histogramData} margin={{ top: 5, right: 10, left: 10, bottom: 28 }}>
+                    <XAxis
+                      dataKey="bucket"
+                      tick={{ fontSize: 10 }}
+                      interval={0}
+                      angle={-30}
+                      textAnchor="end"
+                      height={50}
+                    >
+                      <Label
+                        value="Score range"
+                        position="insideBottom"
+                        offset={-2}
+                        style={{ fontSize: 10, fill: '#6b7280' }}
+                      />
+                    </XAxis>
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false}>
+                      <Label
+                        value="Submissions"
+                        angle={-90}
+                        position="insideLeft"
+                        style={{ fontSize: 10, fill: '#6b7280', textAnchor: 'middle' }}
+                      />
+                    </YAxis>
                     <Tooltip />
-                    <Legend />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Bar dataKey="before" fill="#94a3b8" name="Before" />
                     <Bar dataKey="after" fill="#3b82f6" name="After" />
                   </BarChart>

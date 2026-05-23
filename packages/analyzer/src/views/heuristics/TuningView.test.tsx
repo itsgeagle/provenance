@@ -50,6 +50,7 @@ const DEFAULT_CONFIG = {
     paste_shared_across_students: { enabled: true, weight: 1.0 },
   },
   severity_weights: { info: 0, low: 1, medium: 3, high: 8 },
+  config_format_version: 1 as const,
 };
 
 const DEFAULT_ACTIVE_CONFIG = {
@@ -78,6 +79,7 @@ const DRY_RUN_DIFF = {
     ],
     score_histogram_old: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
     score_histogram_new: [0, 1, 2, 4, 4, 5, 6, 7, 8, 9],
+    score_histogram_upper_bound: 50,
   },
 };
 
