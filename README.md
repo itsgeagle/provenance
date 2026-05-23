@@ -5,57 +5,106 @@
 Provenance has two halves that share one artifact:
 
 1. **Provenance Recorder** — a VS Code extension that runs while a student works on an assignment and produces a tamper-evident log of how the code came into existence.
-2. **Provenance Analyzer** — a web app used by course staff to inspect those logs: a replay UI for manual review, plus an automated heuristics engine that flags suspicious patterns for human attention.
+2. **Provenance Analyzer v3** — a full-stack web app used by course staff to ingest, score, and review those logs at scale. Includes: a cohort list with filter/sort/export, per-submission drill-in with timeline replay and validation, a heuristics tuning UI, cross-submission paste detection, and a standalone offline mode (`/local`) that runs entirely in-browser.
 
 The full design lives in [`docs/prd.md`](docs/prd.md). Code conventions for working in this repo are in [`CLAUDE.md`](CLAUDE.md).
 
 ## Status
 
-| Component           | Status                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests.                                                                                                                                                                                                              |
-| `packages/recorder` | **v1.1 complete** — all PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode, initial-content capture on `doc.open` (v1.1). 255 unit tests + integration tests against real VS Code.                                                                     |
-| `packages/analyzer` | **v2 complete** — bundle load + validation, multi-bundle + `/compare` view, overview, raw timeline (virtualized), Monaco replay (real-time playback at recorded event spacing, gutter decorations, hover attribution, jumps), full heuristic suite (process-shape + environment + integrity + cross-submission), markdown + PDF findings export. 816 unit tests. Static hosting ready. |
+| Component           | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/log-core` | **Complete** — event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle and manifest shapes, ed25519 manifest verification. 125 unit tests.                                                                                                                                                                                                                                                                               |
+| `packages/recorder` | **v1.1 complete** — all PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode, initial-content capture on `doc.open` (v1.1). 255 unit tests + integration tests against real VS Code.                                                                                                                                       |
+| `packages/shared`   | **v3 complete** — Zod schemas shared between server and analyzer for type-safe API contracts.                                                                                                                                                                                                                                                                                                                                                           |
+| `packages/analyzer` | **v3 complete** — Full cohort + per-submission flow. Google OAuth login, semester switcher, cohort list (virtualized, filterable, sortable), per-submission drill-in (overview / timeline / replay / validation), heuristics tuning (24-slider UI, dry-run diff, recompute), cross-flags view, export panel. Standalone `/local` mode (v2 drop-a-zip UX, no auth required). 1000+ unit tests. |
+| `packages/server`   | **v3 complete** — Node.js + Hono API server. PostgreSQL + Drizzle ORM. Google OAuth + sessions + API tokens. Ingest pipeline (ZIP → parse → match → heuristics → cross-flags). pg-boss job queue. OpenAPI 3.1 spec + Redoc. Prometheus metrics. Retention sweep + session purge cron jobs. 800+ integration tests. |
 
-See [`docs/implementation-plan.md`](docs/implementation-plan.md) for the phase-by-phase build history.
+See [`docs/analyzer-v3-implementation-plan.md`](docs/analyzer-v3-implementation-plan.md) for the v3 build history (26 phases).
 
-## Quickstart for developers
+## Quickstart — development environment
 
-Requires Node 22+ (for `--experimental-strip-types`) and npm 10+.
+Requires Node 22+ and npm 10+. Docker is required to run the server (Postgres + MinIO via `docker compose`).
 
 ```sh
-git clone <repo>
+git clone <repo> provenance
 cd provenance
 npm install
+```
+
+### Run all tests
+
+```sh
 npm run build && npm run typecheck && npm run lint && npm run test
 ```
 
-To run the recorder against the bundled test workspace, open this repo in VS Code and press F5 (or pick **"Run Recorder Extension"** in the Run & Debug panel). A second VS Code window opens with `test-workspace/` loaded; the status bar shows "CS 61A: recording".
+### Run the analyzer v3 server (API + worker)
 
-For richer instructions — including how to read the live log, run the integration tests against a real VS Code, and exercise the bundle-seal flow — see [`docs/recorder.md`](docs/recorder.md). The student-facing description that ships with the VSIX lives at [`packages/recorder/README.md`](packages/recorder/README.md).
+```sh
+# Start Postgres + MinIO
+docker compose up -d
 
-To run the analyzer in development, start the dev server:
+# Configure environment (fill in Google OAuth credentials)
+cp packages/server/.env.example packages/server/.env
+
+# Run migrations
+npm run db:migrate --workspace=packages/server
+
+# Start server (API + worker combined)
+npm run dev --workspace=packages/server
+```
+
+The server starts on `http://localhost:3000`. Swagger UI at `http://localhost:3000/api/v1/docs`.
+
+### Run the analyzer frontend
 
 ```sh
 npm run dev --workspace=packages/analyzer
 ```
 
-Then drop a `.slog` bundle in the load view. For a static build ready to host, see [`packages/analyzer/README.md`](packages/analyzer/README.md).
+Visit `http://localhost:5173`. Sign in with a Google account in `AUTH_ALLOWED_HOSTED_DOMAINS`.
+
+### Offline / local mode (no server required)
+
+Visit `http://localhost:5173/local/load` and drop a `.zip` bundle. No authentication
+is required. This is the preserved v2 "drop a zip" UX. It runs entirely in-browser —
+no data leaves your machine.
+
+### Run the recorder extension
+
+Open this repo in VS Code and press F5 (or pick **"Run Recorder Extension"** in the
+Run & Debug panel). A second VS Code window opens with `test-workspace/` loaded; the
+status bar shows "CS 61A: recording".
+
+For richer recorder instructions see [`docs/recorder.md`](docs/recorder.md).
+The student-facing description that ships with the VSIX lives at
+[`packages/recorder/README.md`](packages/recorder/README.md).
+
+### Documentation
+
+- [`docs/admin-guide.md`](docs/admin-guide.md) — hosting, Google OAuth setup, retention policy, backups, restore drill
+- [`docs/api-quickstart.md`](docs/api-quickstart.md) — Python and curl examples for the v3 API
+- [`packages/server/README.md`](packages/server/README.md) — server-specific dev instructions
 
 ## Repo layout
 
 ```
 provenance/
 ├── docs/
-│   ├── prd.md                 # product spec — source of truth for behavior
-│   └── implementation-plan.md # phased plan that built the v1 recorder
+│   ├── prd.md                          # recorder product spec
+│   ├── analyzer-v3-prd.md              # analyzer v3 product spec
+│   ├── analyzer-v3-implementation-plan.md # 26-phase build plan
+│   ├── admin-guide.md                  # hosting + operations guide
+│   └── api-quickstart.md               # Python + curl API examples
 ├── packages/
 │   ├── log-core/              # shared event types, hash chain, format
-│   ├── recorder/              # the VS Code extension (v1 complete)
-│   └── analyzer/              # web app (v2 complete)
+│   ├── recorder/              # VS Code extension (v1.1 complete)
+│   ├── shared/                # Zod API schemas shared by server + analyzer
+│   ├── analyzer/              # SPA frontend (v3 complete)
+│   └── server/                # Node.js API server (v3 complete)
 ├── tools/                     # dev scripts (key generation, manifest signing)
-├── test-workspace/            # sample student workspace used for dev & integration tests
-├── CLAUDE.md                  # repo conventions
+├── test-workspace/            # sample student workspace for dev & integration tests
+├── compose.yaml               # Docker Compose for Postgres + MinIO
+├── CLAUDE.md                  # repo conventions for Claude Code
 └── package.json               # npm workspace root
 ```
 

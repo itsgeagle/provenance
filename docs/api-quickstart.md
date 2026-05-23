@@ -204,6 +204,46 @@ for rank, sub in enumerate(flagged, 1):
 | `sort`                    | string  | `score_desc` (default), `student_asc`, `ingested_desc`, etc. |
 | `limit`                   | int     | 1–500, default 50                                            |
 
+## curl examples
+
+### List cohort submissions (first page)
+
+```bash
+curl -s \
+  -H "Authorization: Bearer $PROVENANCE_TOKEN" \
+  "$PROVENANCE_BASE_URL/semesters/$SEMESTER_ID/submissions?limit=50&sort=score_desc" \
+  | python3 -m json.tool | head -60
+```
+
+### Cross-flags for a semester
+
+```bash
+curl -s \
+  -H "Authorization: Bearer $PROVENANCE_TOKEN" \
+  "$PROVENANCE_BASE_URL/semesters/$SEMESTER_ID/cross-flags?severity_min=medium&limit=20" \
+  | python3 -m json.tool
+```
+
+### Per-submission flags
+
+```bash
+curl -s \
+  -H "Authorization: Bearer $PROVENANCE_TOKEN" \
+  "$PROVENANCE_BASE_URL/submissions/$SUBMISSION_ID/flags" \
+  | python3 -m json.tool
+```
+
+### Trigger heuristic recompute for a semester
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $PROVENANCE_TOKEN" \
+  -H "Content-Type: application/json" \
+  "$PROVENANCE_BASE_URL/semesters/$SEMESTER_ID/heuristic-config/recompute" \
+  -d '{}' \
+  | python3 -m json.tool
+```
+
 ## API reference
 
 Full documentation at: `https://provenance.example.edu/api/v1/docs`
