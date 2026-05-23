@@ -1,0 +1,527 @@
+# Provenance Analyzer v3 — Admin Guide
+
+This document covers deploying, configuring, and operating the Provenance Analyzer
+v3 server. Audience: course infrastructure admins and instructors who manage the
+instance (not end users).
+
+## Table of Contents
+
+1. [Hosting requirements](#1-hosting-requirements)
+2. [Deployment — server](#2-deployment--server)
+3. [Google OAuth setup](#3-google-oauth-setup)
+4. [Bootstrap — first login and superadmin](#4-bootstrap--first-login-and-superadmin)
+5. [Creating courses and semesters](#5-creating-courses-and-semesters)
+6. [Retention policy](#6-retention-policy)
+7. [Cron jobs](#7-cron-jobs)
+8. [Backups](#8-backups)
+9. [Restore drill](#9-restore-drill)
+10. [Environment variable reference](#10-environment-variable-reference)
+11. [Troubleshooting](#11-troubleshooting)
+
+---
+
+## 1. Hosting requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| Node.js   | 22 LTS  | 22 LTS      |
+| Postgres  | 16      | 16          |
+| Object storage | MinIO (self-hosted) or AWS S3 / Cloudflare R2 | MinIO on same subnet |
+| RAM (server) | 512 MB | 2 GB |
+| Disk (Postgres data) | 10 GB | 50 GB |
+| Disk (object storage) | 100 GB | 1 TB |
+
+The server runs as a single Node.js process. It serves both the API and the frontend
+SPA (the frontend is pre-built and served as static files from `packages/analyzer/dist/`).
+
+---
+
+## 2. Deployment — server
+
+### 2.1 Build
+
+```bash
+git clone <repo> provenance
+cd provenance
+npm install
+npm run build
+```
+
+This produces:
+
+- `packages/server/dist/index.js` — the server entry point
+- `packages/analyzer/dist/` — the SPA static files
+
+### 2.2 Configure environment
+
+Copy `.env.example` to `.env` and fill in required values:
+
+```bash
+cp packages/server/.env.example packages/server/.env
+```
+
+At minimum, set:
+
+```
+DATABASE_URL=postgres://user:password@localhost:5432/provenance
+GOOGLE_OAUTH_CLIENT_ID=<client-id>.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=<client-secret>
+AUTH_COOKIE_SIGNING_SECRET=<random-32-bytes-base64>
+OBJECT_STORAGE_ENDPOINT=http://localhost:9000
+OBJECT_STORAGE_ACCESS_KEY_ID=minioadmin
+OBJECT_STORAGE_SECRET_ACCESS_KEY=minioadmin
+OBJECT_STORAGE_BUCKET=provenance
+AUTH_SUPERADMIN_EMAILS=you@berkeley.edu
+```
+
+Generate the cookie secret:
+
+```bash
+openssl rand -base64 32
+```
+
+### 2.3 Run database migrations
+
+```bash
+node packages/server/dist/index.js --mode=migrate
+```
+
+Or use `npm run db:migrate --workspace=packages/server` (requires dev deps installed).
+
+### 2.4 Start the server
+
+**API only (recommended for separate worker deployment):**
+
+```bash
+node packages/server/dist/index.js --mode=api
+```
+
+**Worker only (runs cron jobs + background job processors):**
+
+```bash
+node packages/server/dist/index.js --mode=worker
+```
+
+**All-in-one (development / single-machine):**
+
+```bash
+node packages/server/dist/index.js --mode=all
+```
+
+The default `PORT` is 3000. Override with `PORT=8080`.
+
+### 2.5 Serve the frontend
+
+The SPA (`packages/analyzer/dist/`) can be served by any static file host:
+
+- **Nginx:** configure `try_files $uri /index.html` for client-side routing.
+- **Same server:** the Hono server can serve static files if you configure
+  `STATIC_DIR=<path-to-dist>` (not yet wired in v3.0 — use a CDN or Nginx).
+- **Vite preview** (dev only): `npm run preview --workspace=packages/analyzer`
+
+Point the frontend's `VITE_API_BASE_URL` build-time variable at your API origin:
+
+```bash
+VITE_API_BASE_URL=https://provenance.example.edu/api/v1 npm run build --workspace=packages/analyzer
+```
+
+---
+
+## 3. Google OAuth setup
+
+Provenance uses Google OAuth with an `hd` (hosted domain) constraint. Only users
+whose Google account belongs to your institution's Google Workspace domain can log in.
+
+### 3.1 Create a project in Google Cloud Console
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com).
+2. Create a new project: `provenance-<semester>`.
+3. Navigate to **APIs & Services → Credentials**.
+4. Click **Create Credentials → OAuth client ID**.
+5. Application type: **Web application**.
+6. Name: `Provenance Analyzer`.
+7. **Authorized redirect URIs:** add:
+   ```
+   https://provenance.example.edu/api/v1/auth/google/callback
+   ```
+   (Replace with your actual domain. For local dev: `http://localhost:3000/api/v1/auth/google/callback`.)
+8. Click **Create**. Copy the **Client ID** and **Client Secret**.
+
+### 3.2 Configure hosted domain restriction
+
+Set `AUTH_ALLOWED_HOSTED_DOMAINS` to your institution's Google Workspace domain.
+The default is `berkeley.edu`:
+
+```
+AUTH_ALLOWED_HOSTED_DOMAINS=berkeley.edu
+```
+
+To allow multiple domains (e.g. for cross-listed courses):
+
+```
+AUTH_ALLOWED_HOSTED_DOMAINS=berkeley.edu,stanford.edu
+```
+
+The server validates the `hd` claim in the Google ID token. Accounts that do not
+match the allowed domains are rejected with a `HOSTED_DOMAIN_MISMATCH` error.
+
+### 3.3 OAuth consent screen
+
+In Google Cloud Console → **APIs & Services → OAuth consent screen**:
+
+- User type: **Internal** (restricts to your Workspace domain automatically; recommended).
+- App name: `Provenance`.
+- Authorized domain: your institution domain.
+- No additional scopes needed beyond `openid email profile`.
+
+---
+
+## 4. Bootstrap — first login and superadmin
+
+### 4.1 Set AUTH_SUPERADMIN_EMAILS
+
+Before any user logs in, set the `AUTH_SUPERADMIN_EMAILS` environment variable to
+the email addresses that should receive superadmin privileges on first login:
+
+```
+AUTH_SUPERADMIN_EMAILS=alice@berkeley.edu,bob@berkeley.edu
+```
+
+On first login, the server checks whether the authenticated user's email is in this
+list and sets `users.is_superadmin = true` if so.
+
+**Production requirement:** `AUTH_SUPERADMIN_EMAILS` must be non-empty when
+`NODE_ENV=production`. The server will refuse to start if it is empty.
+
+### 4.2 Log in
+
+Navigate to `https://provenance.example.edu` and click **Sign in with Google**.
+After authenticating, you will land on the Home view. Your account will have
+superadmin status if your email was in `AUTH_SUPERADMIN_EMAILS`.
+
+### 4.3 Verify superadmin status
+
+```bash
+curl -s -H 'Cookie: __Host-prov_sess=<your-session-cookie>' \
+  https://provenance.example.edu/api/v1/me \
+  | python3 -m json.tool | grep is_superadmin
+```
+
+Expected: `"is_superadmin": true`.
+
+---
+
+## 5. Creating courses and semesters
+
+Via the API (or, in a future release, via the UI):
+
+```bash
+# Create a course
+curl -s -X POST https://provenance.example.edu/api/v1/courses \
+  -H 'Content-Type: application/json' \
+  -H 'Cookie: __Host-prov_sess=<session>' \
+  -d '{"name": "CS 61A", "slug": "cs61a"}'
+
+# Create a semester
+curl -s -X POST https://provenance.example.edu/api/v1/courses/<courseId>/semesters \
+  -H 'Content-Type: application/json' \
+  -H 'Cookie: __Host-prov_sess=<session>' \
+  -d '{
+    "term": "fa",
+    "year": 2025,
+    "slug": "fa25",
+    "display_name": "Fall 2025",
+    "filename_convention": "^(?P<sid>\\d{8})-(?P<assignment_id>hw\\d+)\\.zip$",
+    "blob_retention_days": 540
+  }'
+```
+
+Invite staff members to the semester via `POST /semesters/<semesterId>/members/invite`.
+
+---
+
+## 6. Retention policy
+
+### 6.1 How blob_retention_days works
+
+Each semester has a `blob_retention_days` column (default: **540 days**, minimum: 30).
+This controls how long raw submission ZIP blobs are kept in object storage after the
+semester is archived.
+
+The lifecycle:
+
+1. Semester is archived: `PATCH /semesters/<id>` with `{"archived_at": "<date>"}`.
+2. A daily cron job (the **retention sweep**, runs at 2:00 UTC) checks all semesters.
+3. For each archived semester where `now() >= archived_at + blob_retention_days`,
+   the sweep deletes the blob from object storage.
+4. **DB rows are never deleted.** The `submissions`, `events`, `flags`, and
+   `per_file_stats` rows persist indefinitely for audit and re-analysis.
+
+### 6.2 Configuring retention
+
+To set a custom retention window when creating a semester:
+
+```bash
+# 365-day retention (delete blobs 1 year after archiving)
+"blob_retention_days": 365
+```
+
+To update an existing semester's retention:
+
+```bash
+curl -s -X PATCH https://provenance.example.edu/api/v1/semesters/<semesterId> \
+  -H 'Content-Type: application/json' \
+  -H 'Cookie: __Host-prov_sess=<session>' \
+  -d '{"blob_retention_days": 730}'
+```
+
+### 6.3 Archiving a semester
+
+```bash
+curl -s -X PATCH https://provenance.example.edu/api/v1/semesters/<semesterId> \
+  -H 'Content-Type: application/json' \
+  -H 'Cookie: __Host-prov_sess=<session>' \
+  -d '{"archived_at": "2025-12-31T23:59:59Z"}'
+```
+
+Once a semester is archived:
+- No new ingests are accepted.
+- The retention clock starts.
+- Historical data (events, flags, scores) remains accessible.
+
+---
+
+## 7. Cron jobs
+
+Cron jobs are managed by pg-boss and run automatically when the worker process is
+running. They are registered on every worker startup (idempotent).
+
+| Job name                 | Schedule (UTC)   | Description                                     |
+|--------------------------|------------------|-------------------------------------------------|
+| `retention_sweep`        | 2:00 daily       | Delete blobs past retention window (PRD §16)    |
+| `purge_expired_sessions` | Every hour       | Delete `sessions` rows where `expires_at < now()`|
+| `purge_expired_exports`  | 3:00 daily       | Stub — will purge export artifacts in v3.1      |
+
+To verify cron jobs are registered:
+
+```sql
+SELECT name, cron, created_on, updated_on
+FROM pgboss.schedule
+ORDER BY name;
+```
+
+Expected output shows all three job names with their cron expressions.
+
+To manually trigger a cron job (e.g. for testing):
+
+```sql
+INSERT INTO pgboss.job (name, data) VALUES ('retention_sweep', '{}');
+```
+
+---
+
+## 8. Backups
+
+### 8.1 Postgres
+
+Use `pg_dump` for logical backups. Schedule daily with cron:
+
+```bash
+# Daily backup at 1:00 UTC (before retention sweep at 2:00)
+pg_dump --format=custom --compress=9 \
+  --dbname="$DATABASE_URL" \
+  --file="/backups/provenance-$(date +%Y%m%d).dump"
+
+# Keep 30 days of backups
+find /backups -name 'provenance-*.dump' -mtime +30 -delete
+```
+
+Restore from backup:
+
+```bash
+pg_restore --clean --if-exists --dbname="$DATABASE_URL" /backups/provenance-20251231.dump
+```
+
+### 8.2 Object storage (MinIO)
+
+**Option A — MinIO replication (recommended for production):**
+
+Configure MinIO bucket replication to a second site or S3 bucket:
+
+```bash
+mc alias set local http://localhost:9000 $ACCESS_KEY $SECRET_KEY
+mc alias set backup https://s3.amazonaws.com $AWS_ACCESS_KEY $AWS_SECRET_KEY
+
+mc replicate add local/provenance \
+  --remote-bucket backup/provenance-backup \
+  --priority 1
+```
+
+**Option B — nightly snapshot:**
+
+```bash
+mc mirror local/provenance /backups/minio-$(date +%Y%m%d)/
+```
+
+---
+
+## 9. Restore drill
+
+Run this procedure at least once before going to production to verify your backups
+are restorable. Schedule quarterly thereafter.
+
+### Step 1: Prepare a clean environment
+
+Start fresh Postgres and MinIO instances (do not touch production):
+
+```bash
+docker run -d --name pg-restore \
+  -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=provenance \
+  -p 5433:5432 postgres:16-alpine
+
+docker run -d --name minio-restore \
+  -e MINIO_ROOT_USER=testadmin -e MINIO_ROOT_PASSWORD=testadmin \
+  -p 9100:9000 minio/minio:RELEASE.2025-02-28T09-55-16Z server /data
+```
+
+### Step 2: Restore Postgres
+
+```bash
+pg_restore \
+  --clean --if-exists \
+  --dbname="postgres://test:test@localhost:5433/provenance" \
+  /backups/provenance-<date>.dump
+```
+
+Verify row counts:
+
+```sql
+SELECT COUNT(*) FROM submissions;   -- expect > 0
+SELECT COUNT(*) FROM users;         -- expect > 0
+SELECT MAX(created_at) FROM submissions;  -- expect recent date
+```
+
+### Step 3: Restore MinIO blobs
+
+```bash
+mc alias set restore http://localhost:9100 testadmin testadmin
+mc mb restore/provenance
+mc mirror /backups/minio-<date>/ restore/provenance/
+```
+
+Spot-check a blob:
+
+```bash
+mc ls restore/provenance/ | head -5
+mc stat restore/provenance/<first-key>
+```
+
+### Step 4: Start the server against the restore environment
+
+```bash
+DATABASE_URL=postgres://test:test@localhost:5433/provenance \
+OBJECT_STORAGE_ENDPOINT=http://localhost:9100 \
+node packages/server/dist/index.js --mode=api
+```
+
+### Step 5: Verify API responses
+
+```bash
+curl localhost:3000/healthz
+curl -H 'Cookie: __Host-prov_sess=<test-session>' localhost:3000/api/v1/me
+```
+
+Confirm you can see users, semesters, and submissions.
+
+### Step 6: Tear down
+
+```bash
+docker stop pg-restore minio-restore && docker rm pg-restore minio-restore
+```
+
+Document the time taken and any issues found. Update this runbook if needed.
+
+---
+
+## 10. Environment variable reference
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `PORT` | No | `3000` | HTTP port |
+| `NODE_ENV` | No | `development` | `development` or `production` |
+| `GOOGLE_OAUTH_CLIENT_ID` | Yes | — | Google OAuth 2.0 client ID |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Yes | — | Google OAuth 2.0 client secret |
+| `GOOGLE_OAUTH_REDIRECT_URI` | No | `http://localhost:3000/api/v1/auth/google/callback` | OAuth callback URL |
+| `AUTH_ALLOWED_HOSTED_DOMAINS` | No | `berkeley.edu` | Comma-separated allowed `hd` values |
+| `AUTH_SUPERADMIN_EMAILS` | Yes (prod) | `[]` | Comma-separated superadmin emails |
+| `AUTH_COOKIE_SIGNING_SECRET` | Yes (prod) | dev sentinel | HMAC signing key for OAuth state cookie |
+| `AUTH_SESSION_TTL_DAYS` | No | `14` | Session lifetime in days |
+| `OBJECT_STORAGE_ENDPOINT` | Yes | — | S3-compatible endpoint URL |
+| `OBJECT_STORAGE_REGION` | No | `us-east-1` | S3 region |
+| `OBJECT_STORAGE_BUCKET` | Yes | — | Bucket name |
+| `OBJECT_STORAGE_ACCESS_KEY_ID` | Yes | — | S3 access key |
+| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Yes | — | S3 secret key |
+| `METRICS_AUTH_TOKEN` | No | — | Bearer token required for `GET /metrics`. If unset, /metrics returns 403. |
+| `RECONSTRUCTION_CACHE_SIZE` | No | `100` | LRU cache capacity for file reconstruction |
+| `SMTP_HOST` | No | — | SMTP server for invitation emails |
+| `SMTP_PORT` | No | `587` | SMTP port |
+| `SMTP_USER` | No | — | SMTP username |
+| `SMTP_PASS` | No | — | SMTP password |
+| `SMTP_FROM` | No | `provenance@example.edu` | From address for invitation emails |
+| `LOG_LEVEL` | No | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error` |
+
+---
+
+## 11. Troubleshooting
+
+### "HOSTED_DOMAIN_MISMATCH" on login
+
+The user's Google account domain does not match `AUTH_ALLOWED_HOSTED_DOMAINS`.
+Verify the env var is set correctly and the user is using their institutional
+account (not a personal Gmail).
+
+### Worker not processing jobs
+
+1. Confirm the worker is running: `node dist/index.js --mode=worker` (or `--mode=all`).
+2. Check pg-boss queue tables: `SELECT * FROM pgboss.job WHERE state = 'failed' ORDER BY created_on DESC LIMIT 20;`
+3. Check server logs for `pg-boss error` entries.
+4. Verify `DATABASE_URL` is the same for both API and worker processes.
+
+### Retention sweep not running
+
+Check the pg-boss schedule:
+
+```sql
+SELECT * FROM pgboss.schedule WHERE name = 'retention_sweep';
+```
+
+If missing, restart the worker — `boss.schedule()` is called on startup and is
+idempotent. Verify the worker started without errors after the `schedule()` calls.
+
+### MinIO connection refused
+
+Confirm MinIO is running and accessible from the server host:
+
+```bash
+curl -f http://<OBJECT_STORAGE_ENDPOINT>/minio/health/live
+```
+
+### Postgres migration errors
+
+If `db:migrate` fails with "relation already exists", the migration was partially
+applied. Connect to the database and check `drizzle.__drizzle_migrations`:
+
+```sql
+SELECT * FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 5;
+```
+
+For a clean dev environment, drop and recreate:
+
+```bash
+docker compose down -v && docker compose up -d
+npm run db:migrate --workspace=packages/server
+```
+
+**Never do this in production.** In production, diagnose the failed migration and
+apply the missing DDL manually.
