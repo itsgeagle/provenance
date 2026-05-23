@@ -58,6 +58,9 @@ import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission
 import { withTransaction } from '../db/client.js';
 import { registerRecomputeHandlers } from './recompute.js';
 import { registerCrossFlagsHandler, enqueueCrossFlagsJob } from './recompute-cross-flags.js';
+import { createRetentionSweepHandler } from './retention-sweep.js';
+import { createPurgeExpiredSessionsHandler } from './purge-expired-sessions.js';
+import { createPurgeExpiredExportsHandler } from './purge-expired-exports.js';
 
 // ---------------------------------------------------------------------------
 // Payload types (mirrored from POST /ingest enqueue calls)
@@ -85,6 +88,10 @@ export async function startWorker(): Promise<() => Promise<void>> {
   const logger = getLogger();
   const boss = await getBoss();
 
+  const db = getDb();
+  const cfg = getConfig();
+  const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+
   // -------------------------------------------------------------------------
   // Ensure queues exist (pg-boss v10 requires explicit queue creation before
   // boss.send() will insert jobs — the INSERT JOIN skips silently on missing
@@ -92,6 +99,9 @@ export async function startWorker(): Promise<() => Promise<void>> {
   // -------------------------------------------------------------------------
   await boss.createQueue(JOB_KINDS.INGEST_FILE);
   await boss.createQueue(JOB_KINDS.INGEST_FINALIZE);
+  await boss.createQueue(JOB_KINDS.RETENTION_SWEEP);
+  await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_SESSIONS);
+  await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_EXPORTS);
   logger.info('worker: ensured queues exist');
 
   // -------------------------------------------------------------------------
@@ -487,7 +497,52 @@ export async function startWorker(): Promise<() => Promise<void>> {
   // Register cross-flags handler (Phase 14).
   await registerCrossFlagsHandler(boss);
 
-  logger.info('worker started (phase 14: ingest + recompute + cross-flags handlers registered)');
+  // -------------------------------------------------------------------------
+  // Cron job handlers (Phase 25)
+  // -------------------------------------------------------------------------
+
+  await boss.work(
+    JOB_KINDS.RETENTION_SWEEP,
+    { batchSize: 1 },
+    createRetentionSweepHandler(db, storageClient),
+  );
+
+  await boss.work(
+    JOB_KINDS.PURGE_EXPIRED_SESSIONS,
+    { batchSize: 1 },
+    createPurgeExpiredSessionsHandler(db),
+  );
+
+  await boss.work(
+    JOB_KINDS.PURGE_EXPIRED_EXPORTS,
+    { batchSize: 1 },
+    createPurgeExpiredExportsHandler(),
+  );
+
+  // -------------------------------------------------------------------------
+  // Register pg-boss scheduled (cron) jobs.
+  //
+  // boss.schedule() is idempotent — it upserts the schedule row in
+  // pgboss.schedule. Safe to call on every startup.
+  //
+  // UTC times chosen to avoid overlap with peak US-West-Coast usage:
+  //   2:00 UTC = 6pm/7pm PST (off-hours)
+  //   3:00 UTC = 7pm/8pm PST (off-hours)
+  //   hourly   = predictable for monitoring
+  // -------------------------------------------------------------------------
+
+  // retention_sweep — 2am UTC daily (PRD §16).
+  await boss.schedule(JOB_KINDS.RETENTION_SWEEP, '0 2 * * *', {});
+
+  // purge_expired_sessions — every hour on the hour.
+  await boss.schedule(JOB_KINDS.PURGE_EXPIRED_SESSIONS, '0 * * * *', {});
+
+  // purge_expired_exports — 3am UTC daily (stub until Phase 26).
+  await boss.schedule(JOB_KINDS.PURGE_EXPIRED_EXPORTS, '0 3 * * *', {});
+
+  logger.info(
+    'worker started (phase 25: ingest + recompute + cross-flags + cron handlers registered)',
+  );
 
   return async () => {
     await stopBoss();
