@@ -242,7 +242,11 @@ export const IngestFileSummarySchema = z.object({
   submission_id: z.string().uuid().optional(),
   filename_capture: z.record(z.string(), z.string()).optional(),
   error: z
-    .object({ code: z.string(), message: z.string(), details: z.unknown().optional() })
+    .object({
+      phase: z.string(),
+      cause: z.string(),
+      detail: z.unknown().optional(),
+    })
     .optional(),
 });
 export type IngestFileSummary = z.infer<typeof IngestFileSummarySchema>;

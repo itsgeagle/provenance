@@ -190,7 +190,7 @@ export function UnmatchedView() {
                         {(file.size_bytes / 1024).toFixed(1)} KB
                       </td>
                       <td className="px-4 py-2 text-xs text-gray-500">
-                        {file.error?.message ?? '—'}
+                        {file.error ? `${file.error.phase}: ${file.error.cause}` : '—'}
                       </td>
                       <td className="px-4 py-2 text-right">
                         <div className="flex items-center justify-end gap-2">
