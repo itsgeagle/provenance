@@ -71,7 +71,11 @@ export function runCrossHeuristics(
 
   for (const heuristic of CROSS_HEURISTIC_REGISTRY) {
     const flags = heuristic.run(bundles, indices, config);
-    allFlags.push(...flags);
+    // Use a for-of append rather than `allFlags.push(...flags)` — spread-into-push
+    // passes every element as a separate argument, which overflows the call stack
+    // when a single heuristic returns tens of thousands of candidate flags
+    // (observed on semesters with many overlapping paste-heavy submissions).
+    for (const f of flags) allFlags.push(f);
   }
 
   // Sort: severity desc → confidence desc → bundleIds[0] lex asc → id lex asc.
