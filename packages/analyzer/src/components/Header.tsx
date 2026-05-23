@@ -122,7 +122,7 @@ export function Header() {
 
   const handleLoadDifferent = useCallback(() => {
     clearBundle();
-    void navigate('/load');
+    void navigate('/local/load');
   }, [clearBundle, navigate]);
 
   const handleLoadMoreClick = useCallback(() => {
@@ -283,7 +283,7 @@ export function Header() {
         data-testid="header-nav"
       >
         <NavLink
-          to="/overview"
+          to="/local/overview"
           data-testid="nav-link-overview"
           className={({ isActive }) =>
             `rounded-md px-3 py-1 transition-colors ${
@@ -296,7 +296,7 @@ export function Header() {
           Overview
         </NavLink>
         <NavLink
-          to="/timeline"
+          to="/local/timeline"
           data-testid="nav-link-timeline"
           className={({ isActive }) =>
             `rounded-md px-3 py-1 transition-colors ${
@@ -310,7 +310,7 @@ export function Header() {
         </NavLink>
         {bundles.length >= 2 && (
           <NavLink
-            to="/compare"
+            to="/local/compare"
             data-testid="nav-link-compare"
             className={({ isActive }) =>
               `rounded-md px-3 py-1 transition-colors ${

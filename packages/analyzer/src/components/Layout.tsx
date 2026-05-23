@@ -15,9 +15,9 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <Header />
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 min-h-0 overflow-y-auto">{children}</main>
     </div>
   );
 }

@@ -71,11 +71,11 @@ function ReplayHeader({ sessionId, sourceFilename }: ReplayHeaderProps) {
   const navigate = useNavigate();
 
   const handleBack = () => {
-    // go back in history if there's a previous entry, else fall back to /overview.
+    // go back in history if there's a previous entry, else fall back to /local/overview.
     if (window.history.length > 1) {
       navigate(-1);
     } else {
-      void navigate('/overview');
+      void navigate('/local/overview');
     }
   };
 
@@ -119,7 +119,7 @@ function ReplayHeader({ sessionId, sourceFilename }: ReplayHeaderProps) {
  * ReplayView:
  *   1. Reads sessionId from URL params.
  *   2. Reads index from BundleContext.
- *   3. If session not found → <Navigate to="/overview" />.
+ *   3. If session not found → <Navigate to="/local/overview" />.
  *   4. Otherwise renders <ReplayViewInner>.
  *
  * ReplayViewInner:
@@ -138,10 +138,10 @@ export function ReplayView() {
   if (!sessionId || index === null || !sessionExists) {
     if (sessionId && index !== null && !sessionExists) {
       console.warn(
-        `[ReplayView] session "${sessionId}" not found in index; redirecting to /overview`,
+        `[ReplayView] session "${sessionId}" not found in index; redirecting to /local/overview`,
       );
     }
-    return <Navigate to="/overview" replace />;
+    return <Navigate to="/local/overview" replace />;
   }
 
   return <ReplayViewInner sessionId={sessionId} />;

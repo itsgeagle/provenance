@@ -27,12 +27,12 @@ export function Actions() {
   const replayEnabled = status === 'loaded' && firstSessionId !== undefined;
 
   const handleTimeline = () => {
-    void navigate('/timeline');
+    void navigate('/local/timeline');
   };
 
   const handleReplay = () => {
     if (firstSessionId === undefined) return;
-    void navigate(`/replay/${firstSessionId}`);
+    void navigate(`/local/replay/${firstSessionId}`);
   };
 
   return (

@@ -110,12 +110,12 @@ vi.mock('../../context/BundleContext.js', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 function renderReplayView(sessionId: string, search = '') {
-  const path = `/replay/${sessionId}${search}`;
+  const path = `/local/replay/${sessionId}${search}`;
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/replay/:sessionId" element={<ReplayView />} />
-        <Route path="/overview" element={<div data-testid="overview-view">Overview</div>} />
+        <Route path="/local/replay/:sessionId" element={<ReplayView />} />
+        <Route path="/local/overview" element={<div data-testid="overview-view">Overview</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -131,7 +131,7 @@ describe('ReplayView', () => {
   });
 
   describe('route guard', () => {
-    it('redirects to /overview when index is null', async () => {
+    it('redirects to /local/overview when index is null', async () => {
       mockIndex.current = null;
       renderReplayView('sess1');
       await waitFor(() => {
@@ -139,7 +139,7 @@ describe('ReplayView', () => {
       });
     });
 
-    it('redirects to /overview when sessionId not found', async () => {
+    it('redirects to /local/overview when sessionId not found', async () => {
       mockIndex.current = buildIndex([makeDocChangeEvent(0, 'other-session', 'hw.py')]);
       const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       renderReplayView('missing-session');

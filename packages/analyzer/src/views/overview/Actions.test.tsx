@@ -121,11 +121,11 @@ describe('Actions', () => {
     expect(screen.getByTestId('btn-open-timeline')).toBeInTheDocument();
   });
 
-  it('clicking Open Raw Timeline navigates to /timeline', () => {
+  it('clicking Open Raw Timeline navigates to /local/timeline', () => {
     mockValue = emptyValue();
     const { getLocation } = renderActions();
     fireEvent.click(screen.getByTestId('btn-open-timeline'));
-    expect(getLocation()).toBe('/timeline');
+    expect(getLocation()).toBe('/local/timeline');
   });
 
   it('View Replay button is present', () => {
@@ -146,12 +146,12 @@ describe('Actions', () => {
     expect(screen.getByTestId('btn-view-replay')).not.toBeDisabled();
   });
 
-  it('clicking View Replay navigates to /replay/<first-session-id>', () => {
+  it('clicking View Replay navigates to /local/replay/<first-session-id>', () => {
     mockValue = loadedValue();
     const { getLocation } = renderActions();
     fireEvent.click(screen.getByTestId('btn-view-replay'));
     // makeMinimalBundle()'s first session has sessionId 'abc'.
-    expect(getLocation()).toBe('/replay/abc');
+    expect(getLocation()).toBe('/local/replay/abc');
   });
 
   it('Export Findings (Markdown) button is present', () => {

@@ -44,13 +44,13 @@ function renderHeaderWithBundle(file: File) {
   const loadPage = <div data-testid="load-page">Load</div>;
 
   return render(
-    <MemoryRouter initialEntries={['/overview']}>
+    <MemoryRouter initialEntries={['/local/overview']}>
       <BundleProvider>
         <Header />
         <LoadTrigger file={file} />
         <Routes>
-          <Route path="/load" element={loadPage} />
-          <Route path="/overview" element={<div>Overview</div>} />
+          <Route path="/local/load" element={loadPage} />
+          <Route path="/local/overview" element={<div>Overview</div>} />
         </Routes>
       </BundleProvider>
     </MemoryRouter>,
@@ -109,7 +109,7 @@ describe('Header', () => {
     expect(screen.getByTestId('header-session-count').textContent).toContain('2');
   });
 
-  it('"Load different bundle" button clears the bundle and navigates to /load', async () => {
+  it('"Load different bundle" button clears the bundle and navigates to /local/load', async () => {
     const { blob } = await buildTestBundle({ sessions: [{ eventCount: 1 }] });
     const file = new File([blob], 'bundle.zip', { type: 'application/zip' });
 
