@@ -1,7 +1,7 @@
 /**
  * Per-submission routes — Phase 17 (PRD §8.9).
  *
- * GET /submissions/:submissionId            — full summary
+ * GET /submissions/:submissionId/summary    — full summary
  * GET /submissions/:submissionId/flags      — flag list
  * GET /submissions/:submissionId/stats      — per-file + aggregate stats
  * GET /submissions/:submissionId/validation — validation results
@@ -41,10 +41,10 @@ export function createSubmissionsRouter(): Hono {
   const router = new Hono();
 
   // -------------------------------------------------------------------------
-  // GET /submissions/:submissionId
+  // GET /submissions/:submissionId/summary
   // -------------------------------------------------------------------------
 
-  router.get('/submissions/:submissionId', rateLimit('read.detail'), async (c) => {
+  router.get('/submissions/:submissionId/summary', rateLimit('read.detail'), async (c) => {
     const submissionId = c.req.param('submissionId')!;
     const db = getDb();
 

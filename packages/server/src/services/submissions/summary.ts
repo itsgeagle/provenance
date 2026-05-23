@@ -47,10 +47,12 @@ export type SubmissionSummary = {
   blob_sha256: string;
   recorder_version: string;
   format_version: string;
+  version_index: number;
   validation_status: string;
   validation_overall_detail: string | null;
   score_total: number;
   score_max_severity: string;
+  flag_count: number;
   flag_counts: { info: number; low: number; medium: number; high: number };
   session_ids: string[];
   files: { path: string; final_length: number; saves: number }[];
@@ -113,6 +115,7 @@ export async function getSubmissionSummary(
       heuristic_config_version: submissions.heuristic_config_version,
       recompute_status: submissions.recompute_status,
       superseded_by_submission_id: submissions.superseded_by_submission_id,
+      version_index: submissions.version_index,
       assignment_id: assignments.id,
       assignment_id_str: assignments.assignment_id_str,
       assignment_label: assignments.label,
@@ -144,6 +147,7 @@ export async function getSubmissionSummary(
     const sev = f.severity as 'info' | 'low' | 'medium' | 'high';
     if (sev in flag_counts) flag_counts[sev] = f.count;
   }
+  const flag_count = flag_counts.info + flag_counts.low + flag_counts.medium + flag_counts.high;
 
   // Query 3: DISTINCT session_ids from events
   const sessionRows = await db
@@ -197,10 +201,12 @@ export async function getSubmissionSummary(
     blob_sha256: row.blob_sha256,
     recorder_version: row.recorder_version,
     format_version: row.format_version,
+    version_index: row.version_index,
     validation_status: row.validation_status,
     validation_overall_detail,
     score_total: row.score_total,
     score_max_severity: row.score_max_severity,
+    flag_count,
     flag_counts,
     session_ids,
     files,

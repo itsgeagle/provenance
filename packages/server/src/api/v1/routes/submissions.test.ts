@@ -294,7 +294,7 @@ describe('GET /submissions/:id', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(`http://localhost/submissions/${sub.id}`, {
+        new Request(`http://localhost/submissions/${sub.id}/summary`, {
           headers: { Cookie: `__Host-prov_sess=${sessionId}` },
         }),
       );
@@ -333,7 +333,7 @@ describe('GET /submissions/:id', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(`http://localhost/submissions/${crypto.randomUUID()}`, {
+        new Request(`http://localhost/submissions/${crypto.randomUUID()}/summary`, {
           headers: { Cookie: `__Host-prov_sess=${sessionId}` },
         }),
       );
@@ -367,7 +367,7 @@ describe('GET /submissions/:id', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(`http://localhost/submissions/${sub.id}`, {
+        new Request(`http://localhost/submissions/${sub.id}/summary`, {
           headers: { Cookie: `__Host-prov_sess=${outsiderSession}` },
         }),
       );
@@ -383,7 +383,7 @@ describe('GET /submissions/:id', () => {
 
       const app = createV1App();
       const res = await app.fetch(
-        new Request(`http://localhost/submissions/${crypto.randomUUID()}`),
+        new Request(`http://localhost/submissions/${crypto.randomUUID()}/summary`),
       );
 
       expect(res.status).toBe(401);
