@@ -86,6 +86,9 @@ const CrossFlagDetailView = lazy(() =>
     default: m.CrossFlagDetailView,
   })),
 );
+const TokensView = lazy(() =>
+  import('./views/tokens/TokensView.js').then((m) => ({ default: m.TokensView })),
+);
 
 // ---------------------------------------------------------------------------
 // Lazy chunks: /local routes (v2 standalone, no auth)
@@ -268,6 +271,16 @@ export function App() {
             <RequireAuth>
               <AppShell>
                 <CrossFlagDetailView />
+              </AppShell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/me/tokens"
+          element={
+            <RequireAuth>
+              <AppShell>
+                <TokensView />
               </AppShell>
             </RequireAuth>
           }

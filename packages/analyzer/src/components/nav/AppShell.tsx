@@ -3,7 +3,7 @@
  *
  * Structure:
  * - Top bar: Provenance logo, SemesterSwitcher (if multiple semesters), user menu
- * - User menu: displays email, links to /me/tokens, logout button
+ * - User menu: displays email, "API tokens" link to /me/tokens, logout button
  * - Children rendered below the top bar in a flex-grow content area
  */
 
@@ -103,6 +103,13 @@ export function AppShell({ children }: AppShellProps) {
         {me !== undefined && (
           <div className="flex shrink-0 items-center gap-3">
             <span className="text-xs text-gray-500">{me.user.email}</span>
+            <Link
+              to="/me/tokens"
+              className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50"
+              data-testid="tokens-link"
+            >
+              API tokens
+            </Link>
             <button
               onClick={handleLogout}
               disabled={isLoggingOut}
