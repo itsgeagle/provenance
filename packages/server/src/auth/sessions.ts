@@ -110,3 +110,42 @@ export function sessionExpiresAt(ttlDays: number): Date {
   d.setDate(d.getDate() + ttlDays);
   return d;
 }
+
+// ---------------------------------------------------------------------------
+// View-as (V45) — superadmin impersonation state on the session row
+// ---------------------------------------------------------------------------
+
+/**
+ * Set view_as_user_id + view_as_started_at on a session.
+ * Caller is responsible for verifying:
+ *   - principal is a session principal (not a token)
+ *   - principal.user.is_superadmin === true
+ *   - targetUserId references a real users row
+ *   - targetUserId !== principal.user.id (don't impersonate yourself)
+ */
+export async function setSessionViewAs(
+  db: DrizzleDb,
+  sessionId: string,
+  targetUserId: string,
+): Promise<void> {
+  await db
+    .update(sessions)
+    .set({
+      view_as_user_id: targetUserId,
+      view_as_started_at: sql`now()`,
+    })
+    .where(eq(sessions.id, sessionId));
+}
+
+/**
+ * Clear view_as_user_id + view_as_started_at on a session.
+ */
+export async function clearSessionViewAs(db: DrizzleDb, sessionId: string): Promise<void> {
+  await db
+    .update(sessions)
+    .set({
+      view_as_user_id: null,
+      view_as_started_at: null,
+    })
+    .where(eq(sessions.id, sessionId));
+}

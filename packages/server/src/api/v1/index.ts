@@ -44,6 +44,7 @@ import { createEventsRouter } from './routes/events.js';
 import { createFilesRouter } from './routes/files.js';
 import { createBundleRouter } from './routes/bundle.js';
 import { createAuditRouter } from './routes/audit.js';
+import { createAdminRouter } from './routes/admin.js';
 import { createOpenApiRouter } from './routes/openapi.js';
 import { createDocsRouter } from './routes/docs.js';
 import { authSessionMiddleware } from '../middleware/auth-session.js';
@@ -141,6 +142,11 @@ export function createV1App(): Hono {
   // Audit log route (Phase 19).
   // Path: /audit (GET — semester admin or superadmin)
   app.route('/', createAuditRouter());
+
+  // Admin routes (V45 — superadmin only).
+  // Paths: /admin/users (GET, GET :id, DELETE :id)
+  //        /admin/view-as (POST), /admin/view-as/exit (POST)
+  app.route('/admin', createAdminRouter());
 
   // OpenAPI spec + Redoc docs (Phase 19).
   // Paths: /openapi.json (GET — public), /docs (GET — public)
