@@ -664,3 +664,57 @@ export const ExportJobSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('async'), data: ExportAsyncResponseSchema }),
 ]);
 export type ExportJob = z.infer<typeof ExportJobSchema>;
+
+// ---------------------------------------------------------------------------
+// v3.1 — Personal access token management (PRD §8.12)
+//
+// GET    /me/tokens         → { tokens: TokenSummary[] }
+// POST   /me/tokens         → 201 { token: TokenSummary, secret: string }
+// DELETE /me/tokens/{id}    → 204
+//
+// Server passes `scopes` through as JSON; the schema below pins the same
+// shape as TokenScopesSchema (read_only, semester_ids, include_blobs).
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved scopes shape used on the response side — same fields as
+ * TokenScopesSchema but without `.default()` so the inferred type has required
+ * (non-optional) fields. The server always emits a fully resolved scopes
+ * object on token reads, so consumers don't need to handle the partial form.
+ */
+export const ResolvedTokenScopesSchema = z.object({
+  read_only: z.boolean(),
+  semester_ids: z.array(z.string().uuid()).nullable(),
+  include_blobs: z.boolean(),
+});
+export type ResolvedTokenScopes = z.infer<typeof ResolvedTokenScopesSchema>;
+
+export const TokenSummarySchema = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  prefix: z.string(),
+  scopes: ResolvedTokenScopesSchema,
+  last_used_at: z.string().datetime().nullable(),
+  expires_at: z.string().datetime().nullable(),
+  revoked_at: z.string().datetime().nullable(),
+  created_at: z.string().datetime(),
+});
+export type TokenSummary = z.infer<typeof TokenSummarySchema>;
+
+export const TokensListResponseSchema = z.object({
+  tokens: z.array(TokenSummarySchema),
+});
+export type TokensListResponse = z.infer<typeof TokensListResponseSchema>;
+
+export const CreateTokenRequestSchema = z.object({
+  label: z.string().min(1).max(64),
+  scopes: TokenScopesSchema.optional(),
+  expires_at: z.string().datetime().optional(),
+});
+export type CreateTokenRequest = z.infer<typeof CreateTokenRequestSchema>;
+
+export const CreateTokenResponseSchema = z.object({
+  token: TokenSummarySchema,
+  secret: z.string(),
+});
+export type CreateTokenResponse = z.infer<typeof CreateTokenResponseSchema>;

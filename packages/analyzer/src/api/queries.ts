@@ -39,8 +39,14 @@ import {
   CrossFlagListResponseSchema,
   CrossFlagDetailResponseSchema,
   ExportJobSchema,
+  TokensListResponseSchema,
+  CreateTokenResponseSchema,
 } from '@provenance/shared/api-schemas';
-import type { Membership, HeuristicConfigBody } from '@provenance/shared/api-schemas';
+import type {
+  Membership,
+  HeuristicConfigBody,
+  CreateTokenRequest,
+} from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -68,6 +74,7 @@ export const queryKeys = {
   crossFlags: (semesterId: string, params: Record<string, unknown>) =>
     ['cross-flags', semesterId, params] as const,
   crossFlagDetail: (crossFlagId: string) => ['cross-flag', crossFlagId] as const,
+  myTokens: ['me', 'tokens'] as const,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -884,6 +891,54 @@ export function useStartExport(submissionId: string) {
         },
         ExportJobSchema,
       ),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// v3.1 — Personal access token hooks (PRD §8.12)
+// ---------------------------------------------------------------------------
+
+/** Lists the current user's API tokens (active + revoked). */
+export function useMyTokens() {
+  return useQuery({
+    queryKey: queryKeys.myTokens,
+    queryFn: () => apiFetch('/me/tokens', undefined, TokensListResponseSchema),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+  });
+}
+
+/**
+ * Mutation: POST /me/tokens. Response includes the full `secret` exactly once;
+ * callers must surface it to the user before it leaves component state.
+ */
+export function useCreateToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateTokenRequest) =>
+      apiFetch(
+        '/me/tokens',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        CreateTokenResponseSchema,
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.myTokens });
+    },
+  });
+}
+
+/** Mutation: DELETE /me/tokens/:id (idempotent — 204 whether new or already revoked). */
+export function useRevokeToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tokenId: string) => apiFetch(`/me/tokens/${tokenId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.myTokens });
+    },
   });
 }
 
