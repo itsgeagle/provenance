@@ -330,7 +330,10 @@ export function TuningView() {
                   Score Distribution
                 </h3>
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={histogramData} margin={{ top: 5, right: 10, left: 10, bottom: 28 }}>
+                  <BarChart
+                    data={histogramData}
+                    margin={{ top: 5, right: 10, left: 10, bottom: 28 }}
+                  >
                     <XAxis
                       dataKey="bucket"
                       tick={{ fontSize: 10 }}

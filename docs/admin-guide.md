@@ -22,14 +22,14 @@ instance (not end users).
 
 ## 1. Hosting requirements
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| Node.js   | 22 LTS  | 22 LTS      |
-| Postgres  | 16      | 16          |
-| Object storage | MinIO (self-hosted) or AWS S3 / Cloudflare R2 | MinIO on same subnet |
-| RAM (server) | 512 MB | 2 GB |
-| Disk (Postgres data) | 10 GB | 50 GB |
-| Disk (object storage) | 100 GB | 1 TB |
+| Component             | Minimum                                       | Recommended          |
+| --------------------- | --------------------------------------------- | -------------------- |
+| Node.js               | 22 LTS                                        | 22 LTS               |
+| Postgres              | 16                                            | 16                   |
+| Object storage        | MinIO (self-hosted) or AWS S3 / Cloudflare R2 | MinIO on same subnet |
+| RAM (server)          | 512 MB                                        | 2 GB                 |
+| Disk (Postgres data)  | 10 GB                                         | 50 GB                |
+| Disk (object storage) | 100 GB                                        | 1 TB                 |
 
 The server runs as a single Node.js process. It serves both the API and the frontend
 SPA (the frontend is pre-built and served as static files from `packages/analyzer/dist/`).
@@ -285,6 +285,7 @@ curl -s -X PATCH https://provenance.example.edu/api/v1/semesters/<semesterId> \
 ```
 
 Once a semester is archived:
+
 - No new ingests are accepted.
 - The retention clock starts.
 - Historical data (events, flags, scores) remains accessible.
@@ -296,11 +297,11 @@ Once a semester is archived:
 Cron jobs are managed by pg-boss and run automatically when the worker process is
 running. They are registered on every worker startup (idempotent).
 
-| Job name                 | Schedule (UTC)   | Description                                     |
-|--------------------------|------------------|-------------------------------------------------|
-| `retention_sweep`        | 2:00 daily       | Delete blobs past retention window (PRD §16)    |
-| `purge_expired_sessions` | Every hour       | Delete `sessions` rows where `expires_at < now()`|
-| `purge_expired_exports`  | 3:00 daily       | Stub — will purge export artifacts in v3.1      |
+| Job name                 | Schedule (UTC) | Description                                       |
+| ------------------------ | -------------- | ------------------------------------------------- |
+| `retention_sweep`        | 2:00 daily     | Delete blobs past retention window (PRD §16)      |
+| `purge_expired_sessions` | Every hour     | Delete `sessions` rows where `expires_at < now()` |
+| `purge_expired_exports`  | 3:00 daily     | Stub — will purge export artifacts in v3.1        |
 
 To verify cron jobs are registered:
 
@@ -445,31 +446,31 @@ Document the time taken and any issues found. Update this runbook if needed.
 
 ## 10. Environment variable reference
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
-| `PORT` | No | `3000` | HTTP port |
-| `NODE_ENV` | No | `development` | `development` or `production` |
-| `GOOGLE_OAUTH_CLIENT_ID` | Yes | — | Google OAuth 2.0 client ID |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | Yes | — | Google OAuth 2.0 client secret |
-| `GOOGLE_OAUTH_REDIRECT_URI` | No | `http://localhost:3000/api/v1/auth/google/callback` | OAuth callback URL |
-| `AUTH_ALLOWED_HOSTED_DOMAINS` | No | `berkeley.edu` | Comma-separated allowed `hd` values |
-| `AUTH_SUPERADMIN_EMAILS` | Yes (prod) | `[]` | Comma-separated superadmin emails |
-| `AUTH_COOKIE_SIGNING_SECRET` | Yes (prod) | dev sentinel | HMAC signing key for OAuth state cookie |
-| `AUTH_SESSION_TTL_DAYS` | No | `14` | Session lifetime in days |
-| `OBJECT_STORAGE_ENDPOINT` | Yes | — | S3-compatible endpoint URL |
-| `OBJECT_STORAGE_REGION` | No | `us-east-1` | S3 region |
-| `OBJECT_STORAGE_BUCKET` | Yes | — | Bucket name |
-| `OBJECT_STORAGE_ACCESS_KEY_ID` | Yes | — | S3 access key |
-| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Yes | — | S3 secret key |
-| `METRICS_AUTH_TOKEN` | No | — | Bearer token required for `GET /metrics`. If unset, /metrics returns 403. |
-| `RECONSTRUCTION_CACHE_SIZE` | No | `100` | LRU cache capacity for file reconstruction |
-| `SMTP_HOST` | No | — | SMTP server for invitation emails |
-| `SMTP_PORT` | No | `587` | SMTP port |
-| `SMTP_USER` | No | — | SMTP username |
-| `SMTP_PASS` | No | — | SMTP password |
-| `SMTP_FROM` | No | `provenance@example.edu` | From address for invitation emails |
-| `LOG_LEVEL` | No | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error` |
+| Variable                           | Required   | Default                                             | Description                                                               |
+| ---------------------------------- | ---------- | --------------------------------------------------- | ------------------------------------------------------------------------- |
+| `DATABASE_URL`                     | Yes        | —                                                   | PostgreSQL connection string                                              |
+| `PORT`                             | No         | `3000`                                              | HTTP port                                                                 |
+| `NODE_ENV`                         | No         | `development`                                       | `development` or `production`                                             |
+| `GOOGLE_OAUTH_CLIENT_ID`           | Yes        | —                                                   | Google OAuth 2.0 client ID                                                |
+| `GOOGLE_OAUTH_CLIENT_SECRET`       | Yes        | —                                                   | Google OAuth 2.0 client secret                                            |
+| `GOOGLE_OAUTH_REDIRECT_URI`        | No         | `http://localhost:3000/api/v1/auth/google/callback` | OAuth callback URL                                                        |
+| `AUTH_ALLOWED_HOSTED_DOMAINS`      | No         | `berkeley.edu`                                      | Comma-separated allowed `hd` values                                       |
+| `AUTH_SUPERADMIN_EMAILS`           | Yes (prod) | `[]`                                                | Comma-separated superadmin emails                                         |
+| `AUTH_COOKIE_SIGNING_SECRET`       | Yes (prod) | dev sentinel                                        | HMAC signing key for OAuth state cookie                                   |
+| `AUTH_SESSION_TTL_DAYS`            | No         | `14`                                                | Session lifetime in days                                                  |
+| `OBJECT_STORAGE_ENDPOINT`          | Yes        | —                                                   | S3-compatible endpoint URL                                                |
+| `OBJECT_STORAGE_REGION`            | No         | `us-east-1`                                         | S3 region                                                                 |
+| `OBJECT_STORAGE_BUCKET`            | Yes        | —                                                   | Bucket name                                                               |
+| `OBJECT_STORAGE_ACCESS_KEY_ID`     | Yes        | —                                                   | S3 access key                                                             |
+| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Yes        | —                                                   | S3 secret key                                                             |
+| `METRICS_AUTH_TOKEN`               | No         | —                                                   | Bearer token required for `GET /metrics`. If unset, /metrics returns 403. |
+| `RECONSTRUCTION_CACHE_SIZE`        | No         | `100`                                               | LRU cache capacity for file reconstruction                                |
+| `SMTP_HOST`                        | No         | —                                                   | SMTP server for invitation emails                                         |
+| `SMTP_PORT`                        | No         | `587`                                               | SMTP port                                                                 |
+| `SMTP_USER`                        | No         | —                                                   | SMTP username                                                             |
+| `SMTP_PASS`                        | No         | —                                                   | SMTP password                                                             |
+| `SMTP_FROM`                        | No         | `provenance@example.edu`                            | From address for invitation emails                                        |
+| `LOG_LEVEL`                        | No         | `info`                                              | Pino log level: `trace`, `debug`, `info`, `warn`, `error`                 |
 
 ---
 

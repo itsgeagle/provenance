@@ -15,10 +15,7 @@ import { apiFetch } from '../../api/client.js';
 import { buildSubmissionParams, buildQueryString } from '../../api/queries.js';
 import type { CohortSort } from '../../api/queries.js';
 import type { CohortFilters } from './use-cohort-filters.js';
-import {
-  CohortListResponseSchema,
-  type SubmissionRow,
-} from '@provenance/shared/api-schemas';
+import { CohortListResponseSchema, type SubmissionRow } from '@provenance/shared/api-schemas';
 
 const PAGE_LIMIT = 200;
 const MAX_EXPORT_ROWS = 10_000;

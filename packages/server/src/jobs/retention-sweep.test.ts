@@ -83,9 +83,7 @@ async function seedSemester(
   blobRetentionDays: number,
 ): Promise<string> {
   const archivedAt =
-    archivedDaysAgo !== null
-      ? new Date(Date.now() - archivedDaysAgo * 24 * 60 * 60 * 1000)
-      : null;
+    archivedDaysAgo !== null ? new Date(Date.now() - archivedDaysAgo * 24 * 60 * 60 * 1000) : null;
 
   const rows = await db
     .insert(semesters)
@@ -191,16 +189,21 @@ describe('runRetentionSweep', () => {
       const assignmentId = await seedAssignment(db, semesterId);
       const studentId = await seedRosterEntry(db, semesterId);
       const blobKey = `submissions/${Math.random()}/bundle.zip`;
-      await seedSubmission(db, { semesterId, assignmentId, studentId, ingestJobId, blobObjectKey: blobKey });
+      await seedSubmission(db, {
+        semesterId,
+        assignmentId,
+        studentId,
+        ingestJobId,
+        blobObjectKey: blobKey,
+      });
 
       const storage = makeStorageMock();
       // Wire deleteBlob mock on the storage client's aws property.
       // The real deleteBlob takes (client, key); we mock it via vi.spyOn on the module.
       const { deleteBlob } = await import('../services/storage/blobs.js');
-      const spy = vi.spyOn(
-        await import('../services/storage/blobs.js'),
-        'deleteBlob',
-      ).mockResolvedValue(undefined);
+      const spy = vi
+        .spyOn(await import('../services/storage/blobs.js'), 'deleteBlob')
+        .mockResolvedValue(undefined);
 
       const result = await runRetentionSweep(db, storage);
 
@@ -222,13 +225,18 @@ describe('runRetentionSweep', () => {
       const assignmentId = await seedAssignment(db, semesterId);
       const studentId = await seedRosterEntry(db, semesterId);
       const blobKey = `submissions/${Math.random()}/bundle.zip`;
-      await seedSubmission(db, { semesterId, assignmentId, studentId, ingestJobId, blobObjectKey: blobKey });
+      await seedSubmission(db, {
+        semesterId,
+        assignmentId,
+        studentId,
+        ingestJobId,
+        blobObjectKey: blobKey,
+      });
 
       const storage = makeStorageMock();
-      const spy = vi.spyOn(
-        await import('../services/storage/blobs.js'),
-        'deleteBlob',
-      ).mockResolvedValue(undefined);
+      const spy = vi
+        .spyOn(await import('../services/storage/blobs.js'), 'deleteBlob')
+        .mockResolvedValue(undefined);
 
       const result = await runRetentionSweep(db, storage);
 
@@ -248,13 +256,18 @@ describe('runRetentionSweep', () => {
       const assignmentId = await seedAssignment(db, semesterId);
       const studentId = await seedRosterEntry(db, semesterId);
       const blobKey = `submissions/${Math.random()}/bundle.zip`;
-      const submissionId = await seedSubmission(db, { semesterId, assignmentId, studentId, ingestJobId, blobObjectKey: blobKey });
+      const submissionId = await seedSubmission(db, {
+        semesterId,
+        assignmentId,
+        studentId,
+        ingestJobId,
+        blobObjectKey: blobKey,
+      });
 
       const storage = makeStorageMock();
-      const spy = vi.spyOn(
-        await import('../services/storage/blobs.js'),
-        'deleteBlob',
-      ).mockResolvedValue(undefined);
+      const spy = vi
+        .spyOn(await import('../services/storage/blobs.js'), 'deleteBlob')
+        .mockResolvedValue(undefined);
 
       await runRetentionSweep(db, storage);
 
@@ -279,13 +292,18 @@ describe('runRetentionSweep', () => {
       const assignmentId = await seedAssignment(db, semesterId);
       const studentId = await seedRosterEntry(db, semesterId);
       const blobKey = `submissions/${Math.random()}/bundle.zip`;
-      await seedSubmission(db, { semesterId, assignmentId, studentId, ingestJobId, blobObjectKey: blobKey });
+      await seedSubmission(db, {
+        semesterId,
+        assignmentId,
+        studentId,
+        ingestJobId,
+        blobObjectKey: blobKey,
+      });
 
       const storage = makeStorageMock();
-      const spy = vi.spyOn(
-        await import('../services/storage/blobs.js'),
-        'deleteBlob',
-      ).mockResolvedValue(undefined);
+      const spy = vi
+        .spyOn(await import('../services/storage/blobs.js'), 'deleteBlob')
+        .mockResolvedValue(undefined);
 
       const result = await runRetentionSweep(db, storage);
 

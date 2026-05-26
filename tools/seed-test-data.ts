@@ -48,21 +48,102 @@ const ASSIGNMENTS = [
 ];
 
 const FIRST_NAMES = [
-  'Aarav', 'Aisha', 'Alex', 'Amelia', 'Anna', 'Arjun', 'Ava', 'Ben', 'Cameron',
-  'Carlos', 'Chloe', 'Daniel', 'Diana', 'Diego', 'Dmitri', 'Elena', 'Ethan',
-  'Eva', 'Fatima', 'Felix', 'Gabriela', 'Grace', 'Hannah', 'Henry', 'Hiro',
-  'Ibrahim', 'Isabel', 'Jacob', 'Jasmine', 'Jin', 'Julia', 'Kai', 'Kavya',
-  'Keith', 'Kenji', 'Lara', 'Leo', 'Lin', 'Lucas', 'Maya', 'Mei', 'Mira',
-  'Nadia', 'Nathan', 'Noah', 'Olivia', 'Omar', 'Priya', 'Rafael', 'Ravi',
-  'Ria', 'Ryan', 'Sam', 'Sara', 'Sienna', 'Sofia', 'Sora', 'Tariq', 'Theo',
-  'Uma', 'Victor', 'Wei', 'Xochitl', 'Yara', 'Yusuf', 'Zara', 'Zoe',
+  'Aarav',
+  'Aisha',
+  'Alex',
+  'Amelia',
+  'Anna',
+  'Arjun',
+  'Ava',
+  'Ben',
+  'Cameron',
+  'Carlos',
+  'Chloe',
+  'Daniel',
+  'Diana',
+  'Diego',
+  'Dmitri',
+  'Elena',
+  'Ethan',
+  'Eva',
+  'Fatima',
+  'Felix',
+  'Gabriela',
+  'Grace',
+  'Hannah',
+  'Henry',
+  'Hiro',
+  'Ibrahim',
+  'Isabel',
+  'Jacob',
+  'Jasmine',
+  'Jin',
+  'Julia',
+  'Kai',
+  'Kavya',
+  'Keith',
+  'Kenji',
+  'Lara',
+  'Leo',
+  'Lin',
+  'Lucas',
+  'Maya',
+  'Mei',
+  'Mira',
+  'Nadia',
+  'Nathan',
+  'Noah',
+  'Olivia',
+  'Omar',
+  'Priya',
+  'Rafael',
+  'Ravi',
+  'Ria',
+  'Ryan',
+  'Sam',
+  'Sara',
+  'Sienna',
+  'Sofia',
+  'Sora',
+  'Tariq',
+  'Theo',
+  'Uma',
+  'Victor',
+  'Wei',
+  'Xochitl',
+  'Yara',
+  'Yusuf',
+  'Zara',
+  'Zoe',
 ];
 
 const LAST_NAMES = [
-  'Anderson', 'Brown', 'Chen', 'Davis', 'Espinoza', 'Fernandez', 'Garcia',
-  'Hernandez', 'Ito', 'Johnson', 'Kim', 'Lopez', 'Martinez', 'Nakamura',
-  'Okafor', 'Patel', 'Quintero', 'Rodriguez', 'Singh', 'Tanaka', 'Uchida',
-  'Vargas', 'Wang', 'Xu', 'Yamamoto', 'Zhang',
+  'Anderson',
+  'Brown',
+  'Chen',
+  'Davis',
+  'Espinoza',
+  'Fernandez',
+  'Garcia',
+  'Hernandez',
+  'Ito',
+  'Johnson',
+  'Kim',
+  'Lopez',
+  'Martinez',
+  'Nakamura',
+  'Okafor',
+  'Patel',
+  'Quintero',
+  'Rodriguez',
+  'Singh',
+  'Tanaka',
+  'Uchida',
+  'Vargas',
+  'Wang',
+  'Xu',
+  'Yamamoto',
+  'Zhang',
 ];
 
 // Real heuristic IDs from packages/analyzer/src/heuristics/*.ts
@@ -220,11 +301,7 @@ type Flavor =
   | 'ai_extension'
   | 'combo';
 
-function generateEvents(
-  submissionId: string,
-  startWall: Date,
-  flavor: Flavor,
-): EventRow[] {
+function generateEvents(submissionId: string, startWall: Date, flavor: Flavor): EventRow[] {
   const events: EventRow[] = [];
   const sessionId = uuid();
   let seq = 0;
@@ -524,7 +601,9 @@ async function main(): Promise<void> {
       LIMIT 1
     `;
     if (semRows.length === 0) {
-      throw new Error(`Semester ${SEMESTER_COURSE_SLUG}/${SEMESTER_SLUG} not found. Bootstrap it first.`);
+      throw new Error(
+        `Semester ${SEMESTER_COURSE_SLUG}/${SEMESTER_SLUG} not found. Bootstrap it first.`,
+      );
     }
     const semesterId = semRows[0]!.id;
 
@@ -568,17 +647,35 @@ async function main(): Promise<void> {
     // Submissions reference this via heuristic_config_version=1.
     // --------------------------------------------------------
     const KNOWN_HEURISTIC_IDS = [
-      'large_paste', 'external_edits', 'low_typing_high_output', 'chain_broken',
-      'paste_is_solution', 'mass_external_replacement', 'time_to_first_save_anomaly',
-      'idle_then_complete', 'no_intermediate_errors', 'paste_matches_known_source',
-      'ai_extension_active', 'extension_hash_mismatch', 'extension_set_changed_mid_assignment',
-      'clock_jumps', 'gap_in_heartbeats', 'manifest_sig_invalid', 'session_binding_invalid',
-      'monotonic_t_regression', 'monotonic_wall_regression', 'shell_integration_disabled',
-      'terminal_active_during_external_change', 'multiple_sessions_overlap',
-      'editing_pattern_clone', 'paste_shared_across_students',
+      'large_paste',
+      'external_edits',
+      'low_typing_high_output',
+      'chain_broken',
+      'paste_is_solution',
+      'mass_external_replacement',
+      'time_to_first_save_anomaly',
+      'idle_then_complete',
+      'no_intermediate_errors',
+      'paste_matches_known_source',
+      'ai_extension_active',
+      'extension_hash_mismatch',
+      'extension_set_changed_mid_assignment',
+      'clock_jumps',
+      'gap_in_heartbeats',
+      'manifest_sig_invalid',
+      'session_binding_invalid',
+      'monotonic_t_regression',
+      'monotonic_wall_regression',
+      'shell_integration_disabled',
+      'terminal_active_during_external_change',
+      'multiple_sessions_overlap',
+      'editing_pattern_clone',
+      'paste_shared_across_students',
     ];
     const heuristicConfig = {
-      per_flag: Object.fromEntries(KNOWN_HEURISTIC_IDS.map((id) => [id, { enabled: true, weight: 1.0 }])),
+      per_flag: Object.fromEntries(
+        KNOWN_HEURISTIC_IDS.map((id) => [id, { enabled: true, weight: 1.0 }]),
+      ),
       severity_weights: { info: 0, low: 1, medium: 3, high: 8 },
       config_format_version: 1,
     };
@@ -667,12 +764,13 @@ async function main(): Promise<void> {
         } else {
           // Roughly even distribution across the suspicious flavors.
           const rng = Math.random();
-          if (rng < 0.10) flavor = 'normal'; // mixed-cohort student with a clean assignment
+          if (rng < 0.1)
+            flavor = 'normal'; // mixed-cohort student with a clean assignment
           else if (rng < 0.25) flavor = 'large_paste_only';
-          else if (rng < 0.40) flavor = 'paste_is_solution';
+          else if (rng < 0.4) flavor = 'paste_is_solution';
           else if (rng < 0.55) flavor = 'ttfs_anomaly';
-          else if (rng < 0.70) flavor = 'idle_then_complete';
-          else if (rng < 0.80) flavor = 'gap_only';
+          else if (rng < 0.7) flavor = 'idle_then_complete';
+          else if (rng < 0.8) flavor = 'gap_only';
           else if (rng < 0.92) flavor = 'ai_extension';
           else flavor = 'combo';
         }
@@ -741,7 +839,6 @@ async function main(): Promise<void> {
             (${subId}, 'hw.py', ${chTyped}, ${chPasted}, 0,
              ${saves}, ${finalLen}, 0, false)
         `;
-
       }
     }
 

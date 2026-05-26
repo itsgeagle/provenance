@@ -36,7 +36,11 @@ vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 async function seedUser(db: Parameters<Parameters<typeof withTestDb>[0]>[0]): Promise<string> {
   const rows = await db
     .insert(users)
-    .values({ google_subject: `sub-${Math.random()}`, email: `u${Math.random()}@b.edu`, display_name: 'U' })
+    .values({
+      google_subject: `sub-${Math.random()}`,
+      email: `u${Math.random()}@b.edu`,
+      display_name: 'U',
+    })
     .returning({ id: users.id });
   return rows[0]!.id;
 }
