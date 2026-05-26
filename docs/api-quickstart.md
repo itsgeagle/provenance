@@ -12,8 +12,24 @@ cohort list for a semester. Takes about 5 minutes.
 
 ## Step 1 — Mint an API token
 
-Tokens are created via the web UI or directly from the API. To create one from
-the command line, first log in via the browser to get a session cookie, then:
+The easiest path is the web UI:
+
+1. Sign in at `https://provenance.example.edu/login`.
+2. Click **API tokens** in the top-right user menu (next to your email).
+3. Fill in the create form:
+   - **Label** — anything descriptive (e.g. `quickstart-script`).
+   - **Read-only** — leave checked unless your tool needs to write.
+   - **Allow bundle downloads** — only check if you'll hit `/submissions/{id}/bundle`.
+   - **Restrict to specific semesters** — recommended; tick this and pick the
+     semester(s) the tool should see.
+   - **Expires** — optional; leave blank for no expiry.
+4. Click **Create token**. A modal pops up with the full secret. **Copy it now**
+   — this is the only time it will be shown. Tick "I've saved this token" and
+   click **Done**.
+
+If you'd rather do everything from the command line, you can `POST` to the same
+endpoint directly. You'll need a session cookie (grab `__Host-prov_sess` from
+DevTools → Application → Cookies after signing in):
 
 ```bash
 curl -s -X POST https://provenance.example.edu/api/v1/me/tokens \
@@ -49,6 +65,9 @@ export PROVENANCE_TOKEN="prov_abc123..."
 export PROVENANCE_BASE_URL="https://provenance.example.edu/api/v1"
 export SEMESTER_ID="<your-semester-uuid>"
 ```
+
+You can review, list, and revoke tokens at any time from the same **API tokens**
+page in the web UI.
 
 ## Step 2 — Verify your token works
 
