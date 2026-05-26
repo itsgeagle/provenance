@@ -34,6 +34,7 @@ import { LoginView } from './views/login/LoginView.js';
 import { HomeView } from './views/home/HomeView.js';
 import { AppShell } from './components/nav/AppShell.js';
 import { RequireAuth } from './auth/RequireAuth.js';
+import { RequireSuperadmin } from './auth/RequireSuperadmin.js';
 import {
   LocalShell,
   RequireLocalBundle,
@@ -88,6 +89,26 @@ const CrossFlagDetailView = lazy(() =>
 );
 const TokensView = lazy(() =>
   import('./views/tokens/TokensView.js').then((m) => ({ default: m.TokensView })),
+);
+const AdminIndexView = lazy(() =>
+  import('./views/admin/AdminIndexView.js').then((m) => ({ default: m.AdminIndexView })),
+);
+const AdminCoursesView = lazy(() =>
+  import('./views/admin/AdminCoursesView.js').then((m) => ({ default: m.AdminCoursesView })),
+);
+const AdminSemestersView = lazy(() =>
+  import('./views/admin/AdminSemestersView.js').then((m) => ({ default: m.AdminSemestersView })),
+);
+const AdminUsersView = lazy(() =>
+  import('./views/admin/AdminUsersView.js').then((m) => ({ default: m.AdminUsersView })),
+);
+const AdminUserDetailView = lazy(() =>
+  import('./views/admin/AdminUserDetailView.js').then((m) => ({
+    default: m.AdminUserDetailView,
+  })),
+);
+const AdminAuditView = lazy(() =>
+  import('./views/admin/AdminAuditView.js').then((m) => ({ default: m.AdminAuditView })),
 );
 
 // ---------------------------------------------------------------------------
@@ -282,6 +303,80 @@ export function App() {
               <AppShell>
                 <TokensView />
               </AppShell>
+            </RequireAuth>
+          }
+        />
+
+        {/* ── /admin/* — superadmin sub-app (V45) ──────────────────────── */}
+        <Route
+          path="/admin"
+          element={
+            <RequireAuth>
+              <RequireSuperadmin>
+                <AppShell>
+                  <AdminIndexView />
+                </AppShell>
+              </RequireSuperadmin>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/courses"
+          element={
+            <RequireAuth>
+              <RequireSuperadmin>
+                <AppShell>
+                  <AdminCoursesView />
+                </AppShell>
+              </RequireSuperadmin>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/courses/:courseId/semesters"
+          element={
+            <RequireAuth>
+              <RequireSuperadmin>
+                <AppShell>
+                  <AdminSemestersView />
+                </AppShell>
+              </RequireSuperadmin>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <RequireAuth>
+              <RequireSuperadmin>
+                <AppShell>
+                  <AdminUsersView />
+                </AppShell>
+              </RequireSuperadmin>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/users/:userId"
+          element={
+            <RequireAuth>
+              <RequireSuperadmin>
+                <AppShell>
+                  <AdminUserDetailView />
+                </AppShell>
+              </RequireSuperadmin>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/audit"
+          element={
+            <RequireAuth>
+              <RequireSuperadmin>
+                <AppShell>
+                  <AdminAuditView />
+                </AppShell>
+              </RequireSuperadmin>
             </RequireAuth>
           }
         />

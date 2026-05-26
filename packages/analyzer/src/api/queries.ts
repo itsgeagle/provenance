@@ -41,11 +41,18 @@ import {
   ExportJobSchema,
   TokensListResponseSchema,
   CreateTokenResponseSchema,
+  AdminUserListResponseSchema,
+  AdminUserDetailResponseSchema,
+  CourseListResponseSchema,
+  SemesterListResponseSchema,
+  AuditListResponseSchema,
 } from '@provenance/shared/api-schemas';
 import type {
   Membership,
   HeuristicConfigBody,
   CreateTokenRequest,
+  CreateCourseRequest,
+  CreateSemesterRequest,
 } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
@@ -75,6 +82,12 @@ export const queryKeys = {
     ['cross-flags', semesterId, params] as const,
   crossFlagDetail: (crossFlagId: string) => ['cross-flag', crossFlagId] as const,
   myTokens: ['me', 'tokens'] as const,
+  // V45 — admin surface
+  adminUsers: (q: string, cursor: string | null) => ['admin', 'users', { q, cursor }] as const,
+  adminUser: (userId: string) => ['admin', 'users', userId] as const,
+  adminCourses: ['admin', 'courses'] as const,
+  adminSemesters: (courseId: string) => ['admin', 'courses', courseId, 'semesters'] as const,
+  adminAudit: (params: Record<string, unknown>) => ['admin', 'audit', params] as const,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -939,6 +952,162 @@ export function useRevokeToken() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.myTokens });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// V45 — Admin sub-app hooks (superadmin-only routes)
+// ---------------------------------------------------------------------------
+
+/** Lists all platform users; optional free-text search on email + display_name. */
+export function useAdminUsers(q = '', cursor: string | null = null) {
+  return useQuery({
+    queryKey: queryKeys.adminUsers(q, cursor),
+    queryFn: () => {
+      const qs = buildQueryString({
+        ...(q !== '' ? { q } : {}),
+        ...(cursor !== null ? { cursor } : {}),
+        limit: '50',
+      });
+      return apiFetch(`/admin/users${qs ? `?${qs}` : ''}`, undefined, AdminUserListResponseSchema);
+    },
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+  });
+}
+
+/** Fetches one user + their memberships across every semester. */
+export function useAdminUser(userId: string) {
+  return useQuery({
+    queryKey: queryKeys.adminUser(userId),
+    queryFn: () => apiFetch(`/admin/users/${userId}`, undefined, AdminUserDetailResponseSchema),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: userId !== '',
+  });
+}
+
+/** Mutation: DELETE /admin/users/:userId. Refuses to delete self (server-enforced). */
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => apiFetch(`/admin/users/${userId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
+/** Mutation: POST /admin/view-as. Sticky on the session row until exit. */
+export function useStartViewAs() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch('/admin/view-as', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      }),
+    onSuccess: () => {
+      // Bust /me so the banner + memberships repopulate from the target's view.
+      queryClient.clear();
+    },
+  });
+}
+
+/** Mutation: POST /admin/view-as/exit. Idempotent. */
+export function useExitViewAs() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch('/admin/view-as/exit', { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.clear();
+    },
+  });
+}
+
+/** Lists all courses (superadmin: gets every course; non-superadmin: visible subset). */
+export function useAdminCourses() {
+  return useQuery({
+    queryKey: queryKeys.adminCourses,
+    queryFn: () => apiFetch('/courses', undefined, CourseListResponseSchema),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+  });
+}
+
+/** Mutation: POST /courses (superadmin only). */
+export function useCreateCourse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateCourseRequest) =>
+      apiFetch('/courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminCourses });
+    },
+  });
+}
+
+/** Mutation: POST /courses/:id/archive (superadmin only). */
+export function useArchiveCourse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (courseId: string) => apiFetch(`/courses/${courseId}/archive`, { method: 'POST' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminCourses });
+    },
+  });
+}
+
+/** Lists semesters within a course. */
+export function useAdminSemesters(courseId: string) {
+  return useQuery({
+    queryKey: queryKeys.adminSemesters(courseId),
+    queryFn: () =>
+      apiFetch(`/courses/${courseId}/semesters`, undefined, SemesterListResponseSchema),
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: courseId !== '',
+  });
+}
+
+/** Mutation: POST /courses/:id/semesters (superadmin only). */
+export function useCreateSemester(courseId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateSemesterRequest) =>
+      apiFetch(`/courses/${courseId}/semesters`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminSemesters(courseId) });
+    },
+  });
+}
+
+/** Lists audit-log rows; supports the standard filter set + cursor. */
+export function useAdminAudit(params: {
+  semester_id?: string;
+  actor_user_id?: string;
+  action?: string;
+  since?: string;
+  until?: string;
+  cursor?: string;
+}) {
+  return useQuery({
+    queryKey: queryKeys.adminAudit(params),
+    queryFn: () => {
+      const qs = buildQueryString({ ...params, limit: '100' });
+      return apiFetch(`/audit${qs ? `?${qs}` : ''}`, undefined, AuditListResponseSchema);
+    },
+    staleTime: 10 * 1000,
+    retry: noRetryOn401,
   });
 }
 

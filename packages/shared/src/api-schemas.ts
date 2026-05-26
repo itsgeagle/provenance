@@ -736,3 +736,132 @@ export const CreateTokenResponseSchema = z.object({
   secret: z.string(),
 });
 export type CreateTokenResponse = z.infer<typeof CreateTokenResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// V45 — Superadmin /admin surface
+//
+// GET    /admin/users               — { items, next_cursor }
+// GET    /admin/users/{userId}      — { user, memberships }
+// DELETE /admin/users/{userId}      — 204
+// POST   /admin/view-as             — { user_id } → 200 { ok: true }
+// POST   /admin/view-as/exit        — 204
+// Course/semester management uses the existing /courses + /semesters routes.
+// ---------------------------------------------------------------------------
+
+export const AdminUserSummarySchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  display_name: z.string().nullable(),
+  is_superadmin: z.boolean(),
+  created_at: z.string().datetime(),
+  last_login_at: z.string().datetime().nullable(),
+});
+export type AdminUserSummary = z.infer<typeof AdminUserSummarySchema>;
+
+export const AdminUserListResponseSchema = z.object({
+  items: z.array(AdminUserSummarySchema),
+  next_cursor: z.string().nullable(),
+});
+export type AdminUserListResponse = z.infer<typeof AdminUserListResponseSchema>;
+
+export const AdminUserDetailResponseSchema = z.object({
+  user: AdminUserSummarySchema,
+  memberships: z.array(MembershipSchema),
+});
+export type AdminUserDetailResponse = z.infer<typeof AdminUserDetailResponseSchema>;
+
+export const ViewAsRequestSchema = z.object({
+  user_id: z.string().uuid(),
+});
+export type ViewAsRequest = z.infer<typeof ViewAsRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// V45 — Course / semester management schemas (mirror server schemas/structure.ts)
+//
+// These were previously server-only because no UI consumed them. The /admin
+// sub-app surfaces them now. Kept narrow — only the fields the admin pages
+// actually render or post.
+// ---------------------------------------------------------------------------
+
+export const CourseSummarySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string(),
+  archived: z.boolean(),
+  semesters_count: z.number().int().nonnegative(),
+});
+export type CourseSummary = z.infer<typeof CourseSummarySchema>;
+
+export const CourseListResponseSchema = z.object({
+  courses: z.array(CourseSummarySchema),
+});
+export type CourseListResponse = z.infer<typeof CourseListResponseSchema>;
+
+export const CreateCourseRequestSchema = z.object({
+  name: z.string().min(1).max(255),
+  slug: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/),
+});
+export type CreateCourseRequest = z.infer<typeof CreateCourseRequestSchema>;
+
+export const SemesterAdminSummarySchema = z.object({
+  id: z.string().uuid(),
+  course_id: z.string().uuid(),
+  slug: z.string(),
+  term: z.string(),
+  year: z.number().int(),
+  display_name: z.string(),
+  archived: z.boolean(),
+  submission_count: z.number().int().nonnegative(),
+  student_count: z.number().int().nonnegative(),
+  assignment_count: z.number().int().nonnegative(),
+  active_config_version: z.number().int().nonnegative(),
+  my_role: z.enum(['admin', 'grader']).nullable(),
+});
+export type SemesterAdminSummary = z.infer<typeof SemesterAdminSummarySchema>;
+
+export const SemesterListResponseSchema = z.object({
+  semesters: z.array(SemesterAdminSummarySchema),
+});
+export type SemesterListResponse = z.infer<typeof SemesterListResponseSchema>;
+
+export const CreateSemesterRequestSchema = z.object({
+  term: z.enum(['fa', 'sp', 'su', 'wi']),
+  year: z.number().int().min(2000).max(2100),
+  slug: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/),
+  display_name: z.string().min(1).max(255),
+  filename_convention: z.string().min(1).max(500),
+  blob_retention_days: z.number().int().min(30).optional(),
+  derived_retention_days: z.number().int().optional(),
+});
+export type CreateSemesterRequest = z.infer<typeof CreateSemesterRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// V45 — Audit log row schema for the admin audit page.
+// ---------------------------------------------------------------------------
+
+export const AuditLogRowSchema = z.object({
+  id: z.string().uuid(),
+  actor_user_id: z.string().uuid().nullable(),
+  actor_token_id: z.string().uuid().nullable(),
+  semester_id: z.string().uuid().nullable(),
+  action: z.string(),
+  target_type: z.string(),
+  target_id: z.string(),
+  detail: z.unknown(),
+  at: z.string().datetime(),
+});
+export type AuditLogRow = z.infer<typeof AuditLogRowSchema>;
+
+export const AuditListResponseSchema = z.object({
+  items: z.array(AuditLogRowSchema),
+  next_cursor: z.string().nullable(),
+});
+export type AuditListResponse = z.infer<typeof AuditListResponseSchema>;

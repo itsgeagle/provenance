@@ -22,7 +22,7 @@
 
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { and, asc, desc, eq, gt, ilike, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, or, sql, type SQL } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { users, memberships, semesters, courses } from '../../../db/schema.js';
 import { requireAuth } from '../../middleware/authorize.js';
@@ -153,11 +153,7 @@ export function createAdminRouter(): Hono {
       const db = getDb();
       const userId = c.req.param('userId');
 
-      const userRows = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
+      const userRows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
       const u = userRows[0];
       if (u === undefined) {
         return c.json(Errors.notFound().toBody(), 404);
@@ -276,7 +272,9 @@ export function createAdminRouter(): Hono {
       const parsed = ViewAsRequestSchema.safeParse(body);
       if (!parsed.success) {
         return c.json(
-          Errors.validation(parsed.error.issues.map((i) => ({ path: i.path, msg: i.message }))).toBody(),
+          Errors.validation(
+            parsed.error.issues.map((i) => ({ path: i.path, msg: i.message })),
+          ).toBody(),
           400,
         );
       }
@@ -284,9 +282,7 @@ export function createAdminRouter(): Hono {
 
       if (targetUserId === principal.user.id) {
         return c.json(
-          Errors.validation([
-            { field: 'user_id', issue: 'cannot view-as yourself' },
-          ]).toBody(),
+          Errors.validation([{ field: 'user_id', issue: 'cannot view-as yourself' }]).toBody(),
           400,
         );
       }

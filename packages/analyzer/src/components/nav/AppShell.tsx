@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useMe, useLogout, useSemesters } from '../../api/queries.js';
 import { SemesterSwitcher } from './SemesterSwitcher.js';
+import { ViewAsBanner } from './ViewAsBanner.js';
 
 interface AppShellProps {
   children: ReactNode;
@@ -81,8 +82,13 @@ export function AppShell({ children }: AppShellProps) {
     });
   }
 
+  const isSuperadmin = me?.user.is_superadmin ?? false;
+
   return (
     <div className="flex min-h-screen flex-col">
+      {/* View-as banner (only renders when /me reports active view-as) */}
+      <ViewAsBanner />
+
       {/* Top bar */}
       <header className="flex h-14 items-center border-b border-gray-200 bg-white px-4 overflow-x-auto">
         {/* Logo */}
@@ -103,6 +109,15 @@ export function AppShell({ children }: AppShellProps) {
         {me !== undefined && (
           <div className="flex shrink-0 items-center gap-3">
             <span className="text-xs text-gray-500">{me.user.email}</span>
+            {isSuperadmin && (
+              <Link
+                to="/admin"
+                className="rounded-md border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                data-testid="admin-link"
+              >
+                Admin
+              </Link>
+            )}
             <Link
               to="/me/tokens"
               className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50"

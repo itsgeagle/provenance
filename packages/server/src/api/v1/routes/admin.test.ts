@@ -23,14 +23,7 @@ import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js
 import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
 import { createV1App } from '../index.js';
-import {
-  users,
-  sessions,
-  audit_log,
-  courses,
-  semesters,
-  memberships,
-} from '../../../db/schema.js';
+import { users, sessions, audit_log, courses, semesters, memberships } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -215,9 +208,12 @@ describe('GET /admin/users/:id', () => {
       const sessionId = await seedSession(db, sa.id);
       const target = await seedUser(db, { email: 'target@berkeley.edu' });
       const { semester } = await seedCourseAndSemester(db);
-      await db
-        .insert(memberships)
-        .values({ user_id: target.id, semester_id: semester.id, role: 'grader', granted_by: sa.id });
+      await db.insert(memberships).values({
+        user_id: target.id,
+        semester_id: semester.id,
+        role: 'grader',
+        granted_by: sa.id,
+      });
 
       const app = createV1App();
       const res = await app.fetch(
