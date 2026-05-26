@@ -57,10 +57,6 @@ export const openApiSpec = {
     version: '3.0.0',
     contact: {
       name: 'CS 61A Academic Integrity',
-      url: 'https://cs61a.org',
-    },
-    license: {
-      name: 'MIT',
     },
   },
   servers: [
