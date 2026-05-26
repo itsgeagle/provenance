@@ -46,11 +46,29 @@ export type Membership = z.infer<typeof MembershipSchema>;
 // /me response
 // ---------------------------------------------------------------------------
 
+/**
+ * View-as block (V45): present on session-principal /me responses.
+ * `view_as` is null when the superadmin is not impersonating; a structured
+ * summary of the target user (id + email + display_name) plus the start
+ * timestamp when impersonation is active. Carries the actor's *target*, not
+ * the actor itself — the actor remains on `user`.
+ */
+export const ViewAsSummarySchema = z.object({
+  user: z.object({
+    id: z.string().uuid(),
+    email: z.string().email(),
+    display_name: z.string().nullable(),
+  }),
+  started_at: z.string().datetime(),
+});
+export type ViewAsSummary = z.infer<typeof ViewAsSummarySchema>;
+
 export const MeResponseSchema = z.discriminatedUnion('principal_kind', [
   z.object({
     principal_kind: z.literal('session'),
     user: UserSchema,
     memberships: z.array(MembershipSchema),
+    view_as: ViewAsSummarySchema.nullable(),
   }),
   z.object({
     principal_kind: z.literal('token'),

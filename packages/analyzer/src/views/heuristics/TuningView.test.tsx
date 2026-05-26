@@ -109,6 +109,7 @@ function setupHandlers() {
             granted_at: '2025-01-01T00:00:00.000Z',
           },
         ],
+        view_as: null,
       }),
     ),
     http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/heuristic-config`, () =>

@@ -46,13 +46,19 @@ function parseScopes(raw: unknown): ReturnType<typeof tokenScopesSchema.parse> {
  *
  * Steps:
  *  1. null principal → DENY AUTH_REQUIRED
- *  2. Token read-only + non-read action → DENY TOKEN_READ_ONLY
- *  3. Token semester-scoped + target not in scope → DENY TOKEN_SCOPE_OUT_OF_BAND
- *  4. Superadmin → ALLOW (bypasses membership check)
- *  5. No membership → DENY NOT_A_MEMBER
- *  6. admin action + grader role → DENY INSUFFICIENT_ROLE
- *  7. write action + grader role → DENY INSUFFICIENT_ROLE
- *  8. ALLOW
+ *  2. Session with view-as + non-read action → DENY VIEW_AS_READ_ONLY
+ *  3. Token read-only + non-read action → DENY TOKEN_READ_ONLY
+ *  4. Token semester-scoped + target not in scope → DENY TOKEN_SCOPE_OUT_OF_BAND
+ *  5. Superadmin (and NOT in view-as) → ALLOW (bypasses membership check)
+ *  6. No membership → DENY NOT_A_MEMBER
+ *  7. admin action + grader role → DENY INSUFFICIENT_ROLE
+ *  8. write action + grader role → DENY INSUFFICIENT_ROLE
+ *  9. ALLOW
+ *
+ * View-as note (V45): when the caller is a superadmin in view-as mode, the
+ * membership argument MUST be the target user's membership for `target`, not
+ * the superadmin's. requireAuth handles this lookup-swap upstream. authorize()
+ * itself only sees the (already-resolved) membership row.
  *
  * @param principal   Resolved principal or null for anonymous.
  * @param action      Requested action: 'read' | 'write' | 'admin'.
@@ -70,32 +76,41 @@ export function authorize(
     return { ok: false, code: 'AUTH_REQUIRED' };
   }
 
-  // Steps 2–3: token-specific scope checks
+  // Step 2: view-as is strictly read-only. The superadmin keeps their actual
+  // identity for audit, but cannot perform any writes while impersonating.
+  const viewAs = principal.principal_kind === 'session' ? principal.viewAs : undefined;
+  if (viewAs !== undefined && action !== 'read') {
+    return { ok: false, code: 'VIEW_AS_READ_ONLY' };
+  }
+
+  // Steps 3–4: token-specific scope checks
   if (principal.principal_kind === 'token') {
     const scopes = parseScopes(principal.token.scopes);
 
-    // Step 2: read-only token attempting a non-read action
+    // Step 3: read-only token attempting a non-read action
     if (scopes.read_only && action !== 'read') {
       return { ok: false, code: 'TOKEN_READ_ONLY' };
     }
 
-    // Step 3: token restricted to specific semesters
+    // Step 4: token restricted to specific semesters
     if (scopes.semester_ids !== null && !scopes.semester_ids.includes(target.semesterId)) {
       return { ok: false, code: 'TOKEN_SCOPE_OUT_OF_BAND' };
     }
   }
 
-  // Step 4: superadmin bypasses all membership checks
-  if (principal.user.is_superadmin) {
+  // Step 5: superadmin bypasses all membership checks — UNLESS they're in
+  // view-as mode, where the whole point is to see exactly what the target
+  // user would see (i.e. honor the target's memberships strictly).
+  if (principal.user.is_superadmin && viewAs === undefined) {
     return { ok: true };
   }
 
-  // Step 5: must be a member
+  // Step 6: must be a member
   if (membership === null) {
     return { ok: false, code: 'NOT_A_MEMBER' };
   }
 
-  // Steps 6–7: role checks for elevated actions
+  // Steps 7–8: role checks for elevated actions
   if (action === 'admin' && membership.role !== 'admin') {
     return { ok: false, code: 'INSUFFICIENT_ROLE' };
   }

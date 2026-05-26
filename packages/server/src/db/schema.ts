@@ -77,6 +77,13 @@ export const sessions = pgTable(
     expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
     ip: inet('ip'),
     user_agent: text('user_agent'),
+    // View-as (V45): superadmin-only read-only impersonation. Both columns are
+    // null when not active. view_as_user_id uses ON DELETE SET NULL so deleting
+    // the target user gracefully exits view-as for any sticky session.
+    view_as_user_id: uuid('view_as_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    view_as_started_at: timestamp('view_as_started_at', { withTimezone: true }),
   },
   (t) => [
     index('sessions_user_id_idx').on(t.user_id),

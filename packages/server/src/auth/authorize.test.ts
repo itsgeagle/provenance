@@ -33,6 +33,8 @@ function makeSessionPrincipal(overrides?: { is_superadmin?: boolean }): Principa
       expires_at: new Date(Date.now() + 86400_000),
       ip: null,
       user_agent: null,
+      view_as_user_id: null,
+      view_as_started_at: null,
     },
   };
 }
@@ -263,5 +265,69 @@ describe('authorizeBlob()', () => {
     // read_only does not block read actions; blob check only checks include_blobs
     const p = makeTokenPrincipal({ read_only: true, include_blobs: true });
     expect(authorizeBlob(p, target, adminMembership)).toEqual({ ok: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// View-as (V45)
+// ---------------------------------------------------------------------------
+
+describe('authorize() — view-as', () => {
+  const target = { semesterId: 'semester-uuid-1' };
+  const adminMembership: MembershipRow = { role: 'admin' };
+  const graderMembership: MembershipRow = { role: 'grader' };
+
+  function makeViewAsPrincipal(): Principal {
+    const p = makeSessionPrincipal({ is_superadmin: true });
+    // viewAs lives on the session-principal branch only.
+    if (p.principal_kind !== 'session') throw new Error('unreachable');
+    return {
+      ...p,
+      viewAs: {
+        userId: 'target-user-uuid-2',
+        startedAt: new Date(),
+      },
+    };
+  }
+
+  it('view-as superadmin + write action → DENY VIEW_AS_READ_ONLY', () => {
+    const p = makeViewAsPrincipal();
+    expect(authorize(p, 'write', target, adminMembership)).toEqual({
+      ok: false,
+      code: 'VIEW_AS_READ_ONLY',
+    });
+  });
+
+  it('view-as superadmin + admin action → DENY VIEW_AS_READ_ONLY', () => {
+    const p = makeViewAsPrincipal();
+    expect(authorize(p, 'admin', target, adminMembership)).toEqual({
+      ok: false,
+      code: 'VIEW_AS_READ_ONLY',
+    });
+  });
+
+  it('view-as superadmin + read with target NOT a member → DENY NOT_A_MEMBER (superadmin bypass skipped)', () => {
+    const p = makeViewAsPrincipal();
+    expect(authorize(p, 'read', target, null)).toEqual({
+      ok: false,
+      code: 'NOT_A_MEMBER',
+    });
+  });
+
+  it('view-as superadmin + read with target a grader → ALLOW', () => {
+    const p = makeViewAsPrincipal();
+    expect(authorize(p, 'read', target, graderMembership)).toEqual({ ok: true });
+  });
+
+  it('view-as superadmin + read with target an admin → ALLOW', () => {
+    const p = makeViewAsPrincipal();
+    expect(authorize(p, 'read', target, adminMembership)).toEqual({ ok: true });
+  });
+
+  it('non-view-as superadmin still bypasses membership', () => {
+    // Sanity: removing viewAs restores the standard superadmin bypass.
+    const p = makeSessionPrincipal({ is_superadmin: true });
+    expect(authorize(p, 'read', target, null)).toEqual({ ok: true });
+    expect(authorize(p, 'write', target, null)).toEqual({ ok: true });
   });
 });

@@ -29,6 +29,8 @@ export type ApiErrorCode =
   // Role / membership authorization
   | 'NOT_A_MEMBER'
   | 'INSUFFICIENT_ROLE'
+  // View-as (V45): superadmin is impersonating; only reads are permitted.
+  | 'VIEW_AS_READ_ONLY'
   // Request validation
   | 'BAD_REQUEST_RETURN_TO_INVALID'
   | 'VALIDATION'
@@ -218,6 +220,14 @@ export const Errors = {
     return new ApiError('INSUFFICIENT_ROLE', 403, `This action requires the '${required}' role`, {
       required_role: required,
     });
+  },
+
+  viewAsReadOnly(): ApiError {
+    return new ApiError(
+      'VIEW_AS_READ_ONLY',
+      403,
+      'View-as mode is read-only. Exit view-as to perform write actions.',
+    );
   },
 
   // -------------------------------------------------------------------------

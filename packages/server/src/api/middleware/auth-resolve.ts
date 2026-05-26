@@ -107,5 +107,26 @@ async function resolveSessionPrincipal(c: Context): Promise<Principal | null> {
   const user = userRows[0];
   if (user === undefined) return null;
 
+  // View-as (V45): if the session is carrying a target user id AND the acting
+  // user is a superadmin, attach the view-as state to the principal. We
+  // intentionally re-check is_superadmin here (not just at view-as entry) so a
+  // superadmin who is demoted while in view-as immediately loses the elevated
+  // scope — the next request runs as a plain user with no view-as.
+  if (
+    user.is_superadmin &&
+    session.view_as_user_id !== null &&
+    session.view_as_started_at !== null
+  ) {
+    return {
+      principal_kind: 'session',
+      session,
+      user,
+      viewAs: {
+        userId: session.view_as_user_id,
+        startedAt: session.view_as_started_at,
+      },
+    };
+  }
+
   return { principal_kind: 'session', session, user };
 }

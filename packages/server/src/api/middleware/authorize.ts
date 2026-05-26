@@ -125,12 +125,28 @@ export function requireAuth(opts: RequireAuthOptions): MiddlewareHandler {
     }
 
     // -----------------------------------------------------------------------
+    // View-as guard (V45): a superadmin in view-as mode is strictly read-only.
+    // Global and semester-scoped routes alike block non-read actions before
+    // any other checks. Without this, a superadmin could still hit superadmin
+    // bypasses below while supposedly impersonating a grader.
+    // -----------------------------------------------------------------------
+    const viewAs = principal.principal_kind === 'session' ? principal.viewAs : undefined;
+    if (viewAs !== undefined && opts.action !== 'read') {
+      return c.json(Errors.viewAsReadOnly().toBody(), 403);
+    }
+
+    // -----------------------------------------------------------------------
     // Step 2: global target — token scope checks FIRST, then superadmin check.
     //
     // PRD §4.5 specifies token scope checks precede the superadmin check.
     // A superadmin token with read_only=true must still be denied on a write
     // global route. A superadmin token scoped to specific semesters must still
     // be denied from global routes.
+    //
+    // View-as cannot reach global admin routes at all: global routes require
+    // superadmin AND we forbid write under view-as above. A view-as 'read'
+    // request to a global route is rare but allowed (superadmin is still
+    // technically authorized for read-only structural inspection).
     // -----------------------------------------------------------------------
     if (opts.target === 'global') {
       const scopeResult = checkTokenScopes(principal, opts.action);
@@ -158,11 +174,16 @@ export function requireAuth(opts: RequireAuthOptions): MiddlewareHandler {
     }
 
     // -----------------------------------------------------------------------
-    // Step 4: look up membership (request-scoped cache)
+    // Step 4: look up membership (request-scoped cache).
+    //
+    // View-as (V45): membership is looked up for the TARGET user, not the
+    // superadmin. The superadmin's own memberships are irrelevant — the whole
+    // point of view-as is to see exactly what the target would see.
     // -----------------------------------------------------------------------
     const cache = c.var.membershipCache;
     const db = getDb();
-    const membership = await findMembership(cache, db, principal.user.id, target.semesterId);
+    const membershipUserId = viewAs !== undefined ? viewAs.userId : principal.user.id;
+    const membership = await findMembership(cache, db, membershipUserId, target.semesterId);
 
     // -----------------------------------------------------------------------
     // Step 5: call authorize()
@@ -203,6 +224,8 @@ function denyResponse(c: Context, code: ApiErrorCode, target: Target): Response 
       // Pass the action so the message is accurate if future actions require different roles.
       // Today both 'write' and 'admin' require 'admin' role, but this is forward-compatible.
       return c.json(Errors.insufficientRole('admin').toBody(), 403);
+    case 'VIEW_AS_READ_ONLY':
+      return c.json(Errors.viewAsReadOnly().toBody(), 403);
     default:
       return c.json(Errors.internal().toBody(), 500);
   }

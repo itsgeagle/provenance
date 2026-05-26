@@ -40,8 +40,22 @@ import { resolvePrincipal, type ResolveResult } from './auth-resolve.js';
  * The union is fully additive: Phase 3 appends the token branch without
  * modifying existing session-principal consumers.
  */
+/**
+ * View-as state (V45). Populated on the session principal only when:
+ *   - The session row carries view_as_user_id and view_as_started_at.
+ *   - The acting user (principal.user) is a superadmin.
+ *
+ * Tokens never carry view-as (impersonation is session-only by design).
+ */
+export interface ViewAsState {
+  /** UUID of the user the superadmin is currently impersonating. */
+  userId: string;
+  /** When the impersonation was entered (matches sessions.view_as_started_at). */
+  startedAt: Date;
+}
+
 export type Principal =
-  | { principal_kind: 'session'; session: Session; user: User }
+  | { principal_kind: 'session'; session: Session; user: User; viewAs?: ViewAsState }
   | { principal_kind: 'token'; user: User; token: ApiToken };
 
 // ---------------------------------------------------------------------------

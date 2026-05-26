@@ -39,6 +39,7 @@ export const defaultMeResponse = {
   principal_kind: 'session' as const,
   user: defaultUser,
   memberships: [defaultMembership],
+  view_as: null,
 };
 
 // ---------------------------------------------------------------------------

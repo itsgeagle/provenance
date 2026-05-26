@@ -78,6 +78,13 @@
       "when": 1749000000000,
       "tag": "0012_cross_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1749100000000,
+      "tag": "0013_sessions_view_as",
+      "breakpoints": true
     }
   ]
 }

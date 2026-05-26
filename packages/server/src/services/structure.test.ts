@@ -36,6 +36,8 @@ const superAdminPrincipal: Principal = {
     expires_at: new Date(Date.now() + 1000000),
     ip: null,
     user_agent: null,
+    view_as_user_id: null,
+    view_as_started_at: null,
   },
 };
 

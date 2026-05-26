@@ -14,8 +14,10 @@
  */
 
 import { Hono } from 'hono';
+import { eq } from 'drizzle-orm';
 import { resolvePrincipal } from '../../middleware/auth-session.js';
 import { getDb } from '../../../db/client.js';
+import { users } from '../../../db/schema.js';
 import * as structureService from '../../../services/structure.js';
 import type { TokenScopes } from '../../../auth/tokens.js';
 
@@ -40,11 +42,21 @@ interface MembershipSummary {
   granted_at: string;
 }
 
+interface ViewAsSummary {
+  user: {
+    id: string;
+    email: string;
+    display_name: string | null;
+  };
+  started_at: string;
+}
+
 type MeResponse =
   | {
       user: UserSummary;
       memberships: MembershipSummary[];
       principal_kind: 'session';
+      view_as: ViewAsSummary | null;
     }
   | {
       user: UserSummary;
@@ -107,9 +119,18 @@ export function createMeRouter(): Hono {
       last_login_at: user.last_login_at !== null ? user.last_login_at.toISOString() : null,
     };
 
-    // Fetch user's memberships from database
     const db = getDb();
-    const membershipRows = await structureService.getUserMemberships(db, user.id);
+
+    // View-as (V45): when a superadmin is impersonating, /me returns the
+    // TARGET user's memberships (so the frontend's semester switcher and
+    // route gates reflect what the target would see) and surfaces a
+    // `view_as` block carrying the target's identity for the banner.
+    // The principal's own `user` field is still the superadmin so the
+    // banner can show "viewing as X" attributed to the actual operator.
+    const viewAs = principal.principal_kind === 'session' ? principal.viewAs : undefined;
+    const membershipsUserId = viewAs !== undefined ? viewAs.userId : user.id;
+
+    const membershipRows = await structureService.getUserMemberships(db, membershipsUserId);
     const memberships: MembershipSummary[] = membershipRows.map((m) => ({
       semester_id: m.semester_id,
       semester_slug: m.semester_slug,
@@ -133,10 +154,31 @@ export function createMeRouter(): Hono {
       return c.json(response);
     }
 
+    let viewAsSummary: ViewAsSummary | null = null;
+    if (viewAs !== undefined) {
+      const targetRows = await db
+        .select({ id: users.id, email: users.email, display_name: users.display_name })
+        .from(users)
+        .where(eq(users.id, viewAs.userId))
+        .limit(1);
+      const target = targetRows[0];
+      if (target !== undefined) {
+        viewAsSummary = {
+          user: {
+            id: target.id,
+            email: target.email,
+            display_name: target.display_name,
+          },
+          started_at: viewAs.startedAt.toISOString(),
+        };
+      }
+    }
+
     const response: MeResponse = {
       user: userSummary,
       memberships,
       principal_kind: 'session',
+      view_as: viewAsSummary,
     };
     return c.json(response);
   });
