@@ -133,7 +133,11 @@ export function createCrossFlagsRouter(): Hono {
       return c.json(Errors.notFound().toBody(), 404);
     }
 
-    return c.json(result.item);
+    // Wrap in `{ item }` to match CrossFlagDetailResponseSchema in shared.
+    // Pre-2026-05-27 the server returned the flat object, which silently
+    // failed Zod parsing on the analyzer side — the CrossFlag detail page
+    // showed empty / errored without surfacing the contract gap.
+    return c.json({ item: result.item });
   });
 
   return router;

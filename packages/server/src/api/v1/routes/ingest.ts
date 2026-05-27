@@ -157,6 +157,35 @@ interface RawFileRow {
  * matched_student and matched_assignment are nested objects when the file was
  * successfully matched, per PRD §8.6.
  */
+/**
+ * Normalize an `ingest_jobs.summary` jsonb value to the full IngestJobSummary
+ * shape required by the analyzer's Zod schema. Jobs that haven't computed
+ * stats yet have `summary='{}'` in the DB (column default); the API contract
+ * is to always send the 7 fields with 0 defaults so consumers don't have to
+ * special-case the partial shape.
+ */
+function normalizeJobSummary(raw: unknown): {
+  total: number;
+  matched: number;
+  unmatched: number;
+  duplicate: number;
+  failed: number;
+  superseded: number;
+  discarded: number;
+} {
+  const s = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  const num = (k: string): number => (typeof s[k] === 'number' ? (s[k] as number) : 0);
+  return {
+    total: num('total'),
+    matched: num('matched'),
+    unmatched: num('unmatched'),
+    duplicate: num('duplicate'),
+    failed: num('failed'),
+    superseded: num('superseded'),
+    discarded: num('discarded'),
+  };
+}
+
 function formatFileSummary(row: RawFileRow): Record<string, unknown> {
   const out: Record<string, unknown> = {
     id: row.id,
@@ -477,7 +506,7 @@ export function createIngestRouter(): Hono {
           id: r.id,
           semester_id: r.semester_id,
           status: r.status,
-          summary: r.summary,
+          summary: normalizeJobSummary(r.summary),
           created_at: r.created_at?.toISOString() ?? null,
           started_at: r.started_at?.toISOString() ?? null,
           completed_at: r.completed_at?.toISOString() ?? null,

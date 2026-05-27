@@ -1709,17 +1709,20 @@ describe('GET /cross-flags/:crossFlagId', () => {
       );
 
       expect(res.status).toBe(200);
-      const item = (await res.json()) as {
-        id: string;
-        heuristic_id: string;
-        severity: string;
-        participants: {
-          submission_id: string;
-          student: { id: string };
-          assignment: { id: string };
-          supporting_seqs: number[];
-        }[];
+      const body = (await res.json()) as {
+        item: {
+          id: string;
+          heuristic_id: string;
+          severity: string;
+          participants: {
+            submission_id: string;
+            student: { id: string };
+            assignment: { id: string };
+            supporting_seqs: number[];
+          }[];
+        };
       };
+      const item = body.item;
 
       expect(item.id).toBe(cf!.id);
       expect(item.heuristic_id).toBe('paste_shared_across_students');

@@ -175,7 +175,11 @@ export const StudentRollupRowSchema = z.object({
     id: z.string().uuid(),
     sid: z.string(),
     display_name: z.string(),
-    email: z.string().optional(),
+    // roster_entries.email is nullable in the DB; the server returns null
+    // (not undefined) when unset. Accept both — optional() alone would let
+    // the response shape silently degrade if the server ever changes its
+    // null-vs-omit policy.
+    email: z.string().nullable().optional(),
   }),
   submission_count: z.number().int(),
   score_sum: z.number(),
