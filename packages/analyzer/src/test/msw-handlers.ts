@@ -7,12 +7,48 @@
  */
 
 import { http, HttpResponse } from 'msw';
-import type {
-  Membership,
-  SubmissionRow,
-  CohortFacets,
-  StudentRollupRow,
+import type { z } from 'zod';
+import {
+  AssignmentListResponseSchema,
+  CohortListResponseSchema,
+  IngestJobListResponseSchema,
+  IngestJobSchema,
+  MeResponseSchema,
+  MembersListResponseSchema,
+  RosterListResponseSchema,
+  SemesterDetailResponseSchema,
+  StudentListResponseSchema,
+  UnmatchedListResponseSchema,
+  type Membership,
+  type SubmissionRow,
+  type CohortFacets,
+  type StudentRollupRow,
 } from '@provenance/shared/api-schemas';
+
+/**
+ * Wraps HttpResponse.json with Zod validation. If the body doesn't match the
+ * schema, throws synchronously at handler-creation time so the test fails
+ * on setup rather than producing a misleading "Failed to load X" UI assertion.
+ *
+ * This is the analyzer-side mirror of the server's contract.test.ts: it
+ * guarantees that MSW handlers are returning shapes the analyzer's Zod
+ * parsing will actually accept. Without it, a stale handler could feed an
+ * invalid response and the analyzer's own Zod parse would throw — the test
+ * would then "succeed" only because it observed the error state.
+ */
+function validatedJson<T>(body: T, schema: z.ZodType<T>, where: string) {
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `  - path=${i.path.join('.')} code=${i.code} msg=${i.message}`)
+      .join('\n');
+    throw new Error(
+      `MSW handler "${where}" returned a body that does not match its shared Zod schema:\n${issues}`,
+    );
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MSW's HttpResponse.json wants JsonBodyType; the parse above already constrained T
+  return HttpResponse.json(parsed.data as any);
+}
 
 // ---------------------------------------------------------------------------
 // Default response fixtures
@@ -48,15 +84,20 @@ export const defaultMeResponse = {
 
 export const handlers = [
   // GET /api/v1/me — returns authenticated user with one semester
-  http.get('/api/v1/me', () => {
-    return HttpResponse.json(defaultMeResponse);
-  }),
+  http.get('/api/v1/me', () => validatedJson(defaultMeResponse, MeResponseSchema, 'GET /me')),
 
   // POST /api/v1/auth/logout — returns 204
   http.post('/api/v1/auth/logout', () => {
     return new HttpResponse(null, { status: 204 });
   }),
 ];
+
+// Module-load assertion: the default fixtures must match their schemas. If
+// you change a shared schema and forget to update the matching fixture here,
+// any analyzer test that imports msw-handlers will fail at import time with
+// a clear schema-diff diagnostic — long before the test gets a chance to
+// emit a misleading "Failed to load X" UI assertion.
+MeResponseSchema.parse(defaultMeResponse);
 
 // ---------------------------------------------------------------------------
 // Helper factories for per-test overrides
@@ -79,22 +120,24 @@ export function meUnauthorizedHandler() {
 
 /** Returns a /me handler that responds with empty memberships. */
 export function meNoSemestersHandler() {
-  return http.get('/api/v1/me', () => {
-    return HttpResponse.json({
-      ...defaultMeResponse,
-      memberships: [],
-    });
-  });
+  return http.get('/api/v1/me', () =>
+    validatedJson(
+      { ...defaultMeResponse, memberships: [] },
+      MeResponseSchema,
+      'GET /me (no semesters)',
+    ),
+  );
 }
 
 /** Returns a /me handler that responds with the given memberships. */
 export function meWithMembershipsHandler(memberships: Membership[]) {
-  return http.get('/api/v1/me', () => {
-    return HttpResponse.json({
-      ...defaultMeResponse,
-      memberships,
-    });
-  });
+  return http.get('/api/v1/me', () =>
+    validatedJson(
+      { ...defaultMeResponse, memberships },
+      MeResponseSchema,
+      'GET /me (custom memberships)',
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -147,50 +190,62 @@ export function cohortSubmissionsHandler(
     facets?: CohortFacets;
   } = {},
 ) {
-  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/submissions`, () => {
-    return HttpResponse.json({
-      items,
-      next_cursor: options.next_cursor ?? null,
-      total_count: options.total_count ?? items.length,
-      facets: options.facets ?? defaultFacets,
-    });
-  });
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/submissions`, () =>
+    validatedJson(
+      {
+        items,
+        next_cursor: options.next_cursor ?? null,
+        total_count: options.total_count ?? items.length,
+        facets: options.facets ?? defaultFacets,
+      },
+      CohortListResponseSchema,
+      'GET /submissions',
+    ),
+  );
 }
 
 export function cohortStudentsHandler(
   items: StudentRollupRow[],
   options: { next_cursor?: string | null; total_count?: number } = {},
 ) {
-  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/students`, () => {
-    return HttpResponse.json({
-      items,
-      next_cursor: options.next_cursor ?? null,
-      total_count: options.total_count ?? items.length,
-    });
-  });
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/students`, () =>
+    validatedJson(
+      {
+        items,
+        next_cursor: options.next_cursor ?? null,
+        total_count: options.total_count ?? items.length,
+      },
+      StudentListResponseSchema,
+      'GET /students',
+    ),
+  );
 }
 
 export function assignmentsHandler() {
-  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/assignments`, () => {
-    return HttpResponse.json({
-      items: [
-        {
-          id: '20000000-0000-0000-0000-000000000001',
-          semester_id: DEFAULT_SEMESTER_ID,
-          assignment_id_str: 'hw1',
-          label: 'Homework 1',
-          sort_order: 1,
-          submission_count: 5,
-          distinct_students: 5,
-          mean_score: 4.2,
-          median_score: 4.5,
-          p95_score: 8.0,
-          fail_count: 0,
-          warn_count: 1,
-        },
-      ],
-    });
-  });
+  return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/assignments`, () =>
+    validatedJson(
+      {
+        items: [
+          {
+            id: '20000000-0000-0000-0000-000000000001',
+            semester_id: DEFAULT_SEMESTER_ID,
+            assignment_id_str: 'hw1',
+            label: 'Homework 1',
+            sort_order: 1,
+            submission_count: 5,
+            distinct_students: 5,
+            mean_score: 4.2,
+            median_score: 4.5,
+            p95_score: 8.0,
+            fail_count: 0,
+            warn_count: 1,
+          },
+        ],
+      },
+      AssignmentListResponseSchema,
+      'GET /assignments',
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -252,31 +307,53 @@ export function makeIngestFile(
 
 export function ingestJobHandler(job: object) {
   return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/ingest/jobs/${DEFAULT_JOB_ID}`, () =>
-    HttpResponse.json(job),
+    validatedJson(
+      job as z.infer<typeof IngestJobSchema>,
+      IngestJobSchema,
+      'GET /ingest/jobs/:jobId',
+    ),
   );
 }
 
 export function ingestJobsListHandler(items: object[] = []) {
   return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/ingest/jobs`, () =>
-    HttpResponse.json({ items, next_cursor: null }),
+    validatedJson(
+      { items, next_cursor: null } as z.infer<typeof IngestJobListResponseSchema>,
+      IngestJobListResponseSchema,
+      'GET /ingest/jobs',
+    ),
   );
 }
 
 export function unmatchedHandler(items: object[] = []) {
   return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/unmatched`, () =>
-    HttpResponse.json({ items, next_cursor: null }),
+    validatedJson(
+      { items, next_cursor: null } as z.infer<typeof UnmatchedListResponseSchema>,
+      UnmatchedListResponseSchema,
+      'GET /unmatched',
+    ),
   );
 }
 
 export function rosterHandler(entries: object[] = [], totalCount = 0) {
   return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/roster`, () =>
-    HttpResponse.json({ entries, next_cursor: null, total_count: totalCount }),
+    validatedJson(
+      { entries, next_cursor: null, total_count: totalCount } as z.infer<
+        typeof RosterListResponseSchema
+      >,
+      RosterListResponseSchema,
+      'GET /roster',
+    ),
   );
 }
 
 export function membersHandler(members: object[] = [], pending: object[] = []) {
   return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/members`, () =>
-    HttpResponse.json({ members, pending }),
+    validatedJson(
+      { members, pending } as z.infer<typeof MembersListResponseSchema>,
+      MembersListResponseSchema,
+      'GET /members',
+    ),
   );
 }
 
@@ -287,23 +364,31 @@ export function semesterDetailHandler(
   }> = {},
 ) {
   return http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}`, () =>
-    HttpResponse.json({
-      semester: {
-        id: DEFAULT_SEMESTER_ID,
-        course_id: 'cc000000-0000-0000-0000-000000000001',
-        slug: DEFAULT_SEMESTER_SLUG,
-        term: 'Spring',
-        year: 2025,
-        display_name: overrides.display_name ?? 'CS 61A Spring 2025',
-        filename_convention:
-          overrides.filename_convention ?? '(?<sid>\\d+)_(?<assignment_id>hw\\d+)',
-        blob_retention_days: 90,
-        derived_retention_days: 365,
-        archived: false,
-        my_role: 'admin',
-        created_at: '2025-01-01T00:00:00.000Z',
-      },
-    }),
+    validatedJson(
+      {
+        semester: {
+          id: DEFAULT_SEMESTER_ID,
+          course_id: 'cc000000-0000-0000-0000-000000000001',
+          slug: DEFAULT_SEMESTER_SLUG,
+          term: 'Spring',
+          year: 2025,
+          display_name: overrides.display_name ?? 'CS 61A Spring 2025',
+          filename_convention:
+            overrides.filename_convention ?? '(?<sid>\\d+)_(?<assignment_id>hw\\d+)',
+          blob_retention_days: 90,
+          derived_retention_days: 365,
+          archived: false,
+          submission_count: 0,
+          student_count: 0,
+          assignment_count: 0,
+          active_config_version: 0,
+          my_role: 'admin',
+          created_at: '2025-01-01T00:00:00.000Z',
+        },
+      } as z.infer<typeof SemesterDetailResponseSchema>,
+      SemesterDetailResponseSchema,
+      'GET /semesters/:id',
+    ),
   );
 }
 
