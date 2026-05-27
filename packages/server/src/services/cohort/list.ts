@@ -19,11 +19,12 @@
  *   the 3 highest-severity flags per submission in a single query.
  */
 
-import { and, or, eq, isNull, sql, inArray } from 'drizzle-orm';
+import { and, or, eq, isNull, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { submissions, assignments, roster_entries, flags } from '../../db/schema.js';
+import { submissions, assignments, roster_entries } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import { SEVERITY_RANK } from '../scoring/denorm.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -122,12 +123,11 @@ const SEVERITY_ORDER: Record<Severity, number> = {
   high: 3,
 };
 
-const SEVERITIES_AT_OR_ABOVE: Record<Severity, Severity[]> = {
-  info: ['info', 'low', 'medium', 'high'],
-  low: ['low', 'medium', 'high'],
-  medium: ['medium', 'high'],
-  high: ['high'],
-};
+// SEVERITIES_AT_OR_ABOVE (V46 and earlier): kept inline in the WHERE clause
+// as an OR-expansion via inArray. P1-1a replaces this with a single
+// `severity_rank >= N` range predicate using SEVERITY_RANK from
+// services/scoring/denorm.ts so the partial cohort index can answer it
+// with one comparison.
 
 // ---------------------------------------------------------------------------
 // Main query function
@@ -179,15 +179,12 @@ export async function listCohortSubmissions(
     whereConditions.push(eq(submissions.recorder_version, filters.recorderVersion));
   }
 
-  // severityMin: submission must have score_max_severity >= severityMin
-  // We compare via the severity ordering by listing qualifying severity values.
+  // severityMin: submission must have score_max_severity >= severityMin.
+  // Uses the denormalized severity_rank column (P1-1a) so this is a single
+  // range predicate that the partial cohort index can answer directly.
   if (filters.severityMin !== undefined) {
-    const qualifyingSeverities = SEVERITIES_AT_OR_ABOVE[filters.severityMin];
-    if (qualifyingSeverities.length === 1) {
-      whereConditions.push(eq(submissions.score_max_severity, qualifyingSeverities[0]!));
-    } else {
-      whereConditions.push(inArray(submissions.score_max_severity, qualifyingSeverities));
-    }
+    const minRank = SEVERITY_RANK[filters.severityMin];
+    whereConditions.push(sql`${submissions.severity_rank} >= ${minRank}`);
   }
 
   // flagIds: EXISTS subquery on flags WHERE heuristic_id IN (flagIds)
@@ -267,7 +264,9 @@ export async function listCohortSubmissions(
   // Build ORDER BY
   const orderBy = buildOrderBy(sort);
 
-  // Execute main query (limit + 1 to detect next page)
+  // Execute main query (limit + 1 to detect next page).
+  // P1-1a: flag_counts and top_flags read directly from denormalized jsonb
+  // columns — the two correlated sub-queries that dominated p95 are gone.
   const rows = await db
     .select({
       id: submissions.id,
@@ -276,6 +275,8 @@ export async function listCohortSubmissions(
       student_id: submissions.student_id,
       score_total: submissions.score_total,
       score_max_severity: submissions.score_max_severity,
+      flag_counts: submissions.flag_counts,
+      top_flags: submissions.top_flags,
       validation_status: submissions.validation_status,
       ingested_at: submissions.ingested_at,
       recorder_version: submissions.recorder_version,
@@ -306,88 +307,9 @@ export async function listCohortSubmissions(
     nextCursor = encodeCursor(c);
   }
 
-  // Fetch flag counts and top_flags for the returned submission IDs
-  const submissionIds = pageRows.map((r) => r.id);
-  const flagCountsMap = new Map<
-    string,
-    { info: number; low: number; medium: number; high: number }
-  >();
-  const topFlagsMap = new Map<string, { heuristic_id: string; severity: Severity }[]>();
-
-  if (submissionIds.length > 0) {
-    // Flag counts: aggregate by submission + severity
-    const flagCountRows = await db
-      .select({
-        submission_id: flags.submission_id,
-        severity: flags.severity,
-        cnt: sql<number>`COUNT(*)::int`,
-      })
-      .from(flags)
-      .where(inArray(flags.submission_id, submissionIds))
-      .groupBy(flags.submission_id, flags.severity);
-
-    for (const row of flagCountRows) {
-      if (!flagCountsMap.has(row.submission_id)) {
-        flagCountsMap.set(row.submission_id, { info: 0, low: 0, medium: 0, high: 0 });
-      }
-      const counts = flagCountsMap.get(row.submission_id)!;
-      const sev = row.severity as Severity;
-      if (sev === 'info') counts.info += row.cnt;
-      else if (sev === 'low') counts.low += row.cnt;
-      else if (sev === 'medium') counts.medium += row.cnt;
-      else if (sev === 'high') counts.high += row.cnt;
-    }
-
-    // Top 3 flags per submission using ROW_NUMBER() OVER (PARTITION BY submission_id)
-    // ordered by severity rank DESC, confidence DESC
-    const idList = sql.join(
-      submissionIds.map((id) => sql`${id}::uuid`),
-      sql`, `,
-    );
-    const topFlagRows = await db.execute<{
-      submission_id: string;
-      heuristic_id: string;
-      severity: string;
-      rn: number;
-    }>(
-      sql`
-        SELECT submission_id, heuristic_id, severity, rn
-        FROM (
-          SELECT
-            submission_id,
-            heuristic_id,
-            severity,
-            ROW_NUMBER() OVER (
-              PARTITION BY submission_id
-              ORDER BY
-                CASE severity
-                  WHEN 'high'   THEN 4
-                  WHEN 'medium' THEN 3
-                  WHEN 'low'    THEN 2
-                  ELSE               1
-                END DESC,
-                confidence DESC
-            ) AS rn
-          FROM flags
-          WHERE submission_id IN (${idList})
-        ) ranked
-        WHERE rn <= 3
-        ORDER BY submission_id, rn
-      `,
-    );
-
-    for (const row of topFlagRows) {
-      if (!topFlagsMap.has(row.submission_id)) {
-        topFlagsMap.set(row.submission_id, []);
-      }
-      topFlagsMap.get(row.submission_id)!.push({
-        heuristic_id: row.heuristic_id,
-        severity: row.severity as Severity,
-      });
-    }
-  }
-
-  // Assemble SubmissionRow items
+  // Assemble SubmissionRow items directly from the row's jsonb columns.
+  // The defaults in migration 0014 (empty counts / empty array) cover
+  // freshly-ingested rows that haven't been scored yet.
   const items: SubmissionRow[] = pageRows.map((row) => ({
     id: row.id,
     semester_id: row.semester_id,
@@ -403,8 +325,8 @@ export async function listCohortSubmissions(
     },
     score_total: row.score_total,
     score_max_severity: row.score_max_severity as Severity,
-    flag_counts: flagCountsMap.get(row.id) ?? { info: 0, low: 0, medium: 0, high: 0 },
-    top_flags: topFlagsMap.get(row.id) ?? [],
+    flag_counts: row.flag_counts as { info: number; low: number; medium: number; high: number },
+    top_flags: row.top_flags as { heuristic_id: string; severity: Severity }[],
     validation_status: row.validation_status,
     ingested_at: row.ingested_at.toISOString(),
     recorder_version: row.recorder_version,
@@ -437,12 +359,8 @@ export async function listCohortSubmissions(
     countConditions.push(eq(submissions.recorder_version, filters.recorderVersion));
   }
   if (filters.severityMin !== undefined) {
-    const qualifyingSeverities = SEVERITIES_AT_OR_ABOVE[filters.severityMin];
-    if (qualifyingSeverities.length === 1) {
-      countConditions.push(eq(submissions.score_max_severity, qualifyingSeverities[0]!));
-    } else {
-      countConditions.push(inArray(submissions.score_max_severity, qualifyingSeverities));
-    }
+    const minRank = SEVERITY_RANK[filters.severityMin];
+    countConditions.push(sql`${submissions.severity_rank} >= ${minRank}`);
   }
   if (filters.flagIds !== undefined && filters.flagIds.length > 0) {
     const flagIdsArr = filters.flagIds;

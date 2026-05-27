@@ -54,6 +54,7 @@ import { withTransaction } from '../../db/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { reconstructBundleFromDb } from '../heuristics/reconstruct-bundle.js';
 import { computeScore } from './compute.js';
+import { computeFlagCounts, computeTopFlags } from './denorm.js';
 
 // ---------------------------------------------------------------------------
 // Threshold forwarding: ServerHeuristicConfig.per_flag[id].thresholds →
@@ -303,7 +304,9 @@ export async function recomputeSubmission(
       await tx.insert(flags).values(flagRows);
     }
 
-    // 5d: UPDATE submission
+    // 5d: UPDATE submission — including the P1-1a denormalized cohort
+    // columns so the read path can skip the per-page sub-queries.
+    // severity_rank is GENERATED from score_max_severity in DB.
     await tx
       .update(submissions)
       .set({
@@ -311,6 +314,8 @@ export async function recomputeSubmission(
         score_max_severity,
         heuristic_config_version: configVersion,
         recompute_status: 'fresh',
+        flag_counts: computeFlagCounts(flagRows),
+        top_flags: computeTopFlags(flagRows),
       })
       .where(eq(submissions.id, submissionId));
   });

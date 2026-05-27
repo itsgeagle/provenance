@@ -22,6 +22,7 @@ import {
   boolean,
   timestamp,
   integer,
+  smallint,
   index,
   primaryKey,
   inet,
@@ -440,6 +441,28 @@ export const submissions = pgTable(
     validation_status: text('validation_status').notNull().default('pending'),
     heuristic_config_version: integer('heuristic_config_version').notNull().default(0),
     recompute_status: text('recompute_status').notNull().default('fresh'),
+    // Denormalized cohort-list columns (migration 0014, V47).
+    // flag_counts/top_flags are written by run-per-submission and
+    // recompute-submission at the same place score_total /
+    // score_max_severity are set. Reading from these lets the cohort list
+    // query skip the two per-page sub-queries that dominated p95.
+    //
+    // severity_rank is a Postgres GENERATED ALWAYS column — the application
+    // never writes it; the DB derives it from score_max_severity. We declare
+    // it here so Drizzle exposes the column for filters / index hints, and
+    // mark it generated so it's omitted from INSERT/UPDATE statements.
+    flag_counts: jsonb('flag_counts')
+      .notNull()
+      .default(sql`'{"info":0,"low":0,"medium":0,"high":0}'::jsonb`),
+    top_flags: jsonb('top_flags').notNull().default(sql`'[]'::jsonb`),
+    severity_rank: smallint('severity_rank').notNull().generatedAlwaysAs(
+      sql`(CASE score_max_severity
+            WHEN 'info'   THEN 0::smallint
+            WHEN 'low'    THEN 1::smallint
+            WHEN 'medium' THEN 2::smallint
+            WHEN 'high'   THEN 3::smallint
+          END)`,
+    ),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -465,7 +488,8 @@ export const submissions = pgTable(
       'submissions_recompute_status_check',
       sql`${t.recompute_status} IN ('fresh','stale','recomputing','error')`,
     ),
-    // submissions_cohort_idx (partial) is SQL-only; defined in migration 0006.
+    // submissions_cohort_idx (partial) is SQL-only; defined in migration 0006
+    // and replaced in 0014 to cover severity_rank.
   ],
 );
 

@@ -49,6 +49,8 @@ import type { DrizzleDb } from '../../db/client.js';
 import { HEURISTIC_CONFIG_VERSION_V0 } from './default-config.js';
 import { getActiveConfig, DEFAULT_SERVER_CONFIG } from './config.js';
 import { computeScore } from '../scoring/compute.js';
+import { thresholdsToV2Override } from '../scoring/recompute-submission.js';
+import { computeFlagCounts, computeTopFlags } from '../scoring/denorm.js';
 
 // ---------------------------------------------------------------------------
 // Server-side scoring config (PRD §10.2)
@@ -124,13 +126,13 @@ export async function runAndStoreHeuristics(
   // -------------------------------------------------------------------------
   // Step 3: Run v2's heuristic suite.
   //
-  // Pass undefined as configOverride — v2's HeuristicConfig (threshold values)
-  // is separate from the server-side ServerHeuristicConfig (enabled/weight).
-  // v2's runHeuristics uses its own DEFAULT_HEURISTIC_CONFIG internally for
-  // threshold-based logic (same as recompute-submission.ts). The server-side
-  // enabled/weight filtering is applied below using serverConfig.
+  // configOverride: thresholds from the active server config's
+  // per_flag[id].thresholds are forwarded to v2's HeuristicConfig shape via
+  // thresholdsToV2Override (V46 / P0-3 convention). The server-side
+  // enabled/weight/severity_weights are applied below when translating
+  // flags to DB rows.
   // -------------------------------------------------------------------------
-  const rawFlags = runHeuristics(index, bundle, validationReport, undefined);
+  const rawFlags = runHeuristics(index, bundle, validationReport, thresholdsToV2Override(serverConfig));
 
   // -------------------------------------------------------------------------
   // Step 4: Filter disabled heuristics and translate each Flag to a DB row.
@@ -240,11 +242,23 @@ export async function runAndStoreHeuristics(
 
   // -------------------------------------------------------------------------
   // Step 5: Compute aggregate score and update the submissions row.
+  //
+  // P1-1a: also write the denormalized cohort-list columns (flag_counts,
+  // top_flags, severity_rank) so the read path can skip the per-page
+  // sub-queries.
   // -------------------------------------------------------------------------
   const { score_total, score_max_severity } = computeScore(scoreInputs);
+  // severity_rank is a GENERATED column in DB (migration 0014); skip here.
+  const flag_counts = computeFlagCounts(flagRows);
+  const top_flags = computeTopFlags(flagRows);
 
   await db
     .update(submissions)
-    .set({ score_total, score_max_severity })
+    .set({
+      score_total,
+      score_max_severity,
+      flag_counts,
+      top_flags,
+    })
     .where(eq(submissions.id, submissionId));
 }

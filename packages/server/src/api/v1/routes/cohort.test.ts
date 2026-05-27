@@ -33,6 +33,7 @@ import {
   cross_flag_participants,
 } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
+import { sql } from 'drizzle-orm';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -237,6 +238,57 @@ async function seedFlag(
       heuristic_config_version: 1,
     })
     .returning();
+
+  // P1-1a: the cohort list reads flag_counts/top_flags from denormalized
+  // jsonb columns. The production write path (run-per-submission /
+  // recompute-submission) keeps these in sync; tests that bypass that path
+  // by inserting straight into `flags` must refresh them too. Recomputing
+  // from the current `flags` rows for this submission is the simplest fit.
+  await db.execute(sql`
+    WITH agg AS (
+      SELECT
+        submission_id,
+        jsonb_build_object(
+          'info',   COUNT(*) FILTER (WHERE severity = 'info'),
+          'low',    COUNT(*) FILTER (WHERE severity = 'low'),
+          'medium', COUNT(*) FILTER (WHERE severity = 'medium'),
+          'high',   COUNT(*) FILTER (WHERE severity = 'high')
+        ) AS counts
+      FROM flags
+      WHERE submission_id = ${opts.submissionId}
+      GROUP BY submission_id
+    ),
+    top AS (
+      SELECT jsonb_agg(
+        jsonb_build_object('heuristic_id', heuristic_id, 'severity', severity)
+        ORDER BY rn
+      ) FILTER (WHERE rn <= 3) AS top
+      FROM (
+        SELECT
+          heuristic_id,
+          severity,
+          ROW_NUMBER() OVER (
+            ORDER BY
+              CASE severity
+                WHEN 'high'   THEN 3
+                WHEN 'medium' THEN 2
+                WHEN 'low'    THEN 1
+                ELSE               0
+              END DESC,
+              confidence DESC
+          ) AS rn
+        FROM flags
+        WHERE submission_id = ${opts.submissionId}
+      ) ranked
+    )
+    UPDATE submissions
+    SET
+      flag_counts = COALESCE((SELECT counts FROM agg),
+                             '{"info":0,"low":0,"medium":0,"high":0}'::jsonb),
+      top_flags   = COALESCE((SELECT top   FROM top), '[]'::jsonb)
+    WHERE id = ${opts.submissionId}
+  `);
+
   return f!;
 }
 
