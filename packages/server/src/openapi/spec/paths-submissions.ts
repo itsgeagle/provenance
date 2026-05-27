@@ -258,23 +258,7 @@ export const submissionsPaths = {
           description: 'File content (possibly tainted — check warnings)',
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  content: { type: 'string' },
-                  at_seq: { type: 'integer' },
-                  warnings: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        code: { type: 'string' },
-                        message: { type: 'string' },
-                      },
-                    },
-                  },
-                },
-              },
+              schema: { $ref: '#/components/schemas/FileContentResponse' },
             },
           },
         },

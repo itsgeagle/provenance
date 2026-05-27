@@ -31,6 +31,7 @@ import { ingestPaths } from './paths-ingest.js';
 import { cohortPaths } from './paths-cohort.js';
 import { submissionsPaths } from './paths-submissions.js';
 import { auditOpenApiPaths } from './paths-audit-openapi.js';
+import { adminPaths } from './paths-admin.js';
 
 /**
  * The complete OpenAPI 3.1 document.
@@ -80,6 +81,7 @@ export const openApiSpec = {
     { name: 'CrossFlags', description: 'Cross-submission heuristic flags' },
     { name: 'HeuristicConfig', description: 'Heuristic config management and recompute' },
     { name: 'Audit', description: 'Audit log query' },
+    { name: 'Admin', description: 'Superadmin-only user management and view-as' },
     { name: 'Meta', description: 'API documentation and health' },
   ],
   paths: {
@@ -90,6 +92,7 @@ export const openApiSpec = {
     ...cohortPaths,
     ...submissionsPaths,
     ...auditOpenApiPaths,
+    ...adminPaths,
   },
   components,
 };

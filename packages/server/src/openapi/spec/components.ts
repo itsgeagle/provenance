@@ -483,6 +483,74 @@ export const components = {
     },
 
     // -------------------------------------------------------------------------
+    // Generic response shapes
+    // -------------------------------------------------------------------------
+    OkResponse: {
+      type: 'object',
+      required: ['ok'],
+      properties: {
+        ok: { type: 'boolean', example: true },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // File content / provenance
+    // -------------------------------------------------------------------------
+    FileWarning: {
+      type: 'object',
+      properties: {
+        code: { type: 'string' },
+        message: { type: 'string' },
+      },
+    },
+    FileContentResponse: {
+      type: 'object',
+      required: ['content', 'at_seq'],
+      properties: {
+        content: { type: 'string', description: 'Reconstructed file text at the given seq' },
+        at_seq: { type: 'integer', description: 'Seq at which the content was reconstructed' },
+        warnings: { type: 'array', items: { $ref: '#/components/schemas/FileWarning' } },
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // Admin (V45 superadmin routes)
+    // -------------------------------------------------------------------------
+    AdminUserSummary: {
+      type: 'object',
+      required: ['id', 'email', 'display_name', 'is_superadmin', 'created_at'],
+      properties: {
+        id: { $ref: '#/components/schemas/UUID' },
+        email: { type: 'string', format: 'email' },
+        display_name: { type: 'string' },
+        is_superadmin: { type: 'boolean' },
+        created_at: { $ref: '#/components/schemas/ISODate' },
+        last_login_at: { oneOf: [{ $ref: '#/components/schemas/ISODate' }, { type: 'null' }] },
+      },
+    },
+    AdminUserDetail: {
+      type: 'object',
+      required: ['user', 'memberships'],
+      properties: {
+        user: { $ref: '#/components/schemas/AdminUserSummary' },
+        memberships: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['semester_id', 'semester_slug', 'course_slug', 'role', 'granted_at'],
+            properties: {
+              semester_id: { $ref: '#/components/schemas/UUID' },
+              semester_slug: { type: 'string' },
+              course_slug: { type: 'string' },
+              role: { $ref: '#/components/schemas/Role' },
+              granted_at: { $ref: '#/components/schemas/ISODate' },
+            },
+          },
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------------
     // ProvenanceRun (recompute / pipeline)
     // -------------------------------------------------------------------------
     ProvenanceRun2: {
