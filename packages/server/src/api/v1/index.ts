@@ -38,6 +38,7 @@ import { createIngestRouter } from './routes/ingest.js';
 import { createHeuristicConfigRouter } from './routes/heuristic-config.js';
 import { createUnmatchedRouter } from './routes/unmatched.js';
 import { createCohortRouter } from './routes/cohort.js';
+import { createAssignmentsRouter } from './routes/assignments.js';
 import { createCrossFlagsRouter } from './routes/cross-flags.js';
 import { createSubmissionsRouter } from './routes/submissions.js';
 import { createEventsRouter } from './routes/events.js';
@@ -111,6 +112,10 @@ export function createV1App(): Hono {
   //        /semesters/:semesterId/students (GET)
   //        /semesters/:semesterId/assignments (GET)
   app.route('/', createCohortRouter());
+
+  // Assignment mutation route (V46 — closes Phase 22 carry-over).
+  // Path: /semesters/:semesterId/assignments/:assignmentId (PATCH)
+  app.route('/', createAssignmentsRouter());
 
   // Cross-flags routes (Phase 16).
   // Paths: /semesters/:semesterId/cross-flags (GET)

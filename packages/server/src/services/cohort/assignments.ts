@@ -11,9 +11,10 @@
  * scale — assignments per semester is typically O(10-50).
  */
 
-import { eq, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { assignments } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
+import { Errors } from '../../api/v1/errors.js';
 
 export type AssignmentSummary = {
   id: string;
@@ -119,4 +120,46 @@ export async function listAssignments(
       warn_count: stats?.warn_count ?? 0,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /semesters/:semesterId/assignments/:assignmentId — PRD §8.5.
+//
+// Updates label and/or sort_order on a single assignment. Validates that the
+// assignment belongs to the semester before writing — a wrong-semester id
+// resolves to 404 rather than silently editing a sibling course's row.
+// ---------------------------------------------------------------------------
+
+export type UpdateAssignmentInput = {
+  label?: string;
+  sort_order?: number;
+};
+
+export async function updateAssignment(
+  db: DrizzleDb,
+  semesterId: string,
+  assignmentId: string,
+  input: UpdateAssignmentInput,
+): Promise<AssignmentSummary> {
+  const existing = await db
+    .select({ id: assignments.id })
+    .from(assignments)
+    .where(and(eq(assignments.id, assignmentId), eq(assignments.semester_id, semesterId)))
+    .limit(1);
+  if (existing.length === 0) throw Errors.notFound();
+
+  const updates: { label?: string; sort_order?: number } = {};
+  if (input.label !== undefined) updates.label = input.label;
+  if (input.sort_order !== undefined) updates.sort_order = input.sort_order;
+
+  if (Object.keys(updates).length > 0) {
+    await db.update(assignments).set(updates).where(eq(assignments.id, assignmentId));
+  }
+
+  // Return the assignment with the same summary shape the list endpoint emits
+  // so the UI can replace the row in-place without a separate refetch.
+  const refreshed = await listAssignments(db, semesterId);
+  const updated = refreshed.find((a) => a.id === assignmentId);
+  if (!updated) throw Errors.notFound();
+  return updated;
 }

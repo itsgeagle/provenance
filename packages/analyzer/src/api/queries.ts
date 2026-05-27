@@ -22,6 +22,7 @@ import {
   CohortListResponseSchema,
   StudentListResponseSchema,
   AssignmentListResponseSchema,
+  UpdateAssignmentResponseSchema,
   IngestJobSchema,
   IngestJobListResponseSchema,
   IngestFileListResponseSchema,
@@ -641,10 +642,8 @@ export function useRemoveMember(semesterId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 22 — Assignment mutation hook (PATCH /assignments/:id)
-// NOTE: PATCH /semesters/:id/assignments/:assignmentId endpoint not yet
-// implemented server-side. This hook is stubbed; it will return 404 until
-// Phase 23 adds the backend handler.
+// Assignment mutation hook — PATCH /semesters/:id/assignments/:assignmentId.
+// Backend landed in V46 (was stubbed in Phase 22).
 // ---------------------------------------------------------------------------
 
 /** Mutation: PATCH /semesters/:semesterId/assignments/:assignmentId */
@@ -659,12 +658,20 @@ export function useUpdateAssignment(semesterId: string) {
       assignmentId: string;
       label?: string;
       sortOrder?: number;
-    }) =>
-      apiFetch(`/semesters/${semesterId}/assignments/${assignmentId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label, sort_order: sortOrder }),
-      }),
+    }) => {
+      const body: { label?: string; sort_order?: number } = {};
+      if (label !== undefined) body.label = label;
+      if (sortOrder !== undefined) body.sort_order = sortOrder;
+      return apiFetch(
+        `/semesters/${semesterId}/assignments/${assignmentId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        UpdateAssignmentResponseSchema,
+      );
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.assignments(semesterId) });
     },

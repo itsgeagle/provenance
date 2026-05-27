@@ -4,11 +4,7 @@
  * Route: /s/:semesterSlug/assignments
  *
  * - Lists assignments with label, assignment_id_str, submission count.
- * - Click label → inline edit field → PATCH /assignments/:id.
- *
- * NOTE: PATCH /semesters/:id/assignments/:assignmentId is not yet implemented
- * server-side. The mutation is stubbed; it will return 404 until Phase 23
- * adds the backend handler.
+ * - Click label → inline edit field → PATCH /assignments/:id (V46).
  */
 
 import { useState } from 'react';
@@ -88,13 +84,7 @@ export function AssignmentsView() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <h1 className="mb-6 text-xl font-semibold text-gray-900">Assignments</h1>
-      <p className="mb-4 text-xs text-gray-500">
-        Click a label to edit it inline.
-        <span className="ml-1 text-yellow-700">
-          Note: server-side PATCH /assignments/:id is not yet implemented — edits will return 404
-          until Phase 23.
-        </span>
-      </p>
+      <p className="mb-4 text-xs text-gray-500">Click a label to edit it inline.</p>
 
       {isLoading && (
         <div className="py-8 text-center text-sm text-gray-400">Loading assignments…</div>

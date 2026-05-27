@@ -223,6 +223,24 @@ export const AssignmentListResponseSchema = z.object({
 });
 export type AssignmentListResponse = z.infer<typeof AssignmentListResponseSchema>;
 
+// PATCH /semesters/:semesterId/assignments/:assignmentId — PRD §8.5.
+// At least one field must be provided; the route handler enforces that since
+// Zod's `refine` rejects an empty object as 422.
+export const UpdateAssignmentRequestSchema = z
+  .object({
+    label: z.string().min(1).max(200).optional(),
+    sort_order: z.number().int().optional(),
+  })
+  .refine((v) => v.label !== undefined || v.sort_order !== undefined, {
+    message: 'at least one of label or sort_order is required',
+  });
+export type UpdateAssignmentRequest = z.infer<typeof UpdateAssignmentRequestSchema>;
+
+export const UpdateAssignmentResponseSchema = z.object({
+  assignment: AssignmentSummarySchema,
+});
+export type UpdateAssignmentResponse = z.infer<typeof UpdateAssignmentResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // Phase 22 — Ingest schemas (PRD §8.6)
 // ---------------------------------------------------------------------------
