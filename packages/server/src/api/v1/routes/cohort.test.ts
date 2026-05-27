@@ -1245,7 +1245,7 @@ describe('GET /semesters/:semesterId/assignments', () => {
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
-        assignments: {
+        items: {
           id: string;
           label: string;
           submission_count: number;
@@ -1254,15 +1254,15 @@ describe('GET /semesters/:semesterId/assignments', () => {
           fail_count: number;
         }[];
       };
-      expect(body.assignments).toHaveLength(2);
+      expect(body.items).toHaveLength(2);
 
-      const hw1 = body.assignments.find((a) => a.id === a1.id)!;
+      const hw1 = body.items.find((a) => a.id === a1.id)!;
       expect(hw1.submission_count).toBe(2);
       expect(hw1.distinct_students).toBe(2);
       expect(hw1.mean_score).toBeCloseTo(15);
       expect(hw1.fail_count).toBe(1);
 
-      const hw2 = body.assignments.find((a) => a.id === a2.id)!;
+      const hw2 = body.items.find((a) => a.id === a2.id)!;
       expect(hw2.submission_count).toBe(0);
     });
   });
@@ -1285,8 +1285,8 @@ describe('GET /semesters/:semesterId/assignments', () => {
       );
 
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { assignments: unknown[] };
-      expect(body.assignments).toHaveLength(0);
+      const body = (await res.json()) as { items: unknown[] };
+      expect(body.items).toHaveLength(0);
     });
   });
 });

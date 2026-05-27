@@ -308,7 +308,13 @@ export function createCohortRouter(): Hono {
 
       const result = await listAssignments(db, semesterId);
 
-      return c.json({ assignments: result });
+      // Wrapper key is `items` to match AssignmentListResponseSchema in
+      // packages/shared/src/api-schemas.ts. Pre-V46 this returned
+      // `{ assignments: result }` and the analyzer's Zod parse silently
+      // bombed — the UI showed "Failed to load assignments" forever. The
+      // assignments table never had real data behind it (Phase 22's stub
+      // banner masked the failure) so the mismatch went unnoticed.
+      return c.json({ items: result });
     },
   );
 

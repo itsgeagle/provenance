@@ -26,26 +26,11 @@ export const ingestPaths = {
             'application/json': {
               schema: {
                 type: 'object',
+                required: ['items'],
                 properties: {
-                  assignments: {
+                  items: {
                     type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        id: { $ref: '#/components/schemas/UUID' },
-                        semester_id: { $ref: '#/components/schemas/UUID' },
-                        assignment_id_str: { type: 'string' },
-                        label: { type: 'string' },
-                        sort_order: { type: 'integer' },
-                        submission_count: { type: 'integer' },
-                        distinct_students: { type: 'integer' },
-                        mean_score: { type: 'number' },
-                        median_score: { type: 'number' },
-                        p95_score: { type: 'number' },
-                        fail_count: { type: 'integer' },
-                        warn_count: { type: 'integer' },
-                      },
-                    },
+                    items: { $ref: '#/components/schemas/AssignmentSummary' },
                   },
                 },
               },

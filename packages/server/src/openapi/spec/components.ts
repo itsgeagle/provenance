@@ -512,6 +512,37 @@ export const components = {
         warnings: { type: 'array', items: { $ref: '#/components/schemas/FileWarning' } },
       },
     },
+    AssignmentSummary: {
+      type: 'object',
+      required: [
+        'id',
+        'semester_id',
+        'assignment_id_str',
+        'label',
+        'sort_order',
+        'submission_count',
+        'distinct_students',
+        'mean_score',
+        'median_score',
+        'p95_score',
+        'fail_count',
+        'warn_count',
+      ],
+      properties: {
+        id: { $ref: '#/components/schemas/UUID' },
+        semester_id: { $ref: '#/components/schemas/UUID' },
+        assignment_id_str: { type: 'string' },
+        label: { type: 'string' },
+        sort_order: { type: 'integer' },
+        submission_count: { type: 'integer' },
+        distinct_students: { type: 'integer' },
+        mean_score: { type: 'number' },
+        median_score: { type: 'number' },
+        p95_score: { type: 'number' },
+        fail_count: { type: 'integer' },
+        warn_count: { type: 'integer' },
+      },
+    },
 
     // -------------------------------------------------------------------------
     // Admin (V45 superadmin routes)

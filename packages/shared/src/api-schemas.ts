@@ -859,7 +859,13 @@ export type CreateSemesterRequest = z.infer<typeof CreateSemesterRequestSchema>;
 // ---------------------------------------------------------------------------
 
 export const AuditLogRowSchema = z.object({
-  id: z.string().uuid(),
+  // audit_log.id is a bigserial (sequential integer), not a UUID. Drizzle's
+  // mode:'number' returns it as a JS number. The cursor encoding in audit.ts
+  // also uses the numeric id directly. If row counts ever approach the JS
+  // safe-integer limit (2^53) we'll switch to z.union([z.number(), z.string()])
+  // and have drizzle hand back a bigint string, but at our cadence that's
+  // never going to be the binding constraint.
+  id: z.number().int(),
   actor_user_id: z.string().uuid().nullable(),
   actor_token_id: z.string().uuid().nullable(),
   semester_id: z.string().uuid().nullable(),
