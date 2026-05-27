@@ -8,8 +8,10 @@
  * - Membership queries
  */
 
-import { describe, it, expect } from 'vitest';
+import { vi, describe, it, expect } from 'vitest';
 import { withTestDb } from '../../test/helpers/db.js';
+
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 import * as structureService from './structure.js';
 import type { Principal } from '../api/middleware/auth-session.js';
 

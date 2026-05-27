@@ -13,8 +13,9 @@
  *
  * Phase 13b fixes this by calling recomputeSubmission(simulate=true) per
  * submission, which reconstructs a Bundle stub from DB events and runs the
- * full heuristic suite. The result correctly reflects both weight changes AND
- * threshold changes (from per_flag[id].thresholds forwarded to v2's config).
+ * full heuristic suite. The result correctly reflects weight changes AND
+ * (since V46) threshold changes: per_flag[id].thresholds are forwarded to
+ * v2's HeuristicConfig via thresholdsToV2Override in recompute-submission.ts.
  *
  * The old recomputeScore helper (weight-only) is removed as dead code.
  *
@@ -102,8 +103,9 @@ function buildHistogram(scores: number[], upperBound: number): number[] {
  * Does NOT write any rows to the DB.
  *
  * V30 fix (Phase 13b): this now calls recomputeSubmission(simulate=true) per
- * submission, which re-runs heuristics from DB events. This correctly reflects
- * threshold changes in per_flag[id].thresholds, not just weight/enabled changes.
+ * submission, which re-runs heuristics from DB events. V46 closed the
+ * remaining gap so that threshold changes in per_flag[id].thresholds are
+ * forwarded to v2's HeuristicConfig — not just weight/enabled changes.
  *
  * @param db - Drizzle DB handle.
  * @param semesterId - UUID of the semester.

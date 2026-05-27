@@ -39,6 +39,10 @@ import {
 import type { DrizzleDb } from '../../../db/client.js';
 import { DEFAULT_SERVER_CONFIG } from '../../../services/heuristics/config.js';
 import { computeDryRunDiff } from '../../../services/scoring/dry-run.js';
+import { materializeEvents } from '../../../services/ingest/materialize-events.js';
+import { seedSubmission } from '../../../../test/helpers/seed-submission.js';
+import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
 import { sql } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
@@ -1104,6 +1108,91 @@ describe('computeDryRunDiff', () => {
       expect(result.diff.top_movers[0]!.new_tier).toBe('info');
       expect(result.diff.top_movers[0]!.old_score).toBe(3);
       expect(result.diff.top_movers[0]!.new_score).toBe(0);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// V46 regression: thresholds in candidate config must affect dry-run scoring.
+//
+// Before V46, recompute-submission.ts passed `undefined` to v2's runHeuristics,
+// so per_flag[id].thresholds was silently dropped — making the backlog's P0-3
+// concern real. This test seeds a submission with a 250-char paste, then runs
+// dry-run twice: once with default thresholds (large_paste fires at medium)
+// and once with thresholds.minChars=300 (heuristic must NOT fire).
+//
+// Under the pre-V46 bug, both runs produce the same non-zero new_score because
+// the candidate's thresholds are ignored. Under the V46 fix, the raised
+// threshold suppresses the flag and new_score collapses to 0.
+// ---------------------------------------------------------------------------
+
+describe('computeDryRunDiff — threshold forwarding (V46 regression)', () => {
+  it('raising largePaste.minChars above paste size suppresses the flag in dry-run', async () => {
+    await withTestDb(async (db) => {
+      const submissionId = await seedSubmission(db);
+      const [subRow] = await db
+        .select({ semester_id: submissions.semester_id })
+        .from(submissions)
+        .where(eq(submissions.id, submissionId));
+      const semesterId = subRow!.semester_id;
+
+      // 250-char paste fires large_paste at medium severity by default
+      // (minChars=200, highSeverityChars=500).
+      const pasteContent = 'x'.repeat(250);
+      const { zipBuffer } = await buildTestBundle({
+        sessions: [
+          {
+            events: [
+              {
+                kind: 'paste',
+                data: {
+                  path: '/hw1.py',
+                  content: pasteContent,
+                  length: pasteContent.length,
+                  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                },
+              },
+            ],
+          },
+        ],
+      });
+      const loaded = await loadBundle(zipBuffer, 'test.zip');
+      if (!loaded.ok) throw new Error(`loadBundle failed: ${JSON.stringify(loaded.error)}`);
+      await materializeEvents(db, submissionId, loaded.value);
+
+      // Build a config where ONLY large_paste contributes (disable everything
+      // else so other heuristics that fire on the test bundle — e.g.
+      // extension_hash_mismatch — don't pollute new_score).
+      function isolateLargePaste(): typeof DEFAULT_SERVER_CONFIG {
+        const cfg = JSON.parse(
+          JSON.stringify(DEFAULT_SERVER_CONFIG),
+        ) as typeof DEFAULT_SERVER_CONFIG;
+        for (const id of Object.keys(cfg.per_flag)) {
+          if (id !== 'large_paste') cfg.per_flag[id]!.enabled = false;
+        }
+        return cfg;
+      }
+
+      // Run 1: default thresholds → large_paste fires.
+      const baseline = isolateLargePaste();
+      const baselineResult = await computeDryRunDiff(db, semesterId, baseline, 2);
+      const baselineMover = baselineResult.diff.top_movers.find(
+        (m) => m.submission_id === submissionId,
+      );
+      expect(baselineMover, 'baseline run should include the seeded submission').toBeDefined();
+      expect(baselineMover!.new_score).toBeGreaterThan(0);
+      expect(baselineMover!.new_tier).not.toBe('info');
+
+      // Run 2: raise minChars above paste size → large_paste must NOT fire.
+      const raised = isolateLargePaste();
+      raised.per_flag['large_paste']!.thresholds = { minChars: 300 };
+      const raisedResult = await computeDryRunDiff(db, semesterId, raised, 2);
+      const raisedMover = raisedResult.diff.top_movers.find(
+        (m) => m.submission_id === submissionId,
+      );
+      expect(raisedMover, 'raised-threshold run should include the seeded submission').toBeDefined();
+      expect(raisedMover!.new_score).toBe(0);
+      expect(raisedMover!.new_tier).toBe('info');
     });
   });
 });

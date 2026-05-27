@@ -46,6 +46,7 @@
 import { eq, inArray, isNull, and } from 'drizzle-orm';
 import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
 import { runHeuristics } from '@provenance/analyzer/src/heuristics/run-heuristics.js';
+import type { HeuristicConfig } from '@provenance/analyzer/src/heuristics/config.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
 import { flags, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
@@ -53,6 +54,59 @@ import { withTransaction } from '../../db/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { reconstructBundleFromDb } from '../heuristics/reconstruct-bundle.js';
 import { computeScore } from './compute.js';
+
+// ---------------------------------------------------------------------------
+// Threshold forwarding: ServerHeuristicConfig.per_flag[id].thresholds →
+//   v2 Partial<HeuristicConfig>
+//
+// PRD §10.2 stores per-heuristic thresholds as an opaque `thresholds?: jsonb`
+// under each per_flag entry. The intended runtime contract (encoded here) is:
+//
+//   - The keys of `thresholds` mirror v2's HeuristicConfig sub-shape for that
+//     heuristic. e.g. per_flag['large_paste'].thresholds = { minChars: 300 }
+//     maps to v2's largePaste.minChars = 300.
+//   - The map below translates the snake_case heuristic_id used by the server
+//     to v2's camelCase top-level key. Only heuristics that have a
+//     configurable threshold block in DEFAULT_HEURISTIC_CONFIG are listed;
+//     integrity-derived flags (chain_broken, manifest_sig_invalid, etc.)
+//     have no thresholds and are absent on purpose.
+//
+// Prior to this layer, configOverride was hardcoded to `undefined`, so
+// threshold changes in the candidate config were silently dropped by
+// dry-run AND by the recompute worker. See V46 in .notes/v3-progress.md.
+// ---------------------------------------------------------------------------
+
+const HEURISTIC_ID_TO_V2_KEY: Readonly<Record<string, keyof HeuristicConfig>> = {
+  large_paste: 'largePaste',
+  external_edits: 'externalEdits',
+  low_typing_high_output: 'lowTypingHighOutput',
+  paste_is_solution: 'pasteIsSolution',
+  mass_external_replacement: 'massExternalReplacement',
+  time_to_first_save_anomaly: 'timeToFirstSaveAnomaly',
+  idle_then_complete: 'idleThenComplete',
+  paste_matches_known_source: 'pasteMatchesKnownSource',
+  ai_extension_active: 'aiExtensionActive',
+  extension_hash_mismatch: 'extensionHashMismatch',
+  clock_jumps: 'clockJumps',
+  gap_in_heartbeats: 'gapInHeartbeats',
+};
+
+export function thresholdsToV2Override(
+  config: ServerHeuristicConfig,
+): Partial<HeuristicConfig> | undefined {
+  const override: Partial<HeuristicConfig> = {};
+  let hasAny = false;
+  for (const [serverId, v2Key] of Object.entries(HEURISTIC_ID_TO_V2_KEY)) {
+    const entry = config.per_flag[serverId];
+    const t = entry?.thresholds;
+    if (t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- thresholds is opaque jsonb (PRD §10.2); v2 mergeConfig does the shallow merge against its known shape
+      (override as Record<string, unknown>)[v2Key] = t as any;
+      hasAny = true;
+    }
+  }
+  return hasAny ? override : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -187,15 +241,19 @@ export async function recomputeSubmission(
   // to get the same index as a ReturnType<typeof buildIndex> for translateFlagsToRows.
   // This is a cheap O(n_events) operation (~1ms for typical bundles; V27).
   //
-  // Pass undefined configOverride — the server-side ServerHeuristicConfig
-  // (enabled/weight/severity_weights) is distinct from v2's HeuristicConfig
-  // (threshold values). v2's runHeuristics uses its own DEFAULT_HEURISTIC_CONFIG
-  // internally for threshold-based logic. The server-side enabled/weight is
-  // applied below when translating flags to DB rows.
+  // configOverride: thresholds from per_flag[id].thresholds are forwarded to
+  // v2's HeuristicConfig shape via thresholdsToV2Override. Heuristics that
+  // omit thresholds fall back to v2's DEFAULT_HEURISTIC_CONFIG. The
+  // server-side enabled/weight/severity_weights are applied below when
+  // translating flags to DB rows.
+  //
+  // V46 regression fix: prior to this, configOverride was hardcoded to
+  // `undefined` so threshold changes were silently dropped — invalidating
+  // both dry-run and the live recompute path. See V46 in .notes/v3-progress.md.
   // -------------------------------------------------------------------------
   const index = buildIndex(bundle);
   void reconstructedIndex; // the helper's copy; we rebuild for type compatibility
-  const rawFlags = runHeuristics(index, bundle, validationReport, undefined);
+  const rawFlags = runHeuristics(index, bundle, validationReport, thresholdsToV2Override(config));
 
   // -------------------------------------------------------------------------
   // Step 3: Translate flags to DB rows using the server-side config.
