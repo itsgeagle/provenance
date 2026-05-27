@@ -678,28 +678,21 @@ export const CrossFlagDetailResponseSchema = z.object({
 export type CrossFlagDetailResponse = z.infer<typeof CrossFlagDetailResponseSchema>;
 
 // ---------------------------------------------------------------------------
-// Phase 24 — Export job/artifact schema (PRD §8.9)
+// Phase 24 — Export artifact schema (PRD §8.9)
+//
+// V46: PDF export deferred to v3.1 (Puppeteer is a separate operational
+// decision). The async/polling branch and discriminated union were removed
+// because nothing currently consumes them; restore them when the v3.1
+// server endpoint lands.
 // ---------------------------------------------------------------------------
 
 export const ExportSyncResponseSchema = z.object({
   artifact_id: z.string().uuid(),
-  format: z.enum(['markdown', 'pdf']),
+  format: z.enum(['markdown']),
   expires_at: z.string().datetime(),
   download_url: z.string(),
 });
 export type ExportSyncResponse = z.infer<typeof ExportSyncResponseSchema>;
-
-export const ExportAsyncResponseSchema = z.object({
-  job_id: z.string().uuid(),
-  status: z.literal('queued'),
-});
-export type ExportAsyncResponse = z.infer<typeof ExportAsyncResponseSchema>;
-
-export const ExportJobSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('sync'), data: ExportSyncResponseSchema }),
-  z.object({ type: z.literal('async'), data: ExportAsyncResponseSchema }),
-]);
-export type ExportJob = z.infer<typeof ExportJobSchema>;
 
 // ---------------------------------------------------------------------------
 // v3.1 — Personal access token management (PRD §8.12)

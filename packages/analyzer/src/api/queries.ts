@@ -39,7 +39,6 @@ import {
   RecomputeJobSchema,
   CrossFlagListResponseSchema,
   CrossFlagDetailResponseSchema,
-  ExportJobSchema,
   TokensListResponseSchema,
   CreateTokenResponseSchema,
   AdminUserListResponseSchema,
@@ -886,33 +885,13 @@ export function useCrossFlagDetail(crossFlagId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 24 — Export hook
+// Export hook removed in V46.
+//
+// The Phase 24 useStartExport hook called POST /submissions/:id/export which
+// has no server handler. With the export UI now stubbed (ExportPanel.tsx) the
+// hook had no callers. When the v3.1 markdown export endpoint lands, restore a
+// minimal mutation that parses ExportSyncResponseSchema.
 // ---------------------------------------------------------------------------
-
-/**
- * Mutation: POST /submissions/:submissionId/export
- *
- * - markdown (sync): returns { artifact_id, format, expires_at, download_url }
- * - pdf (async): returns { job_id, status: 'queued' }
- *
- * NOTE: The server-side export endpoint is not yet fully implemented.
- * This hook stubs the mutation for Phase 24 UI; the server will return
- * an appropriate response shape when Phase 25 implements the export service.
- */
-export function useStartExport(submissionId: string) {
-  return useMutation({
-    mutationFn: (format: 'markdown' | 'pdf') =>
-      apiFetch(
-        `/submissions/${submissionId}/export`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ format }),
-        },
-        ExportJobSchema,
-      ),
-  });
-}
 
 // ---------------------------------------------------------------------------
 // v3.1 — Personal access token hooks (PRD §8.12)
