@@ -57,13 +57,17 @@ describe.skipIf(!fixtureExists)('integration: real recorder fixture', () => {
   beforeAll(async () => {
     // Read the fixture bytes synchronously — the file exists (skip gate above).
     const zipBytes = readFileSync(FIXTURE_PATH);
-    // Convert Buffer → ArrayBuffer for loadBundle.
-    const arrayBuf = zipBytes.buffer.slice(
-      zipBytes.byteOffset,
-      zipBytes.byteOffset + zipBytes.byteLength,
-    ) as ArrayBuffer;
+    // Wrap in a Blob rather than slicing the underlying ArrayBuffer.
+    //
+    // Node's `Buffer.prototype.buffer` can return a SharedArrayBuffer on
+    // newer runtimes (especially when buffer pooling is involved), which
+    // JSZip's `loadAsync` rejects with the misleading "Can't read the data
+    // of 'the loaded zip file'" error. Wrapping in a Blob copies the bytes
+    // into a fresh ArrayBuffer and works in jsdom (Vitest's test env). This
+    // mirrors what the analyzer's file-drop UI passes at runtime anyway.
+    const blob = new Blob([new Uint8Array(zipBytes)]);
 
-    const result = await loadBundle(arrayBuf, 'sample-bundle.zip');
+    const result = await loadBundle(blob, 'sample-bundle.zip');
     if (!result.ok) {
       throw new Error(
         `loadBundle failed on real fixture: ${JSON.stringify(result.error)}. ` +
