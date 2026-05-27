@@ -110,9 +110,13 @@ describe('LoadView', () => {
   });
 
   it('shows LoadingPanel with stage label during loading', async () => {
-    // Use a "never-resolving" file to catch the loading state in flight.
-    // We do this by dropping a structurally-valid large-ish bundle and
-    // checking the panel appears before navigation.
+    // Drop a structurally-valid bundle and assert the panel + its stage label
+    // appear together. Previously the stage-label assertion was a synchronous
+    // expect AFTER waitFor on the panel — a 5-event bundle could complete
+    // loading and navigate to overview between the panel appearing and the
+    // second assertion firing, so the label was already gone. Wrapping both
+    // checks inside a single waitFor makes them atomic with respect to
+    // React's render cycle.
     const { blob } = await buildTestBundle({ sessions: [{ eventCount: 5 }] });
     const file = new File([blob], 'bundle.zip', { type: 'application/zip' });
 
@@ -124,12 +128,10 @@ describe('LoadView', () => {
       });
     });
 
-    // The loading panel should appear immediately after the drop.
     await waitFor(() => {
       expect(screen.getByTestId('loading-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('loading-stage-label')).toBeInTheDocument();
     });
-
-    expect(screen.getByTestId('loading-stage-label')).toBeInTheDocument();
   });
 
   it('shows ErrorPanel on an invalid file drop', async () => {

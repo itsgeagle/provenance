@@ -97,15 +97,10 @@ describe('IngestStartView', () => {
       fireEvent.click(uploadButton);
     });
 
-    // Wait for upload progress to appear (indicates request was sent)
-    await waitFor(
-      () => {
-        expect(screen.getByTestId('upload-progress')).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
-
-    // Verify the POST request was made
-    expect(postCalled).toBe(true);
+    // Wait for the POST to be observed. Asserting the upload-progress element
+    // was racy: onSuccess navigates away before waitFor can latch on, so the
+    // DOM is empty by the time the polling assertion runs. The fetch
+    // observation is the real behavior check; the UI element is incidental.
+    await waitFor(() => expect(postCalled).toBe(true), { timeout: 3000 });
   });
 });
