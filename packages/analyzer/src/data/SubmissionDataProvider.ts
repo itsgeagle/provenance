@@ -32,7 +32,7 @@ export type PerFileStats = {
   path: string;
   final_length: number;
   saves: number;
-  reconstruction_tainted?: boolean;
+  reconstruction_tainted?: boolean | undefined;
 };
 
 export type SubmissionStats = {

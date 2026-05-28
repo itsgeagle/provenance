@@ -6,16 +6,34 @@
  * bundle) and persists one row per file into per_file_stats. Idempotent via
  * ON CONFLICT DO UPDATE.
  *
- * Design: final_length and start_length are stored as 0. Computing them
- * requires file reconstruction (Phase 18). v2 FileStats does not provide them.
+ * final_length: reconstruct the file from the in-memory bundle and read content
+ * length at the end of the stream.
+ * start_length: length of the initial content carried by the file's first
+ * `doc.open` event (recorder v1.1+). Pre-v1.1 doc.open has no content field
+ * and start_length stays 0.
  */
 
 import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
 import { computeStats } from '@provenance/analyzer/src/index/stats.js';
+import { reconstructFileWithProvenance } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
 import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
+import type { IndexedEvent } from '@provenance/analyzer/src/index/event-index.js';
 import { per_file_stats } from '../../db/schema.js';
 import { sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';
+
+function startLengthForFile(events: IndexedEvent[] | undefined): number {
+  if (events === undefined) return 0;
+  for (const e of events) {
+    if (e.kind !== 'doc.open') continue;
+    const payload = e.payload as { content?: unknown } | null;
+    if (payload !== null && typeof payload.content === 'string') {
+      return payload.content.length;
+    }
+    return 0;
+  }
+  return 0;
+}
 
 export async function computeAndStoreStats(
   db: DrizzleDb,
@@ -26,17 +44,20 @@ export async function computeAndStoreStats(
   const bundleStats = computeStats(index);
   if (bundleStats.perFile.size === 0) return;
 
-  const rows = Array.from(bundleStats.perFile.values()).map((fs) => ({
-    submission_id: submissionId,
-    file_path: fs.filePath,
-    chars_typed: fs.charsTyped,
-    chars_pasted: fs.charsPasted,
-    chars_external_change_delta: fs.charsExternalChangeDelta,
-    saves: fs.saves,
-    final_length: 0,
-    start_length: 0,
-    reconstruction_tainted: fs.reconstructionTainted,
-  }));
+  const rows = Array.from(bundleStats.perFile.values()).map((fs) => {
+    const replayState = reconstructFileWithProvenance(index, fs.filePath);
+    return {
+      submission_id: submissionId,
+      file_path: fs.filePath,
+      chars_typed: fs.charsTyped,
+      chars_pasted: fs.charsPasted,
+      chars_external_change_delta: fs.charsExternalChangeDelta,
+      saves: fs.saves,
+      final_length: replayState.content.length,
+      start_length: startLengthForFile(index.byFile.get(fs.filePath)),
+      reconstruction_tainted: fs.reconstructionTainted,
+    };
+  });
 
   await db
     .insert(per_file_stats)

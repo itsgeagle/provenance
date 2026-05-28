@@ -65,7 +65,7 @@ export function SubmissionShell() {
 
   return (
     <ApiSubmissionDataProviderContext submissionId={submissionId}>
-      <div className="flex flex-col min-h-0" data-testid="submission-shell">
+      <div className="flex flex-1 flex-col min-h-0" data-testid="submission-shell">
         {/* Tab nav */}
         <nav className="border-b border-gray-200 bg-white px-4 sm:px-6">
           <div className="flex gap-0 -mb-px">

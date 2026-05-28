@@ -55,9 +55,9 @@ const PerFileStatsSchema = z.object({
   path: z.string(),
   final_length: z.number().int(),
   saves: z.number().int(),
-  // Use z.boolean() without .default() to avoid exactOptionalPropertyTypes issues.
-  // The server always sends this field; if absent the Zod parse will fail gracefully.
-  reconstruction_tainted: z.boolean(),
+  // Optional: /stats per_file always includes this; /files list omits it.
+  // OpenAPI marks it non-required on PerFileStats.
+  reconstruction_tainted: z.boolean().optional(),
 });
 
 const SubmissionStatsSchema = z.object({

@@ -7,8 +7,8 @@
  * (sum across all files).
  */
 
-import { eq } from 'drizzle-orm';
-import { per_file_stats } from '../../db/schema.js';
+import { eq, sql } from 'drizzle-orm';
+import { events, per_file_stats } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +34,10 @@ export type SubmissionStats = {
     chars_external_change_delta: number;
     saves: number;
     files: number;
+    total_events: number;
+    total_saves: number;
+    total_sessions: number;
+    total_wall_ms: number;
   };
 };
 
@@ -82,6 +86,34 @@ export async function getSubmissionStats(
     saves += f.saves;
   }
 
+  // Event-stream totals derived from the events table.
+  // total_wall_ms = sum over sessions of (max(wall) - min(wall)).
+  const aggRows = await db.execute(sql`
+    WITH per_session AS (
+      SELECT
+        session_id,
+        EXTRACT(EPOCH FROM (MAX(wall) - MIN(wall))) * 1000 AS wall_ms
+      FROM ${events}
+      WHERE submission_id = ${submissionId}
+      GROUP BY session_id
+    )
+    SELECT
+      (SELECT COUNT(*) FROM ${events} WHERE submission_id = ${submissionId}) AS total_events,
+      (SELECT COUNT(*) FROM per_session) AS total_sessions,
+      COALESCE((SELECT SUM(wall_ms) FROM per_session), 0) AS total_wall_ms
+  `);
+  // postgres.js returns a RowList that iterates as an array of plain rows.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: postgres.js raw result
+  const aggArr = aggRows as any as Array<{
+    total_events?: string | number;
+    total_sessions?: string | number;
+    total_wall_ms?: string | number;
+  }>;
+  const aggRow = aggArr[0] ?? {};
+  const total_events = Number(aggRow.total_events ?? 0);
+  const total_sessions = Number(aggRow.total_sessions ?? 0);
+  const total_wall_ms = Number(aggRow.total_wall_ms ?? 0);
+
   return {
     per_file,
     aggregate: {
@@ -90,6 +122,10 @@ export async function getSubmissionStats(
       chars_external_change_delta,
       saves,
       files: per_file.length,
+      total_events,
+      total_saves: saves,
+      total_sessions,
+      total_wall_ms,
     },
   };
 }

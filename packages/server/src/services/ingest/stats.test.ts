@@ -119,8 +119,9 @@ describe('computeAndStoreStats', () => {
         expect(row.chars_external_change_delta).toBe(fs!.charsExternalChangeDelta);
         expect(row.saves).toBe(fs!.saves);
         expect(row.reconstruction_tainted).toBe(fs!.reconstructionTainted);
-        // final_length and start_length are deferred to Phase 18.
-        expect(row.final_length).toBe(0);
+        // Each file is "" → insert "hello" via doc.change → final length 5.
+        // start_length stays 0 (recorder always starts from empty file).
+        expect(row.final_length).toBe(5);
         expect(row.start_length).toBe(0);
       }
     });
