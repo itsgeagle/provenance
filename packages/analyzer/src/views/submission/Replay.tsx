@@ -9,11 +9,12 @@
  *  3. useSubmissionData().useFlags() → flag list for "next flag" jumps
  *  4. <ReplayInner index={…} sessionId={…} flags={…} sourceFilename={…} showHeader={false}/>
  *
- * Phase 23 stub (file dropdown + scrubber + read-only Monaco) replaced.
+ * Session selection: URL ?session=… is the source of truth. A dropdown is
+ * shown above ReplayInner only when the submission has >1 session.
  */
 
-import { useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useMemo } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import { useFullEventIndex } from '../../data/useFullEventIndex.js';
 import { ReplayInner } from '../replay/ReplayView.js';
@@ -46,15 +47,31 @@ function toFlag(row: FlagRow): Flag {
 export function Replay() {
   const { submissionId = '' } = useParams<{ submissionId: string }>();
   const provider = useSubmissionData();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const summaryQuery = provider.useSummary();
   const flagsQuery = provider.useFlags();
   const indexQuery = useFullEventIndex(submissionId);
 
+  // Sessions known to the submission, in summary order.
+  const sessionIds = useMemo(() => summaryQuery.data?.session_ids ?? [], [summaryQuery.data]);
+
+  // Resolve the active session from the URL, falling back to the first.
+  const urlSession = searchParams.get('session');
   const sessionId = useMemo(() => {
-    const ids = summaryQuery.data?.session_ids ?? [];
-    return ids[0] ?? null;
-  }, [summaryQuery.data]);
+    if (urlSession !== null && sessionIds.includes(urlSession)) return urlSession;
+    return sessionIds[0] ?? null;
+  }, [urlSession, sessionIds]);
+
+  // Reconcile the URL when the user landed without ?session=, or with an
+  // invalid one. Replace (not push) so the back button still leaves the tab.
+  useEffect(() => {
+    if (sessionId === null) return;
+    if (urlSession === sessionId) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('session', sessionId);
+    setSearchParams(next, { replace: true });
+  }, [sessionId, urlSession, searchParams, setSearchParams]);
 
   const sourceFilename = summaryQuery.data?.source_filename ?? '';
 
@@ -103,13 +120,58 @@ export function Replay() {
     );
   }
 
+  const showSwitcher = sessionIds.length > 1;
+
+  function handleSessionChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const next = new URLSearchParams(searchParams);
+    next.set('session', e.target.value);
+    // Clear playback-position state — it's session-relative.
+    next.delete('event');
+    setSearchParams(next);
+  }
+
   return (
-    <ReplayInner
-      sessionId={sessionId}
-      index={index}
-      flags={(flagsQuery.data ?? []).map(toFlag)}
-      sourceFilename={sourceFilename}
-      showHeader={false}
-    />
+    <div className="flex h-full flex-col" data-testid="replay-tab-shell">
+      {showSwitcher && (
+        <div
+          className="flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-4 py-1.5 text-xs"
+          data-testid="replay-session-switcher"
+        >
+          <label htmlFor="replay-session-select" className="font-medium text-gray-600">
+            Session
+          </label>
+          <select
+            id="replay-session-select"
+            value={sessionId}
+            onChange={handleSessionChange}
+            className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {sessionIds.map((id, idx) => {
+              const events = index.bySessionId.get(id);
+              const eventCount = events?.length ?? 0;
+              const startWall = events?.[0]?.wall ?? null;
+              const label = startWall !== null
+                ? `${idx + 1}. ${new Date(startWall).toLocaleString()} (${eventCount} events)`
+                : `${idx + 1}. ${id.slice(0, 8)}… (${eventCount} events)`;
+              return (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              );
+            })}
+          </select>
+          <span className="ml-2 font-mono text-[10px] text-gray-400">{sessionId.slice(0, 8)}…</span>
+        </div>
+      )}
+      <div className="min-h-0 flex-1">
+        <ReplayInner
+          sessionId={sessionId}
+          index={index}
+          flags={(flagsQuery.data ?? []).map(toFlag)}
+          sourceFilename={sourceFilename}
+          showHeader={false}
+        />
+      </div>
+    </div>
   );
 }

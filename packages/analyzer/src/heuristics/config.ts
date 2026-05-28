@@ -210,6 +210,17 @@ export type HeuristicConfig = {
      */
     gapThresholdMs: number;
   };
+  /**
+   * inter_session_external_change heuristic — file content that diverged
+   * between consecutive recorder sessions.
+   */
+  interSessionExternalChange: {
+    /**
+     * |len(nextOpen) - len(prevEnd)| threshold above which the divergence is
+     * classified as high severity. Default: 100 chars.
+     */
+    highSeverityCharsChanged: number;
+  };
   /** Phase 16: paste_matches_known_source heuristic. */
   pasteMatchesKnownSource: {
     /**
@@ -276,6 +287,9 @@ export const DEFAULT_HEURISTIC_CONFIG: HeuristicConfig = {
   gapInHeartbeats: {
     gapThresholdMs: 300_000, // 5 minutes
   },
+  interSessionExternalChange: {
+    highSeverityCharsChanged: 100,
+  },
 };
 
 /**
@@ -326,6 +340,10 @@ export function mergeConfig(override?: Partial<HeuristicConfig>): HeuristicConfi
     gapInHeartbeats: {
       ...DEFAULT_HEURISTIC_CONFIG.gapInHeartbeats,
       ...override.gapInHeartbeats,
+    },
+    interSessionExternalChange: {
+      ...DEFAULT_HEURISTIC_CONFIG.interSessionExternalChange,
+      ...override.interSessionExternalChange,
     },
   };
 }

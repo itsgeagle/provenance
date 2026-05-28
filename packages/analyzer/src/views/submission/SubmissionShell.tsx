@@ -86,8 +86,17 @@ export function SubmissionShell() {
           </div>
         </nav>
 
-        {/* Tab content */}
-        <div className="flex-1 overflow-auto bg-gray-50" data-testid="tab-content">
+        {/* Tab content
+            - Replay locks itself to the viewport so the transport + jump bars
+              stay on screen even when the event sidebar has thousands of rows;
+              children manage internal scroll. Use overflow-hidden + min-h-0.
+            - Other tabs grow with content, so use overflow-auto to scroll. */}
+        <div
+          className={`flex-1 min-h-0 bg-gray-50 ${
+            activeTab === 'replay' ? 'overflow-hidden' : 'overflow-auto'
+          }`}
+          data-testid="tab-content"
+        >
           {activeTab === 'overview' && <Overview />}
           {activeTab === 'timeline' && <Timeline />}
           {activeTab === 'replay' && <Replay />}

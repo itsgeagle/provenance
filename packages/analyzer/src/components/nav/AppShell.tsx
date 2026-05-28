@@ -85,7 +85,7 @@ export function AppShell({ children }: AppShellProps) {
   const isSuperadmin = me?.user.is_superadmin ?? false;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       {/* View-as banner (only renders when /me reports active view-as) */}
       <ViewAsBanner />
 
@@ -137,8 +137,14 @@ export function AppShell({ children }: AppShellProps) {
         )}
       </header>
 
-      {/* Page content */}
-      <main className="flex flex-1 flex-col">{children}</main>
+      {/* Page content
+          - flex-1 + min-h-0: main fills the remaining column space.
+          - overflow-auto: non-tab routes (HomeView, AssignmentsView, etc.) scroll
+            internally — the page itself stays viewport-locked, header stays put.
+          - Tabbed routes (SubmissionShell) carry their own overflow rules per
+            tab. The Replay tab uses overflow-hidden + h-full so the transport
+            and jump bars never get pushed off-screen by a tall event sidebar. */}
+      <main className="flex flex-1 flex-col min-h-0 overflow-auto">{children}</main>
     </div>
   );
 }

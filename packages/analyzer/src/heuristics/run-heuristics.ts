@@ -38,6 +38,7 @@ import { clockJumpsHeuristic } from './clock-jumps.js';
 import { gapInHeartbeatsHeuristic } from './gap-in-heartbeats.js';
 import { multipleSessionsOverlapHeuristic } from './multiple-sessions-overlap.js';
 import { extensionHashMismatchHeuristic } from './extension-hash-mismatch.js';
+import { interSessionExternalChangeHeuristic } from './inter-session-external-change.js';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -50,6 +51,7 @@ const HEURISTIC_REGISTRY: Heuristic[] = [
   // Phase 4 — v1 core
   largePasteHeuristic,
   externalEditsHeuristic,
+  interSessionExternalChangeHeuristic,
   lowTypingHighOutputHeuristic,
   // Phase 16 — process-shape
   pasteIsSolutionHeuristic,
