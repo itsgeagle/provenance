@@ -284,7 +284,7 @@ const PATH_EQUIVALENCES: Record<string, string> = {
     '/submissions/{submissionId}/files/{path}/content',
   '/submissions/{submissionId}/files/{path}/provenance':
     '/submissions/{submissionId}/files/{path}/provenance',
-}
+};
 
 /**
  * Paths (OpenAPI style) that are intentionally excluded from exhaustive drift
@@ -431,7 +431,8 @@ describe('Fake-route probe: drift check catches a route missing from the spec', 
 
     // The fake route must appear as missing.
     expect(missingRoutes.length).toBeGreaterThan(0);
-    expect(missingRoutes.some((r) => r.openApiPath === '/nonexistent-fake-route-for-drift-probe'))
-      .toBe(true);
+    expect(
+      missingRoutes.some((r) => r.openApiPath === '/nonexistent-fake-route-for-drift-probe'),
+    ).toBe(true);
   });
 });

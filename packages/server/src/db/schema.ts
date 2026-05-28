@@ -454,15 +454,19 @@ export const submissions = pgTable(
     flag_counts: jsonb('flag_counts')
       .notNull()
       .default(sql`'{"info":0,"low":0,"medium":0,"high":0}'::jsonb`),
-    top_flags: jsonb('top_flags').notNull().default(sql`'[]'::jsonb`),
-    severity_rank: smallint('severity_rank').notNull().generatedAlwaysAs(
-      sql`(CASE score_max_severity
+    top_flags: jsonb('top_flags')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    severity_rank: smallint('severity_rank')
+      .notNull()
+      .generatedAlwaysAs(
+        sql`(CASE score_max_severity
             WHEN 'info'   THEN 0::smallint
             WHEN 'low'    THEN 1::smallint
             WHEN 'medium' THEN 2::smallint
             WHEN 'high'   THEN 3::smallint
           END)`,
-    ),
+      ),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .default(sql`now()`),

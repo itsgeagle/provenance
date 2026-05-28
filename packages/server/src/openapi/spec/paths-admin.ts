@@ -100,8 +100,7 @@ export const adminPaths = {
     post: {
       tags: ['Admin'],
       summary: 'Enter view-as mode (superadmin; session principals only)',
-      description:
-        'Sets the session to impersonate the given user. Token principals receive 400.',
+      description: 'Sets the session to impersonate the given user. Token principals receive 400.',
       security: [{ SessionCookie: [] }],
       requestBody: {
         required: true,

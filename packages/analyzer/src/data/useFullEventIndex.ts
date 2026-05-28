@@ -41,9 +41,7 @@ async function fetchAllEvents(submissionId: string): Promise<EventRow[]> {
     );
     all.push(...page.items);
     if (all.length > MAX_EVENTS) {
-      throw new Error(
-        `Refusing to load >${MAX_EVENTS} events for replay (got ${all.length}).`,
-      );
+      throw new Error(`Refusing to load >${MAX_EVENTS} events for replay (got ${all.length}).`);
     }
     const next = page.next_cursor ?? null;
     if (next === null || page.items.length === 0) break;

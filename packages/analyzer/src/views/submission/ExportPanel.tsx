@@ -13,9 +13,8 @@ export function ExportPanel() {
     <div className="container mx-auto py-12 px-4 max-w-lg text-center" data-testid="export-panel">
       <h2 className="text-lg font-semibold text-gray-900 mb-3">Export</h2>
       <p className="text-sm text-gray-500">
-        Submission export (markdown and PDF) is planned for v3.1. The
-        client-side findings export under <span className="font-mono">/local</span> remains
-        available for ad-hoc use.
+        Submission export (markdown and PDF) is planned for v3.1. The client-side findings export
+        under <span className="font-mono">/local</span> remains available for ad-hoc use.
       </p>
     </div>
   );

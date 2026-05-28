@@ -132,7 +132,12 @@ export async function runAndStoreHeuristics(
   // enabled/weight/severity_weights are applied below when translating
   // flags to DB rows.
   // -------------------------------------------------------------------------
-  const rawFlags = runHeuristics(index, bundle, validationReport, thresholdsToV2Override(serverConfig));
+  const rawFlags = runHeuristics(
+    index,
+    bundle,
+    validationReport,
+    thresholdsToV2Override(serverConfig),
+  );
 
   // -------------------------------------------------------------------------
   // Step 4: Filter disabled heuristics and translate each Flag to a DB row.

@@ -88,10 +88,7 @@ export function Replay() {
 
   if (indexQuery.isError) {
     return (
-      <div
-        className="container mx-auto py-12 text-center text-red-600"
-        data-testid="replay-error"
-      >
+      <div className="container mx-auto py-12 text-center text-red-600" data-testid="replay-error">
         <p className="text-sm">Failed to load events: {String(indexQuery.error)}</p>
       </div>
     );
@@ -150,9 +147,10 @@ export function Replay() {
               const events = index.bySessionId.get(id);
               const eventCount = events?.length ?? 0;
               const startWall = events?.[0]?.wall ?? null;
-              const label = startWall !== null
-                ? `${idx + 1}. ${new Date(startWall).toLocaleString()} (${eventCount} events)`
-                : `${idx + 1}. ${id.slice(0, 8)}… (${eventCount} events)`;
+              const label =
+                startWall !== null
+                  ? `${idx + 1}. ${new Date(startWall).toLocaleString()} (${eventCount} events)`
+                  : `${idx + 1}. ${id.slice(0, 8)}… (${eventCount} events)`;
               return (
                 <option key={id} value={id}>
                   {label}

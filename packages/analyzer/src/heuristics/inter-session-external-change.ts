@@ -72,9 +72,7 @@ function firstDocOpenWithContent(
  * Sessions touched in sessionA, by reading byFile filtered to sessionA.
  * Returns the set of file paths.
  */
-function filesTouchedInSession(
-  sessionEvents: IndexedEvent[],
-): Set<string> {
+function filesTouchedInSession(sessionEvents: IndexedEvent[]): Set<string> {
   const files = new Set<string>();
   for (const e of sessionEvents) {
     if (e.file !== undefined) files.add(e.file);

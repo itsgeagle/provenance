@@ -184,7 +184,10 @@ describe('P1-1: cohort list 50k perf budget', () => {
           sid: `perf-stu-${String(i).padStart(4, '0')}`,
           display_name: `Student ${i}`,
         }));
-        const inserted = await db.insert(roster_entries).values(rows).returning({ id: roster_entries.id });
+        const inserted = await db
+          .insert(roster_entries)
+          .values(rows)
+          .returning({ id: roster_entries.id });
         studentIds.push(...inserted.map((r) => r.id));
       }
 
@@ -217,7 +220,9 @@ describe('P1-1: cohort list 50k perf budget', () => {
       // -----------------------------------------------------------------------
       // 6. Seed 50k submissions in batches of INSERT_BATCH_ROWS
       // -----------------------------------------------------------------------
-      console.log(`[perf] Seeding ${TOTAL_SUBMISSIONS} submissions in batches of ${INSERT_BATCH_ROWS}…`);
+      console.log(
+        `[perf] Seeding ${TOTAL_SUBMISSIONS} submissions in batches of ${INSERT_BATCH_ROWS}…`,
+      );
 
       const severities = ['info', 'low', 'medium', 'high'] as const;
       const statuses = ['pass', 'warn', 'fail'] as const;

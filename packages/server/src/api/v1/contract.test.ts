@@ -165,7 +165,10 @@ async function buildFixture(db: DrizzleDb): Promise<Fixture> {
     .insert(sessions)
     .values({ id: sessionId, user_id: user!.id, expires_at: new Date(Date.now() + 86400_000) });
 
-  const [course] = await db.insert(courses).values({ name: 'CS 61A', slug: `c-${rand()}` }).returning();
+  const [course] = await db
+    .insert(courses)
+    .values({ name: 'CS 61A', slug: `c-${rand()}` })
+    .returning();
 
   const [semester] = await db
     .insert(semesters)
@@ -246,12 +249,11 @@ async function buildFixture(db: DrizzleDb): Promise<Fixture> {
     .values({
       semester_id: semester!.id,
       version: 1,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jsonb config
       config: {
         per_flag: { large_paste: { enabled: true, weight: 1.0 } },
         severity_weights: { info: 0, low: 1, medium: 3, high: 8 },
         config_format_version: 1,
-      } as any,
+      } as unknown,
       set_by: user!.id,
       is_active: true,
     })
@@ -413,8 +415,7 @@ const contracts: Contract[] = [
   },
   {
     name: 'GET /semesters/:semesterId/ingest/jobs/:jobId/files',
-    buildRequest: (f) =>
-      get(f, `/semesters/${f.semester.id}/ingest/jobs/${f.ingestJob.id}/files`),
+    buildRequest: (f) => get(f, `/semesters/${f.semester.id}/ingest/jobs/${f.ingestJob.id}/files`),
     schema: IngestFileListResponseSchema,
   },
   {

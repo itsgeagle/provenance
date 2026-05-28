@@ -1190,7 +1190,10 @@ describe('computeDryRunDiff — threshold forwarding (V46 regression)', () => {
       const raisedMover = raisedResult.diff.top_movers.find(
         (m) => m.submission_id === submissionId,
       );
-      expect(raisedMover, 'raised-threshold run should include the seeded submission').toBeDefined();
+      expect(
+        raisedMover,
+        'raised-threshold run should include the seeded submission',
+      ).toBeDefined();
       expect(raisedMover!.new_score).toBe(0);
       expect(raisedMover!.new_tier).toBe('info');
     });
