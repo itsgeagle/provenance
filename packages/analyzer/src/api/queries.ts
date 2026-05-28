@@ -71,7 +71,10 @@ export const queryKeys = {
   ingestJobFiles: (jobId: string, semesterId: string, cursor?: string) =>
     ['ingest', semesterId, 'job', jobId, 'files', cursor] as const,
   unmatched: (semesterId: string) => ['unmatched', semesterId] as const,
-  roster: (semesterId: string) => ['roster', semesterId] as const,
+  roster: (semesterId: string, params?: { q?: string; limit?: number }) =>
+    ['roster', semesterId, params ?? {}] as const,
+  studentSubmissions: (semesterId: string, studentId: string) =>
+    ['cohort', semesterId, 'student', studentId, 'submissions'] as const,
   members: (semesterId: string) => ['members', semesterId] as const,
   semester: (semesterId: string) => ['semester', semesterId] as const,
   activeConfig: (semesterId: string) => ['heuristic-config', semesterId, 'active'] as const,
@@ -528,15 +531,59 @@ export function useDiscardUnmatched(semesterId: string) {
 // Phase 22 — Roster hooks
 // ---------------------------------------------------------------------------
 
-/** Lists roster entries for a semester. */
-export function useRoster(semesterId: string) {
+/**
+ * Lists roster entries for a semester.
+ *
+ * Optional `q` runs a server-side substring search across sid/display_name/email;
+ * `limit` defaults to 500 (well above a typical course size, so the common case
+ * is one page). Callers expecting very large rosters should debounce `q`.
+ */
+export function useRoster(semesterId: string, opts: { q?: string; limit?: number } = {}) {
+  const limit = opts.limit ?? 500;
+  const q = opts.q ?? '';
+  const params: { q?: string; limit?: number } = { limit };
+  if (q !== '') params.q = q;
   return useQuery({
-    queryKey: queryKeys.roster(semesterId),
-    queryFn: () =>
-      apiFetch(`/semesters/${semesterId}/roster?limit=100`, undefined, RosterListResponseSchema),
+    queryKey: queryKeys.roster(semesterId, params),
+    queryFn: () => {
+      const qs = new URLSearchParams({ limit: String(limit) });
+      if (q !== '') qs.set('q', q);
+      return apiFetch(
+        `/semesters/${semesterId}/roster?${qs.toString()}`,
+        undefined,
+        RosterListResponseSchema,
+      );
+    },
     staleTime: 60 * 1000,
     retry: noRetryOn401,
     enabled: semesterId !== '',
+  });
+}
+
+/**
+ * Lists all submissions for a single student, including superseded ones.
+ *
+ * Used by the unmatched-attach modal to detect (student, assignment) conflicts
+ * so we can warn the admin before silently superseding an existing submission.
+ */
+export function useStudentSubmissions(semesterId: string, studentId: string) {
+  return useQuery({
+    queryKey: queryKeys.studentSubmissions(semesterId, studentId),
+    queryFn: () => {
+      const qs = new URLSearchParams({
+        student_id: studentId,
+        include_superseded: 'true',
+        limit: '200',
+      });
+      return apiFetch(
+        `/semesters/${semesterId}/submissions?${qs.toString()}`,
+        undefined,
+        CohortListResponseSchema,
+      );
+    },
+    staleTime: 30 * 1000,
+    retry: noRetryOn401,
+    enabled: semesterId !== '' && studentId !== '',
   });
 }
 
