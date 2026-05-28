@@ -466,6 +466,8 @@ export const FlagRowSchema = z.object({
   confidence: z.number(),
   score_contribution: z.number(),
   detail: z.unknown().nullable(),
+  supporting_seqs: z.array(z.number().int()).optional(),
+  session_id: z.string().optional(),
 });
 export type FlagRow = z.infer<typeof FlagRowSchema>;
 
@@ -496,6 +498,8 @@ export const SubmissionSummarySchema = z.object({
   heuristic_config_version: z.number().int(),
   flag_count: z.number().int(),
   ingested_at: z.string().datetime(),
+  source_filename: z.string().optional(),
+  session_ids: z.array(z.string()).optional(),
 });
 export type SubmissionSummary = z.infer<typeof SubmissionSummarySchema>;
 

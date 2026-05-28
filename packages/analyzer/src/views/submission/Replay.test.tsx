@@ -1,28 +1,13 @@
 /**
- * Replay.test.tsx — smoke test for the Replay tab.
- *
- * Plan §786 exit gate: "scrub 100 events forward and back via the API provider;
- * matches v2 in-memory."
- *
- * Tests:
- * 1. Renders file selector with files from provider
- * 2. Renders scrubber
- * 3. Scrubbing to seq=50 calls provider.useFileContent with atSeq=50
- * 4. Scrubbing to seq=100 then back to seq=0 (forward-and-back smoke)
- * 5. Monaco editor content reflects the fetched content
- *
- * Monaco is rendered as a <textarea data-testid="replay-editor"> in test mode
- * (import.meta.env.MODE === 'test') so we can assert content without jsdom canvas.
- *
- * Debounce note: the component debounces atSeq updates by 100ms. Tests that need
- * the debounced value to commit use vi.useFakeTimers() scoped per-test with
- * vi.useRealTimers() cleanup, following the pattern that keeps waitFor functional.
+ * Replay tab smoke tests — verify wiring between provider/index hook and the
+ * v2 ReplayInner. The inner's own behavior (transport, scrubbing, gutter
+ * decorations, jump targets) is covered by views/replay/ReplayView.test.tsx.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { UseQueryResult } from '@tanstack/react-query';
 
 import { SubmissionDataContext } from '../../data/SubmissionDataProvider.js';
@@ -35,11 +20,19 @@ import type {
   ValidationResults,
 } from '../../data/SubmissionDataProvider.js';
 import type { SubmissionSummary, FlagRow, EventRow } from '@provenance/shared/api-schemas';
+import type { EventIndex } from '../../index/event-index.js';
+import { buildIndexFromEventRows, type ServerEventRow } from '../../index/build-index.js';
 import { Replay } from './Replay.js';
 
 // ---------------------------------------------------------------------------
-// Mock provider factory
+// Mock useFullEventIndex so we don't actually hit the network.
 // ---------------------------------------------------------------------------
+
+const mockIndexResult: { value: UseQueryResult<EventIndex> | null } = { value: null };
+
+vi.mock('../../data/useFullEventIndex.js', () => ({
+  useFullEventIndex: () => mockIndexResult.value,
+}));
 
 function makeQueryResult<T>(data: T): UseQueryResult<T> {
   return {
@@ -48,65 +41,89 @@ function makeQueryResult<T>(data: T): UseQueryResult<T> {
     isError: false,
     isPending: false,
     isSuccess: true,
+    isFetching: false,
+    isStale: false,
     error: null,
     status: 'success',
     fetchStatus: 'idle',
-    isLoadingError: false,
-    isRefetchError: false,
-    isFetching: false,
-    isRefetching: false,
-    isStale: false,
-    isPaused: false,
-    isPlaceholderData: false,
-    refetch: vi.fn(),
-    dataUpdatedAt: 0,
-    errorUpdatedAt: 0,
-    errorUpdateCount: 0,
-    failureCount: 0,
-    failureReason: null,
   } as unknown as UseQueryResult<T>;
 }
 
-// Content varies per atSeq so we can assert the right call was made.
-function contentForSeq(atSeq: number): FileContentResult {
+function loadingResult<T>(): UseQueryResult<T> {
   return {
-    content: `# content at seq ${atSeq}`,
-    at_seq: atSeq,
-    computed_at_ms: 0,
-  };
+    data: undefined,
+    isLoading: true,
+    isError: false,
+    isPending: true,
+    isSuccess: false,
+    isFetching: true,
+    isStale: false,
+    error: null,
+    status: 'pending',
+    fetchStatus: 'fetching',
+  } as unknown as UseQueryResult<T>;
 }
 
-function makeProvider(): {
-  provider: SubmissionDataProvider;
-  useFileContent: ReturnType<typeof vi.fn>;
-} {
-  const useFileContent = vi.fn(
-    (_path: string, atSeq?: number): UseQueryResult<FileContentResult> =>
-      makeQueryResult(contentForSeq(atSeq ?? 0)),
-  );
+// ---------------------------------------------------------------------------
+// Synthetic single-session, single-file index for ReplayInner to consume.
+// ---------------------------------------------------------------------------
 
-  const useFileProvenance = vi.fn(
-    (_path: string, _atSeq?: number): UseQueryResult<FileProvenanceResult> =>
-      makeQueryResult({ length: 0, provenance: [], at_seq: _atSeq ?? 0 }),
-  );
+const SESSION_ID = 'sess-1';
 
-  const fileListResult: FileListResult = {
-    files: [
-      { path: 'hw1.py', final_length: 300, saves: 10 },
-      { path: 'utils.py', final_length: 150, saves: 5 },
-    ],
-  };
+function buildSyntheticIndex(): EventIndex {
+  const wallBase = 1_700_000_000_000;
+  const rows: ServerEventRow[] = [
+    {
+      seq: 0,
+      session_id: SESSION_ID,
+      t: 0,
+      wall: new Date(wallBase).toISOString(),
+      kind: 'session.start',
+      payload: {},
+    },
+    {
+      seq: 1,
+      session_id: SESSION_ID,
+      t: 100,
+      wall: new Date(wallBase + 100).toISOString(),
+      kind: 'doc.open',
+      payload: { path: 'hw1.py', content: '' },
+    },
+    {
+      seq: 2,
+      session_id: SESSION_ID,
+      t: 200,
+      wall: new Date(wallBase + 200).toISOString(),
+      kind: 'doc.change',
+      payload: {
+        path: 'hw1.py',
+        source: 'typed',
+        deltas: [
+          {
+            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            text: 'hello',
+          },
+        ],
+      },
+    },
+  ];
+  return buildIndexFromEventRows(rows);
+}
 
+// ---------------------------------------------------------------------------
+// Mock provider
+// ---------------------------------------------------------------------------
+
+function makeProvider(): SubmissionDataProvider {
   const stats: SubmissionStats = {
-    per_file: fileListResult.files,
+    per_file: [{ path: 'hw1.py', final_length: 5, saves: 0 }],
     aggregate: {
-      total_events: 200,
-      total_saves: 15,
+      total_events: 3,
+      total_saves: 0,
       total_sessions: 1,
-      total_wall_ms: 3600000,
+      total_wall_ms: 200,
     },
   };
-
   const summary: SubmissionSummary = {
     id: 'test-sub-id',
     student: { sid: 'test', display_name: 'Test Student' },
@@ -119,37 +136,42 @@ function makeProvider(): {
     heuristic_config_version: 1,
     flag_count: 0,
     ingested_at: '2025-01-01T00:00:00.000Z',
+    source_filename: 'test.zip',
+    session_ids: [SESSION_ID],
   };
-
+  const files: FileListResult = { files: stats.per_file };
   const validation: ValidationResults = { overall: 'pass', checks: [] };
 
-  const provider: SubmissionDataProvider = {
+  return {
     useSummary: () => makeQueryResult(summary),
     useEvents: () => makeQueryResult([] as EventRow[]),
     useEvent: () => makeQueryResult(null),
     useFlags: () => makeQueryResult([] as FlagRow[]),
     useStats: () => makeQueryResult(stats),
     useValidation: () => makeQueryResult(validation),
-    useFiles: () => makeQueryResult(fileListResult),
-    useFileContent,
-    useFileProvenance,
+    useFiles: () => makeQueryResult(files),
+    useFileContent: () =>
+      makeQueryResult({ content: '', at_seq: 0, computed_at_ms: 0 } as FileContentResult),
+    useFileProvenance: () =>
+      makeQueryResult({ length: 0, provenance: [], at_seq: 0 } as FileProvenanceResult),
   };
-
-  return { provider, useFileContent };
 }
-
-// ---------------------------------------------------------------------------
-// Render helper
-// ---------------------------------------------------------------------------
 
 function renderReplay(provider: SubmissionDataProvider) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <SubmissionDataContext.Provider value={provider}>
-          <Replay />
-        </SubmissionDataContext.Provider>
+      <MemoryRouter initialEntries={['/s/fa26/sub/test-sub-id']}>
+        <Routes>
+          <Route
+            path="/s/:semesterSlug/sub/:submissionId"
+            element={
+              <SubmissionDataContext.Provider value={provider}>
+                <Replay />
+              </SubmissionDataContext.Provider>
+            }
+          />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -159,126 +181,31 @@ function renderReplay(provider: SubmissionDataProvider) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Replay tab', () => {
-  afterEach(() => {
-    // Restore real timers if a test used fake timers
-    vi.useRealTimers();
+describe('Replay tab (v3)', () => {
+  beforeEach(() => {
+    mockIndexResult.value = null;
   });
 
-  it('renders file selector with available files', async () => {
-    const { provider } = makeProvider();
-    renderReplay(provider);
+  it('shows loading state while the event index is being fetched', () => {
+    mockIndexResult.value = loadingResult<EventIndex>();
+    renderReplay(makeProvider());
+    expect(screen.getByTestId('replay-loading')).toBeInTheDocument();
+  });
 
+  it('renders ReplayInner once index and summary are ready', async () => {
+    mockIndexResult.value = makeQueryResult(buildSyntheticIndex());
+    renderReplay(makeProvider());
     await waitFor(() => {
-      expect(screen.getByTestId('replay-file-select')).toBeInTheDocument();
+      expect(screen.getByTestId('replay-view')).toBeInTheDocument();
     });
-
-    const select = screen.getByTestId('replay-file-select') as HTMLSelectElement;
-    const options = Array.from(select.options).map((o) => o.value);
-    expect(options).toContain('hw1.py');
-    expect(options).toContain('utils.py');
   });
 
-  it('renders scrubber', async () => {
-    const { provider } = makeProvider();
-    renderReplay(provider);
-
+  it('shows no-session message when the picked session is missing from the index', async () => {
+    // Index built without the SESSION_ID our summary points at.
+    mockIndexResult.value = makeQueryResult(buildIndexFromEventRows([]));
+    renderReplay(makeProvider());
     await waitFor(() => {
-      expect(screen.getByTestId('replay-scrubber')).toBeInTheDocument();
+      expect(screen.getByTestId('replay-session-missing')).toBeInTheDocument();
     });
-  });
-
-  it('calls useFileContent with atSeq=50 after scrubbing to seq=50', async () => {
-    vi.useFakeTimers();
-    const { provider, useFileContent } = makeProvider();
-    renderReplay(provider);
-
-    // Wait for initial render with fake timers — use getBy (synchronous) since
-    // the component renders immediately (data is synchronously provided by the mock)
-    expect(screen.getByTestId('replay-scrubber')).toBeInTheDocument();
-
-    const scrubber = screen.getByTestId('replay-scrubber');
-
-    act(() => {
-      fireEvent.change(scrubber, { target: { value: '50' } });
-      vi.advanceTimersByTime(150); // fire debounce
-    });
-
-    // After re-render with atSeq=50, useFileContent must have been called with it
-    const calls = (useFileContent as ReturnType<typeof vi.fn>).mock.calls as Array<
-      [string, number | undefined]
-    >;
-    const calledWithSeq50 = calls.some(([path, seq]) => path === 'hw1.py' && seq === 50);
-    expect(calledWithSeq50).toBe(true);
-  });
-
-  /**
-   * Plan §786 exit gate: "scrub 100 events forward and back via the API provider."
-   */
-  it('scrub-100-forward-and-back smoke test (plan §786 exit gate)', async () => {
-    vi.useFakeTimers();
-    const { provider, useFileContent } = makeProvider();
-    renderReplay(provider);
-
-    expect(screen.getByTestId('replay-scrubber')).toBeInTheDocument();
-
-    const scrubber = screen.getByTestId('replay-scrubber');
-
-    // Scrub forward to 100
-    act(() => {
-      fireEvent.change(scrubber, { target: { value: '100' } });
-      vi.advanceTimersByTime(150);
-    });
-
-    // Scrub back to 0
-    act(() => {
-      fireEvent.change(scrubber, { target: { value: '0' } });
-      vi.advanceTimersByTime(150);
-    });
-
-    const calls = (useFileContent as ReturnType<typeof vi.fn>).mock.calls as Array<
-      [string, number | undefined]
-    >;
-
-    const calledWith100 = calls.some(([path, seq]) => path === 'hw1.py' && seq === 100);
-    const calledWith0 = calls.some(([path, seq]) => path === 'hw1.py' && seq === 0);
-
-    expect(calledWith100).toBe(true);
-    expect(calledWith0).toBe(true);
-  });
-
-  it('Monaco editor textarea reflects content from useFileContent', async () => {
-    const { provider } = makeProvider();
-    renderReplay(provider);
-
-    // The textarea renders synchronously once the component mounts
-    await waitFor(() => {
-      expect(screen.getByTestId('replay-editor')).toBeInTheDocument();
-    });
-
-    const textarea = screen.getByTestId('replay-editor') as HTMLTextAreaElement;
-    // Initial atSeq=0 → content should be "# content at seq 0"
-    expect(textarea.value).toBe('# content at seq 0');
-  });
-
-  it('updates editor content after scrubbing (real timers, >100ms wait)', async () => {
-    const { provider } = makeProvider();
-    renderReplay(provider);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('replay-scrubber')).toBeInTheDocument();
-    });
-
-    const scrubber = screen.getByTestId('replay-scrubber');
-    fireEvent.change(scrubber, { target: { value: '75' } });
-
-    // Wait for the 100ms debounce to fire (real timers)
-    await waitFor(
-      () => {
-        const textarea = screen.getByTestId('replay-editor') as HTMLTextAreaElement;
-        expect(textarea.value).toBe('# content at seq 75');
-      },
-      { timeout: 3000 },
-    );
   });
 });

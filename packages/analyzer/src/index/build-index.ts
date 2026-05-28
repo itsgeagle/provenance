@@ -174,3 +174,112 @@ export function buildIndex(bundle: Bundle): EventIndex {
 
   return { bySeq, byKind, byFile, bySessionId, ordered };
 }
+
+// ---------------------------------------------------------------------------
+// buildIndexFromEventRows
+// ---------------------------------------------------------------------------
+
+/**
+ * Row shape returned by GET /submissions/:id/events. Defined locally rather
+ * than imported from @provenance/shared to keep this module dependency-free.
+ */
+export type ServerEventRow = {
+  seq: number;
+  kind: string;
+  t: number;
+  wall: string;
+  session_id: string;
+  payload: unknown;
+};
+
+/**
+ * Build an EventIndex from a flat list of server-shape event rows.
+ *
+ * Used by the v3 Replay tab, which fetches events directly from the API
+ * rather than parsing a local ZIP bundle. Mirrors buildIndex's
+ * sort + single-pass construction.
+ */
+export function buildIndexFromEventRows(rows: ReadonlyArray<ServerEventRow>): EventIndex {
+  type FlatEvent = {
+    sessionId: string;
+    seq: number;
+    wall: string;
+    t: number;
+    kind: EventKind;
+    payload: unknown;
+    file?: string;
+  };
+
+  const flat: FlatEvent[] = rows.map((r) => {
+    const kind = r.kind as EventKind;
+    const file = getFileFromPayload(kind, r.payload);
+    const event: FlatEvent = {
+      sessionId: r.session_id,
+      seq: r.seq,
+      wall: r.wall,
+      t: r.t,
+      kind,
+      payload: r.payload,
+    };
+    if (file !== undefined) {
+      event.file = file;
+    }
+    return event;
+  });
+
+  flat.sort((a, b) => {
+    if (a.wall < b.wall) return -1;
+    if (a.wall > b.wall) return 1;
+    if (a.sessionId < b.sessionId) return -1;
+    if (a.sessionId > b.sessionId) return 1;
+    return a.seq - b.seq;
+  });
+
+  const bySeq = new Map<string, IndexedEvent>();
+  const byKind = new Map<EventKind, IndexedEvent[]>();
+  const byFile = new Map<string, IndexedEvent[]>();
+  const bySessionId = new Map<string, IndexedEvent[]>();
+  const ordered: IndexedEvent[] = [];
+
+  for (let i = 0; i < flat.length; i++) {
+    const f = flat[i]!;
+    const event: IndexedEvent = {
+      sessionId: f.sessionId,
+      seq: f.seq,
+      globalIdx: i,
+      wall: f.wall,
+      t: f.t,
+      kind: f.kind,
+      payload: f.payload,
+      ...(f.file !== undefined ? { file: f.file } : {}),
+    };
+
+    ordered.push(event);
+    bySeq.set(`${f.sessionId}:${f.seq}`, event);
+
+    let kindArr = byKind.get(f.kind);
+    if (kindArr === undefined) {
+      kindArr = [];
+      byKind.set(f.kind, kindArr);
+    }
+    kindArr.push(event);
+
+    if (f.file !== undefined) {
+      let fileArr = byFile.get(f.file);
+      if (fileArr === undefined) {
+        fileArr = [];
+        byFile.set(f.file, fileArr);
+      }
+      fileArr.push(event);
+    }
+
+    let sessionArr = bySessionId.get(f.sessionId);
+    if (sessionArr === undefined) {
+      sessionArr = [];
+      bySessionId.set(f.sessionId, sessionArr);
+    }
+    sessionArr.push(event);
+  }
+
+  return { bySeq, byKind, byFile, bySessionId, ordered };
+}

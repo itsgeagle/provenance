@@ -35,6 +35,8 @@ import { ChevronLeft } from 'lucide-react';
 import type { editor as MonacoEditorNS } from 'monaco-editor';
 import type * as MonacoType from 'monaco-editor';
 import { useBundle } from '../../context/BundleContext.js';
+import type { EventIndex } from '../../index/event-index.js';
+import type { Flag } from '../../heuristics/types.js';
 import { useReplayEngine } from './useReplayEngine.js';
 import { FileTabs } from './FileTabs.js';
 import { MonacoMount, languageFromPath } from './MonacoMount.js';
@@ -128,12 +130,17 @@ function ReplayHeader({ sessionId, sourceFilename }: ReplayHeaderProps) {
  */
 export function ReplayView() {
   const { sessionId } = useParams<{ sessionId: string }>();
-  const { index } = useBundle();
+  const { index, flags, bundles, selectedBundleId } = useBundle();
 
   const sessionExists = useMemo(() => {
     if (index === null || !sessionId) return false;
     return index.bySessionId.has(sessionId);
   }, [index, sessionId]);
+
+  const sourceFilename = useMemo(() => {
+    const selected = bundles.find((b) => b.id === selectedBundleId) ?? bundles[0];
+    return selected?.sourceFilename ?? '';
+  }, [bundles, selectedBundleId]);
 
   if (!sessionId || index === null || !sessionExists) {
     if (sessionId && index !== null && !sessionExists) {
@@ -144,24 +151,39 @@ export function ReplayView() {
     return <Navigate to="/local/overview" replace />;
   }
 
-  return <ReplayViewInner sessionId={sessionId} />;
+  return (
+    <ReplayInner
+      sessionId={sessionId}
+      index={index}
+      flags={flags}
+      sourceFilename={sourceFilename}
+      showHeader={true}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
-// ReplayViewInner
+// ReplayInner — engine + UI, no BundleContext dependency
 // ---------------------------------------------------------------------------
 
-type ReplayViewInnerProps = { sessionId: string };
+export type ReplayInnerProps = {
+  sessionId: string;
+  index: EventIndex;
+  flags: Flag[];
+  /** Shown in ReplayHeader's context label. Pass empty string to skip. */
+  sourceFilename: string;
+  /** Render the back-button header above FileTabs. Default true (used by /local). */
+  showHeader?: boolean;
+};
 
-function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
+export function ReplayInner({
+  sessionId,
+  index,
+  flags,
+  sourceFilename,
+  showHeader = true,
+}: ReplayInnerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { index, flags, bundles, selectedBundleId } = useBundle();
-
-  // Source filename for the ReplayHeader context label.
-  const sourceFilename = useMemo(() => {
-    const selected = bundles.find((b) => b.id === selectedBundleId) ?? bundles[0];
-    return selected?.sourceFilename ?? '';
-  }, [bundles, selectedBundleId]);
 
   const engine = useReplayEngine(index, sessionId);
   const { state, fileStates, files, play, pause, step, seek } = engine;
@@ -359,8 +381,8 @@ function ReplayViewInner({ sessionId }: ReplayViewInnerProps) {
 
   return (
     <div className="flex flex-col h-full" data-testid="replay-view">
-      {/* Back button + session context */}
-      <ReplayHeader sessionId={sessionId} sourceFilename={sourceFilename} />
+      {/* Back button + session context — only shown in the /local route. */}
+      {showHeader && <ReplayHeader sessionId={sessionId} sourceFilename={sourceFilename} />}
 
       {/* File tabs row */}
       <div className="px-4 pt-3 pb-1 border-b bg-background shrink-0">

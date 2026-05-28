@@ -143,9 +143,12 @@ describe('SubmissionShell — tab navigation', () => {
 
     fireEvent.click(screen.getByTestId('tab-replay'));
 
+    // Without session_ids in the summary handler, the Replay tab lands on the
+    // "no replayable session" branch. Any of the new test ids confirms the
+    // tab content rendered (vs. the prior stub's replay-tab id).
     await waitFor(
       () => {
-        expect(screen.getByTestId('replay-tab')).toBeInTheDocument();
+        expect(screen.getByTestId('replay-no-session')).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
