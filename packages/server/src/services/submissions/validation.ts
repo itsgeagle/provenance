@@ -3,7 +3,10 @@
  *
  * GET /submissions/{submissionId}/validation
  *
- * Returns the validation_results row as-is: 8 check statuses, overall, detail.
+ * Returns { overall, checks, validated_at }. The per-check rows come from the
+ * `detail` jsonb column, which stores the full ValidationCheck[] produced by
+ * runValidation at ingest. The flat check_N_status columns in the DB are a
+ * storage artifact (used by cohort-list filtering) and are not surfaced here.
  */
 
 import { eq } from 'drizzle-orm';
@@ -14,18 +17,15 @@ import type { DrizzleDb } from '../../db/client.js';
 // Response type
 // ---------------------------------------------------------------------------
 
+export type ValidationCheckRow = {
+  id: string;
+  status: 'pass' | 'fail' | 'warn' | 'skipped';
+  detail?: string;
+};
+
 export type SubmissionValidation = {
-  submission_id: string;
-  check_1_status: string;
-  check_2_status: string;
-  check_3_status: string;
-  check_4_status: string;
-  check_5_status: string;
-  check_6_status: string;
-  check_7_status: string;
-  check_8_status: string;
-  overall: string;
-  detail: unknown;
+  overall: 'pass' | 'warn' | 'fail';
+  checks: ValidationCheckRow[];
   validated_at: string;
 };
 
@@ -38,7 +38,11 @@ export async function getSubmissionValidation(
   submissionId: string,
 ): Promise<SubmissionValidation | null> {
   const rows = await db
-    .select()
+    .select({
+      overall: validation_results.overall,
+      detail: validation_results.detail,
+      validated_at: validation_results.validated_at,
+    })
     .from(validation_results)
     .where(eq(validation_results.submission_id, submissionId))
     .limit(1);
@@ -46,18 +50,11 @@ export async function getSubmissionValidation(
   if (rows.length === 0) return null;
   const r = rows[0]!;
 
+  const checks = Array.isArray(r.detail) ? (r.detail as ValidationCheckRow[]) : [];
+
   return {
-    submission_id: r.submission_id,
-    check_1_status: r.check_1_status,
-    check_2_status: r.check_2_status,
-    check_3_status: r.check_3_status,
-    check_4_status: r.check_4_status,
-    check_5_status: r.check_5_status,
-    check_6_status: r.check_6_status,
-    check_7_status: r.check_7_status,
-    check_8_status: r.check_8_status,
-    overall: r.overall,
-    detail: r.detail,
+    overall: r.overall as 'pass' | 'warn' | 'fail',
+    checks,
     validated_at: r.validated_at.toISOString(),
   };
 }

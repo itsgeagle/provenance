@@ -1214,7 +1214,22 @@ limit?: int                     // default 200, max 2000
 
 **`GET /api/v1/submissions/{submissionId}/validation`**
 
-- Response: the validation_results row (PRD §5.4 — the 8 checks each as `pass|fail|warn|skipped`) plus the structured detail object.
+- Response:
+
+```ts
+{
+  overall: 'pass' | 'warn' | 'fail',
+  checks: {
+    id: 'manifest_sig' | 'session_binding' | 'chain_integrity' | 'seq_gaps'
+       | 'monotonic_t' | 'monotonic_wall' | 'doc_save_hashes' | 'submitted_code_match',
+    status: 'pass' | 'fail' | 'warn' | 'skipped',
+    detail?: string,
+  }[], // always 8 entries in PRD §5.4 spec order
+  validated_at: string, // ISO-8601
+}
+```
+
+- `checks` is sourced from the `validation_results.detail` jsonb column, which stores the full `ValidationCheck[]` produced by `runValidation` at ingest. The flat `check_N_status` columns on the row are a storage artifact used by cohort-list filtering and are not exposed by this endpoint.
 
 **`GET /api/v1/submissions/{submissionId}/files`**
 

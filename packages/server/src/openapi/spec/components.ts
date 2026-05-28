@@ -360,17 +360,36 @@ export const components = {
     },
     ValidationResults: {
       type: 'object',
-      required: ['overall'],
+      required: ['overall', 'checks', 'validated_at'],
       properties: {
         overall: { $ref: '#/components/schemas/ValidationStatus' },
         checks: {
           type: 'array',
+          description:
+            'Per-check results in PRD §5.4 spec order (manifest_sig, session_binding, chain_integrity, seq_gaps, monotonic_t, monotonic_wall, doc_save_hashes, submitted_code_match).',
           items: {
             type: 'object',
+            required: ['id', 'status'],
             properties: {
-              id: { type: 'string' },
+              id: {
+                type: 'string',
+                enum: [
+                  'manifest_sig',
+                  'session_binding',
+                  'chain_integrity',
+                  'seq_gaps',
+                  'monotonic_t',
+                  'monotonic_wall',
+                  'doc_save_hashes',
+                  'submitted_code_match',
+                ],
+              },
               status: { type: 'string', enum: ['pass', 'fail', 'warn', 'skipped'] },
-              detail: { type: 'string' },
+              detail: {
+                type: 'string',
+                nullable: true,
+                description: 'Optional prose explaining a failure or skip reason.',
+              },
             },
           },
         },

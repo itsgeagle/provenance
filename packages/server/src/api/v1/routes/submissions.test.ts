@@ -663,7 +663,21 @@ describe('GET /submissions/:id/validation', () => {
         check_7_status: 'pass',
         check_8_status: 'skipped',
         overall: 'warn',
-        detail: [] as unknown,
+        detail: [
+          { id: 'manifest_sig', label: 'Bundle manifest signature', status: 'pass' },
+          { id: 'session_binding', label: 'Session binding', status: 'pass' },
+          { id: 'chain_integrity', label: 'Hash chain integrity', status: 'pass' },
+          { id: 'seq_gaps', label: 'No seq gaps', status: 'pass' },
+          { id: 'monotonic_t', label: 'Monotonic t', status: 'pass' },
+          { id: 'monotonic_wall', label: 'Monotonic wall', status: 'pass' },
+          { id: 'doc_save_hashes', label: 'Doc save hashes', status: 'pass' },
+          {
+            id: 'submitted_code_match',
+            label: 'Submitted code matches final saved hashes',
+            status: 'skipped',
+            detail: 'Requires course-staff cross-check input.',
+          },
+        ] as unknown,
       });
 
       const app = createV1App();
@@ -675,10 +689,18 @@ describe('GET /submissions/:id/validation', () => {
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
-      expect(body['submission_id']).toBe(sub.id);
       expect(body['overall']).toBe('warn');
-      expect(body['check_8_status']).toBe('skipped');
+      expect(Array.isArray(body['checks'])).toBe(true);
+      const checks = body['checks'] as Array<Record<string, unknown>>;
+      expect(checks).toHaveLength(8);
+      expect(checks[0]?.['id']).toBe('manifest_sig');
+      expect(checks[7]?.['id']).toBe('submitted_code_match');
+      expect(checks[7]?.['status']).toBe('skipped');
       expect(body['validated_at']).toBeDefined();
+      // The raw DB columns must not leak through the API.
+      expect(body['submission_id']).toBeUndefined();
+      expect(body['check_1_status']).toBeUndefined();
+      expect(body['check_8_status']).toBeUndefined();
     });
   });
 
