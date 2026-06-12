@@ -32,7 +32,12 @@ export type SubmissionFileEntry = {
 };
 
 export type BundleManifest = {
-  format_version: '1.1';
+  /**
+   * '1.0' = legacy bundles (no submission_files). '1.1' = carries the final
+   * on-disk state of every files_under_review entry. The validator accepts both;
+   * `submission_files` is therefore optional at the type level (absent on 1.0).
+   */
+  format_version: '1.0' | '1.1';
   assignment_id: string;
   semester: string;
   /** Hex sha256 of the recorder extension. */
@@ -45,8 +50,11 @@ export type BundleManifest = {
     /** Hex sha256 of the .slog.meta file. */
     meta_sha256: string;
   }>;
-  /** Final on-disk state of every files_under_review entry (PRD §5.3, 1.1+). */
-  submission_files: ReadonlyArray<SubmissionFileEntry>;
+  /**
+   * Final on-disk state of every files_under_review entry (PRD §5.3, 1.1+).
+   * Absent (undefined) on legacy 1.0 bundles — read as `submission_files ?? []`.
+   */
+  submission_files?: ReadonlyArray<SubmissionFileEntry>;
 };
 
 /**
