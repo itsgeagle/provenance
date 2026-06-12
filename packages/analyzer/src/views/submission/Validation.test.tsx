@@ -23,6 +23,8 @@ import type {
   FileContentResult,
   FileProvenanceResult,
   SubmissionStats,
+  SubmittedFileListResult,
+  SubmittedFileContentResult,
 } from '../../data/SubmissionDataProvider.js';
 import type { SubmissionSummary, FlagRow, EventRow } from '@provenance/shared/api-schemas';
 import { Validation } from './Validation.js';
@@ -129,6 +131,15 @@ function makeProvider(validation: ValidationResults, loading = false): Submissio
       makeQueryResult({ content: '', at_seq: 0, computed_at_ms: 0 } as FileContentResult),
     useFileProvenance: () =>
       makeQueryResult({ length: 0, provenance: [], at_seq: 0 } as FileProvenanceResult),
+    useSubmittedFiles: () =>
+      makeQueryResult({ available: true, files: [] } as SubmittedFileListResult),
+    useSubmittedFileContent: (_path: string) =>
+      makeQueryResult({
+        path: '',
+        content: '',
+        status: 'missing',
+        verdict: 'unknown',
+      } as SubmittedFileContentResult),
   };
 }
 

@@ -24,12 +24,13 @@ import { Timeline } from './Timeline.js';
 import { Replay } from './Replay.js';
 import { Validation } from './Validation.js';
 import { ExportPanel } from './ExportPanel.js';
+import { Source } from './Source.js';
 
 // ---------------------------------------------------------------------------
 // Tab type
 // ---------------------------------------------------------------------------
 
-type SubmissionTab = 'overview' | 'timeline' | 'replay' | 'validation' | 'export';
+type SubmissionTab = 'overview' | 'timeline' | 'replay' | 'validation' | 'export' | 'source';
 
 const ALL_TABS: { id: SubmissionTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -37,6 +38,7 @@ const ALL_TABS: { id: SubmissionTab; label: string }[] = [
   { id: 'replay', label: 'Replay' },
   { id: 'validation', label: 'Validation' },
   { id: 'export', label: 'Export' },
+  { id: 'source', label: 'Source' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -49,7 +51,8 @@ export function SubmissionShell() {
 
   const tabParam = searchParams.get('tab') as SubmissionTab | null;
   const activeTab: SubmissionTab =
-    tabParam && ['overview', 'timeline', 'replay', 'validation', 'export'].includes(tabParam)
+    tabParam &&
+    ['overview', 'timeline', 'replay', 'validation', 'export', 'source'].includes(tabParam)
       ? tabParam
       : 'overview';
 
@@ -102,6 +105,7 @@ export function SubmissionShell() {
           {activeTab === 'replay' && <Replay />}
           {activeTab === 'validation' && <Validation />}
           {activeTab === 'export' && <ExportPanel />}
+          {activeTab === 'source' && <Source />}
         </div>
       </div>
     </ApiSubmissionDataProviderContext>

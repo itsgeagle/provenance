@@ -2,7 +2,7 @@
  * SubmissionShell integration tests.
  *
  * Tests:
- * 1. Renders tab nav with all 5 tabs
+ * 1. Renders tab nav with all 6 tabs
  * 2. Defaults to Overview tab
  * 3. Clicking Timeline tab switches to Timeline content
  * 4. Clicking Replay tab shows stub
@@ -85,7 +85,7 @@ function renderShell(initialPath = `/s/sp25/sub/${SUBMISSION_ID}`) {
 // ---------------------------------------------------------------------------
 
 describe('SubmissionShell — tab navigation', () => {
-  it('renders all 5 tabs', () => {
+  it('renders all 6 tabs', () => {
     setupMinimalHandlers();
     renderShell();
 
@@ -94,6 +94,7 @@ describe('SubmissionShell — tab navigation', () => {
     expect(screen.getByTestId('tab-replay')).toBeInTheDocument();
     expect(screen.getByTestId('tab-validation')).toBeInTheDocument();
     expect(screen.getByTestId('tab-export')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-source')).toBeInTheDocument();
   });
 
   it('defaults to Overview tab content', async () => {
