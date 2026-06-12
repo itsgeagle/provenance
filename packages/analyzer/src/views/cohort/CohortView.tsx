@@ -22,7 +22,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useCohortFilters } from './use-cohort-filters.js';
 import {
   useCohortSubmissions,
@@ -62,7 +62,7 @@ export function CohortView() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Determine semesterId from memberships (via useSemesters)
-  const { data: semesters } = useSemesters();
+  const { data: semesters, isLoading: semestersLoading } = useSemesters();
   const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
   const semesterId = membership?.semester_id ?? '';
 
@@ -212,12 +212,29 @@ export function CohortView() {
   const error = activeTab === 'submissions' ? submissionsQuery.error : studentsQuery.error;
 
   if (!semesterId) {
+    // The slug is resolved against your membership list. While /me is still in
+    // flight we genuinely don't know yet — show loading. Once it has resolved
+    // and the slug isn't there, you're not a member (or it doesn't exist), so
+    // say so instead of spinning forever.
+    if (semestersLoading) {
+      return (
+        <div
+          className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400"
+          data-testid="cohort-no-semester"
+        >
+          Loading semester…
+        </div>
+      );
+    }
     return (
       <div
-        className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400"
-        data-testid="cohort-no-semester"
+        className="flex flex-1 flex-col items-center justify-center gap-2 py-16 text-sm text-gray-500"
+        data-testid="cohort-no-access"
       >
-        Loading semester…
+        <p>You don’t have access to this semester, or it doesn’t exist.</p>
+        <Link to="/home" className="text-indigo-700 hover:underline">
+          ← Back to home
+        </Link>
       </div>
     );
   }

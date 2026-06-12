@@ -434,6 +434,20 @@ describe('CohortView', () => {
 // Additional: error handling
 // ---------------------------------------------------------------------------
 
+describe('CohortView access states', () => {
+  it('shows a no-access message (not an infinite spinner) for a slug not in your memberships', async () => {
+    // Default /me handler returns membership for slug "sp25" only. Navigating to
+    // a slug you have no membership for must resolve to a clear no-access state
+    // once /me has loaded — not hang forever on "Loading semester…".
+    renderCohortView('/s/ghost-semester');
+
+    await waitFor(() => expect(screen.getByTestId('cohort-no-access')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    expect(screen.queryByTestId('cohort-no-semester')).not.toBeInTheDocument();
+  });
+});
+
 describe('CohortView error handling', () => {
   it('shows error state when API returns error', async () => {
     mswServer.use(

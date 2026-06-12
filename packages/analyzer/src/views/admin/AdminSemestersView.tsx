@@ -10,7 +10,13 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AdminLayout } from './AdminLayout.js';
-import { useAdminCourses, useAdminSemesters, useCreateSemester } from '../../api/queries.js';
+import {
+  useAddSelfAsAdmin,
+  useAdminCourses,
+  useAdminSemesters,
+  useCreateSemester,
+  useMe,
+} from '../../api/queries.js';
 import { ApiError } from '../../api/client.js';
 import type { CreateSemesterRequest } from '@provenance/shared/api-schemas';
 
@@ -38,6 +44,25 @@ export function AdminSemestersView() {
 
   const { data, isLoading, error } = useAdminSemesters(courseId);
   const { mutate: createSemester, isPending: isCreating } = useCreateSemester(courseId);
+  const { data: me } = useMe();
+  const myEmail = me?.user.email ?? null;
+  const {
+    mutate: addSelfAsAdmin,
+    isPending: isAddingSelf,
+    variables: addingVars,
+  } = useAddSelfAsAdmin(courseId);
+
+  function handleAddSelf(semesterId: string) {
+    if (myEmail === null) return;
+    addSelfAsAdmin(
+      { semesterId, email: myEmail },
+      {
+        onError: (err) => {
+          setToast(err instanceof ApiError ? err.message : 'Failed to add you to this semester.');
+        },
+      },
+    );
+  }
 
   const [term, setTerm] = useState<CreateSemesterRequest['term']>('fa');
   const [year, setYear] = useState<number>(new Date().getFullYear());
@@ -180,7 +205,7 @@ export function AdminSemestersView() {
                 <th className="px-4 py-2 text-left">Display name</th>
                 <th className="px-4 py-2 text-left">Term/Year</th>
                 <th className="px-4 py-2 text-left">Submissions</th>
-                <th className="px-4 py-2 text-right">Settings</th>
+                <th className="px-4 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -200,12 +225,31 @@ export function AdminSemestersView() {
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-600">{s.submission_count}</td>
                     <td className="px-4 py-2 text-right">
-                      <Link
-                        to={`/s/${s.slug}/settings`}
-                        className="text-xs text-indigo-700 hover:underline"
-                      >
-                        Open settings →
-                      </Link>
+                      {s.my_role === null ? (
+                        // Not a member yet: the per-semester pages resolve the
+                        // semester from your membership list, so they can't load
+                        // until you're added. Add yourself here first.
+                        <button
+                          type="button"
+                          onClick={() => handleAddSelf(s.id)}
+                          disabled={
+                            myEmail === null || (isAddingSelf && addingVars?.semesterId === s.id)
+                          }
+                          className="text-xs text-indigo-700 hover:underline disabled:opacity-50"
+                          data-testid={`add-me-${s.slug}`}
+                        >
+                          {isAddingSelf && addingVars?.semesterId === s.id
+                            ? 'Adding…'
+                            : 'Add me as admin'}
+                        </button>
+                      ) : (
+                        <Link
+                          to={`/s/${s.slug}/settings`}
+                          className="text-xs text-indigo-700 hover:underline"
+                        >
+                          Open settings →
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))

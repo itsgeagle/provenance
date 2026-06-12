@@ -655,6 +655,11 @@ export function useInviteMember(semesterId: string) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.members(semesterId) });
+      // Inviting yourself changes which semesters you can see/navigate to.
+      // /me (and the useSemesters slice derived from it) drives the home tiles
+      // and slug→id resolution, so it must be refreshed too. Prefix-matches
+      // both ['me'] and ['me','semesters'].
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
 }
@@ -671,6 +676,8 @@ export function useUpdateMemberRole(semesterId: string) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.members(semesterId) });
+      // Changing your own role flips my_role on the home tiles. Refresh /me.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
 }
@@ -683,6 +690,8 @@ export function useRemoveMember(semesterId: string) {
       apiFetch(`/semesters/${semesterId}/members/${userId}`, { method: 'DELETE' }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.members(semesterId) });
+      // Removing yourself drops the semester from your home tiles. Refresh /me.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
 }
@@ -1105,6 +1114,38 @@ export function useAdminSemesters(courseId: string) {
     staleTime: 30 * 1000,
     retry: noRetryOn401,
     enabled: courseId !== '',
+  });
+}
+
+/**
+ * Mutation: add the current user to a semester as admin, from the /admin
+ * sub-app.
+ *
+ * Unlike useInviteMember — which is bound to a single semester the caller is
+ * already a member of — this takes the semesterId per call. That's what lets a
+ * superadmin grant themselves access to a semester they just created: the
+ * per-semester Members page can't reach that case because it resolves the
+ * semester id from the membership list, which is empty until you're a member.
+ * The admin semesters list already carries the real semester id, so the /admin
+ * view can break the chicken-and-egg.
+ */
+export function useAddSelfAsAdmin(courseId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ semesterId, email }: { semesterId: string; email: string }) =>
+      apiFetch(`/semesters/${semesterId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role: 'admin' }),
+      }),
+    onSuccess: (_data, { semesterId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.members(semesterId) });
+      // my_role on the admin semesters table flips to 'admin'.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminSemesters(courseId) });
+      // /me drives the home tiles + slug→id resolution for the now-reachable
+      // per-semester pages. Prefix-matches ['me'] and ['me','semesters'].
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
   });
 }
 
