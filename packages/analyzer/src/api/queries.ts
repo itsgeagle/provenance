@@ -1105,6 +1105,24 @@ export function useArchiveCourse() {
   });
 }
 
+/**
+ * Mutation: POST /semesters/:id/archive (superadmin only).
+ *
+ * Bound to a course so the semesters list (and course-level semester counts)
+ * refetch after the archive lands.
+ */
+export function useArchiveSemester(courseId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (semesterId: string) =>
+      apiFetch(`/semesters/${semesterId}/archive`, { method: 'POST' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminSemesters(courseId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminCourses });
+    },
+  });
+}
+
 /** Lists semesters within a course. */
 export function useAdminSemesters(courseId: string) {
   return useQuery({

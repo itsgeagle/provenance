@@ -38,7 +38,7 @@ const COURSES = {
 };
 
 function makeSemester(
-  overrides: Partial<{ id: string; slug: string; my_role: string | null }> = {},
+  overrides: Partial<{ id: string; slug: string; my_role: string | null; archived: boolean }> = {},
 ) {
   return {
     id: overrides.id ?? 'cc000000-0000-0000-0000-0000000000aa',
@@ -47,7 +47,7 @@ function makeSemester(
     term: 'fa',
     year: 2026,
     display_name: 'Fall 2026',
-    archived: false,
+    archived: overrides.archived ?? false,
     submission_count: 0,
     student_count: 0,
     assignment_count: 0,
@@ -129,5 +129,63 @@ describe('AdminSemestersView — add me as admin', () => {
     await waitFor(() => expect(posted).toEqual({ email: 'sa@berkeley.edu', role: 'admin' }), {
       timeout: 3000,
     });
+  });
+});
+
+describe('AdminSemestersView — archive', () => {
+  const semesterId = 'cc000000-0000-0000-0000-0000000000aa';
+
+  function mockBase(semester: ReturnType<typeof makeSemester>) {
+    mswServer.use(
+      http.get('/api/v1/me', () => HttpResponse.json(SUPERADMIN_ME)),
+      http.get('/api/v1/courses', () => HttpResponse.json(COURSES)),
+      http.get(`/api/v1/courses/${COURSE_ID}/semesters`, () =>
+        HttpResponse.json({ semesters: [semester] }),
+      ),
+    );
+  }
+
+  it('offers an Archive button for an active semester', async () => {
+    mockBase(makeSemester({ id: semesterId, slug: 'fa26' }));
+    render_();
+    await waitFor(() =>
+      expect(screen.getByTestId(`semester-archive-btn-${semesterId}`)).toBeInTheDocument(),
+    );
+  });
+
+  it('clicking Archive reveals an explanation before confirming', async () => {
+    mockBase(makeSemester({ id: semesterId, slug: 'fa26' }));
+    render_();
+
+    const btn = await screen.findByTestId(`semester-archive-btn-${semesterId}`);
+    fireEvent.click(btn);
+
+    expect(screen.getByTestId(`semester-archive-confirm-panel-${semesterId}`)).toBeInTheDocument();
+    expect(screen.getByText(/can’t be undone/i)).toBeInTheDocument();
+  });
+
+  it('confirming POSTs to /semesters/:id/archive', async () => {
+    let archived = false;
+    mockBase(makeSemester({ id: semesterId, slug: 'fa26' }));
+    mswServer.use(
+      http.post(`/api/v1/semesters/${semesterId}/archive`, () => {
+        archived = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    render_();
+
+    fireEvent.click(await screen.findByTestId(`semester-archive-btn-${semesterId}`));
+    fireEvent.click(screen.getByTestId(`semester-archive-confirm-${semesterId}`));
+
+    await waitFor(() => expect(archived).toBe(true), { timeout: 3000 });
+  });
+
+  it('an already-archived semester shows the archived status and no Archive button', async () => {
+    mockBase(makeSemester({ id: semesterId, slug: 'fa26', archived: true }));
+    render_();
+
+    await waitFor(() => expect(screen.getByText('archived')).toBeInTheDocument());
+    expect(screen.queryByTestId(`semester-archive-btn-${semesterId}`)).not.toBeInTheDocument();
   });
 });

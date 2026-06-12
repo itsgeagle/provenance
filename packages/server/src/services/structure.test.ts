@@ -9,7 +9,9 @@
  */
 
 import { vi, describe, it, expect } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { withTestDb } from '../../test/helpers/db.js';
+import { semesters } from '../db/schema.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 import * as structureService from './structure.js';
@@ -170,6 +172,65 @@ describe('structureService.courses', () => {
 
       const course = await structureService.getCourse(db, created.id);
       expect(course?.archived_at).toBeTruthy();
+    });
+  });
+
+  it('archiving a course cascades to its not-yet-archived semesters', async () => {
+    await withTestDb(async (db) => {
+      const course = await structureService.createCourse(db, { name: 'CS 61A', slug: 'cs61a' });
+
+      const active = await structureService.createSemester(db, {
+        courseId: course.id,
+        term: 'fa',
+        year: 2026,
+        slug: 'fa26',
+        displayName: 'Fall 2026',
+        filenameConvention: '(?<sid>[a-z0-9]+)_hw',
+      });
+      const other = await structureService.createSemester(db, {
+        courseId: course.id,
+        term: 'sp',
+        year: 2026,
+        slug: 'sp26',
+        displayName: 'Spring 2026',
+        filenameConvention: '(?<sid>[a-z0-9]+)_hw',
+      });
+
+      await structureService.archiveCourse(db, course.id);
+
+      expect(await structureService.isArchivedSemester(db, active.id)).toBe(true);
+      expect(await structureService.isArchivedSemester(db, other.id)).toBe(true);
+    });
+  });
+
+  it('cascade preserves an already-archived semester’s original archived_at', async () => {
+    await withTestDb(async (db) => {
+      const course = await structureService.createCourse(db, { name: 'CS 61A', slug: 'cs61a' });
+      const sem = await structureService.createSemester(db, {
+        courseId: course.id,
+        term: 'fa',
+        year: 2026,
+        slug: 'fa26',
+        displayName: 'Fall 2026',
+        filenameConvention: '(?<sid>[a-z0-9]+)_hw',
+      });
+
+      // Archive the semester directly first, then archive the parent course.
+      await structureService.archiveSemester(db, sem.id);
+      const [before] = await db
+        .select({ archived_at: semesters.archived_at })
+        .from(semesters)
+        .where(eq(semesters.id, sem.id));
+
+      await structureService.archiveCourse(db, course.id);
+      const [after] = await db
+        .select({ archived_at: semesters.archived_at })
+        .from(semesters)
+        .where(eq(semesters.id, sem.id));
+
+      // The cascade must not reset (push forward) an already-running retention clock.
+      expect(after?.archived_at).toBeTruthy();
+      expect(after?.archived_at?.getTime()).toBe(before?.archived_at?.getTime());
     });
   });
 });

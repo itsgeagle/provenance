@@ -159,21 +159,32 @@ export function AdminCoursesView() {
                       {course.archived ? (
                         <span className="text-xs text-gray-400">—</span>
                       ) : archiveConfirm === course.id ? (
-                        <span className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => handleArchive(course.id)}
-                            className="rounded bg-red-600 px-2.5 py-1 text-xs text-white hover:bg-red-700"
-                            data-testid={`archive-confirm-${course.id}`}
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => setArchiveConfirm(null)}
-                            className="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
-                          >
-                            Cancel
-                          </button>
-                        </span>
+                        <div
+                          className="ml-auto max-w-xs text-left"
+                          data-testid={`archive-confirm-panel-${course.id}`}
+                        >
+                          <p className="mb-1.5 text-xs text-gray-600">
+                            Archiving <span className="font-medium">{course.name}</span> also
+                            archives all of its semesters. They become read-only and their
+                            data-retention countdown starts, after which stored recordings are
+                            purged. This can’t be undone.
+                          </p>
+                          <span className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleArchive(course.id)}
+                              className="rounded bg-red-600 px-2.5 py-1 text-xs text-white hover:bg-red-700"
+                              data-testid={`archive-confirm-${course.id}`}
+                            >
+                              Archive course
+                            </button>
+                            <button
+                              onClick={() => setArchiveConfirm(null)}
+                              className="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        </div>
                       ) : (
                         <button
                           onClick={() => setArchiveConfirm(course.id)}

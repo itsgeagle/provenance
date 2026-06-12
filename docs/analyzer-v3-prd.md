@@ -848,7 +848,7 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 
 **`POST /api/v1/courses/{courseId}/archive`** _(superadmin only)_
 
-- Response: 204; flips `archived_at`. Existing semesters remain accessible but read-only.
+- Response: 204; flips `archived_at`. Cascades: every not-yet-archived semester in the course is also archived (its `archived_at` is set, starting its blob-retention clock). Already-archived semesters keep their original `archived_at`. Archived data remains readable but read-only. Forward-only; no unarchive (revert via PITR).
 
 **`GET /api/v1/courses/{courseId}/semesters`**
 

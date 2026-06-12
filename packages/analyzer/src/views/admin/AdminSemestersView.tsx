@@ -14,6 +14,7 @@ import {
   useAddSelfAsAdmin,
   useAdminCourses,
   useAdminSemesters,
+  useArchiveSemester,
   useCreateSemester,
   useMe,
 } from '../../api/queries.js';
@@ -51,6 +52,17 @@ export function AdminSemestersView() {
     isPending: isAddingSelf,
     variables: addingVars,
   } = useAddSelfAsAdmin(courseId);
+  const { mutate: archiveSemester } = useArchiveSemester(courseId);
+
+  function handleArchive(semesterId: string) {
+    archiveSemester(semesterId, {
+      onSuccess: () => setArchiveConfirm(null),
+      onError: (err) => {
+        setArchiveConfirm(null);
+        setToast(err instanceof ApiError ? err.message : 'Failed to archive semester.');
+      },
+    });
+  }
 
   function handleAddSelf(semesterId: string) {
     if (myEmail === null) return;
@@ -72,6 +84,7 @@ export function AdminSemestersView() {
     '^(?<assignment_id>[a-z0-9_-]+)[-_](?<sid>\\d{6,12})\\.zip$',
   );
   const [toast, setToast] = useState<string | null>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState<string | null>(null);
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -205,13 +218,14 @@ export function AdminSemestersView() {
                 <th className="px-4 py-2 text-left">Display name</th>
                 <th className="px-4 py-2 text-left">Term/Year</th>
                 <th className="px-4 py-2 text-left">Submissions</th>
+                <th className="px-4 py-2 text-left">Status</th>
                 <th className="px-4 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {data?.semesters.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
                     No semesters yet.
                   </td>
                 </tr>
@@ -224,32 +238,81 @@ export function AdminSemestersView() {
                       {s.term} {s.year}
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-600">{s.submission_count}</td>
-                    <td className="px-4 py-2 text-right">
-                      {s.my_role === null ? (
-                        // Not a member yet: the per-semester pages resolve the
-                        // semester from your membership list, so they can't load
-                        // until you're added. Add yourself here first.
-                        <button
-                          type="button"
-                          onClick={() => handleAddSelf(s.id)}
-                          disabled={
-                            myEmail === null || (isAddingSelf && addingVars?.semesterId === s.id)
-                          }
-                          className="text-xs text-indigo-700 hover:underline disabled:opacity-50"
-                          data-testid={`add-me-${s.slug}`}
-                        >
-                          {isAddingSelf && addingVars?.semesterId === s.id
-                            ? 'Adding…'
-                            : 'Add me as admin'}
-                        </button>
+                    <td className="px-4 py-2">
+                      {s.archived ? (
+                        <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                          archived
+                        </span>
                       ) : (
-                        <Link
-                          to={`/s/${s.slug}/settings`}
-                          className="text-xs text-indigo-700 hover:underline"
-                        >
-                          Open settings →
-                        </Link>
+                        <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">
+                          active
+                        </span>
                       )}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex flex-col items-end gap-1.5">
+                        {s.my_role === null ? (
+                          // Not a member yet: the per-semester pages resolve the
+                          // semester from your membership list, so they can't load
+                          // until you're added. Add yourself here first.
+                          <button
+                            type="button"
+                            onClick={() => handleAddSelf(s.id)}
+                            disabled={
+                              myEmail === null || (isAddingSelf && addingVars?.semesterId === s.id)
+                            }
+                            className="text-xs text-indigo-700 hover:underline disabled:opacity-50"
+                            data-testid={`add-me-${s.slug}`}
+                          >
+                            {isAddingSelf && addingVars?.semesterId === s.id
+                              ? 'Adding…'
+                              : 'Add me as admin'}
+                          </button>
+                        ) : (
+                          <Link
+                            to={`/s/${s.slug}/settings`}
+                            className="text-xs text-indigo-700 hover:underline"
+                          >
+                            Open settings →
+                          </Link>
+                        )}
+
+                        {s.archived ? null : archiveConfirm === s.id ? (
+                          <div
+                            className="max-w-xs text-left"
+                            data-testid={`semester-archive-confirm-panel-${s.id}`}
+                          >
+                            <p className="mb-1.5 text-xs text-gray-600">
+                              Archiving <span className="font-medium">{s.display_name}</span> makes
+                              it read-only and starts its data-retention countdown, after which
+                              stored recordings are purged. This can’t be undone.
+                            </p>
+                            <span className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleArchive(s.id)}
+                                className="rounded bg-red-600 px-2.5 py-1 text-xs text-white hover:bg-red-700"
+                                data-testid={`semester-archive-confirm-${s.id}`}
+                              >
+                                Archive semester
+                              </button>
+                              <button
+                                onClick={() => setArchiveConfirm(null)}
+                                className="rounded border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                              >
+                                Cancel
+                              </button>
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setArchiveConfirm(s.id)}
+                            className="rounded border border-red-300 px-2.5 py-1 text-xs text-red-700 hover:bg-red-50"
+                            data-testid={`semester-archive-btn-${s.id}`}
+                          >
+                            Archive
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

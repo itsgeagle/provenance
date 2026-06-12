@@ -5,14 +5,14 @@
  * POST /api/v1/courses           — create course (superadmin only)
  * GET  /api/v1/courses/:id       — get course
  * PATCH /api/v1/courses/:id      — update course (superadmin only)
- * POST /api/v1/courses/:id/archive — archive course (superadmin only)
+ * POST /api/v1/courses/:id/archive — archive course + its semesters (superadmin only)
  *
  * Auth: see individual routes.
  * Rate limiting: read.cohort for list, read.detail for get, write.misc for writes.
  */
 
 import { Hono } from 'hono';
-import { getDb } from '../../../db/client.js';
+import { getDb, withTransaction } from '../../../db/client.js';
 import { courses } from '../../../db/schema.js';
 import { requireAuth } from '../../middleware/authorize.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
@@ -243,7 +243,9 @@ export function createCoursesRouter(): Hono {
         throw Errors.notFound();
       }
 
-      await structureService.archiveCourse(db, courseId);
+      // Cascade: archiving a course archives its semesters too. Run both updates
+      // in one transaction so the course and its semesters flip atomically.
+      await withTransaction(db, (tx) => structureService.archiveCourse(tx, courseId));
       return c.body(null, 204);
     },
   );

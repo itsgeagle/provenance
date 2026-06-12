@@ -389,6 +389,50 @@ describe('POST /api/v1/courses/:id/archive', () => {
       }
     });
   });
+
+  it('cascades the archive to the course’s semesters', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { is_superadmin: true });
+        const sessionId = await insertSession(db, admin.id);
+
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+        const [semester] = await db
+          .insert(semesters)
+          .values({
+            course_id: course!.id,
+            term: 'fa',
+            year: 2026,
+            slug: 'fa26',
+            display_name: 'Fall 2026',
+            filename_convention: '(?<sid>[a-z0-9]+)_hw',
+          })
+          .returning();
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/courses/${course!.id}/archive`, {
+            method: 'POST',
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(204);
+
+        const [row] = await db
+          .select({ archived_at: semesters.archived_at })
+          .from(semesters)
+          .where(eq(semesters.id, semester!.id));
+        expect(row?.archived_at).toBeTruthy();
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

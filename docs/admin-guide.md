@@ -290,6 +290,12 @@ Once a semester is archived:
 - The retention clock starts.
 - Historical data (events, flags, scores) remains accessible.
 
+Archiving a **course** (`POST /courses/<courseId>/archive`) cascades: every
+not-yet-archived semester in the course is archived too (each starts its own
+retention clock). Semesters already archived keep their original `archived_at`.
+Archiving is forward-only — there is no unarchive; revert via point-in-time
+recovery.
+
 ---
 
 ## 7. Cron jobs

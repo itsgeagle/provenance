@@ -221,11 +221,24 @@ export async function updateCourse(
 }
 
 /**
- * Archive a course by setting archived_at to now.
- * Does NOT cascade to semesters; they remain accessible but with archived parent.
+ * Archive a course by setting archived_at to now, cascading to its semesters.
+ *
+ * Every not-yet-archived semester in the course is archived with the same
+ * semantics as a direct semester archive: it becomes read-only and its
+ * blob-retention clock starts. Already-archived semesters keep their original
+ * archived_at, so their retention clock is not reset.
+ *
+ * Archiving is forward-only — there is no unarchive. Callers should invoke this
+ * within a transaction so the course and its semesters flip atomically; the
+ * route does (see courses.ts).
  */
 export async function archiveCourse(db: DrizzleDb, courseId: string): Promise<void> {
-  await db.update(courses).set({ archived_at: new Date() }).where(eq(courses.id, courseId));
+  const now = new Date();
+  await db.update(courses).set({ archived_at: now }).where(eq(courses.id, courseId));
+  await db
+    .update(semesters)
+    .set({ archived_at: now })
+    .where(and(eq(semesters.course_id, courseId), isNull(semesters.archived_at)));
 }
 
 // ---------------------------------------------------------------------------
