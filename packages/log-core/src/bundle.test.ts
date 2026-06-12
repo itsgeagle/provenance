@@ -13,9 +13,7 @@ function valid11Manifest() {
     assignment_id: 'hw03',
     semester: 'fa25',
     extension_hash: HEX64,
-    sessions: [
-      { session_id: 's1', prev_session_id: null, slog_sha256: HEX64, meta_sha256: HEX64 },
-    ],
+    sessions: [{ session_id: 's1', prev_session_id: null, slog_sha256: HEX64, meta_sha256: HEX64 }],
     submission_files: [
       { path: 'hw03.py', status: 'present', sha256: HEX64 },
       { path: 'optional.py', status: 'missing', sha256: null },
@@ -247,5 +245,11 @@ describe('validateBundleManifestShape — 1.1', () => {
     delete m['submission_files'];
     const r = validateBundleManifestShape(m);
     expect(r.ok).toBe(false);
+  });
+
+  it('accepts a session entry with a null session_id (corrupt-session bundle)', () => {
+    const m = valid11Manifest();
+    (m.sessions[0] as { session_id: string | null }).session_id = null;
+    expect(validateBundleManifestShape(m).ok).toBe(true);
   });
 });

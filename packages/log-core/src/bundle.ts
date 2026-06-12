@@ -43,7 +43,11 @@ export type BundleManifest = {
   /** Hex sha256 of the recorder extension. */
   extension_hash: string;
   sessions: ReadonlyArray<{
-    session_id: string;
+    /**
+     * The session UUID from the session.start event.
+     * null when the .slog could not be parsed (corrupt/truncated session).
+     */
+    session_id: string | null;
     prev_session_id: string | null;
     /** Hex sha256 of the .slog file. */
     slog_sha256: string;
@@ -154,14 +158,17 @@ export function validateBundleManifestShape(
     }
     const sObj = s as Record<string, unknown>;
 
-    if (typeof sObj['session_id'] !== 'string' || sObj['session_id'].length === 0) {
+    if (
+      sObj['session_id'] !== null &&
+      (typeof sObj['session_id'] !== 'string' || sObj['session_id'].length === 0)
+    ) {
       if (sObj['session_id'] === undefined) {
         return err({ kind: 'missing_field', field: `sessions[${i}].session_id` });
       }
       return err({
         kind: 'invalid_field',
         field: `sessions[${i}].session_id`,
-        reason: 'must be a non-empty string',
+        reason: 'must be a non-empty string or null',
       });
     }
 
@@ -211,24 +218,44 @@ export function validateBundleManifestShape(
     for (let i = 0; i < obj['submission_files'].length; i++) {
       const f = (obj['submission_files'] as unknown[])[i];
       if (typeof f !== 'object' || f === null) {
-        return err({ kind: 'invalid_field', field: `submission_files[${i}]`, reason: 'must be an object' });
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}]`,
+          reason: 'must be an object',
+        });
       }
       const fObj = f as Record<string, unknown>;
       if (typeof fObj['path'] !== 'string' || fObj['path'].length === 0) {
-        return err({ kind: 'invalid_field', field: `submission_files[${i}].path`, reason: 'must be a non-empty string' });
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}].path`,
+          reason: 'must be a non-empty string',
+        });
       }
       const status = fObj['status'];
       if (status !== 'present' && status !== 'missing') {
-        return err({ kind: 'invalid_field', field: `submission_files[${i}].status`, reason: "must be 'present' or 'missing'" });
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}].status`,
+          reason: "must be 'present' or 'missing'",
+        });
       }
       const sha = fObj['sha256'];
       if (status === 'present') {
         if (typeof sha !== 'string' || !HEX_64_RE.test(sha)) {
-          return err({ kind: 'invalid_field', field: `submission_files[${i}].sha256`, reason: 'present file must have a 64-hex sha256' });
+          return err({
+            kind: 'invalid_field',
+            field: `submission_files[${i}].sha256`,
+            reason: 'present file must have a 64-hex sha256',
+          });
         }
       } else {
         if (sha !== null) {
-          return err({ kind: 'invalid_field', field: `submission_files[${i}].sha256`, reason: 'missing file must have sha256 === null' });
+          return err({
+            kind: 'invalid_field',
+            field: `submission_files[${i}].sha256`,
+            reason: 'missing file must have sha256 === null',
+          });
         }
       }
     }
