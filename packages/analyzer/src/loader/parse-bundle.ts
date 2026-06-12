@@ -16,7 +16,7 @@
  * (validation/verify-manifest-sig.ts). The loader checks structure only.
  */
 
-import { validateBundleManifestShape, ok, err } from '@provenance/log-core';
+import { validateBundleManifestShape, sha256Hex, ok, err } from '@provenance/log-core';
 import type { Result } from '@provenance/log-core';
 import { unzipBundle } from './unzip.js';
 import { parseSession } from './parse-session.js';
@@ -65,7 +65,12 @@ export async function loadBundle(
     return unzipResult;
   }
 
-  const { manifestJson, manifestSigHex, sessions: sessionFiles } = unzipResult.value;
+  const {
+    manifestJson,
+    manifestSigHex,
+    sessions: sessionFiles,
+    submissionFiles: bundleSubmissionFiles,
+  } = unzipResult.value;
 
   // ---------------------------------------------------------------------------
   // Step 2: Validate the manifest JSON shape.
@@ -131,6 +136,33 @@ export async function loadBundle(
     (a, b) => new Date(a.firstEvent.wall).getTime() - new Date(b.firstEvent.wall).getTime(),
   );
 
+  // ---------------------------------------------------------------------------
+  // Step 5: Build the submissionFiles map from manifest.submission_files.
+  //
+  // For each entry in the (optional) submission_files array, re-verify the
+  // bundled bytes against the manifest's sha256 (bundle self-check). Missing
+  // entries have no bytes, so hashOk is trivially true (nothing to check).
+  // 1.0 bundles lack submission_files entirely → empty map, same as before.
+  // ---------------------------------------------------------------------------
+  const submissionFiles = new Map<
+    string,
+    { status: 'present' | 'missing'; sha256: string | null; bytes?: Uint8Array; hashOk: boolean }
+  >();
+  for (const f of manifest.submission_files ?? []) {
+    if (f.status === 'missing') {
+      submissionFiles.set(f.path, { status: 'missing', sha256: null, hashOk: true });
+      continue;
+    }
+    const bytes = bundleSubmissionFiles.get(f.path);
+    const hashOk = bytes !== undefined && sha256Hex(bytes) === f.sha256;
+    submissionFiles.set(f.path, {
+      status: 'present',
+      sha256: f.sha256,
+      ...(bytes !== undefined ? { bytes } : {}),
+      hashOk,
+    });
+  }
+
   return ok({
     id: crypto.randomUUID(),
     manifest,
@@ -138,6 +170,7 @@ export async function loadBundle(
     sessions: parsedSessions,
     sourceFilename,
     loadedAt: nowFn(),
+    submissionFiles,
   });
 }
 
