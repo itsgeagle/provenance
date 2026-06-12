@@ -138,11 +138,12 @@ describe.skipIf(!fixtureExists)('integration: real recorder fixture', () => {
     expect(report.checks.length).toBe(8);
   });
 
-  it('overall is "warn" because check 8 is always skipped in v1', () => {
-    // Check 8 (submitted_code_match) is always 'skipped' in v1 → overall is
-    // at best 'warn'. A clean bundle with no other failures will be 'warn'.
+  it('overall is "warn" because check 8 is skipped for this 1.0 fixture', () => {
+    // This fixture is a legacy 1.0 bundle (no submission_files), so Check 8
+    // (submitted_code_match) is 'skipped' → overall is at best 'warn'. A clean
+    // 1.1 bundle that carries submission files can instead reach 'pass'.
     expect(['warn', 'pass', 'fail']).toContain(report.overall);
-    // Check 8 specifically is skipped.
+    // Check 8 specifically is skipped for a 1.0 bundle.
     const check8 = report.checks.find((c) => c.id === 'submitted_code_match');
     expect(check8?.status).toBe('skipped');
   });
