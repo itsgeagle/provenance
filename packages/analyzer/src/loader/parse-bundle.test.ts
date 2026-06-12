@@ -246,6 +246,26 @@ describe('loadBundle', () => {
     expect(f!.hashOk).toBe(false);
   });
 
+  it('flags hashOk=false when a present file is listed in the manifest but absent from the zip', async () => {
+    // A 'present' spec with no content is recorded in submission_files but its bytes
+    // are NOT added to the zip — the self-check must report hashOk=false without crashing.
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [{ path: 'ghost.py', status: 'present' }],
+    });
+
+    const result = await loadBundle(blob, 'hw1-ghost.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const f = result.value.submissionFiles.get('ghost.py');
+    expect(f).toBeDefined();
+    expect(f!.status).toBe('present');
+    expect(f!.bytes).toBeUndefined();
+    expect(f!.hashOk).toBe(false);
+  });
+
   it('flags hashOk=true for a present file with correct sha256 (self-check passes)', async () => {
     const content = 'x = 42\n';
     const correctSha = sha256Hex(new TextEncoder().encode(content));
