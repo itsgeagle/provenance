@@ -55,7 +55,7 @@ the file of the most recent file-bearing event (`doc.change` / `paste` / `doc.sa
   - `currentFocusAwaySpan(events, currentGlobalIdx)` → the active focus-lost span (or
     null) + its `reason`.
   - `currentEditedFile(events, currentGlobalIdx)` → file path or null.
-  Both take the session's ordered events (or `index.ordered`) and the playhead.
+    Both take the session's ordered events (or `index.ordered`) and the playhead.
 - `ReplayInner`: a `useEffect` that calls `setActiveFile` when `currentEditedFile`
   changes; and a conditional overlay element inside the editor container driven by
   `currentFocusAwaySpan`.
