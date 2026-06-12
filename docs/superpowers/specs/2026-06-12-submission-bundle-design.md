@@ -81,9 +81,9 @@ so stray/unexpected files cannot be treated as submission content. Only files in
 
 ```ts
 submission_files: ReadonlyArray<{
-  path: string;                       // workspace-relative; matches a files_under_review entry
+  path: string; // workspace-relative; matches a files_under_review entry
   status: 'present' | 'missing';
-  sha256: string | null;              // sha256 of raw on-disk bytes; null iff status === 'missing'
+  sha256: string | null; // sha256 of raw on-disk bytes; null iff status === 'missing'
 }>;
 ```
 
@@ -117,35 +117,40 @@ both ends updated in the same change set.
 ## Analyzer changes
 
 ### Ingest — `packages/analyzer/src/loader/parse-bundle.ts` + server ingest
+
 - Accept `format_version` `1.1`; parse `submission_files`.
 - Read the submission file bytes from the zip root by `submission_files[].path`.
 - Bundle self-check: each bundled file's bytes must hash to its manifest `sha256`
   (detects a malformed/edited bundle).
 
 ### Check 8 — `validation/run-validation.ts` + new `validation/verify-submitted-code.ts`
+
 For each reviewed file, reconstruct final content from its event stream and compare
 to the submitted bytes:
 
-| Case | Verdict |
-|------|---------|
-| Submitted bytes match reconstruction | **pass** |
-| Mismatch, chain intact (edited outside the recording) | **fail** + high-severity `submitted_code_match` flag |
-| No usable events / reconstruction tainted / chain broken | **skip** (Check 3 already fails this) |
-| `status: 'missing'` | **skip** for that file (nothing to compare) |
+| Case                                                     | Verdict                                              |
+| -------------------------------------------------------- | ---------------------------------------------------- |
+| Submitted bytes match reconstruction                     | **pass**                                             |
+| Mismatch, chain intact (edited outside the recording)    | **fail** + high-severity `submitted_code_match` flag |
+| No usable events / reconstruction tainted / chain broken | **skip** (Check 3 already fails this)                |
+| `status: 'missing'`                                      | **skip** for that file (nothing to compare)          |
 
 The `submitted_code_match` flag joins `KNOWN_HEURISTIC_IDS` (`v3-progress.md:236`)
 so tuning/recompute handle it. It is integrity-derived → no thresholds. It flows
 through the existing integrity-flag adapter alongside `chain_broken`.
 
 ### Submitted-source view (local + server)
+
 A "Source" tab in the submission drill-in lists each reviewed file with its content
 and its Check-8 status (matched / mismatch / missing). Both paths go through the
 existing `SubmissionDataProvider` abstraction:
+
 - **`/local`:** `InMemorySubmissionDataProvider` reads the submission files straight
   from the in-browser zip.
 - **Server-backed:** a server-backed provider calls a new endpoint (below).
 
 ### Server — submitted-source endpoint
+
 - New endpoint (e.g. `GET /api/v1/submissions/:id/files` to list,
   `GET /api/v1/submissions/:id/files/{path}` for content), auth-guarded like the
   other submission endpoints. Response shape added to `packages/shared`.
@@ -153,6 +158,7 @@ existing `SubmissionDataProvider` abstraction:
   blob** in object storage — student source is **not** copied into Postgres.
 
 #### Retention (CLAUDE.md-sensitive)
+
 The retention sweep deletes blobs but keeps DB rows forever for audit. Persisting
 submitted source in Postgres would make student code outlive the sweep, defeating
 it. Therefore source is read on demand from the blob, and the Source view is
@@ -160,6 +166,7 @@ unavailable once a submission's blob has been retention-swept (consistent with t
 bundle itself being gone). No "purge rows" path is added.
 
 ### Extension-hash allowlist
+
 `seal.ts` changes alter the recorder's `dist/`, so the VSIX `extension_hash`
 changes. Rebuild the recorder and run `npm run update-hashes` to refresh
 `packages/analyzer/src/heuristics/config/known-good-extension-hashes.json`,

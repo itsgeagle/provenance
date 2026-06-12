@@ -15,6 +15,7 @@
 ## File Structure
 
 **Create:**
+
 - `packages/analyzer/src/validation/verify-submitted-code.ts` — Check 8 logic + shared per-file verdict helper.
 - `packages/analyzer/src/validation/verify-submitted-code.test.ts`
 - `packages/analyzer/src/views/submission/Source.tsx` — Source tab.
@@ -23,6 +24,7 @@
 - `packages/server/src/services/submissions/submitted-files.test.ts`
 
 **Modify:**
+
 - `packages/log-core/src/bundle.ts` — manifest type + shape validator (1.1 + `submission_files`).
 - `packages/log-core/src/bundle.test.ts` — 1.1 vectors (verify file exists; else create).
 - `packages/recorder/src/commands/seal.ts` — bundle reviewed files; never abort on broken chain; `warnings` on ok.
@@ -51,6 +53,7 @@
 ### Task A1: Add `submission_files` to the manifest type and bump version
 
 **Files:**
+
 - Modify: `packages/log-core/src/bundle.ts:25-39` (type), `:86-88` (version check), `:130-181` (sessions loop region)
 - Test: `packages/log-core/src/bundle.test.ts`
 
@@ -70,9 +73,7 @@ function valid11Manifest() {
     assignment_id: 'hw03',
     semester: 'fa25',
     extension_hash: HEX64,
-    sessions: [
-      { session_id: 's1', prev_session_id: null, slog_sha256: HEX64, meta_sha256: HEX64 },
-    ],
+    sessions: [{ session_id: 's1', prev_session_id: null, slog_sha256: HEX64, meta_sha256: HEX64 }],
     submission_files: [
       { path: 'hw03.py', status: 'present', sha256: HEX64 },
       { path: 'optional.py', status: 'missing', sha256: null },
@@ -165,11 +166,11 @@ export type BundleManifest = {
 The validator must keep accepting `1.0` bundles (back-compat: they have no `submission_files`). Change the version check at `bundle.ts:86-88` to:
 
 ```ts
-  // format_version: accept 1.0 (legacy, no submission_files) and 1.1.
-  const version = obj['format_version'];
-  if (version !== '1.0' && version !== '1.1') {
-    return err({ kind: 'wrong_version', actual: version });
-  }
+// format_version: accept 1.0 (legacy, no submission_files) and 1.1.
+const version = obj['format_version'];
+if (version !== '1.0' && version !== '1.1') {
+  return err({ kind: 'wrong_version', actual: version });
+}
 ```
 
 - [ ] **Step 5: Validate `submission_files` after the sessions loop**
@@ -177,39 +178,59 @@ The validator must keep accepting `1.0` bundles (back-compat: they have no `subm
 Immediately before the final `return ok(value as BundleManifest);` (currently `bundle.ts:183`), insert:
 
 ```ts
-  // submission_files: required iff format_version === '1.1'. Absent on legacy 1.0.
-  if (version === '1.1') {
-    if (!Array.isArray(obj['submission_files'])) {
-      if (obj['submission_files'] === undefined) {
-        return err({ kind: 'missing_field', field: 'submission_files' });
-      }
-      return err({ kind: 'invalid_field', field: 'submission_files', reason: 'must be an array' });
+// submission_files: required iff format_version === '1.1'. Absent on legacy 1.0.
+if (version === '1.1') {
+  if (!Array.isArray(obj['submission_files'])) {
+    if (obj['submission_files'] === undefined) {
+      return err({ kind: 'missing_field', field: 'submission_files' });
     }
-    for (let i = 0; i < obj['submission_files'].length; i++) {
-      const f = (obj['submission_files'] as unknown[])[i];
-      if (typeof f !== 'object' || f === null) {
-        return err({ kind: 'invalid_field', field: `submission_files[${i}]`, reason: 'must be an object' });
+    return err({ kind: 'invalid_field', field: 'submission_files', reason: 'must be an array' });
+  }
+  for (let i = 0; i < obj['submission_files'].length; i++) {
+    const f = (obj['submission_files'] as unknown[])[i];
+    if (typeof f !== 'object' || f === null) {
+      return err({
+        kind: 'invalid_field',
+        field: `submission_files[${i}]`,
+        reason: 'must be an object',
+      });
+    }
+    const fObj = f as Record<string, unknown>;
+    if (typeof fObj['path'] !== 'string' || fObj['path'].length === 0) {
+      return err({
+        kind: 'invalid_field',
+        field: `submission_files[${i}].path`,
+        reason: 'must be a non-empty string',
+      });
+    }
+    const status = fObj['status'];
+    if (status !== 'present' && status !== 'missing') {
+      return err({
+        kind: 'invalid_field',
+        field: `submission_files[${i}].status`,
+        reason: "must be 'present' or 'missing'",
+      });
+    }
+    const sha = fObj['sha256'];
+    if (status === 'present') {
+      if (typeof sha !== 'string' || !HEX_64_RE.test(sha)) {
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}].sha256`,
+          reason: 'present file must have a 64-hex sha256',
+        });
       }
-      const fObj = f as Record<string, unknown>;
-      if (typeof fObj['path'] !== 'string' || fObj['path'].length === 0) {
-        return err({ kind: 'invalid_field', field: `submission_files[${i}].path`, reason: 'must be a non-empty string' });
-      }
-      const status = fObj['status'];
-      if (status !== 'present' && status !== 'missing') {
-        return err({ kind: 'invalid_field', field: `submission_files[${i}].status`, reason: "must be 'present' or 'missing'" });
-      }
-      const sha = fObj['sha256'];
-      if (status === 'present') {
-        if (typeof sha !== 'string' || !HEX_64_RE.test(sha)) {
-          return err({ kind: 'invalid_field', field: `submission_files[${i}].sha256`, reason: 'present file must have a 64-hex sha256' });
-        }
-      } else {
-        if (sha !== null) {
-          return err({ kind: 'invalid_field', field: `submission_files[${i}].sha256`, reason: 'missing file must have sha256 === null' });
-        }
+    } else {
+      if (sha !== null) {
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}].sha256`,
+          reason: 'missing file must have sha256 === null',
+        });
       }
     }
   }
+}
 ```
 
 - [ ] **Step 6: Run the test to verify it passes**
@@ -236,6 +257,7 @@ git commit --no-gpg-sign -m "feat(log-core): bundle manifest 1.1 with submission
 ### Task B1: Add `filesUnderReview` to `SealDeps` and bundle the files
 
 **Files:**
+
 - Modify: `packages/recorder/src/commands/seal.ts`
 - Test: `packages/recorder/src/commands/seal.test.ts`
 
@@ -325,42 +347,42 @@ async function readReviewedFile(workspaceRoot: string, relPath: string): Promise
 In `sealBundle`, destructure `filesUnderReview` from `deps` (top of the function). After the session loop and before building the manifest (around line 219), add:
 
 ```ts
-  // Read reviewed files (workspace-relative; resolved against the workspace root).
-  const workspaceRoot = workspaceFolder.uri.fsPath;
-  const reviewedFiles: ReviewedFile[] = [];
-  for (const rel of filesUnderReview) {
-    reviewedFiles.push(await readReviewedFile(workspaceRoot, rel));
-  }
+// Read reviewed files (workspace-relative; resolved against the workspace root).
+const workspaceRoot = workspaceFolder.uri.fsPath;
+const reviewedFiles: ReviewedFile[] = [];
+for (const rel of filesUnderReview) {
+  reviewedFiles.push(await readReviewedFile(workspaceRoot, rel));
+}
 
-  const submissionFiles = reviewedFiles.map((f) =>
-    f.status === 'present'
-      ? { path: f.path, status: 'present' as const, sha256: f.sha256 }
-      : { path: f.path, status: 'missing' as const, sha256: null },
-  );
+const submissionFiles = reviewedFiles.map((f) =>
+  f.status === 'present'
+    ? { path: f.path, status: 'present' as const, sha256: f.sha256 }
+    : { path: f.path, status: 'missing' as const, sha256: null },
+);
 ```
 
 Change the manifest object (lines 230-236) to:
 
 ```ts
-  const manifest: BundleManifest = {
-    format_version: '1.1',
-    assignment_id: assignmentId,
-    semester,
-    extension_hash: extensionHash,
-    sessions: sessionEntries,
-    submission_files: submissionFiles,
-  };
+const manifest: BundleManifest = {
+  format_version: '1.1',
+  assignment_id: assignmentId,
+  semester,
+  extension_hash: extensionHash,
+  sessions: sessionEntries,
+  submission_files: submissionFiles,
+};
 ```
 
 After the `.provenance/` dir entries are added to the zip (after the loop at lines 285-297), add the submission bytes at the zip root:
 
 ```ts
-  // Add submitted file bytes at the zip root (mirrors the workspace layout).
-  for (const f of reviewedFiles) {
-    if (f.status === 'present') {
-      zip.file(f.path, f.bytes);
-    }
+// Add submitted file bytes at the zip root (mirrors the workspace layout).
+for (const f of reviewedFiles) {
+  if (f.status === 'present') {
+    zip.file(f.path, f.bytes);
   }
+}
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -378,6 +400,7 @@ git commit --no-gpg-sign -m "feat(recorder): seal bundles reviewed files into ma
 ### Task B2: Never abort on a broken chain; carry warnings on ok
 
 **Files:**
+
 - Modify: `packages/recorder/src/commands/seal.ts`
 - Test: `packages/recorder/src/commands/seal.test.ts`
 
@@ -434,50 +457,50 @@ export type SealResult =
 In the session loop (lines 156-217), replace the three `return { kind: 'chain_broken' }` / parse-error returns with warning accumulation. Before the loop add:
 
 ```ts
-  const warnings: SealWarnings = { chainBroken: false, unreadableSession: false };
+const warnings: SealWarnings = { chainBroken: false, unreadableSession: false };
 ```
 
 - Parse failure (lines 174-182): instead of returning, set `warnings.unreadableSession = true`, still compute hashes from the raw bytes, push a session entry with `session_id: null`, and `continue`:
 
 ```ts
-    const parseResult = parseEntries(slogText);
-    if (!parseResult.ok) {
-      warnings.unreadableSession = true;
-      sessionEntries.push({
-        session_id: null,
-        prev_session_id: null,
-        slog_sha256: await sha256OfFile(slogPath),
-        meta_sha256: await sha256OfFile(metaPath),
-      });
-      continue;
-    }
-    const entries = parseResult.value;
+const parseResult = parseEntries(slogText);
+if (!parseResult.ok) {
+  warnings.unreadableSession = true;
+  sessionEntries.push({
+    session_id: null,
+    prev_session_id: null,
+    slog_sha256: await sha256OfFile(slogPath),
+    meta_sha256: await sha256OfFile(metaPath),
+  });
+  continue;
+}
+const entries = parseResult.value;
 ```
 
 - Chain break (lines 187-195): set `warnings.chainBroken = true`, do NOT return. Continue to extract ids + hashes below.
 
 ```ts
-    const chainResult = validateChain(entries);
-    if (!chainResult.ok) {
-      warnings.chainBroken = true;
-    }
+const chainResult = validateChain(entries);
+if (!chainResult.ok) {
+  warnings.chainBroken = true;
+}
 ```
 
 - Missing session.start (lines 198-205): set `warnings.unreadableSession = true`, use `session_id: null` instead of returning:
 
 ```ts
-    const ids = extractSessionIds(entries);
-    const slogSha256 = await sha256OfFile(slogPath);
-    const metaSha256 = await sha256OfFile(metaPath);
-    sessionEntries.push({
-      session_id: ids?.session_id ?? null,
-      prev_session_id: ids?.prev_session_id ?? null,
-      slog_sha256: slogSha256,
-      meta_sha256: metaSha256,
-    });
-    if (ids === null) {
-      warnings.unreadableSession = true;
-    }
+const ids = extractSessionIds(entries);
+const slogSha256 = await sha256OfFile(slogPath);
+const metaSha256 = await sha256OfFile(metaPath);
+sessionEntries.push({
+  session_id: ids?.session_id ?? null,
+  prev_session_id: ids?.prev_session_id ?? null,
+  slog_sha256: slogSha256,
+  meta_sha256: metaSha256,
+});
+if (ids === null) {
+  warnings.unreadableSession = true;
+}
 ```
 
 (Delete the now-dead `extractSessionIds`-then-`if (ids === null) return` block and the earlier per-iteration hash computation that this replaces.)
@@ -487,12 +510,19 @@ In the session loop (lines 156-217), replace the three `return { kind: 'chain_br
 This requires `sessions[].session_id` to be `string | null`. Update `packages/log-core/src/bundle.ts` `BundleManifest.sessions` entry: change `session_id: string;` to `session_id: string | null;`, and in the validator (`bundle.ts:137-146`) accept `null`:
 
 ```ts
-    if (sObj['session_id'] !== null && (typeof sObj['session_id'] !== 'string' || sObj['session_id'].length === 0)) {
-      if (sObj['session_id'] === undefined) {
-        return err({ kind: 'missing_field', field: `sessions[${i}].session_id` });
-      }
-      return err({ kind: 'invalid_field', field: `sessions[${i}].session_id`, reason: 'must be a non-empty string or null' });
-    }
+if (
+  sObj['session_id'] !== null &&
+  (typeof sObj['session_id'] !== 'string' || sObj['session_id'].length === 0)
+) {
+  if (sObj['session_id'] === undefined) {
+    return err({ kind: 'missing_field', field: `sessions[${i}].session_id` });
+  }
+  return err({
+    kind: 'invalid_field',
+    field: `sessions[${i}].session_id`,
+    reason: 'must be a non-empty string or null',
+  });
+}
 ```
 
 Add a log-core test in `bundle.test.ts`:
@@ -510,7 +540,7 @@ it('accepts a session entry with a null session_id (corrupt-session bundle)', ()
 Change the final return (line 325) to:
 
 ```ts
-  return { kind: 'ok', bundlePath, manifestSha256, warnings };
+return { kind: 'ok', bundlePath, manifestSha256, warnings };
 ```
 
 - [ ] **Step 6: Run recorder + log-core tests**
@@ -532,6 +562,7 @@ git commit --no-gpg-sign -m "feat(recorder): always seal; carry chain/parse warn
 ### Task B4: Wire `filesUnderReview` + surface the warning at the call site
 
 **Files:**
+
 - Modify: the file that calls `sealBundle` (the `provenance.prepareSubmissionBundle` command handler).
 
 - [ ] **Step 1: Find the call site**
@@ -576,6 +607,7 @@ git commit --no-gpg-sign -m "feat(recorder): wire files_under_review into seal +
 ### Task C1: Two-pass unzip that whitelists submission files
 
 **Files:**
+
 - Modify: `packages/analyzer/src/loader/types.ts`, `packages/analyzer/src/loader/unzip.ts`
 - Test: `packages/analyzer/src/loader/unzip.test.ts`
 
@@ -584,8 +616,8 @@ git commit --no-gpg-sign -m "feat(recorder): wire files_under_review into seal +
 In `loader/types.ts`, add to `BundleFiles` (after `sessions`):
 
 ```ts
-  /** Raw bytes of each submitted file present in the zip, keyed by manifest path. */
-  submissionFiles: Map<string, Uint8Array>;
+/** Raw bytes of each submitted file present in the zip, keyed by manifest path. */
+submissionFiles: Map<string, Uint8Array>;
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -595,7 +627,9 @@ Add to `packages/analyzer/src/loader/unzip.test.ts` (reuse the existing helper t
 ```ts
 it('accepts submission files listed in the manifest and rejects others', async () => {
   const zip = new JSZip();
-  const manifest = { /* a valid 1.1 manifest with submission_files: [{path:'hw03.py',status:'present',sha256:HEX64}] */ };
+  const manifest = {
+    /* a valid 1.1 manifest with submission_files: [{path:'hw03.py',status:'present',sha256:HEX64}] */
+  };
   // ...write manifest.json, manifest.sig, session-<id>.slog, .slog.meta as the existing helper does...
   zip.file('hw03.py', 'print(1)\n');
   const bytes = await zip.generateAsync({ type: 'uint8array' });
@@ -622,61 +656,71 @@ Expected: FAIL — `hw03.py` currently triggers `unexpected_file`.
 Rewrite the categorization loop in `unzip.ts` (lines 67-115). First pass reads manifest + sig and defers other entries; then parse the manifest's `submission_files` paths; then categorize deferred entries:
 
 ```ts
-  let manifestJson: string | null = null;
-  let manifestSigHex: string | null = null;
-  const slogIds = new Set<string>();
-  const metaIds = new Set<string>();
-  const slogContents = new Map<string, string>();
-  const metaContents = new Map<string, string>();
-  const deferred: Array<[string, JSZip.JSZipObject]> = [];
+let manifestJson: string | null = null;
+let manifestSigHex: string | null = null;
+const slogIds = new Set<string>();
+const metaIds = new Set<string>();
+const slogContents = new Map<string, string>();
+const metaContents = new Map<string, string>();
+const deferred: Array<[string, JSZip.JSZipObject]> = [];
 
-  for (const [filename, zipObject] of Object.entries(zip.files)) {
-    if (zipObject.dir) continue;
-    if (filename === MANIFEST_JSON) { manifestJson = await zipObject.async('string'); continue; }
-    if (filename === MANIFEST_SIG) { manifestSigHex = (await zipObject.async('string')).trim(); continue; }
-    const slogMatch = SLOG_RE.exec(filename);
-    if (slogMatch !== null) {
-      const id = slogMatch[1]!;
-      slogIds.add(id); slogContents.set(id, await zipObject.async('string')); continue;
-    }
-    const metaMatch = SLOG_META_RE.exec(filename);
-    if (metaMatch !== null) {
-      const id = metaMatch[1]!;
-      metaIds.add(id); metaContents.set(id, await zipObject.async('string')); continue;
-    }
-    deferred.push([filename, zipObject]);
+for (const [filename, zipObject] of Object.entries(zip.files)) {
+  if (zipObject.dir) continue;
+  if (filename === MANIFEST_JSON) {
+    manifestJson = await zipObject.async('string');
+    continue;
   }
-
-  if (manifestJson === null) return err({ kind: 'missing_manifest' });
-  if (manifestSigHex === null) return err({ kind: 'missing_signature' });
-
-  // Whitelist submission file paths from the manifest (best-effort JSON parse;
-  // full shape validation happens later in parse-bundle).
-  const submissionPaths = new Set<string>();
-  try {
-    const parsed = JSON.parse(manifestJson) as { submission_files?: Array<{ path?: unknown }> };
-    for (const f of parsed.submission_files ?? []) {
-      if (typeof f?.path === 'string') submissionPaths.add(f.path);
-    }
-  } catch {
-    // Malformed manifest JSON — parse-bundle will surface invalid_manifest.
-    // Treat every deferred file as unexpected below.
+  if (filename === MANIFEST_SIG) {
+    manifestSigHex = (await zipObject.async('string')).trim();
+    continue;
   }
-
-  const submissionFiles = new Map<string, Uint8Array>();
-  for (const [filename, zipObject] of deferred) {
-    if (submissionPaths.has(filename)) {
-      submissionFiles.set(filename, await zipObject.async('uint8array'));
-    } else {
-      return err({ kind: 'unexpected_file', filename, detail: 'not a recognized bundle file' });
-    }
+  const slogMatch = SLOG_RE.exec(filename);
+  if (slogMatch !== null) {
+    const id = slogMatch[1]!;
+    slogIds.add(id);
+    slogContents.set(id, await zipObject.async('string'));
+    continue;
   }
+  const metaMatch = SLOG_META_RE.exec(filename);
+  if (metaMatch !== null) {
+    const id = metaMatch[1]!;
+    metaIds.add(id);
+    metaContents.set(id, await zipObject.async('string'));
+    continue;
+  }
+  deferred.push([filename, zipObject]);
+}
+
+if (manifestJson === null) return err({ kind: 'missing_manifest' });
+if (manifestSigHex === null) return err({ kind: 'missing_signature' });
+
+// Whitelist submission file paths from the manifest (best-effort JSON parse;
+// full shape validation happens later in parse-bundle).
+const submissionPaths = new Set<string>();
+try {
+  const parsed = JSON.parse(manifestJson) as { submission_files?: Array<{ path?: unknown }> };
+  for (const f of parsed.submission_files ?? []) {
+    if (typeof f?.path === 'string') submissionPaths.add(f.path);
+  }
+} catch {
+  // Malformed manifest JSON — parse-bundle will surface invalid_manifest.
+  // Treat every deferred file as unexpected below.
+}
+
+const submissionFiles = new Map<string, Uint8Array>();
+for (const [filename, zipObject] of deferred) {
+  if (submissionPaths.has(filename)) {
+    submissionFiles.set(filename, await zipObject.async('uint8array'));
+  } else {
+    return err({ kind: 'unexpected_file', filename, detail: 'not a recognized bundle file' });
+  }
+}
 ```
 
 Then keep the existing structural checks (no_sessions, orphan checks) and return `submissionFiles` in the result object:
 
 ```ts
-  return ok({ manifestJson, manifestSigHex, sessions, submissionFiles });
+return ok({ manifestJson, manifestSigHex, sessions, submissionFiles });
 ```
 
 Add `import type JSZip from 'jszip';` is already present as default import — use `JSZip.JSZipObject` for the deferred tuple type (or `Awaited<ReturnType<typeof JSZip.loadAsync>>['files'][string]`).
@@ -696,6 +740,7 @@ git commit --no-gpg-sign -m "feat(analyzer): unzip whitelists manifest submissio
 ### Task C2: Surface submission files on `Bundle` + self-check hashes
 
 **Files:**
+
 - Modify: `packages/analyzer/src/loader/types.ts`, `packages/analyzer/src/loader/parse-bundle.ts`
 - Test: `packages/analyzer/src/loader/parse-bundle.test.ts`
 
@@ -704,12 +749,15 @@ git commit --no-gpg-sign -m "feat(analyzer): unzip whitelists manifest submissio
 In `loader/types.ts`, add to `Bundle`:
 
 ```ts
-  /**
-   * Submitted files from the bundle (1.1+). Keyed by manifest path. `bytes` is
-   * present only for status 'present' files whose zip entry verified against the
-   * manifest sha256. `hashOk` records whether the bundle self-check passed.
-   */
-  submissionFiles: Map<string, { status: 'present' | 'missing'; sha256: string | null; bytes?: Uint8Array; hashOk: boolean }>;
+/**
+ * Submitted files from the bundle (1.1+). Keyed by manifest path. `bytes` is
+ * present only for status 'present' files whose zip entry verified against the
+ * manifest sha256. `hashOk` records whether the bundle self-check passed.
+ */
+submissionFiles: Map<
+  string,
+  { status: 'present' | 'missing'; sha256: string | null; bytes?: Uint8Array; hashOk: boolean }
+>;
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -779,6 +827,7 @@ git commit --no-gpg-sign -m "feat(analyzer): expose submission files on Bundle w
 ### Task D1: `verify-submitted-code.ts` — per-file verdicts + Check 8
 
 **Files:**
+
 - Create: `packages/analyzer/src/validation/verify-submitted-code.ts`, `...test.ts`
 
 - [ ] **Step 1: Write the failing test**
@@ -912,10 +961,12 @@ function lastRecordedHashes(
       let sha: string | undefined;
       if (event.kind === 'doc.save' || event.kind === 'doc.open') {
         const d = event.data as { path: string; sha256: string };
-        path = d.path; sha = d.sha256;
+        path = d.path;
+        sha = d.sha256;
       } else if (event.kind === 'fs.external_change') {
         const d = event.data as { path: string; new_hash: string };
-        path = d.path; sha = d.new_hash;
+        path = d.path;
+        sha = d.new_hash;
       }
       if (path !== undefined && sha !== undefined) {
         out.set(path, { sha, sessionId: session.sessionId, seq: event.seq });
@@ -935,26 +986,74 @@ export function submittedFileVerdicts(
 
   for (const [path, f] of bundle.submissionFiles) {
     if (f.status === 'missing') {
-      verdicts.push({ path, status: 'missing', verdict: 'unknown', submittedSha: null, recordedSha: null, detail: 'File listed in files_under_review but absent on disk at seal time.', supportingSeqs: [] });
+      verdicts.push({
+        path,
+        status: 'missing',
+        verdict: 'unknown',
+        submittedSha: null,
+        recordedSha: null,
+        detail: 'File listed in files_under_review but absent on disk at seal time.',
+        supportingSeqs: [],
+      });
       continue;
     }
     if (!f.hashOk) {
-      verdicts.push({ path, status: 'present', verdict: 'mismatch', submittedSha: f.sha256, recordedSha: null, detail: 'Submitted bytes do not match their own manifest sha256 (tampered bundle).', supportingSeqs: [] });
+      verdicts.push({
+        path,
+        status: 'present',
+        verdict: 'mismatch',
+        submittedSha: f.sha256,
+        recordedSha: null,
+        detail: 'Submitted bytes do not match their own manifest sha256 (tampered bundle).',
+        supportingSeqs: [],
+      });
       continue;
     }
     if (!opts.chainIntact) {
-      verdicts.push({ path, status: 'present', verdict: 'unknown', submittedSha: f.sha256, recordedSha: null, detail: 'Hash chain is broken; cannot trust recorded hashes.', supportingSeqs: [] });
+      verdicts.push({
+        path,
+        status: 'present',
+        verdict: 'unknown',
+        submittedSha: f.sha256,
+        recordedSha: null,
+        detail: 'Hash chain is broken; cannot trust recorded hashes.',
+        supportingSeqs: [],
+      });
       continue;
     }
     const rec = recorded.get(path);
     if (rec === undefined) {
-      verdicts.push({ path, status: 'present', verdict: 'unknown', submittedSha: f.sha256, recordedSha: null, detail: 'No doc.open/doc.save/fs.external_change recorded for this file.', supportingSeqs: [] });
+      verdicts.push({
+        path,
+        status: 'present',
+        verdict: 'unknown',
+        submittedSha: f.sha256,
+        recordedSha: null,
+        detail: 'No doc.open/doc.save/fs.external_change recorded for this file.',
+        supportingSeqs: [],
+      });
       continue;
     }
     if (rec.sha === f.sha256) {
-      verdicts.push({ path, status: 'present', verdict: 'match', submittedSha: f.sha256, recordedSha: rec.sha, detail: 'Submitted file matches the last recorded on-disk state.', supportingSeqs: [{ sessionId: rec.sessionId, seq: rec.seq }] });
+      verdicts.push({
+        path,
+        status: 'present',
+        verdict: 'match',
+        submittedSha: f.sha256,
+        recordedSha: rec.sha,
+        detail: 'Submitted file matches the last recorded on-disk state.',
+        supportingSeqs: [{ sessionId: rec.sessionId, seq: rec.seq }],
+      });
     } else {
-      verdicts.push({ path, status: 'present', verdict: 'mismatch', submittedSha: f.sha256, recordedSha: rec.sha, detail: `Submitted sha256 ${f.sha256} != last recorded on-disk sha256 ${rec.sha}. File was changed outside the recording.`, supportingSeqs: [{ sessionId: rec.sessionId, seq: rec.seq }] });
+      verdicts.push({
+        path,
+        status: 'present',
+        verdict: 'mismatch',
+        submittedSha: f.sha256,
+        recordedSha: rec.sha,
+        detail: `Submitted sha256 ${f.sha256} != last recorded on-disk sha256 ${rec.sha}. File was changed outside the recording.`,
+        supportingSeqs: [{ sessionId: rec.sessionId, seq: rec.seq }],
+      });
     }
   }
   return verdicts;
@@ -966,7 +1065,12 @@ export function verifySubmittedCode(
 ): ValidationCheck {
   // 1.0 bundles / no submission files → nothing to check.
   if (bundle.submissionFiles.size === 0) {
-    return { id: 'submitted_code_match', label: 'Submitted code matches recorded final state', status: 'skipped', detail: 'Bundle has no submission files (format 1.0).' };
+    return {
+      id: 'submitted_code_match',
+      label: 'Submitted code matches recorded final state',
+      status: 'skipped',
+      detail: 'Bundle has no submission files (format 1.0).',
+    };
   }
 
   const verdicts = submittedFileVerdicts(bundle, opts);
@@ -983,9 +1087,19 @@ export function verifySubmittedCode(
     };
   }
   if (matches.length === 0) {
-    return { id: 'submitted_code_match', label: 'Submitted code matches recorded final state', status: 'skipped', detail: 'No submitted file could be checked (chain broken, missing, or no recorded state).' };
+    return {
+      id: 'submitted_code_match',
+      label: 'Submitted code matches recorded final state',
+      status: 'skipped',
+      detail: 'No submitted file could be checked (chain broken, missing, or no recorded state).',
+    };
   }
-  return { id: 'submitted_code_match', label: 'Submitted code matches recorded final state', status: 'pass', detail: `${matches.length} submitted file(s) match the recorded final state.` };
+  return {
+    id: 'submitted_code_match',
+    label: 'Submitted code matches recorded final state',
+    status: 'pass',
+    detail: `${matches.length} submitted file(s) match the recorded final state.`,
+  };
 }
 ```
 
@@ -1004,6 +1118,7 @@ git commit --no-gpg-sign -m "feat(analyzer): Check 8 verify-submitted-code via r
 ### Task D2: Call Check 8 from the orchestrator
 
 **Files:**
+
 - Modify: `packages/analyzer/src/validation/run-validation.ts`
 - Test: `packages/analyzer/src/validation/run-validation.test.ts`
 
@@ -1032,9 +1147,9 @@ In `run-validation.ts`: delete `CHECK_8_SKIPPED` (lines 31-37), add the import, 
 ```ts
 import { verifySubmittedCode } from './verify-submitted-code.js';
 // ...
-  const check3 = verifyChain(bundle);
-  // ...
-  const check8 = verifySubmittedCode(bundle, { chainIntact: check3.status === 'pass' });
+const check3 = verifyChain(bundle);
+// ...
+const check8 = verifySubmittedCode(bundle, { chainIntact: check3.status === 'pass' });
 ```
 
 Update the file's top NOTE comment (lines 4-9) to reflect that Check 8 now runs for 1.1 bundles (a clean 1.1 bundle can reach overall `pass`); 1.0 bundles still yield `warn` because Check 8 is skipped.
@@ -1054,6 +1169,7 @@ git commit --no-gpg-sign -m "feat(analyzer): orchestrator runs Check 8 for 1.1 b
 ### Task D3: Surface `submitted_code_match` as a heuristic flag
 
 **Files:**
+
 - Modify: `packages/analyzer/src/heuristics/integrity-flags.ts`, `packages/analyzer/src/views/heuristics/TuningView.tsx`
 - Test: `packages/analyzer/src/heuristics/integrity-flags.test.ts`
 
@@ -1063,9 +1179,18 @@ Add to `integrity-flags.test.ts`:
 
 ```ts
 it('emits a high-severity submitted_code_match flag when Check 8 fails', () => {
-  const report = { overall: 'fail', checks: [
-    { id: 'submitted_code_match', label: 'x', status: 'fail', detail: 'mismatch', supportingSeqs: [{ sessionId: 's1', seq: 7 }] },
-  ] } as const;
+  const report = {
+    overall: 'fail',
+    checks: [
+      {
+        id: 'submitted_code_match',
+        label: 'x',
+        status: 'fail',
+        detail: 'mismatch',
+        supportingSeqs: [{ sessionId: 's1', seq: 7 }],
+      },
+    ],
+  } as const;
   const flags = integrityFlagsFromReport(report as any);
   const f = flags.find((x) => x.heuristic === 'submitted_code_match')!;
   expect(f).toBeDefined();
@@ -1116,6 +1241,7 @@ git commit --no-gpg-sign -m "feat(analyzer): surface submitted_code_match as an 
 ### Task E1: Provider interface — submitted files + content
 
 **Files:**
+
 - Modify: `packages/analyzer/src/data/SubmissionDataProvider.ts`
 
 - [ ] **Step 1: Add result types + interface methods**
@@ -1164,6 +1290,7 @@ Expected: FAIL — `InMemorySubmissionDataProvider` and `ApiSubmissionDataProvid
 ### Task E2: InMemory provider implementation
 
 **Files:**
+
 - Modify: `packages/analyzer/src/data/InMemorySubmissionDataProvider.tsx`
 - Test: `packages/analyzer/src/data/InMemorySubmissionDataProvider.test.tsx`
 
@@ -1194,7 +1321,8 @@ In `InMemorySubmissionDataProvider.tsx`, import the shared verdict helper and th
 import { submittedFileVerdicts } from '../validation/verify-submitted-code.js';
 
 // inside the factory, with `bundle` and `validationReport` available:
-const chainIntact = validationReport?.checks.find((c) => c.id === 'chain_integrity')?.status === 'pass';
+const chainIntact =
+  validationReport?.checks.find((c) => c.id === 'chain_integrity')?.status === 'pass';
 const verdicts = submittedFileVerdicts(bundle, { chainIntact: chainIntact ?? false });
 const verdictByPath = new Map(verdicts.map((v) => [v.path, v]));
 
@@ -1203,7 +1331,12 @@ function useSubmittedFiles(): UseQueryResult<SubmittedFileListResult> {
     queryKey: ['inmem', bundle.id, 'submitted-files'],
     queryFn: () => ({
       available: true,
-      files: verdicts.map((v) => ({ path: v.path, status: v.status, verdict: v.verdict, sha256: v.submittedSha })),
+      files: verdicts.map((v) => ({
+        path: v.path,
+        status: v.status,
+        verdict: v.verdict,
+        sha256: v.submittedSha,
+      })),
     }),
   });
 }
@@ -1215,7 +1348,12 @@ function useSubmittedFileContent(path: string): UseQueryResult<SubmittedFileCont
       const entry = bundle.submissionFiles.get(path);
       const v = verdictByPath.get(path);
       const content = entry?.bytes ? new TextDecoder().decode(entry.bytes) : '';
-      return { path, content, status: entry?.status ?? 'missing', verdict: v?.verdict ?? 'unknown' };
+      return {
+        path,
+        content,
+        status: entry?.status ?? 'missing',
+        verdict: v?.verdict ?? 'unknown',
+      };
     },
   });
 }
@@ -1238,6 +1376,7 @@ git commit --no-gpg-sign -m "feat(analyzer): in-memory provider exposes submitte
 ### Task E3: API provider implementation (depends on Group F endpoints + schemas)
 
 **Files:**
+
 - Modify: `packages/analyzer/src/data/ApiSubmissionDataProvider.tsx`
 
 > Ordering note: the Zod response schemas this task imports are created in Task F1. Do F1 before E3, or stub the schemas in F1 first. The two new endpoints are created in Task F3.
@@ -1247,12 +1386,16 @@ git commit --no-gpg-sign -m "feat(analyzer): in-memory provider exposes submitte
 In `ApiSubmissionDataProvider.tsx`, mirror the existing `useFileContent` pattern:
 
 ```ts
-import { SubmittedFileListSchema, SubmittedFileContentSchema } from '@provenance/shared/api-schemas';
+import {
+  SubmittedFileListSchema,
+  SubmittedFileContentSchema,
+} from '@provenance/shared/api-schemas';
 
 function useSubmittedFiles(): UseQueryResult<SubmittedFileListResult> {
   return useQuery({
     queryKey: ['sub', submissionId, 'submitted-files'],
-    queryFn: () => apiFetch(`/submissions/${submissionId}/submitted-files`, undefined, SubmittedFileListSchema),
+    queryFn: () =>
+      apiFetch(`/submissions/${submissionId}/submitted-files`, undefined, SubmittedFileListSchema),
   });
 }
 
@@ -1260,7 +1403,12 @@ function useSubmittedFileContent(path: string): UseQueryResult<SubmittedFileCont
   const encoded = encodeURIComponent(path);
   return useQuery({
     queryKey: ['sub', submissionId, 'submitted-content', path],
-    queryFn: () => apiFetch(`/submissions/${submissionId}/submitted-files/${encoded}`, undefined, SubmittedFileContentSchema),
+    queryFn: () =>
+      apiFetch(
+        `/submissions/${submissionId}/submitted-files/${encoded}`,
+        undefined,
+        SubmittedFileContentSchema,
+      ),
     enabled: path.length > 0,
   });
 }
@@ -1283,6 +1431,7 @@ git commit --no-gpg-sign -m "feat(analyzer): API provider fetches submitted file
 ### Task E4: Source tab UI
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/submission/Source.tsx`, `Source.test.tsx`
 - Modify: `packages/analyzer/src/views/submission/SubmissionShell.tsx`
 
@@ -1324,14 +1473,23 @@ export function Source() {
   const contentQ = provider.useSubmittedFileContent(selected ?? '');
 
   if (filesQ.isLoading) return <div className="p-6 text-sm text-gray-500">Loading…</div>;
-  if (filesQ.isError) return <div className="p-6 text-sm text-red-600">Failed to load submitted files.</div>;
+  if (filesQ.isError)
+    return <div className="p-6 text-sm text-red-600">Failed to load submitted files.</div>;
 
   const data = filesQ.data;
   if (!data || !data.available) {
-    return <div className="p-6 text-sm text-gray-500">Submitted source is unavailable (the bundle has been retention-swept).</div>;
+    return (
+      <div className="p-6 text-sm text-gray-500">
+        Submitted source is unavailable (the bundle has been retention-swept).
+      </div>
+    );
   }
   if (data.files.length === 0) {
-    return <div className="p-6 text-sm text-gray-500">This bundle carries no submission files (recorder format 1.0).</div>;
+    return (
+      <div className="p-6 text-sm text-gray-500">
+        This bundle carries no submission files (recorder format 1.0).
+      </div>
+    );
   }
 
   return (
@@ -1344,7 +1502,10 @@ export function Source() {
               className={`flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm hover:bg-gray-50 ${selected === f.path ? 'bg-gray-100' : ''}`}
             >
               <span className="truncate font-mono">{f.path}</span>
-              <span data-testid={`verdict-${f.path}`} className={`rounded px-1.5 py-0.5 text-xs ${VERDICT_STYLE[f.verdict]}`}>
+              <span
+                data-testid={`verdict-${f.path}`}
+                className={`rounded px-1.5 py-0.5 text-xs ${VERDICT_STYLE[f.verdict]}`}
+              >
                 {f.status === 'missing' ? 'missing' : f.verdict}
               </span>
             </button>
@@ -1357,7 +1518,9 @@ export function Source() {
         ) : contentQ.isLoading ? (
           <div className="text-sm text-gray-500">Loading…</div>
         ) : (
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{contentQ.data?.content ?? ''}</pre>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs">
+            {contentQ.data?.content ?? ''}
+          </pre>
         )}
       </div>
     </div>
@@ -1391,6 +1554,7 @@ git commit --no-gpg-sign -m "feat(analyzer): Source tab shows submitted files + 
 ### Task F1: Shared response schemas
 
 **Files:**
+
 - Modify: `packages/shared/src/api-schemas.ts`
 
 - [ ] **Step 1: Add Zod schemas (mirroring the existing schema style)**
@@ -1434,6 +1598,7 @@ git commit --no-gpg-sign -m "feat(shared): submitted-files response schemas"
 ### Task F2: Server service — extract submitted files from a bundle blob
 
 **Files:**
+
 - Create: `packages/server/src/services/submissions/submitted-files.ts`, `...test.ts`
 
 - [ ] **Step 1: Write the failing integration test**
@@ -1446,14 +1611,18 @@ import { extractSubmittedFiles, extractSubmittedFileContent } from './submitted-
 
 describe('extractSubmittedFiles', () => {
   it('returns per-file verdicts from a 1.1 bundle buffer', async () => {
-    const buf = await buildBundleBuffer({ /* hw03.py present, matches doc.save, chain ok */ });
+    const buf = await buildBundleBuffer({
+      /* hw03.py present, matches doc.save, chain ok */
+    });
     const list = await extractSubmittedFiles(buf);
     expect(list.available).toBe(true);
     expect(list.files.find((f) => f.path === 'hw03.py')?.verdict).toBe('match');
   });
 
   it('returns the UTF-8 content of one file', async () => {
-    const buf = await buildBundleBuffer({ /* hw03.py = 'print(1)\n' */ });
+    const buf = await buildBundleBuffer({
+      /* hw03.py = 'print(1)\n' */
+    });
     const c = await extractSubmittedFileContent(buf, 'hw03.py');
     expect(c?.content).toBe('print(1)\n');
   });
@@ -1487,7 +1656,12 @@ export async function extractSubmittedFiles(blob: ArrayBuffer): Promise<Submitte
   const verdicts = submittedFileVerdicts(bundle, { chainIntact: chainIntact ?? false });
   return {
     available: true,
-    files: verdicts.map((v) => ({ path: v.path, status: v.status, verdict: v.verdict, sha256: v.submittedSha })),
+    files: verdicts.map((v) => ({
+      path: v.path,
+      status: v.status,
+      verdict: v.verdict,
+      sha256: v.submittedSha,
+    })),
   };
 }
 
@@ -1502,7 +1676,9 @@ export async function extractSubmittedFileContent(
   if (entry === undefined) return null;
   const report = await runValidation(bundle);
   const chainIntact = report.checks.find((c) => c.id === 'chain_integrity')?.status === 'pass';
-  const v = submittedFileVerdicts(bundle, { chainIntact: chainIntact ?? false }).find((x) => x.path === path);
+  const v = submittedFileVerdicts(bundle, { chainIntact: chainIntact ?? false }).find(
+    (x) => x.path === path,
+  );
   const content = entry.bytes ? new TextDecoder().decode(entry.bytes) : '';
   return { path, content, status: entry.status, verdict: v?.verdict ?? 'unknown' };
 }
@@ -1525,6 +1701,7 @@ git commit --no-gpg-sign -m "feat(server): extract submitted files from a bundle
 ### Task F3: Server routes
 
 **Files:**
+
 - Modify: `packages/server/src/api/v1/routes/submissions.ts`
 
 - [ ] **Step 1: Add the two routes**
@@ -1534,9 +1711,16 @@ After the `GET /submissions/:submissionId/files` handler (ends at line 214), add
 ```ts
 import { getBlob } from '../../../services/storage/blobs.js';
 import { bundleKey } from '../../../services/storage/keys.js';
-import { extractSubmittedFiles, extractSubmittedFileContent } from '../../../services/submissions/submitted-files.js';
+import {
+  extractSubmittedFiles,
+  extractSubmittedFileContent,
+} from '../../../services/submissions/submitted-files.js';
 
-async function readBundleBlob(c: Context, semesterId: string, submissionId: string): Promise<ArrayBuffer | null> {
+async function readBundleBlob(
+  c: Context,
+  semesterId: string,
+  submissionId: string,
+): Promise<ArrayBuffer | null> {
   try {
     const stream = await getBlob(c.var.storage, bundleKey(semesterId, submissionId));
     return await new Response(stream).arrayBuffer();
@@ -1549,44 +1733,61 @@ async function readBundleBlob(c: Context, semesterId: string, submissionId: stri
 > Confirm how the route accesses the storage client. Other code uses `c.var.storage` or a module getter (`getStorage()`); match whatever the ingest/finalize routes use. If routes don't have storage in context, import the storage singleton the same way `retention-sweep`/finalize obtains it.
 
 ```ts
-  router.get('/submissions/:submissionId/submitted-files', rateLimit('read.detail'), async (c) => {
-    const submissionId = c.req.param('submissionId')!;
-    const db = getDb();
-    const principal = c.var.principal ?? null;
-    if (principal === null) {
-      const returnTo = encodeURIComponent(c.req.path);
-      return c.json(Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(), 401);
-    }
-    const semesterId = await resolveSemesterFromSubmission(db, submissionId);
-    if (semesterId === null) return c.json(Errors.notFound().toBody(), 404);
-    const membership = await findMembership(c.var.membershipCache, db, principal.user.id, semesterId);
-    if (!authorize(principal, 'read', { semesterId }, membership).ok) return c.json(Errors.notFound().toBody(), 404);
+router.get('/submissions/:submissionId/submitted-files', rateLimit('read.detail'), async (c) => {
+  const submissionId = c.req.param('submissionId')!;
+  const db = getDb();
+  const principal = c.var.principal ?? null;
+  if (principal === null) {
+    const returnTo = encodeURIComponent(c.req.path);
+    return c.json(
+      Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(),
+      401,
+    );
+  }
+  const semesterId = await resolveSemesterFromSubmission(db, submissionId);
+  if (semesterId === null) return c.json(Errors.notFound().toBody(), 404);
+  const membership = await findMembership(c.var.membershipCache, db, principal.user.id, semesterId);
+  if (!authorize(principal, 'read', { semesterId }, membership).ok)
+    return c.json(Errors.notFound().toBody(), 404);
 
-    const blob = await readBundleBlob(c, semesterId, submissionId);
-    if (blob === null) return c.json({ available: false, files: [] });
-    return c.json(await extractSubmittedFiles(blob));
-  });
+  const blob = await readBundleBlob(c, semesterId, submissionId);
+  if (blob === null) return c.json({ available: false, files: [] });
+  return c.json(await extractSubmittedFiles(blob));
+});
 
-  router.get('/submissions/:submissionId/submitted-files/:path', rateLimit('read.detail'), async (c) => {
+router.get(
+  '/submissions/:submissionId/submitted-files/:path',
+  rateLimit('read.detail'),
+  async (c) => {
     const submissionId = c.req.param('submissionId')!;
     const filePath = decodeURIComponent(c.req.param('path')!);
     const db = getDb();
     const principal = c.var.principal ?? null;
     if (principal === null) {
       const returnTo = encodeURIComponent(c.req.path);
-      return c.json(Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(), 401);
+      return c.json(
+        Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(),
+        401,
+      );
     }
     const semesterId = await resolveSemesterFromSubmission(db, submissionId);
     if (semesterId === null) return c.json(Errors.notFound().toBody(), 404);
-    const membership = await findMembership(c.var.membershipCache, db, principal.user.id, semesterId);
-    if (!authorize(principal, 'read', { semesterId }, membership).ok) return c.json(Errors.notFound().toBody(), 404);
+    const membership = await findMembership(
+      c.var.membershipCache,
+      db,
+      principal.user.id,
+      semesterId,
+    );
+    if (!authorize(principal, 'read', { semesterId }, membership).ok)
+      return c.json(Errors.notFound().toBody(), 404);
 
     const blob = await readBundleBlob(c, semesterId, submissionId);
     if (blob === null) return c.json(Errors.notFound().toBody(), 404);
     const content = await extractSubmittedFileContent(blob, filePath);
     if (content === null) return c.json(Errors.notFound().toBody(), 404);
     return c.json(content);
-  });
+  },
+);
 ```
 
 > Hono path note: `:path` matches a single segment. Submission paths can contain `/` (e.g. `lab02/q1.py`). The analyzer encodes the whole path with `encodeURIComponent` (so `/` → `%2F`); confirm the server/router decodes `%2F` back into the single `:path` param. If the proxy collapses `%2F`, switch to a wildcard route (`/submitted-files/*` and read `c.req.path`) — verify with the E2E test in Task G2 and adjust if a nested path 404s.
@@ -1606,6 +1807,7 @@ git commit --no-gpg-sign -m "feat(server): submitted-files list + content routes
 ### Task F4: OpenAPI docs
 
 **Files:**
+
 - Modify: `packages/server/src/openapi/spec/paths-submissions.ts`, `packages/server/src/openapi/spec/components.ts`
 
 - [ ] **Step 1: Add component schemas**
@@ -1631,6 +1833,7 @@ git commit --no-gpg-sign -m "docs(server): OpenAPI for submitted-files endpoints
 ### Task F5: Ingest accepts 1.1 and persists Check 8
 
 **Files:**
+
 - Modify (only if needed): `packages/server/src/services/ingest/parse-bundle-phase.ts`, `packages/server/src/services/ingest/validation.ts`
 - Test: an ingest test under `packages/server/test/` (integration) or the existing ingest unit tests.
 
@@ -1663,6 +1866,7 @@ git commit --no-gpg-sign -m "test(server): ingest runs Check 8 + flags submitted
 ### Task G1: Rebuild recorder + refresh the hash allowlist
 
 **Files:**
+
 - Modify: `packages/analyzer/src/heuristics/config/known-good-extension-hashes.json`
 
 - [ ] **Step 1: Build the recorder dist**
@@ -1716,4 +1920,7 @@ git commit --no-gpg-sign -m "test(analyzer): regenerate integration fixture as a
 - **Retention:** never persist submitted source in Postgres. The only source path is blob → extract → drop. The list/content endpoints return `available:false` / 404 when the blob is gone.
 - **Behavior changes that intentionally flip existing assertions** (update them, don't weaken silently): seal no longer returns `chain_broken`; a clean **1.1** bundle's validation overall can now be `pass` (was always `warn`).
 - **Check 8 name consistency:** the check id is `submitted_code_match` everywhere (ValidationCheck.id, CHECK_META key, heuristic id, KNOWN_HEURISTIC_IDS). The chain check id is `chain_integrity` (used to derive `chainIntact`). Verify these exact strings against `check-types.ts` before relying on them.
+
+```
+
 ```
