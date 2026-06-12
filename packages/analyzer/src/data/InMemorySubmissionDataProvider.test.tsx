@@ -87,15 +87,17 @@ import React from 'react';
 // ---------------------------------------------------------------------------
 
 import { SubmissionDataContext } from './SubmissionDataProvider.js';
-import type { SubmissionDataProvider } from './SubmissionDataProvider.js';
-import type { SubmissionSummary, FlagRow } from '@provenance/shared/api-schemas';
-import { useQuery } from '@tanstack/react-query';
-import type { UseQueryResult } from '@tanstack/react-query';
 import type {
+  SubmissionDataProvider,
   SubmissionStats,
   ValidationResults,
   FileListResult,
+  SubmittedFileListResult,
+  SubmittedFileContentResult,
 } from './SubmissionDataProvider.js';
+import type { SubmissionSummary, FlagRow } from '@provenance/shared/api-schemas';
+import { useQuery } from '@tanstack/react-query';
+import type { UseQueryResult } from '@tanstack/react-query';
 
 // The shared fixture data for both provider tests
 const SHARED_SUMMARY: SubmissionSummary = {
@@ -207,6 +209,26 @@ function createMockProvider(): SubmissionDataProvider {
       return useQuery({
         queryKey: ['mock-file-provenance'],
         queryFn: () => Promise.resolve({ length: 0, provenance: [], at_seq: 0 }),
+        staleTime: Infinity,
+      });
+    },
+    useSubmittedFiles(): UseQueryResult<SubmittedFileListResult> {
+      return useQuery({
+        queryKey: ['mock-submitted-files'],
+        queryFn: () => Promise.resolve({ available: true, files: [] }),
+        staleTime: Infinity,
+      });
+    },
+    useSubmittedFileContent(_path: string): UseQueryResult<SubmittedFileContentResult> {
+      return useQuery({
+        queryKey: ['mock-submitted-content'],
+        queryFn: () =>
+          Promise.resolve({
+            path: '',
+            content: '',
+            status: 'missing' as const,
+            verdict: 'unknown' as const,
+          }),
         staleTime: Infinity,
       });
     },
