@@ -47,7 +47,6 @@ import {
 } from '../../db/schema.js';
 import * as schema from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
-import type { StorageClient } from '../storage/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -78,7 +77,10 @@ async function seedMinimal(db: DrizzleDb): Promise<{
     .returning();
 
   const courseSlug = `cs61a-${uid.slice(0, 8)}`;
-  const [course] = await db.insert(courses).values({ name: 'CS 61A', slug: courseSlug }).returning();
+  const [course] = await db
+    .insert(courses)
+    .values({ name: 'CS 61A', slug: courseSlug })
+    .returning();
 
   const [semester] = await db
     .insert(semesters)
@@ -179,9 +181,7 @@ describe('Check 8 ingest regression (1.1 bundles)', () => {
         semester: 'fa2024',
         sessions: [
           {
-            events: [
-              { kind: 'doc.save', data: { path: 'hw01.py', sha256: recordedHash } },
-            ],
+            events: [{ kind: 'doc.save', data: { path: 'hw01.py', sha256: recordedHash } }],
           },
         ],
         submissionFiles: [{ path: 'hw01.py', status: 'present', content: tamperedContent }],

@@ -13,10 +13,7 @@ import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
 import { sha256Hex } from '@provenance/log-core';
-import {
-  extractSubmittedFiles,
-  extractSubmittedFileContent,
-} from './submitted-files.js';
+import { extractSubmittedFiles, extractSubmittedFileContent } from './submitted-files.js';
 
 // Wire SHA-512 for @noble/ed25519 (required in non-browser / Node environments).
 beforeAll(() => {
@@ -46,9 +43,7 @@ describe('extractSubmittedFiles', () => {
     const { zipBuffer } = await buildTestBundle({
       sessions: [
         {
-          events: [
-            { kind: 'doc.save', data: { path: 'hw03.py', sha256: fileHash } },
-          ],
+          events: [{ kind: 'doc.save', data: { path: 'hw03.py', sha256: fileHash } }],
         },
       ],
       submissionFiles: [{ path: 'hw03.py', status: 'present', content }],
@@ -73,9 +68,7 @@ describe('extractSubmittedFiles', () => {
     const { zipBuffer } = await buildTestBundle({
       sessions: [
         {
-          events: [
-            { kind: 'doc.save', data: { path: 'hw03.py', sha256: recordedHash } },
-          ],
+          events: [{ kind: 'doc.save', data: { path: 'hw03.py', sha256: recordedHash } }],
         },
       ],
       submissionFiles: [{ path: 'hw03.py', status: 'present', content: actualContent }],

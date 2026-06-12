@@ -225,7 +225,10 @@ export function createSubmissionsRouter(): Hono {
   // Shared blob helper (submitted-files routes only)
   // -------------------------------------------------------------------------
 
-  async function readBundleBlob(semesterId: string, submissionId: string): Promise<ArrayBuffer | null> {
+  async function readBundleBlob(
+    semesterId: string,
+    submissionId: string,
+  ): Promise<ArrayBuffer | null> {
     try {
       const cfg = getConfig();
       const storageClient = createStorageClient(storageConfigFromEnv(cfg));
