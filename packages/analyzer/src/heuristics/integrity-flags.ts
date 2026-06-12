@@ -94,7 +94,7 @@ const CHECK_META: Partial<Record<ValidationCheckId, CheckMeta>> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Convert failing ValidationReport checks (1, 2, 3, 5, 6) into Flag objects.
+ * Convert failing ValidationReport checks (1, 2, 3, 5, 6, 8) into Flag objects.
  *
  * The check's `supportingSeqs` field contains `{ sessionId, seq }` pairs
  * that identify the exact entries where failures were detected. We convert

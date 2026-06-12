@@ -231,6 +231,14 @@ describe('verifySubmittedCode (Check 8)', () => {
     expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('fail');
   });
 
+  it('fails on hashOk=false even when the chain is also broken (tamper is unconditional)', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'H', hashOk: false }],
+      events: [docSave('a.py', 'H')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: false }).status).toBe('fail');
+  });
+
   it('is skipped entirely on a 1.0 bundle (no submission files)', () => {
     const bundle = makeBundle({ submissionFiles: [], events: [docSave('a.py', 'H')] });
     expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('skipped');
