@@ -363,6 +363,8 @@ describe('Check 8 ingest regression (1.1 bundles)', () => {
     expect(valRow, 'validation_results row must exist').toBeDefined();
     // Check 8 passes: submitted content matches the last recorded doc.save hash.
     expect(valRow!.check_8_status).toBe('pass');
+    // A clean 1.1 bundle can now reach overall 'pass' (Check 8 is no longer skipped).
+    expect(valRow!.overall).toBe('pass');
 
     // Assert format_version stored in submissions row.
     const [subRow] = await db
