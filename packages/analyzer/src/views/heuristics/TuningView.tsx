@@ -56,6 +56,7 @@ const KNOWN_HEURISTIC_IDS = [
   'multiple_sessions_overlap',
   'editing_pattern_clone',
   'paste_shared_across_students',
+  'submitted_code_match',
 ] as const;
 
 // ---------------------------------------------------------------------------
