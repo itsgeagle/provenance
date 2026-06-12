@@ -20,7 +20,7 @@
 import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
 import { runValidation } from '@provenance/analyzer/src/validation/run-validation.js';
 import { submittedFileVerdicts } from '@provenance/analyzer/src/validation/verify-submitted-code.js';
-import type { SubmittedFileList, SubmittedFileContent } from '@provenance/shared/api-schemas.js';
+import type { SubmittedFileList, SubmittedFileContent } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
 // extractSubmittedFiles
