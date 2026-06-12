@@ -14,7 +14,7 @@
  */
 
 import type { Bundle } from '../loader/types.js';
-import type { ValidationReport } from './check-types.js';
+import type { ValidationCheck, ValidationReport } from './check-types.js';
 import { verifyManifestSig } from './verify-manifest-sig.js';
 import { verifySessionBinding } from './verify-session-binding.js';
 import { verifyChain } from './verify-chain.js';

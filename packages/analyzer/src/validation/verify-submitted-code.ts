@@ -175,8 +175,7 @@ export function verifySubmittedCode(
       id: 'submitted_code_match',
       label: 'Submitted code matches recorded final state',
       status: 'skipped',
-      detail:
-        'No submitted file could be checked (chain broken, missing, or no recorded state).',
+      detail: 'No submitted file could be checked (chain broken, missing, or no recorded state).',
     };
   }
   return {

@@ -85,8 +85,7 @@ const CHECK_META: Partial<Record<ValidationCheckId, CheckMeta>> = {
     title: 'Submitted code does not match the recording',
     severity: 'high',
     confidence: 1.0,
-    fallbackDescription:
-      'The submitted file differs from the last recorded on-disk state.',
+    fallbackDescription: 'The submitted file differs from the last recorded on-disk state.',
   },
 };
 

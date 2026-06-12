@@ -17,10 +17,7 @@ function resetSeq(): void {
   _seq = 0;
 }
 
-function makeEvent(
-  kind: string,
-  data: Record<string, unknown>,
-): HashedEnvelope {
+function makeEvent(kind: string, data: Record<string, unknown>): HashedEnvelope {
   const seq = _seq++;
   return {
     seq,
@@ -114,7 +111,14 @@ function makeBundle(opts: {
           assignment_id: 'hw1',
           semester: 'sp26',
           extension_hash: 'a'.repeat(64),
-          sessions: [{ session_id: 's1', prev_session_id: null, slog_sha256: 'x'.repeat(64), meta_sha256: 'y'.repeat(64) }],
+          sessions: [
+            {
+              session_id: 's1',
+              prev_session_id: null,
+              slog_sha256: 'x'.repeat(64),
+              meta_sha256: 'y'.repeat(64),
+            },
+          ],
           submission_files: opts.submissionFiles.map((f) => ({
             path: f.path,
             status: f.status,
@@ -126,7 +130,14 @@ function makeBundle(opts: {
           assignment_id: 'hw1',
           semester: 'sp26',
           extension_hash: 'a'.repeat(64),
-          sessions: [{ session_id: 's1', prev_session_id: null, slog_sha256: 'x'.repeat(64), meta_sha256: 'y'.repeat(64) }],
+          sessions: [
+            {
+              session_id: 's1',
+              prev_session_id: null,
+              slog_sha256: 'x'.repeat(64),
+              meta_sha256: 'y'.repeat(64),
+            },
+          ],
         };
 
   return {
