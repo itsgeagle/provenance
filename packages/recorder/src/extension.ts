@@ -460,6 +460,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
         provenanceDir,
         assignmentId: manifest.assignment_id,
         semester: manifest.semester,
+        filesUnderReview: manifest.files_under_review,
         sessionPrivkey: keypair.privateKey,
         sessionPubkeyHex: keypair.publicKeyHex,
         computeExtensionHash: () => computeExtensionHash(extensionDistPath),
@@ -470,12 +471,13 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
         void vscode.window.showInformationMessage(
           `Provenance bundle saved to ${result.bundlePath}`,
         );
+        if (result.warnings.chainBroken || result.warnings.unreadableSession) {
+          void vscode.window.showWarningMessage(
+            'Provenance bundle produced. Integrity issues were detected in the recording and will be reviewed by course staff.',
+          );
+        }
       } else if (result.kind === 'no_sessions') {
         void vscode.window.showWarningMessage('No session data to seal.');
-      } else if (result.kind === 'chain_broken') {
-        void vscode.window.showErrorMessage(
-          `Session ${result.sessionId} chain broken: ${result.reason}`,
-        );
       } else if (result.kind === 'write_error') {
         void vscode.window.showErrorMessage(`Bundle write error: ${result.message}`);
       }
