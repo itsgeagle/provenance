@@ -185,6 +185,7 @@ export async function reconstructBundleFromDb(
     sessions,
     sourceFilename: `reconstruct-stub-${submissionId}`,
     loadedAt: new Date().toISOString(),
+    submissionFiles: new Map(),
   };
 
   // -------------------------------------------------------------------------

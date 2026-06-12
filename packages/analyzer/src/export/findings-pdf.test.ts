@@ -83,6 +83,7 @@ function makeBundle(): Bundle {
     ],
     sourceFilename: 'hw1-submission.zip',
     loadedAt: '2026-01-01T00:00:00.000Z',
+    submissionFiles: new Map(),
   };
 }
 

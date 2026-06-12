@@ -106,6 +106,7 @@ function makeSyntheticBundle(totalEvents: number): Bundle {
     ],
     sourceFilename: 'test.zip',
     loadedAt: new Date().toISOString(),
+    submissionFiles: new Map(),
   };
 }
 
