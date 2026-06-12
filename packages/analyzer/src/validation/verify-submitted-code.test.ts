@@ -1,0 +1,236 @@
+/**
+ * Tests for Check 8 — verify-submitted-code.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { verifySubmittedCode } from './verify-submitted-code.js';
+import type { Bundle, ParsedSession } from '../loader/types.js';
+import type { HashedEnvelope, SlogMeta, BundleManifest } from '@provenance/log-core';
+
+// ---------------------------------------------------------------------------
+// Minimal Bundle fixture helpers
+// ---------------------------------------------------------------------------
+
+let _seq = 0;
+
+function resetSeq(): void {
+  _seq = 0;
+}
+
+function makeEvent(
+  kind: string,
+  data: Record<string, unknown>,
+): HashedEnvelope {
+  const seq = _seq++;
+  return {
+    seq,
+    t: seq * 1000,
+    wall: `2026-01-01T00:${String(seq).padStart(2, '0')}:00.000Z`,
+    kind: kind as HashedEnvelope['kind'],
+    data,
+    prev_hash: 'prev'.padEnd(64, '0'),
+    hash: 'hash'.padEnd(64, '0'),
+  } as unknown as HashedEnvelope;
+}
+
+function docSave(path: string, sha: string): HashedEnvelope {
+  return makeEvent('doc.save', { path, sha256: sha });
+}
+
+function docOpen(path: string, sha: string): HashedEnvelope {
+  return makeEvent('doc.open', { path, sha256: sha });
+}
+
+function fsExternal(path: string, oldHash: string, newHash: string): HashedEnvelope {
+  return makeEvent('fs.external_change', { path, old_hash: oldHash, new_hash: newHash });
+}
+
+function sessionStart(): HashedEnvelope {
+  return makeEvent('session.start', {
+    format_version: '1.0',
+    session_id: 's1',
+    prev_session_id: null,
+    assignment: { id: 'hw1', semester: 'sp26' },
+    manifest_sig: 'sig',
+    machine_id: 'machine',
+    vscode: { version: '1.90.0', commit: '', platform: 'darwin' },
+    recorder: { version: '0.0.1', extension_id: 'provenance.recorder' },
+    session_pubkey: 'pk',
+  });
+}
+
+type SubmissionFileInput = {
+  path: string;
+  status: 'present' | 'missing';
+  sha256: string | null;
+  hashOk: boolean;
+};
+
+function makeBundle(opts: {
+  submissionFiles: SubmissionFileInput[];
+  events: HashedEnvelope[];
+}): Bundle {
+  resetSeq();
+
+  const allEvents: HashedEnvelope[] = [sessionStart(), ...opts.events];
+
+  const fakeMeta: SlogMeta = {
+    format_version: '1.0',
+    session_id: 's1',
+    session_pubkey: 'pk',
+    encrypted_session_privkey: {
+      algorithm: 'xchacha20-poly1305-hkdf-sha256-v1',
+      nonce: 'ab'.repeat(12),
+      ciphertext: 'cd'.repeat(48),
+      salt: 'ef'.repeat(16),
+      info: 'provenance-session-v1',
+    },
+    checkpoints: [],
+  };
+
+  const session: ParsedSession = {
+    sessionId: 's1',
+    events: allEvents,
+    meta: fakeMeta,
+    firstEvent: allEvents[0] as ParsedSession['firstEvent'],
+  };
+
+  const submissionFilesMap = new Map<
+    string,
+    { status: 'present' | 'missing'; sha256: string | null; bytes?: Uint8Array; hashOk: boolean }
+  >();
+  for (const f of opts.submissionFiles) {
+    submissionFilesMap.set(f.path, {
+      status: f.status,
+      sha256: f.sha256,
+      hashOk: f.hashOk,
+    });
+  }
+
+  const manifest: BundleManifest =
+    opts.submissionFiles.length > 0
+      ? {
+          format_version: '1.1',
+          assignment_id: 'hw1',
+          semester: 'sp26',
+          extension_hash: 'a'.repeat(64),
+          sessions: [{ session_id: 's1', prev_session_id: null, slog_sha256: 'x'.repeat(64), meta_sha256: 'y'.repeat(64) }],
+          submission_files: opts.submissionFiles.map((f) => ({
+            path: f.path,
+            status: f.status,
+            sha256: f.sha256,
+          })),
+        }
+      : {
+          format_version: '1.0',
+          assignment_id: 'hw1',
+          semester: 'sp26',
+          extension_hash: 'a'.repeat(64),
+          sessions: [{ session_id: 's1', prev_session_id: null, slog_sha256: 'x'.repeat(64), meta_sha256: 'y'.repeat(64) }],
+        };
+
+  return {
+    id: 'test-bundle',
+    manifest,
+    manifestSigHex: 'sig'.padEnd(128, '0'),
+    sessions: [session],
+    sourceFilename: 'test.zip',
+    loadedAt: '2026-01-01T00:00:00.000Z',
+    submissionFiles: submissionFilesMap,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('verifySubmittedCode (Check 8)', () => {
+  it('passes when submitted hash equals the last recorded on-disk hash', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'H', hashOk: true }],
+      events: [docSave('a.py', 'H')],
+    });
+    const check = verifySubmittedCode(bundle, { chainIntact: true });
+    expect(check.status).toBe('pass');
+  });
+
+  it('fails when submitted hash differs and the chain is intact', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'X', hashOk: true }],
+      events: [docSave('a.py', 'H')],
+    });
+    const check = verifySubmittedCode(bundle, { chainIntact: true });
+    expect(check.status).toBe('fail');
+    expect(check.supportingSeqs?.length).toBeGreaterThan(0);
+  });
+
+  it('uses fs.external_change new_hash as the latest on-disk hash', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'N', hashOk: true }],
+      events: [docSave('a.py', 'H'), fsExternal('a.py', 'H', 'N')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('pass');
+  });
+
+  it('uses doc.open sha256 as a recorded on-disk hash', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'O', hashOk: true }],
+      events: [docOpen('a.py', 'O')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('pass');
+  });
+
+  it('uses the LAST event when multiple events record a hash for the same file', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'FINAL', hashOk: true }],
+      events: [docSave('a.py', 'FIRST'), docSave('a.py', 'FINAL')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('pass');
+  });
+
+  it('skips when the chain is broken', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'X', hashOk: true }],
+      events: [docSave('a.py', 'H')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: false }).status).toBe('skipped');
+  });
+
+  it('skips a file with no usable events', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'X', hashOk: true }],
+      events: [],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('skipped');
+  });
+
+  it('skips a missing file', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'missing', sha256: null, hashOk: true }],
+      events: [docSave('a.py', 'H')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('skipped');
+  });
+
+  it('fails when present bytes failed the bundle self-check (hashOk false)', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'H', hashOk: false }],
+      events: [docSave('a.py', 'H')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('fail');
+  });
+
+  it('is skipped entirely on a 1.0 bundle (no submission files)', () => {
+    const bundle = makeBundle({ submissionFiles: [], events: [docSave('a.py', 'H')] });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('skipped');
+  });
+
+  it('emits id = submitted_code_match', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'H', hashOk: true }],
+      events: [docSave('a.py', 'H')],
+    });
+    const check = verifySubmittedCode(bundle, { chainIntact: true });
+    expect(check.id).toBe('submitted_code_match');
+  });
+});
