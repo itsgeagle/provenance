@@ -890,3 +890,29 @@ export const AuditListResponseSchema = z.object({
   next_cursor: z.string().nullable(),
 });
 export type AuditListResponse = z.infer<typeof AuditListResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Submission bundle — submitted files (Group E / Task F1)
+// ---------------------------------------------------------------------------
+
+export const SubmittedFileEntrySchema = z.object({
+  path: z.string(),
+  status: z.enum(['present', 'missing']),
+  verdict: z.enum(['match', 'mismatch', 'unknown']),
+  sha256: z.string().nullable(),
+});
+export type SubmittedFileEntry = z.infer<typeof SubmittedFileEntrySchema>;
+
+export const SubmittedFileListSchema = z.object({
+  available: z.boolean(),
+  files: z.array(SubmittedFileEntrySchema),
+});
+export type SubmittedFileList = z.infer<typeof SubmittedFileListSchema>;
+
+export const SubmittedFileContentSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  status: z.enum(['present', 'missing']),
+  verdict: z.enum(['match', 'mismatch', 'unknown']),
+});
+export type SubmittedFileContent = z.infer<typeof SubmittedFileContentSchema>;
