@@ -22,6 +22,8 @@ import {
   SubmissionSummarySchema,
   FlagRowSchema,
   EventRowSchema,
+  SubmittedFileListSchema,
+  SubmittedFileContentSchema,
 } from '@provenance/shared/api-schemas';
 import { z } from 'zod';
 import type {
@@ -33,6 +35,8 @@ import type {
   FileProvenanceResult,
   ProvenanceRun,
   EventQueryFilters,
+  SubmittedFileListResult,
+  SubmittedFileContentResult,
 } from './SubmissionDataProvider.js';
 import type { FlagRow, EventRow, SubmissionSummary } from '@provenance/shared/api-schemas';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -259,6 +263,37 @@ function createApiSubmissionDataProvider(submissionId: string): SubmissionDataPr
         staleTime: 5 * 60 * 1000,
         retry: noRetryOn401,
         enabled: submissionId !== '' && path !== '',
+      });
+    },
+
+    useSubmittedFiles(): UseQueryResult<SubmittedFileListResult> {
+      return useQuery({
+        queryKey: ['submission', submissionId, 'submitted-files'],
+        queryFn: () =>
+          apiFetch(
+            `/submissions/${submissionId}/submitted-files`,
+            undefined,
+            SubmittedFileListSchema,
+          ),
+        staleTime: 30 * 1000,
+        retry: noRetryOn401,
+        enabled: submissionId !== '',
+      });
+    },
+
+    useSubmittedFileContent(path: string): UseQueryResult<SubmittedFileContentResult> {
+      const encoded = encodeURIComponent(path);
+      return useQuery({
+        queryKey: ['submission', submissionId, 'submitted-content', path],
+        queryFn: () =>
+          apiFetch(
+            `/submissions/${submissionId}/submitted-files/${encoded}`,
+            undefined,
+            SubmittedFileContentSchema,
+          ),
+        staleTime: 5 * 60 * 1000,
+        retry: noRetryOn401,
+        enabled: submissionId !== '' && path.length > 0,
       });
     },
   };
