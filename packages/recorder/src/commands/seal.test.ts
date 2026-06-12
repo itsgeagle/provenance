@@ -10,9 +10,10 @@
  *    - manifest.sig verifies under the supplied sessionPubkeyHex.
  *    - All .slog + .meta files are present in the ZIP.
  *    - slog_sha256 / meta_sha256 in the manifest match the actual file hashes.
- * 4. One session with a broken chain → chain_broken.
- * 5. Session with malformed JSON → chain_broken.
+ * 4. One session with a broken chain → ok with warnings.chainBroken (always seal).
+ * 5. Session with malformed JSON → ok with warnings.unreadableSession (always seal).
  * 6. Bundle ZIP filename contains the assignment_id and a timestamp.
+ * 7. Bundle includes present reviewed files at zip root; marks missing ones.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -117,6 +118,7 @@ async function buildDeps(
   provenanceDir: string,
   outputDir: string,
   keypair: Awaited<ReturnType<typeof generateSessionKeypair>>,
+  filesUnderReview: readonly string[] = [],
 ): Promise<SealDeps> {
   return {
     workspaceFolder: {
@@ -127,12 +129,53 @@ async function buildDeps(
     provenanceDir,
     assignmentId: TEST_ASSIGNMENT_ID,
     semester: TEST_SEMESTER,
+    filesUnderReview,
     sessionPrivkey: keypair.privateKey,
     sessionPubkeyHex: keypair.publicKeyHex,
     computeExtensionHash: async () => 'a'.repeat(64),
     outputDir,
     now: () => new Date('2026-05-19T14:30:00.000Z'),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Workspace helpers for B1/B2 tests (workspace root = outputDir for simplicity)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a workspace with a single valid session. Returns deps with
+ * workspaceFolder.uri.fsPath pointing at the outputDir (which is also the
+ * workspace root used to resolve filesUnderReview).
+ * Exposes slogPath for B2's corruption test.
+ */
+async function makeWorkspaceWithValidSession(): Promise<{
+  root: string;
+  slogPath: string;
+  deps: SealDeps;
+}> {
+  const keypair = await generateSessionKeypair();
+  const slogContent = buildCompleteSlog(TEST_SESSION_ID);
+  const slogFilename = 'session-ws.slog';
+  const slogPath = path.join(provenanceDir, slogFilename);
+  await fsPromises.writeFile(slogPath, slogContent, 'utf8');
+
+  const deps: SealDeps = {
+    workspaceFolder: {
+      uri: { fsPath: outputDir } as import('vscode').Uri,
+      name: 'test-workspace',
+      index: 0,
+    } as import('vscode').WorkspaceFolder,
+    provenanceDir,
+    assignmentId: TEST_ASSIGNMENT_ID,
+    semester: TEST_SEMESTER,
+    filesUnderReview: [],
+    sessionPrivkey: keypair.privateKey,
+    sessionPubkeyHex: keypair.publicKeyHex,
+    computeExtensionHash: async () => 'a'.repeat(64),
+    outputDir,
+    now: () => new Date('2026-05-19T14:30:00.000Z'),
+  };
+  return { root: outputDir, slogPath, deps };
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +233,7 @@ describe('sealBundle', () => {
     expect(result.kind).toBe('no_sessions');
   });
 
-  it('returns chain_broken for a .slog with broken chain', async () => {
+  it('produces a bundle with warnings.chainBroken for a .slog with broken chain', async () => {
     const brokenSlog = buildBrokenChainSlog();
     await fsPromises.writeFile(path.join(provenanceDir, 'session-bad.slog'), brokenSlog, 'utf8');
 
@@ -199,14 +242,18 @@ describe('sealBundle', () => {
 
     const result = await sealBundle(deps);
 
-    expect(result.kind).toBe('chain_broken');
-    if (result.kind === 'chain_broken') {
-      expect(result.sessionId).toBeTruthy();
-      expect(result.reason).toBeTruthy();
-    }
+    // Behavior change (spec deliberate): broken chain no longer aborts. Bundle is always sealed.
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.warnings.chainBroken).toBe(true);
+    expect(result.warnings.unreadableSession).toBe(false);
+
+    // The bundle is still written and the .slog bytes are included.
+    const zip = await JSZip.loadAsync(await fsPromises.readFile(result.bundlePath));
+    expect(Object.keys(zip.files).some((n) => n.endsWith('.slog'))).toBe(true);
   });
 
-  it('returns chain_broken for a .slog with malformed JSON', async () => {
+  it('produces a bundle with warnings.unreadableSession for a .slog with malformed JSON', async () => {
     await fsPromises.writeFile(
       path.join(provenanceDir, 'session-malformed.slog'),
       'not json at all\n',
@@ -218,7 +265,10 @@ describe('sealBundle', () => {
 
     const result = await sealBundle(deps);
 
-    expect(result.kind).toBe('chain_broken');
+    // Behavior change (spec deliberate): unreadable session no longer aborts.
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.warnings.unreadableSession).toBe(true);
   });
 
   it('produces a valid bundle for a complete session', async () => {
@@ -279,7 +329,7 @@ describe('sealBundle', () => {
     if (!shapeResult.ok) return;
 
     const manifest = shapeResult.value;
-    expect(manifest.format_version).toBe('1.0');
+    expect(manifest.format_version).toBe('1.1');
     expect(manifest.assignment_id).toBe(TEST_ASSIGNMENT_ID);
     expect(manifest.semester).toBe(TEST_SEMESTER);
     expect(manifest.extension_hash).toMatch(/^[0-9a-f]{64}$/);
@@ -405,5 +455,66 @@ describe('sealBundle', () => {
 
     expect(result.bundlePath.startsWith(customOutputDir)).toBe(true);
     await expect(fsPromises.access(result.bundlePath)).resolves.toBeUndefined();
+  });
+
+  // B1: bundle reviewed files at zip root, mark missing ones
+  it('bundles present reviewed files at the zip root and marks missing ones', async () => {
+    const ws = await makeWorkspaceWithValidSession();
+    // hw03.py lives in the workspace root (= outputDir in test setup).
+    await fsPromises.writeFile(path.join(ws.root, 'hw03.py'), 'print(1)\n', 'utf8');
+
+    const result = await sealBundle({
+      ...ws.deps,
+      filesUnderReview: ['hw03.py', 'missing.py'],
+    });
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+
+    // No chain/session issues.
+    expect(result.warnings.chainBroken).toBe(false);
+    expect(result.warnings.unreadableSession).toBe(false);
+
+    const zip = await JSZip.loadAsync(await fsPromises.readFile(result.bundlePath));
+    const manifestRaw = await zip.file('manifest.json')!.async('string');
+    const manifest = JSON.parse(manifestRaw) as {
+      format_version: string;
+      submission_files: Array<{ path: string; status: string; sha256: string | null }>;
+    };
+
+    // Manifest must be 1.1 with submission_files.
+    expect(manifest.format_version).toBe('1.1');
+    const byPath = Object.fromEntries(manifest.submission_files.map((f) => [f.path, f]));
+    expect(byPath['hw03.py']!.status).toBe('present');
+    expect(byPath['hw03.py']!.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(byPath['missing.py']).toEqual({ path: 'missing.py', status: 'missing', sha256: null });
+
+    // Bytes at the zip root.
+    expect(zip.file('hw03.py')).not.toBeNull();
+    expect(await zip.file('hw03.py')!.async('string')).toBe('print(1)\n');
+    expect(zip.file('missing.py')).toBeNull();
+  });
+
+  // B2: still produces a bundle when a slog chain is broken
+  it('still produces a bundle when a slog chain is broken, and warns', async () => {
+    const ws = await makeWorkspaceWithValidSession();
+    await fsPromises.writeFile(path.join(ws.root, 'hw03.py'), 'x=1\n', 'utf8');
+
+    // Corrupt the chain: flip the hash field of the second entry.
+    const lines = (await fsPromises.readFile(ws.slogPath, 'utf8')).split('\n').filter(Boolean);
+    const obj = JSON.parse(lines[1]!) as Record<string, unknown>;
+    obj['hash'] = 'f'.repeat(64); // wrong hash → chain break at this entry
+    lines[1] = JSON.stringify(obj);
+    await fsPromises.writeFile(ws.slogPath, lines.join('\n') + '\n', 'utf8');
+
+    const result = await sealBundle({ ...ws.deps, filesUnderReview: ['hw03.py'] });
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.warnings.chainBroken).toBe(true);
+
+    // Bundle still contains the (tampered) slog bytes.
+    const zip = await JSZip.loadAsync(await fsPromises.readFile(result.bundlePath));
+    expect(Object.keys(zip.files).some((n) => n.endsWith('.slog'))).toBe(true);
   });
 });
