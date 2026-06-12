@@ -122,12 +122,14 @@ export function createV1App(): Hono {
   //        /cross-flags/:crossFlagId (GET — top-level)
   app.route('/', createCrossFlagsRouter());
 
-  // Per-submission routes (Phase 17).
+  // Per-submission routes (Phase 17 + Group F).
   // Paths: /submissions/:submissionId (GET)
   //        /submissions/:submissionId/flags (GET)
   //        /submissions/:submissionId/stats (GET)
   //        /submissions/:submissionId/validation (GET)
   //        /submissions/:submissionId/files (GET)
+  //        /submissions/:submissionId/submitted-files (GET)
+  //        /submissions/:submissionId/submitted-files/:path{.+} (GET)
   app.route('/', createSubmissionsRouter());
 
   // Events routes (Phase 17).
