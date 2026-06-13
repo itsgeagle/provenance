@@ -76,7 +76,9 @@ describe('ai_extension_active — negative', () => {
     expect(flags).toHaveLength(0);
   });
 
-  it('produces no flags when knownAiExtensions list is empty', async () => {
+  it('still flags built-in known AI extensions when the course list is empty', async () => {
+    // The course list is additive on top of the built-in classifier; emptying
+    // it does not disable detection of a recognized AI extension.
     const emptyConfig = mergeConfig({ aiExtensionActive: { knownAiExtensions: [] } });
     const { index, bundle } = await buildAndIndex({
       sessions: [
@@ -86,6 +88,28 @@ describe('ai_extension_active — negative', () => {
               kind: 'ext.snapshot',
               data: {
                 extensions: [{ id: 'GitHub.copilot', version: '1.0.0', enabled: true }],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = aiExtensionActiveHeuristic.run(index, bundle, emptyConfig);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.confidence).toBe(0.9);
+    expect(flags[0]!.detail!['matchTier']).toBe('curated');
+  });
+
+  it('does not flag a non-AI extension even when the course list is empty', async () => {
+    const emptyConfig = mergeConfig({ aiExtensionActive: { knownAiExtensions: [] } });
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'ext.snapshot',
+              data: {
+                extensions: [{ id: 'esbenp.prettier-vscode', version: '10.0.0', enabled: true }],
               },
             },
           ],
@@ -149,6 +173,74 @@ describe('ai_extension_active — positive (ext.snapshot)', () => {
     const extIds = flags.map((f) => f.detail!['extensionId']);
     expect(extIds).toContain('GitHub.copilot');
     expect(extIds).toContain('Codeium.codeium');
+  });
+});
+
+describe('ai_extension_active — confidence tiers', () => {
+  it('flags a curated id (not on the course list) at 0.9 with curated tier', async () => {
+    // Claude Code is in the built-in curated set but not in testConfig's list.
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'ext.snapshot',
+              data: {
+                extensions: [{ id: 'anthropic.claude-code', version: '1.0.0', enabled: true }],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = aiExtensionActiveHeuristic.run(index, bundle, testConfig);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.confidence).toBe(0.9);
+    expect(flags[0]!.detail!['matchTier']).toBe('curated');
+    expect(flags[0]!.detail!['aiReason']).toBe('known AI extension');
+  });
+
+  it('flags a token-only match at reduced confidence 0.6 with token tier', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'ext.snapshot',
+              data: {
+                extensions: [{ id: 'somevendor.gpt-helper', version: '0.1.0', enabled: true }],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = aiExtensionActiveHeuristic.run(index, bundle, testConfig);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.confidence).toBe(0.6);
+    expect(flags[0]!.detail!['matchTier']).toBe('token');
+    expect(flags[0]!.detail!['aiReason']).toBe("id contains 'gpt'");
+  });
+
+  it('flags a course-list id at 0.9 with reason "on course AI-tool list"', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'ext.snapshot',
+              data: {
+                extensions: [{ id: 'GitHub.copilot', version: '1.0.0', enabled: true }],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = aiExtensionActiveHeuristic.run(index, bundle, testConfig);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.confidence).toBe(0.9);
+    expect(flags[0]!.detail!['aiReason']).toBe('on course AI-tool list');
   });
 });
 
