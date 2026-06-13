@@ -116,7 +116,8 @@ function UploadModal({ semesterId, onClose, onCommitted }: UploadModalProps) {
                 <div className="font-medium">{diff.parsed_rows}</div>
                 <div className="text-green-700">To add</div>
                 <div className="font-medium text-green-700" data-testid="diff-to-add">
-                  +{diff.to_add}
+                  {diff.to_add > 0 ? '+' : ''}
+                  {diff.to_add}
                 </div>
                 <div className="text-yellow-700">To update</div>
                 <div className="font-medium text-yellow-700" data-testid="diff-to-update">
@@ -124,7 +125,8 @@ function UploadModal({ semesterId, onClose, onCommitted }: UploadModalProps) {
                 </div>
                 <div className="text-red-700">To delete</div>
                 <div className="font-medium text-red-700" data-testid="diff-to-delete">
-                  −{diff.to_delete}
+                  {diff.to_delete > 0 ? '−' : ''}
+                  {diff.to_delete}
                 </div>
               </div>
 
