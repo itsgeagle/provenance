@@ -2,9 +2,9 @@
  * Actions — top-of-overview action bar.
  *
  * Buttons:
- *   - "View Replay" — navigates to /replay/<first-session-id>. Disabled when
+ *   - "View Replay" — navigates to /local/replay/<first-session-id>. Disabled when
  *      no bundle is loaded.
- *   - "Open Raw Timeline" — navigates to /timeline.
+ *   - "Open Raw Timeline" — navigates to /local/timeline.
  *   - "Export Findings (Markdown)" — Phase 8, wired via <ExportMarkdownButton />.
  *   - "Export Findings (PDF)" — Phase 19, wired via <ExportPdfButton />.
  *

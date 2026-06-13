@@ -12,7 +12,7 @@
  * Resolving globalIdx from seqKey:
  *   seqKey = "${sessionId}:${seq}"
  *   globalIdx = index.bySeq.get(seqKey)?.globalIdx
- *   The replay route is /replay/:sessionId?event=:globalIdx
+ *   The replay route is /local/replay/:sessionId?event=:globalIdx
  */
 
 import { useNavigate } from 'react-router-dom';
@@ -52,12 +52,12 @@ function SupportingEventRow({ seqKey, globalIdx }: SupportingEventRowProps) {
   const label = isNaN(seqNum) ? seqKey : `seq #${seqNum} (session ${sessionId.slice(0, 8)}…)`;
 
   const handleJumpTimeline = () => {
-    void navigate(`/timeline?seq=${seqKey}`);
+    void navigate(`/local/timeline?seq=${seqKey}`);
   };
 
   const handleJumpReplay = () => {
     if (globalIdx === null) return;
-    void navigate(`/replay/${sessionId}?event=${globalIdx}`);
+    void navigate(`/local/replay/${sessionId}?event=${globalIdx}`);
   };
 
   return (

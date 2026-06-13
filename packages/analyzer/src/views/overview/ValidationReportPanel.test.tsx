@@ -32,7 +32,7 @@ function renderPanel(report = fixtureReport) {
     <MemoryRouter initialEntries={['/overview']}>
       <Routes>
         <Route path="/overview" element={<ValidationReportPanel report={report} />} />
-        <Route path="/timeline" element={<div data-testid="timeline-page" />} />
+        <Route path="/local/timeline" element={<div data-testid="timeline-page" />} />
       </Routes>
       <LocationCapture
         onLocation={(l) => {
@@ -76,13 +76,13 @@ describe('ValidationReportPanel', () => {
     expect(screen.getByTestId('overall-badge').textContent).toBe('FAIL');
   });
 
-  it('failing check row with supportingSeqs navigates to /timeline?seq=', () => {
+  it('failing check row with supportingSeqs navigates to /local/timeline?seq=', () => {
     const { getLocation } = renderPanel();
 
     const row = screen.getByTestId('check-row-chain_integrity');
     fireEvent.click(row);
 
-    expect(getLocation()).toBe('/timeline?seq=abc:4');
+    expect(getLocation()).toBe('/local/timeline?seq=abc:4');
   });
 
   it('failing check with keyboard Enter also navigates', () => {
@@ -91,7 +91,7 @@ describe('ValidationReportPanel', () => {
     const row = screen.getByTestId('check-row-chain_integrity');
     fireEvent.keyDown(row, { key: 'Enter' });
 
-    expect(getLocation()).toBe('/timeline?seq=abc:4');
+    expect(getLocation()).toBe('/local/timeline?seq=abc:4');
   });
 
   it('failing check with keyboard Space also navigates', () => {
@@ -100,7 +100,7 @@ describe('ValidationReportPanel', () => {
     const row = screen.getByTestId('check-row-chain_integrity');
     fireEvent.keyDown(row, { key: ' ' });
 
-    expect(getLocation()).toBe('/timeline?seq=abc:4');
+    expect(getLocation()).toBe('/local/timeline?seq=abc:4');
   });
 
   it('pass row does not have role=button', () => {

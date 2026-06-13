@@ -230,7 +230,7 @@ function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
   const handleReplayClick = (e: React.MouseEvent) => {
     // Prevent the row's onClick (select event) from also firing.
     e.stopPropagation();
-    void navigate(`/replay/${event.sessionId}?event=${event.globalIdx}`);
+    void navigate(`/local/replay/${event.sessionId}?event=${event.globalIdx}`);
   };
 
   return (

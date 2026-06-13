@@ -4,7 +4,7 @@
  * Tests:
  * - Renders trigger but not drawer content before opening.
  * - Click trigger opens the drawer (flag title, severity, description visible).
- * - Supporting event rows rendered; jump buttons navigate to /timeline?seq=.
+ * - Supporting event rows rendered; jump buttons navigate to /local/timeline?seq=.
  * - Detail JSON rendered when flag has detail.
  * - Flags with no supportingSeqs show no supporting-events section.
  * - Flags with no detail show no detail-json section.
@@ -68,8 +68,8 @@ function renderDrawer(flagIndex = 0) {
             </HeuristicDetailDrawer>
           }
         />
-        <Route path="/timeline" element={<div data-testid="timeline-page" />} />
-        <Route path="/replay/:sessionId" element={<div data-testid="replay-page" />} />
+        <Route path="/local/timeline" element={<div data-testid="timeline-page" />} />
+        <Route path="/local/replay/:sessionId" element={<div data-testid="replay-page" />} />
       </Routes>
       <LocationCapture
         onLocation={(l) => {
@@ -120,18 +120,18 @@ describe('HeuristicDetailDrawer', () => {
     expect(screen.getByTestId('jump-btn-abc:3')).toBeInTheDocument();
   });
 
-  it('jump button navigates to /timeline?seq=', () => {
+  it('jump button navigates to /local/timeline?seq=', () => {
     const { getLocation } = renderDrawer(0);
     fireEvent.click(screen.getByTestId('open-btn'));
     fireEvent.click(screen.getByTestId('jump-btn-abc:2'));
-    expect(getLocation()).toBe('/timeline?seq=abc:2');
+    expect(getLocation()).toBe('/local/timeline?seq=abc:2');
   });
 
   it('second jump button navigates with correct seq', () => {
     const { getLocation } = renderDrawer(0);
     fireEvent.click(screen.getByTestId('open-btn'));
     fireEvent.click(screen.getByTestId('jump-btn-abc:3'));
-    expect(getLocation()).toBe('/timeline?seq=abc:3');
+    expect(getLocation()).toBe('/local/timeline?seq=abc:3');
   });
 
   it('detail JSON is rendered when flag has detail', () => {
@@ -171,11 +171,11 @@ describe('HeuristicDetailDrawer', () => {
     expect(replayBtn).not.toBeDisabled();
   });
 
-  it('replay button navigates to /replay/:sessionId?event=:globalIdx', () => {
+  it('replay button navigates to /local/replay/:sessionId?event=:globalIdx', () => {
     // Flag 0: supporting seq abc:2 → globalIdx 2 (from makeMinimalIndex bySeq)
     const { getLocation } = renderDrawer(0);
     fireEvent.click(screen.getByTestId('open-btn'));
     fireEvent.click(screen.getByTestId('jump-replay-btn-abc:2'));
-    expect(getLocation()).toBe('/replay/abc?event=2');
+    expect(getLocation()).toBe('/local/replay/abc?event=2');
   });
 });

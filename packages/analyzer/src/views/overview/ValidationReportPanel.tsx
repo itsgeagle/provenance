@@ -41,7 +41,7 @@ function CheckRow({ check }: { check: ValidationCheck }) {
   const handleClick = () => {
     if (!isClickable || !check.supportingSeqs) return;
     const first = check.supportingSeqs[0]!;
-    void navigate(`/timeline?seq=${first.sessionId}:${first.seq}`);
+    void navigate(`/local/timeline?seq=${first.sessionId}:${first.seq}`);
   };
 
   const rowBase = 'flex items-start gap-3 rounded-md px-3 py-2.5 transition-colors';
