@@ -49,6 +49,7 @@ function makeSyntheticBundle(totalEvents: number, sessionCount = 1): Bundle {
     sessions,
     sourceFilename: 'test.zip',
     loadedAt: new Date().toISOString(),
+    submissionFiles: new Map(),
   };
 }
 

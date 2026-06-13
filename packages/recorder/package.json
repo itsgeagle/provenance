@@ -2,7 +2,7 @@
   "name": "provenance-recorder",
   "displayName": "CS 61A Provenance",
   "description": "Academic integrity telemetry for CS 61A assignments.",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "private": true,
   "publisher": "berkeley-cs61a",
   "type": "module",

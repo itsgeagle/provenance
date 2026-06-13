@@ -80,6 +80,28 @@ export type FileProvenanceResult = {
   at_seq: number;
 };
 
+export type SubmittedFileEntry = {
+  path: string;
+  status: 'present' | 'missing';
+  /** 'match' | 'mismatch' | 'unknown' — Check 8 verdict for this file. */
+  verdict: 'match' | 'mismatch' | 'unknown';
+  sha256: string | null;
+};
+
+export type SubmittedFileListResult = {
+  files: SubmittedFileEntry[];
+  /** False when the bundle blob is gone (server, post-retention). */
+  available: boolean;
+};
+
+export type SubmittedFileContentResult = {
+  path: string;
+  /** UTF-8 decoded content. */
+  content: string;
+  status: 'present' | 'missing';
+  verdict: 'match' | 'mismatch' | 'unknown';
+};
+
 export type EventQueryFilters = {
   kind?: string[];
   seqFrom?: number;
@@ -122,6 +144,12 @@ export interface SubmissionDataProvider {
 
   /** File provenance (RLE-encoded attribution runs) at a specific event sequence. */
   useFileProvenance(path: string, atSeq?: number): UseQueryResult<FileProvenanceResult>;
+
+  /** Submitted files (final on-disk bytes) + per-file Check 8 verdict. 1.1+ only. */
+  useSubmittedFiles(): UseQueryResult<SubmittedFileListResult>;
+
+  /** Submitted content of one file (UTF-8). */
+  useSubmittedFileContent(path: string): UseQueryResult<SubmittedFileContentResult>;
 }
 
 // ---------------------------------------------------------------------------

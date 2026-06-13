@@ -329,6 +329,69 @@ export const submissionsPaths = {
       },
     },
   },
+  '/submissions/{submissionId}/submitted-files': {
+    get: {
+      tags: ['Submissions'],
+      summary: 'List submitted files with Check 8 verdicts',
+      description:
+        'Returns per-file verdicts from the bundle blob. Returns available:false when the blob has been swept by retention. Student source is never persisted in Postgres.',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+      ],
+      responses: {
+        '200': {
+          description: 'Submitted file list (available:false when blob is gone)',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SubmittedFileList' },
+            },
+          },
+        },
+        '404': { description: 'NOT_FOUND (submission does not exist or no access)' },
+      },
+    },
+  },
+  '/submissions/{submissionId}/submitted-files/{path}': {
+    get: {
+      tags: ['Submissions'],
+      summary: 'Get UTF-8 content of one submitted file',
+      description:
+        'Returns the decoded bytes of a single submitted file plus its Check 8 verdict. The path may contain slashes — encode with encodeURIComponent.',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'submissionId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'path',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+          description: 'URL-encoded file path (may contain slashes)',
+        },
+      ],
+      responses: {
+        '200': {
+          description: 'File content with verdict',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SubmittedFileContent' },
+            },
+          },
+        },
+        '404': { description: 'NOT_FOUND (submission, blob, or file path not found)' },
+      },
+    },
+  },
 
   // =========================================================================
   // Heuristic config §8.11

@@ -133,4 +133,50 @@ describe('unzipBundle', () => {
     if (result.error.kind !== 'unexpected_file') return;
     expect(result.error.filename).toBe('README.txt');
   });
+
+  // ---------------------------------------------------------------------------
+  // 1.1 bundle — submission file whitelisting (Task C1)
+  // ---------------------------------------------------------------------------
+
+  it('accepts submission files listed in the manifest and returns their bytes', async () => {
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [{ path: 'hw03.py', status: 'present', content: 'print(1)\n' }],
+    });
+
+    const result = await unzipBundle(blob);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const bytes = result.value.submissionFiles.get('hw03.py');
+    expect(bytes).toBeDefined();
+    expect(new TextDecoder().decode(bytes!)).toBe('print(1)\n');
+  });
+
+  it('returns an empty submissionFiles map for a 1.0 bundle', async () => {
+    const { blob } = await buildTestBundle({ sessions: [{}] });
+    const result = await unzipBundle(blob);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.submissionFiles.size).toBe(0);
+  });
+
+  it('rejects a root file that is not a recognized bundle file nor a whitelisted submission file (1.1 bundle)', async () => {
+    // Build a valid 1.1 bundle, then add an extra stray file not in the manifest.
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [{ path: 'hw03.py', status: 'present', content: 'x=1\n' }],
+      tamper: { addStrayFile: { name: 'stray.txt', content: 'junk' } },
+    });
+
+    const result = await unzipBundle(blob);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe('unexpected_file');
+    if (result.error.kind !== 'unexpected_file') return;
+    expect(result.error.filename).toBe('stray.txt');
+  });
 });

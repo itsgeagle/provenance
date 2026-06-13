@@ -32,6 +32,14 @@ import { getSubmissionFlags } from '../../../services/submissions/flags.js';
 import { getSubmissionStats } from '../../../services/submissions/stats.js';
 import { getSubmissionValidation } from '../../../services/submissions/validation.js';
 import { getSubmissionFiles } from '../../../services/submissions/files.js';
+import { getBlob } from '../../../services/storage/blobs.js';
+import { bundleKey } from '../../../services/storage/keys.js';
+import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
+import { getConfig } from '../../../config/index.js';
+import {
+  extractSubmittedFiles,
+  extractSubmittedFileContent,
+} from '../../../services/submissions/submitted-files.js';
 
 // ---------------------------------------------------------------------------
 // Router factory
@@ -212,6 +220,129 @@ export function createSubmissionsRouter(): Hono {
     const files = await getSubmissionFiles(db, submissionId);
     return c.json({ files });
   });
+
+  // -------------------------------------------------------------------------
+  // Shared blob helper (submitted-files routes only)
+  // -------------------------------------------------------------------------
+
+  async function readBundleBlob(
+    semesterId: string,
+    submissionId: string,
+  ): Promise<ArrayBuffer | null> {
+    try {
+      const cfg = getConfig();
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      const stream = await getBlob(storageClient, bundleKey(semesterId, submissionId));
+      // Buffer the stream into an ArrayBuffer (same pattern as parse-bundle-phase.ts).
+      const chunks: Uint8Array[] = [];
+      let totalBytes = 0;
+      const reader = stream.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        totalBytes += value.byteLength;
+      }
+      const combined = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return combined.buffer as ArrayBuffer;
+    } catch {
+      // Blob gone (retention sweep) or storage error — callers return available:false / 404.
+      return null;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // GET /submissions/:submissionId/submitted-files
+  // -------------------------------------------------------------------------
+
+  router.get('/submissions/:submissionId/submitted-files', rateLimit('read.detail'), async (c) => {
+    const submissionId = c.req.param('submissionId')!;
+    const db = getDb();
+
+    const principal = c.var.principal ?? null;
+    if (principal === null) {
+      const returnTo = encodeURIComponent(c.req.path);
+      return c.json(
+        Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(),
+        401,
+      );
+    }
+
+    const semesterId = await resolveSemesterFromSubmission(db, submissionId);
+    if (semesterId === null) {
+      return c.json(Errors.notFound().toBody(), 404);
+    }
+
+    const cache = c.var.membershipCache;
+    const membership = await findMembership(cache, db, principal.user.id, semesterId);
+    const authResult = authorize(principal, 'read', { semesterId }, membership);
+    if (!authResult.ok) {
+      return c.json(Errors.notFound().toBody(), 404);
+    }
+
+    const blob = await readBundleBlob(semesterId, submissionId);
+    if (blob === null) {
+      return c.json({ available: false, files: [] });
+    }
+    return c.json(await extractSubmittedFiles(blob));
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /submissions/:submissionId/submitted-files/:path{.+}
+  //
+  // Uses the Hono `:path{.+}` regex-param syntax (same as files.ts) to capture
+  // multi-segment paths such as `lab02/q1.py` that would otherwise be split by
+  // the router. The analyzer encodes the path with encodeURIComponent before
+  // appending it to the URL; decodeURIComponent here restores the original.
+  // -------------------------------------------------------------------------
+
+  router.get(
+    '/submissions/:submissionId/submitted-files/:path{.+}',
+    rateLimit('read.detail'),
+    async (c) => {
+      const submissionId = c.req.param('submissionId')!;
+      const filePath = decodeURIComponent(c.req.param('path')!);
+      const db = getDb();
+
+      const principal = c.var.principal ?? null;
+      if (principal === null) {
+        const returnTo = encodeURIComponent(c.req.path);
+        return c.json(
+          Errors.authRequired(`/api/v1/auth/google/start?return_to=${returnTo}`).toBody(),
+          401,
+        );
+      }
+
+      const semesterId = await resolveSemesterFromSubmission(db, submissionId);
+      if (semesterId === null) {
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+
+      const cache = c.var.membershipCache;
+      const membership = await findMembership(cache, db, principal.user.id, semesterId);
+      const authResult = authorize(principal, 'read', { semesterId }, membership);
+      if (!authResult.ok) {
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+
+      const blob = await readBundleBlob(semesterId, submissionId);
+      if (blob === null) {
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+
+      const content = await extractSubmittedFileContent(blob, filePath);
+      if (content === null) {
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+
+      return c.json(content);
+    },
+  );
 
   return router;
 }

@@ -2,6 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { validateBundleManifestShape } from './bundle.js';
 
 // ---------------------------------------------------------------------------
+// Helper: build a valid 1.1 BundleManifest-shaped object
+// ---------------------------------------------------------------------------
+
+const HEX64 = 'a'.repeat(64);
+
+function valid11Manifest() {
+  return {
+    format_version: '1.1',
+    assignment_id: 'hw03',
+    semester: 'fa25',
+    extension_hash: HEX64,
+    sessions: [{ session_id: 's1', prev_session_id: null, slog_sha256: HEX64, meta_sha256: HEX64 }],
+    submission_files: [
+      { path: 'hw03.py', status: 'present', sha256: HEX64 },
+      { path: 'optional.py', status: 'missing', sha256: null },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Helper: build a valid BundleManifest-shaped object
 // ---------------------------------------------------------------------------
 
@@ -186,5 +206,50 @@ describe('validateBundleManifestShape', () => {
       ],
     };
     expect(validateBundleManifestShape(manifest).ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.1 manifest tests
+// ---------------------------------------------------------------------------
+
+describe('validateBundleManifestShape — 1.1', () => {
+  it('accepts a valid 1.1 manifest with submission_files', () => {
+    const r = validateBundleManifestShape(valid11Manifest());
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects a present file whose sha256 is null', () => {
+    const m = valid11Manifest();
+    m.submission_files[0]!.sha256 = null;
+    const r = validateBundleManifestShape(m);
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a missing file whose sha256 is non-null', () => {
+    const m = valid11Manifest();
+    m.submission_files[1]!.sha256 = HEX64;
+    const r = validateBundleManifestShape(m);
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects an unknown submission_files status', () => {
+    const m = valid11Manifest();
+    (m.submission_files[0] as { status: string }).status = 'deleted';
+    const r = validateBundleManifestShape(m);
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a 1.1 manifest missing submission_files', () => {
+    const m = valid11Manifest() as Record<string, unknown>;
+    delete m['submission_files'];
+    const r = validateBundleManifestShape(m);
+    expect(r.ok).toBe(false);
+  });
+
+  it('accepts a session entry with a null session_id (corrupt-session bundle)', () => {
+    const m = valid11Manifest();
+    (m.sessions[0] as { session_id: string | null }).session_id = null;
+    expect(validateBundleManifestShape(m).ok).toBe(true);
   });
 });

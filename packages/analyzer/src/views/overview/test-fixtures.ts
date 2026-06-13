@@ -284,5 +284,6 @@ export function makeMinimalBundle(): Bundle {
     ],
     sourceFilename: 'hw1-bundle.zip',
     loadedAt: '2026-01-01T01:00:00.000Z',
+    submissionFiles: new Map(),
   };
 }

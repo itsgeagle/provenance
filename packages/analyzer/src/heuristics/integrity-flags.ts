@@ -6,14 +6,14 @@
  * Checks surfaced:
  *   - check 1 (manifest_sig): signature verification failure → 'high'
  *   - check 2 (session_binding): session-to-manifest linkage failure → 'high'
- *   - check 3 (chain_integrity): hash chain break → 'high' (v1)
+ *   - check 3 (chain_integrity): hash chain break → 'high'
  *   - check 5 (monotonic_t): t-regression in events → 'medium'
  *   - check 6 (monotonic_wall): wall-time regression → 'medium'
+ *   - check 8 (submitted_code_match): submitted file mismatch → 'high' (1.1+ bundles)
  *
  * Checks NOT surfaced here:
  *   - check 4 (seq_gaps): surfaced if needed; not in PRD §7.4 flag list.
  *   - check 7 (doc_save_hashes): surfaced separately.
- *   - check 8 (submitted_code_match): always skipped in v1.
  *
  * This is an adapter, not a heuristic in the traditional sense — it does not
  * re-analyze the event stream. It converts the validation pipeline's output
@@ -80,6 +80,13 @@ const CHECK_META: Partial<Record<ValidationCheckId, CheckMeta>> = {
     fallbackDescription:
       'One or more events have a wall timestamp earlier than a preceding event in the same session. The system clock may have been adjusted backwards.',
   },
+  submitted_code_match: {
+    heuristic: 'submitted_code_match',
+    title: 'Submitted code does not match the recording',
+    severity: 'high',
+    confidence: 1.0,
+    fallbackDescription: 'The submitted file differs from the last recorded on-disk state.',
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -87,7 +94,7 @@ const CHECK_META: Partial<Record<ValidationCheckId, CheckMeta>> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Convert failing ValidationReport checks (1, 2, 3, 5, 6) into Flag objects.
+ * Convert failing ValidationReport checks (1, 2, 3, 5, 6, 8) into Flag objects.
  *
  * The check's `supportingSeqs` field contains `{ sessionId, seq }` pairs
  * that identify the exact entries where failures were detected. We convert

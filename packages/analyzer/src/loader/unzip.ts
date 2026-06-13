@@ -7,6 +7,9 @@
  *   session-<uuid>.slog  — NDJSON event log per session
  *   session-<uuid>.slog.meta — JSON meta per session
  *
+ * For 1.1 bundles, submission files listed in `manifest.submission_files[].path`
+ * are also present at the zip root. These are whitelisted on a two-pass read.
+ *
  * Any other file produces `unexpected_file`. Orphaned .slog (no .meta) or
  * orphaned .meta (no .slog) produce typed errors. Zero .slog files → no_sessions.
  *
@@ -65,7 +68,10 @@ export async function unzipBundle(
   }
 
   // ---------------------------------------------------------------------------
-  // 2. Categorize every file in the ZIP.
+  // 2. First pass: read manifest + sig + known provenance files; defer the rest.
+  //
+  // We must read manifest.json before we can whitelist submission files, so
+  // unrecognized entries are deferred until after the manifest is parsed.
   // ---------------------------------------------------------------------------
 
   let manifestJson: string | null = null;
@@ -74,11 +80,12 @@ export async function unzipBundle(
   const metaIds = new Set<string>();
   const slogContents = new Map<string, string>();
   const metaContents = new Map<string, string>();
+  // Deferred: entries that are neither manifest/sig nor slog/meta — may be
+  // submission files (whitelisted below) or genuinely unexpected files.
+  type ZipFileObject = Awaited<ReturnType<typeof JSZip.loadAsync>>['files'][string];
+  const deferred: Array<[string, ZipFileObject]> = [];
 
-  // Collect all filenames first so we can check for unexpected files.
-  const fileEntries = Object.entries(zip.files);
-
-  for (const [filename, zipObject] of fileEntries) {
+  for (const [filename, zipObject] of Object.entries(zip.files)) {
     // Skip directories (JSZip may include them).
     if (zipObject.dir) {
       continue;
@@ -110,13 +117,9 @@ export async function unzipBundle(
       continue;
     }
 
-    // Unrecognized file — reject with `unexpected_file`.
-    return err({ kind: 'unexpected_file', filename, detail: 'not a recognized bundle file' });
+    // Unknown — defer until we know the submission file whitelist.
+    deferred.push([filename, zipObject]);
   }
-
-  // ---------------------------------------------------------------------------
-  // 3. Structural checks.
-  // ---------------------------------------------------------------------------
 
   if (manifestJson === null) {
     return err({ kind: 'missing_manifest' });
@@ -125,6 +128,44 @@ export async function unzipBundle(
   if (manifestSigHex === null) {
     return err({ kind: 'missing_signature' });
   }
+
+  // ---------------------------------------------------------------------------
+  // 3. Build the submission-file whitelist from the manifest (best-effort parse).
+  //
+  // Full shape validation happens later in parse-bundle. Here we only need the
+  // `submission_files[].path` strings to decide which deferred entries are OK.
+  // A malformed manifest (bad JSON / missing key) → empty whitelist, so every
+  // deferred entry will trigger unexpected_file (parse-bundle will then surface
+  // the manifest error independently).
+  // ---------------------------------------------------------------------------
+  const submissionPaths = new Set<string>();
+  try {
+    const parsed = JSON.parse(manifestJson) as { submission_files?: Array<{ path?: unknown }> };
+    for (const f of parsed.submission_files ?? []) {
+      if (typeof f?.path === 'string') {
+        submissionPaths.add(f.path);
+      }
+    }
+  } catch {
+    // Malformed manifest JSON — parse-bundle will surface invalid_manifest.
+    // Leave submissionPaths empty → all deferred entries become unexpected_file.
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4. Process deferred entries: whitelist submission files; reject everything else.
+  // ---------------------------------------------------------------------------
+  const submissionFiles = new Map<string, Uint8Array>();
+  for (const [filename, zipObject] of deferred) {
+    if (submissionPaths.has(filename)) {
+      submissionFiles.set(filename, await zipObject.async('uint8array'));
+    } else {
+      return err({ kind: 'unexpected_file', filename, detail: 'not a recognized bundle file' });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. Structural checks.
+  // ---------------------------------------------------------------------------
 
   if (slogIds.size === 0) {
     return err({ kind: 'no_sessions' });
@@ -145,7 +186,7 @@ export async function unzipBundle(
   }
 
   // ---------------------------------------------------------------------------
-  // 4. Build the result.
+  // 6. Build the result.
   // ---------------------------------------------------------------------------
 
   const sessions = Array.from(slogIds).map((sessionId) => ({
@@ -158,5 +199,6 @@ export async function unzipBundle(
     manifestJson,
     manifestSigHex,
     sessions,
+    submissionFiles,
   });
 }

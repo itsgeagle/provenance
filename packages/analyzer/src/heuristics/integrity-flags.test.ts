@@ -287,3 +287,63 @@ describe('integrityFlagsFromReport — Phase 17 extended checks', () => {
     expect(flags[0]!.description).toContain('tampered');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Check 8: submitted_code_match
+// ---------------------------------------------------------------------------
+
+describe('integrityFlagsFromReport — submitted_code_match', () => {
+  it('emits a high-severity submitted_code_match flag when Check 8 fails', () => {
+    const report = {
+      overall: 'fail',
+      checks: [
+        {
+          id: 'submitted_code_match',
+          label: 'Submitted code matches recorded final state',
+          status: 'fail',
+          detail: 'mismatch',
+          supportingSeqs: [{ sessionId: 's1', seq: 7 }],
+        },
+      ],
+    } as ValidationReport;
+    const flags = integrityFlagsFromReport(report);
+    const f = flags.find((x) => x.heuristic === 'submitted_code_match')!;
+    expect(f).toBeDefined();
+    expect(f.severity).toBe('high');
+    expect(f.confidence).toBe(1.0);
+  });
+
+  it('sets the flag id deterministically from the first seq', () => {
+    const report = {
+      overall: 'fail',
+      checks: [
+        {
+          id: 'submitted_code_match',
+          label: 'Submitted code matches recorded final state',
+          status: 'fail',
+          detail: 'mismatch',
+          supportingSeqs: [{ sessionId: 's1', seq: 7 }],
+        },
+      ],
+    } as ValidationReport;
+    const flags = integrityFlagsFromReport(report);
+    expect(flags[0]!.id).toBe('submitted_code_match-s1:7');
+  });
+
+  it('does not emit a flag when Check 8 passes', () => {
+    const report: ValidationReport = {
+      overall: 'pass',
+      checks: makePassReport().checks.map((c) =>
+        c.id === 'submitted_code_match' ? { ...c, status: 'pass' } : c,
+      ),
+    };
+    const flags = integrityFlagsFromReport(report);
+    expect(flags.find((f) => f.heuristic === 'submitted_code_match')).toBeUndefined();
+  });
+
+  it('does not emit a flag when Check 8 is skipped', () => {
+    const report = makePassReport();
+    const flags = integrityFlagsFromReport(report);
+    expect(flags.find((f) => f.heuristic === 'submitted_code_match')).toBeUndefined();
+  });
+});

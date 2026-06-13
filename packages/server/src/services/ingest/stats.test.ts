@@ -86,6 +86,7 @@ function makeTwoFileBundle(): Bundle {
     sessions,
     sourceFilename: 'test.zip',
     loadedAt: new Date().toISOString(),
+    submissionFiles: new Map(),
   };
 }
 

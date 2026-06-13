@@ -61,6 +61,8 @@ export type BundleFiles = {
   manifestSigHex: string;
   /** One entry per session pair found in the ZIP. */
   sessions: SessionFiles[];
+  /** Raw bytes of each submitted file present in the zip, keyed by manifest path. */
+  submissionFiles: Map<string, Uint8Array>;
 };
 
 // ---------------------------------------------------------------------------
@@ -95,4 +97,13 @@ export type Bundle = {
   sourceFilename: string;
   /** ISO timestamp of when loadBundle() was called; used for export headers. */
   loadedAt: string;
+  /**
+   * Submitted files from the bundle (1.1+). Keyed by manifest path. `bytes` is
+   * present only for status 'present' files whose zip entry verified against the
+   * manifest sha256. `hashOk` records whether the bundle self-check passed.
+   */
+  submissionFiles: Map<
+    string,
+    { status: 'present' | 'missing'; sha256: string | null; bytes?: Uint8Array; hashOk: boolean }
+  >;
 };

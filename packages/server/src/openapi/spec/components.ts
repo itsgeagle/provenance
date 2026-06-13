@@ -624,6 +624,55 @@ export const components = {
         completed_at: { oneOf: [{ $ref: '#/components/schemas/ISODate' }, { type: 'null' }] },
       },
     },
+
+    // -------------------------------------------------------------------------
+    // Submitted files (Group F — submission bundle)
+    // -------------------------------------------------------------------------
+    SubmittedFileEntry: {
+      type: 'object',
+      required: ['path', 'status', 'verdict', 'sha256'],
+      properties: {
+        path: { type: 'string', description: 'Relative file path (may contain slashes).' },
+        status: {
+          type: 'string',
+          enum: ['present', 'missing'],
+          description: "'present' = file was on disk at seal time; 'missing' = listed but absent.",
+        },
+        verdict: {
+          type: 'string',
+          enum: ['match', 'mismatch', 'unknown'],
+          description: 'Check 8 verdict for this file.',
+        },
+        sha256: {
+          oneOf: [{ type: 'string' }, { type: 'null' }],
+          description: 'SHA-256 of the submitted bytes (hex), or null for missing files.',
+        },
+      },
+    },
+    SubmittedFileList: {
+      type: 'object',
+      required: ['available', 'files'],
+      properties: {
+        available: {
+          type: 'boolean',
+          description: 'false when the bundle blob has been swept by retention.',
+        },
+        files: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/SubmittedFileEntry' },
+        },
+      },
+    },
+    SubmittedFileContent: {
+      type: 'object',
+      required: ['path', 'content', 'status', 'verdict'],
+      properties: {
+        path: { type: 'string' },
+        content: { type: 'string', description: 'UTF-8 decoded file bytes.' },
+        status: { type: 'string', enum: ['present', 'missing'] },
+        verdict: { type: 'string', enum: ['match', 'mismatch', 'unknown'] },
+      },
+    },
   },
 
   securitySchemes: {

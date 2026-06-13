@@ -1,23 +1,29 @@
 /**
  * Bundle seal command.
  *
- * PRD §4.6 (seal operation), §5.3 (bundle = ZIP of .provenance/), §5.4 (feeds checks 1-6),
- * §6 (extension_hash in manifest).
+ * PRD §4.6 (seal operation), §5.3 (bundle = ZIP of .provenance/ + submission files),
+ * §5.4 (feeds checks 1-8), §6 (extension_hash in manifest).
  *
  * Produces:
- *   .provenance/manifest.json   — BundleManifest (atomically written)
+ *   .provenance/manifest.json   — BundleManifest 1.1 (atomically written)
  *   .provenance/manifest.sig    — hex ed25519 signature over canonical manifest JSON (atomic)
- *   <outputDir>/<id>-bundle-<ts>.zip — ZIP of the full .provenance/ directory
+ *   <outputDir>/<id>-bundle-<ts>.zip — ZIP of .provenance/ + reviewed files at root
  *
  * The signature covers the JCS-canonical bytes of manifest.json. The Analyzer verifies by:
  *   1. Reading manifest.json → canonicalize → verify sig against session_pubkey from session.start.
  *
  * Design notes:
- *   - chain_broken is returned on the FIRST broken session; we never seal a partial bundle.
+ *   - NEVER aborts on a broken or unparseable chain. Instead, warnings are accumulated and the
+ *     bundle is always sealed. The analyzer detects tampering via Check 3 (hash chain) and
+ *     Check 8 (submitted_code_match). This lets students submit even when recording was
+ *     interrupted, while keeping all integrity evidence visible to staff.
  *   - meta files are optional: if a .slog.meta doesn't exist, meta_sha256 is the sha256 of
  *     an empty byte sequence (caller is responsible for always writing the meta in Phase 9;
  *     this is a defensive fallback, not a design choice).
- *   - The ZIP includes ALL files in provenanceDir (slog + meta + manifest + sig).
+ *   - The ZIP includes ALL files in provenanceDir (slog + meta + manifest + sig), plus the
+ *     raw on-disk bytes of every file in filesUnderReview (placed at the workspace-relative
+ *     path in the zip root). Missing files are recorded in manifest.submission_files with
+ *     status 'missing' but are not added to the zip.
  *   - Atomic writes for manifest.json and manifest.sig prevent partial state.
  */
 
@@ -36,10 +42,16 @@ import { atomicWriteFile } from '../io/atomic-write.js';
 // Public types
 // ---------------------------------------------------------------------------
 
+export type SealWarnings = {
+  /** True if any session's hash chain failed to validate at seal time. */
+  chainBroken: boolean;
+  /** True if any .slog could not be parsed / had no readable session.start. */
+  unreadableSession: boolean;
+};
+
 export type SealResult =
-  | { kind: 'ok'; bundlePath: string; manifestSha256: string }
+  | { kind: 'ok'; bundlePath: string; manifestSha256: string; warnings: SealWarnings }
   | { kind: 'no_sessions' }
-  | { kind: 'chain_broken'; sessionId: string; reason: string }
   | { kind: 'write_error'; message: string };
 
 export type SealDeps = {
@@ -50,6 +62,8 @@ export type SealDeps = {
   /** Assignment id + semester from the loaded manifest. */
   assignmentId: string;
   semester: string;
+  /** Workspace-relative paths of the files under review (.cs61a files_under_review). */
+  filesUnderReview: readonly string[];
   /** Active session private key for signing the bundle manifest. 32 bytes. */
   sessionPrivkey: Uint8Array;
   /** Active session public key, hex. */
@@ -79,6 +93,31 @@ async function sha256OfFile(filePath: string): Promise<string> {
   } catch {
     // File doesn't exist or can't be read — return sha256('') as a stable fallback.
     return sha256Hex('');
+  }
+}
+
+type ReviewedFile =
+  | { path: string; status: 'present'; sha256: string; bytes: Uint8Array }
+  | { path: string; status: 'missing'; sha256: null };
+
+/**
+ * Read a reviewed file's raw on-disk bytes + sha256, or mark it missing.
+ * `relPath` is workspace-relative; resolved against workspaceRoot.
+ */
+async function readReviewedFile(workspaceRoot: string, relPath: string): Promise<ReviewedFile> {
+  const abs = path.join(workspaceRoot, relPath);
+  try {
+    const bytes = await fsPromises.readFile(abs);
+    const hash = createHash('sha256');
+    hash.update(bytes);
+    return {
+      path: relPath,
+      status: 'present',
+      sha256: hash.digest('hex'),
+      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    };
+  } catch {
+    return { path: relPath, status: 'missing', sha256: null };
   }
 }
 
@@ -120,12 +159,16 @@ function filenameTimestamp(date: Date): string {
  *
  * Step-by-step:
  *   1. List .slog files. None → no_sessions.
- *   2. For each .slog: parse + validate chain. Broken → chain_broken (abort).
- *      Collect: session_id, prev_session_id, slog_sha256, meta_sha256.
- *   3. Build BundleManifest.
- *   4. Canonicalize + sign → atomic-write manifest.json and manifest.sig.
- *   5. ZIP all files in provenanceDir (including new manifest + sig).
- *   6. Write ZIP to outputDir. Return ok with bundlePath and manifestSha256.
+ *   2. For each .slog: parse entries + validate chain. NEVER aborts on a broken or
+ *      unparseable chain — accumulates warnings instead. For parse failures the
+ *      session entry gets session_id: null. For chain breaks, chainBroken is set true.
+ *      Collect: session_id (or null), prev_session_id, slog_sha256, meta_sha256.
+ *   3. Read each filesUnderReview entry from disk; mark missing ones.
+ *   4. Build BundleManifest (format_version 1.1) including submission_files.
+ *   5. Canonicalize + sign → atomic-write manifest.json and manifest.sig.
+ *   6. ZIP all files in provenanceDir (including new manifest + sig), plus
+ *      the raw bytes of each present reviewed file at the workspace-relative path.
+ *   7. Write ZIP to outputDir. Return ok with bundlePath, manifestSha256, and warnings.
  */
 export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   const {
@@ -133,6 +176,7 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
     provenanceDir,
     assignmentId,
     semester,
+    filesUnderReview,
     sessionPrivkey,
     computeExtensionHash: getExtensionHash,
     outputDir,
@@ -153,7 +197,8 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
     return { kind: 'no_sessions' };
   }
 
-  // Step 2: Parse and validate each .slog.
+  // Step 2: Parse and validate each .slog. Warnings accumulate; never abort.
+  const warnings: SealWarnings = { chainBroken: false, unreadableSession: false };
   const sessionEntries: BundleManifest['sessions'][number][] = [];
 
   for (const filename of slogFiles.sort()) {
@@ -173,35 +218,29 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
 
     const parseResult = parseEntries(slogText);
     if (!parseResult.ok) {
-      // Malformed slog — treat as a broken chain. Use filename as fallback session id.
-      return {
-        kind: 'chain_broken',
-        sessionId: filename,
-        reason: `parse error on line ${parseResult.error.kind === 'invalid_json' ? parseResult.error.line : parseResult.error.line}: ${parseResult.error.kind}`,
-      };
+      // Malformed slog — accumulate warning, still include file hashes.
+      warnings.unreadableSession = true;
+      sessionEntries.push({
+        session_id: null,
+        prev_session_id: null,
+        slog_sha256: await sha256OfFile(slogPath),
+        meta_sha256: await sha256OfFile(metaPath),
+      });
+      continue;
     }
 
     const entries = parseResult.value;
 
-    // Validate the chain.
+    // Validate the chain — set warning but do NOT abort.
     const chainResult = validateChain(entries);
     if (!chainResult.ok) {
-      const sessionIds = extractSessionIds(entries);
-      return {
-        kind: 'chain_broken',
-        sessionId: sessionIds?.session_id ?? filename,
-        reason: chainResult.break.reason,
-      };
+      warnings.chainBroken = true;
     }
 
-    // Extract session IDs.
+    // Extract session IDs. Missing session.start → unreadable session, use null id.
     const ids = extractSessionIds(entries);
     if (ids === null) {
-      return {
-        kind: 'chain_broken',
-        sessionId: filename,
-        reason: 'missing or malformed session.start entry',
-      };
+      warnings.unreadableSession = true;
     }
 
     // Compute file hashes.
@@ -209,14 +248,27 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
     const metaSha256 = await sha256OfFile(metaPath);
 
     sessionEntries.push({
-      session_id: ids.session_id,
-      prev_session_id: ids.prev_session_id,
+      session_id: ids?.session_id ?? null,
+      prev_session_id: ids?.prev_session_id ?? null,
       slog_sha256: slogSha256,
       meta_sha256: metaSha256,
     });
   }
 
-  // Step 3: Build BundleManifest.
+  // Step 3: Read reviewed files (workspace-relative; resolved against the workspace root).
+  const workspaceRoot = workspaceFolder.uri.fsPath;
+  const reviewedFiles: ReviewedFile[] = [];
+  for (const rel of filesUnderReview) {
+    reviewedFiles.push(await readReviewedFile(workspaceRoot, rel));
+  }
+
+  const submissionFiles = reviewedFiles.map((f) =>
+    f.status === 'present'
+      ? { path: f.path, status: 'present' as const, sha256: f.sha256 }
+      : { path: f.path, status: 'missing' as const, sha256: null },
+  );
+
+  // Step 4: Build BundleManifest (format_version 1.1).
   let extensionHash: string;
   try {
     extensionHash = await getExtensionHash();
@@ -228,14 +280,15 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   }
 
   const manifest: BundleManifest = {
-    format_version: '1.0',
+    format_version: '1.1',
     assignment_id: assignmentId,
     semester,
     extension_hash: extensionHash,
     sessions: sessionEntries,
+    submission_files: submissionFiles,
   };
 
-  // Step 4: Canonicalize + sign + atomic-write manifest.json and manifest.sig.
+  // Step 5: Canonicalize + sign + atomic-write manifest.json and manifest.sig.
   const manifestPath = path.join(provenanceDir, 'manifest.json');
   const sigPath = path.join(provenanceDir, 'manifest.sig');
 
@@ -269,7 +322,7 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   // Compute manifest SHA-256 for the return value.
   const manifestSha256 = sha256Hex(canonicalBytes);
 
-  // Step 5: ZIP all files in provenanceDir.
+  // Step 6: ZIP all files in provenanceDir.
   let dirEntries: string[];
   try {
     dirEntries = await fsPromises.readdir(provenanceDir);
@@ -296,6 +349,13 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
     }
   }
 
+  // Add submitted file bytes at the zip root (mirrors the workspace layout).
+  for (const f of reviewedFiles) {
+    if (f.status === 'present') {
+      zip.file(f.path, f.bytes);
+    }
+  }
+
   let zipBytes: Uint8Array;
   try {
     const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
@@ -307,7 +367,7 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
     };
   }
 
-  // Step 6: Write the ZIP.
+  // Step 7: Write the ZIP.
   const ts = filenameTimestamp(now());
   const zipFilename = `${assignmentId}-bundle-${ts}.zip`;
   const resolvedOutputDir = outputDir ?? workspaceFolder.uri.fsPath;
@@ -322,7 +382,7 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
     };
   }
 
-  return { kind: 'ok', bundlePath, manifestSha256 };
+  return { kind: 'ok', bundlePath, manifestSha256, warnings };
 }
 
 // ---------------------------------------------------------------------------

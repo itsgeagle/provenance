@@ -44,9 +44,10 @@ export type ValidationCheck = {
  *   - No 'fail' but ≥1 'skipped' → 'warn'.
  *   - All 'pass' → 'pass'.
  *
- * NOTE: In v1, check 8 (submitted_code_match) is always 'skipped', so the
- * best a real bundle can score in v1 is 'warn'. This is by design — v1 does
- * not have course-staff final-file hashes to compare against.
+ * NOTE: Check 8 (submitted_code_match) runs for 1.1 bundles (comparing each
+ * submitted file to the recorder's last recorded on-disk hash), so a clean 1.1
+ * bundle can score 'pass'. Legacy 1.0 bundles carry no submission files, so
+ * Check 8 is 'skipped' there and the best they can score is 'warn'.
  */
 export type ValidationReport = {
   checks: ValidationCheck[];

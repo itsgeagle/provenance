@@ -18,6 +18,8 @@ import type {
   FileProvenanceResult,
   SubmissionStats,
   ValidationResults,
+  SubmittedFileListResult,
+  SubmittedFileContentResult,
 } from '../../data/SubmissionDataProvider.js';
 import type { SubmissionSummary, FlagRow, EventRow } from '@provenance/shared/api-schemas';
 import type { EventIndex } from '../../index/event-index.js';
@@ -154,6 +156,15 @@ function makeProvider(): SubmissionDataProvider {
       makeQueryResult({ content: '', at_seq: 0, computed_at_ms: 0 } as FileContentResult),
     useFileProvenance: () =>
       makeQueryResult({ length: 0, provenance: [], at_seq: 0 } as FileProvenanceResult),
+    useSubmittedFiles: () =>
+      makeQueryResult({ available: true, files: [] } as SubmittedFileListResult),
+    useSubmittedFileContent: (_path: string) =>
+      makeQueryResult({
+        path: '',
+        content: '',
+        status: 'missing',
+        verdict: 'unknown',
+      } as SubmittedFileContentResult),
   };
 }
 

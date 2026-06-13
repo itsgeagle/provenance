@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
+import { sha256Hex } from '@provenance/log-core';
 import { loadBundle } from './parse-bundle.js';
 import { buildTestBundle } from '../../test/helpers/build-test-bundle.js';
 
@@ -159,5 +160,162 @@ describe('loadBundle', () => {
     expect(result.error.kind).toBe('invalid_manifest');
     if (result.error.kind !== 'invalid_manifest') return;
     expect(result.error.detail).toMatch(/manifest\.json shape invalid/);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task C2 — submission files + self-check (1.1 bundles)
+  // ---------------------------------------------------------------------------
+
+  it('exposes an empty submissionFiles map for a 1.0 bundle (back-compat)', async () => {
+    const { blob } = await buildTestBundle({ sessions: [{}] });
+    const result = await loadBundle(blob, 'hw1.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.submissionFiles.size).toBe(0);
+    expect(result.value.manifest.format_version).toBe('1.0');
+  });
+
+  it('populates submissionFiles for a 1.1 bundle with a present file', async () => {
+    const content = 'print("hello")\n';
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [{ path: 'hw03.py', status: 'present', content }],
+    });
+
+    const result = await loadBundle(blob, 'hw1-11.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const bundle = result.value;
+    expect(bundle.manifest.format_version).toBe('1.1');
+    expect(bundle.submissionFiles.size).toBe(1);
+
+    const f = bundle.submissionFiles.get('hw03.py');
+    expect(f).toBeDefined();
+    expect(f!.status).toBe('present');
+    expect(f!.hashOk).toBe(true);
+    expect(new TextDecoder().decode(f!.bytes!)).toBe(content);
+  });
+
+  it('populates submissionFiles for a 1.1 bundle with a missing file', async () => {
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [{ path: 'missing.py', status: 'missing' }],
+    });
+
+    const result = await loadBundle(blob, 'hw1-11.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const f = result.value.submissionFiles.get('missing.py');
+    expect(f).toBeDefined();
+    expect(f!.status).toBe('missing');
+    expect(f!.sha256).toBeNull();
+    expect(f!.hashOk).toBe(true);
+    expect(f!.bytes).toBeUndefined();
+  });
+
+  it('flags hashOk=false when bundle bytes do not match the manifest sha256', async () => {
+    // Build a 1.1 bundle with a submission file, then corrupt the manifest sha256
+    // by overriding it to a wrong value while keeping the real bytes in the zip.
+    const content = 'print("correct")\n';
+    const wrongSha = 'f'.repeat(64); // clearly wrong sha256
+
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [
+        {
+          path: 'bad.py',
+          status: 'present',
+          content,
+          manifestSha256Override: wrongSha,
+        },
+      ],
+    });
+
+    const result = await loadBundle(blob, 'hw1-bad.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const f = result.value.submissionFiles.get('bad.py');
+    expect(f).toBeDefined();
+    expect(f!.hashOk).toBe(false);
+  });
+
+  it('flags hashOk=false when a present file is listed in the manifest but absent from the zip', async () => {
+    // A 'present' spec with no content is recorded in submission_files but its bytes
+    // are NOT added to the zip — the self-check must report hashOk=false without crashing.
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [{ path: 'ghost.py', status: 'present' }],
+    });
+
+    const result = await loadBundle(blob, 'hw1-ghost.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const f = result.value.submissionFiles.get('ghost.py');
+    expect(f).toBeDefined();
+    expect(f!.status).toBe('present');
+    expect(f!.bytes).toBeUndefined();
+    expect(f!.hashOk).toBe(false);
+  });
+
+  it('flags hashOk=true for a present file with correct sha256 (self-check passes)', async () => {
+    const content = 'x = 42\n';
+    const correctSha = sha256Hex(new TextEncoder().encode(content));
+
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [
+        {
+          path: 'good.py',
+          status: 'present',
+          content,
+          // No override → helper computes sha from content, should match
+        },
+      ],
+    });
+
+    const result = await loadBundle(blob, 'hw1-good.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const f = result.value.submissionFiles.get('good.py');
+    expect(f).toBeDefined();
+    expect(f!.hashOk).toBe(true);
+    expect(f!.sha256).toBe(correctSha);
+  });
+
+  it('handles a 1.1 bundle with both a present and a missing file', async () => {
+    const { blob } = await buildTestBundle({
+      sessions: [{}],
+      submissionFiles: [
+        { path: 'present.py', status: 'present', content: 'a=1\n' },
+        { path: 'absent.py', status: 'missing' },
+      ],
+    });
+
+    const result = await loadBundle(blob, 'hw1-mixed.zip', fixedNow);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const bundle = result.value;
+    expect(bundle.submissionFiles.size).toBe(2);
+
+    const present = bundle.submissionFiles.get('present.py');
+    expect(present!.status).toBe('present');
+    expect(present!.hashOk).toBe(true);
+
+    const absent = bundle.submissionFiles.get('absent.py');
+    expect(absent!.status).toBe('missing');
+    expect(absent!.hashOk).toBe(true);
   });
 });

@@ -31,6 +31,7 @@ import { computeStats } from '../index/stats.js';
 import { reconstructFile } from '../index/reconstruct-file.js';
 import { reconstructFileWithProvenance } from '../index/reconstruct-file-provenance.js';
 import { SubmissionDataContext } from './SubmissionDataProvider.js';
+import { submittedFileVerdicts } from '../validation/verify-submitted-code.js';
 import type {
   SubmissionDataProvider,
   SubmissionStats,
@@ -39,6 +40,8 @@ import type {
   FileContentResult,
   FileProvenanceResult,
   EventQueryFilters,
+  SubmittedFileListResult,
+  SubmittedFileContentResult,
 } from './SubmissionDataProvider.js';
 import type { FlagRow, EventRow, SubmissionSummary } from '@provenance/shared/api-schemas';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -202,6 +205,12 @@ function createInMemoryProvider(
   const fileListResult: FileListResult = { files: submissionStats.per_file };
   const summary = bundleToSubmissionSummary(bundle, flags, validationReport);
 
+  // Derive chainIntact from the already-computed ValidationReport
+  const chainIntact =
+    validationReport.checks.find((c) => c.id === 'chain_integrity')?.status === 'pass';
+  const verdicts = submittedFileVerdicts(bundle, { chainIntact });
+  const verdictByPath = new Map(verdicts.map((v) => [v.path, v]));
+
   return {
     useSummary(): UseQueryResult<SubmissionSummary> {
       return useQuery({
@@ -343,6 +352,41 @@ function createInMemoryProvider(
             length: provArray.length,
             provenance: runs,
             at_seq: actualSeq,
+          });
+        },
+        staleTime: Infinity,
+      });
+    },
+
+    useSubmittedFiles(): UseQueryResult<SubmittedFileListResult> {
+      return useQuery({
+        queryKey: ['inmem', bundle.id, 'submitted-files'],
+        queryFn: () =>
+          Promise.resolve({
+            available: true,
+            files: verdicts.map((v) => ({
+              path: v.path,
+              status: v.status,
+              verdict: v.verdict,
+              sha256: v.submittedSha,
+            })),
+          }),
+        staleTime: Infinity,
+      });
+    },
+
+    useSubmittedFileContent(path: string): UseQueryResult<SubmittedFileContentResult> {
+      return useQuery({
+        queryKey: ['inmem', bundle.id, 'submitted-content', path],
+        queryFn: () => {
+          const entry = bundle.submissionFiles.get(path);
+          const v = verdictByPath.get(path);
+          const content = entry?.bytes ? new TextDecoder().decode(entry.bytes) : '';
+          return Promise.resolve({
+            path,
+            content,
+            status: (entry?.status ?? 'missing') as 'present' | 'missing',
+            verdict: (v?.verdict ?? 'unknown') as 'match' | 'mismatch' | 'unknown',
           });
         },
         staleTime: Infinity,

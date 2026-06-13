@@ -2,11 +2,10 @@
  * Validation orchestrator.
  * PRD §5.4 — runs all 8 checks in spec order and produces a ValidationReport.
  *
- * NOTE: In v1, check 8 (submitted_code_match) is always 'skipped' because the
- * analyzer does not receive course-staff final-file hashes. This means the
- * best overall score a real bundle can achieve in v1 is 'warn', not 'pass'.
- * This is intentional — v1 is an evidence-collection tool, not a verdict
- * system.
+ * NOTE: Check 8 (submitted_code_match) now runs for 1.1 bundles. A clean 1.1
+ * bundle (all other checks pass + submitted files match recorded hashes) can
+ * reach overall 'pass'. 1.0 bundles still yield overall 'warn' because Check
+ * 8 is skipped (empty submissionFiles → skipped).
  *
  * overall rules:
  *   - Any 'fail' → 'fail'.
@@ -23,18 +22,7 @@ import { verifySeq } from './verify-seq.js';
 import { verifyMonotonicT } from './verify-monotonic-t.js';
 import { verifyMonotonicWall } from './verify-monotonic-wall.js';
 import { verifyDocSaveHashes } from './verify-doc-save-hashes.js';
-
-// ---------------------------------------------------------------------------
-// Check 8 (always skipped in v1)
-// ---------------------------------------------------------------------------
-
-const CHECK_8_SKIPPED: ValidationCheck = {
-  id: 'submitted_code_match',
-  label: 'Submitted code matches final saved hashes',
-  status: 'skipped',
-  detail:
-    'Requires course-staff cross-check input (final file hashes vs submitted code) — not provided in v1.',
-};
+import { verifySubmittedCode } from './verify-submitted-code.js';
 
 // ---------------------------------------------------------------------------
 // overall computation
@@ -59,7 +47,7 @@ export async function runValidation(bundle: Bundle): Promise<ValidationReport> {
   const check5 = verifyMonotonicT(bundle);
   const check6 = verifyMonotonicWall(bundle);
   const check7 = verifyDocSaveHashes(bundle);
-  const check8 = CHECK_8_SKIPPED;
+  const check8 = verifySubmittedCode(bundle, { chainIntact: check3.status === 'pass' });
 
   const checks: ValidationCheck[] = [
     check1,

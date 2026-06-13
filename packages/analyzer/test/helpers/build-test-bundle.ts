@@ -47,9 +47,33 @@ export type EventSpec = {
   t?: number;
 };
 
+/**
+ * A submission file entry for 1.1 bundle tests.
+ * `content` is optional — if omitted (and status is 'present'), the file entry
+ * is added to the manifest but NOT to the zip (simulating a present-but-absent
+ * bytes scenario for hash-mismatch testing, or you can supply wrong bytes via
+ * tamper.submissionFileBytes).
+ */
+export type SubmissionFileSpec = {
+  path: string;
+  status: 'present' | 'missing';
+  /** Raw string content of the file (UTF-8). Required when status === 'present'. */
+  content?: string;
+  /**
+   * Override the sha256 recorded in the manifest (for self-check mismatch tests).
+   * Default: computed from `content`.
+   */
+  manifestSha256Override?: string;
+};
+
 export type BuildBundleOpts = {
   assignmentId?: string;
   semester?: string;
+  /**
+   * Submission files to include (makes this a 1.1 bundle).
+   * If undefined, the manifest is 1.0 and no submission_files are present.
+   */
+  submissionFiles?: SubmissionFileSpec[];
   sessions?: Array<{
     /** Defaults to a deterministic UUID based on session index. */
     sessionId?: string;
@@ -517,19 +541,56 @@ export async function buildTestBundle(opts?: BuildBundleOpts): Promise<BuiltBund
 
   // ---------------------------------------------------------------------------
   // 3. Build BundleManifest.
+  //
+  // If submissionFiles are specified, produce a 1.1 manifest with
+  // submission_files. Otherwise produce a legacy 1.0 manifest.
   // ---------------------------------------------------------------------------
-  const manifest: BundleManifest = {
-    format_version: '1.0',
-    assignment_id: assignmentId,
-    semester,
-    extension_hash: 'a'.repeat(64),
-    sessions: sessions.map((s) => ({
-      session_id: s.sessionId,
-      prev_session_id: null,
-      slog_sha256: s.slogSha256,
-      meta_sha256: s.metaSha256,
-    })),
-  };
+  const submissionFileSpecs = opts?.submissionFiles;
+
+  // Build the submission_files manifest entries (1.1 only).
+  type SubmissionEntry = { path: string; status: 'present' | 'missing'; sha256: string | null };
+  const submissionEntries: SubmissionEntry[] = [];
+  if (submissionFileSpecs !== undefined) {
+    for (const spec of submissionFileSpecs) {
+      if (spec.status === 'missing') {
+        submissionEntries.push({ path: spec.path, status: 'missing', sha256: null });
+      } else {
+        // Compute sha256 from content, or use the override.
+        const content = spec.content ?? '';
+        const computedSha = sha256Hex(new TextEncoder().encode(content));
+        const manifestSha = spec.manifestSha256Override ?? computedSha;
+        submissionEntries.push({ path: spec.path, status: 'present', sha256: manifestSha });
+      }
+    }
+  }
+
+  const manifest: BundleManifest =
+    submissionFileSpecs !== undefined
+      ? {
+          format_version: '1.1',
+          assignment_id: assignmentId,
+          semester,
+          extension_hash: 'a'.repeat(64),
+          sessions: sessions.map((s) => ({
+            session_id: s.sessionId,
+            prev_session_id: null,
+            slog_sha256: s.slogSha256,
+            meta_sha256: s.metaSha256,
+          })),
+          submission_files: submissionEntries,
+        }
+      : {
+          format_version: '1.0',
+          assignment_id: assignmentId,
+          semester,
+          extension_hash: 'a'.repeat(64),
+          sessions: sessions.map((s) => ({
+            session_id: s.sessionId,
+            prev_session_id: null,
+            slog_sha256: s.slogSha256,
+            meta_sha256: s.metaSha256,
+          })),
+        };
 
   // ---------------------------------------------------------------------------
   // 4. Sign manifest.
@@ -575,6 +636,15 @@ export async function buildTestBundle(opts?: BuildBundleOpts): Promise<BuiltBund
 
   if (tamper.addStrayFile !== undefined) {
     zip.file(tamper.addStrayFile.name, tamper.addStrayFile.content);
+  }
+
+  // Add submission file bytes at the zip root (1.1 bundles only).
+  if (submissionFileSpecs !== undefined) {
+    for (const spec of submissionFileSpecs) {
+      if (spec.status === 'present' && spec.content !== undefined) {
+        zip.file(spec.path, spec.content);
+      }
+    }
   }
 
   const zipBuffer = await zip.generateAsync({ type: 'arraybuffer' });

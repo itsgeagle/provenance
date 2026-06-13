@@ -38,7 +38,7 @@ describe('runValidation', () => {
     ]);
   });
 
-  it('reports overall=warn for a clean bundle (check 8 always skipped in v1)', async () => {
+  it('reports overall=warn for a clean 1.0 bundle (check 8 skipped — no submission files)', async () => {
     const { blob } = await buildTestBundle({ sessions: [{ eventCount: 5 }] });
     const result = await loadBundle(blob, 'test.zip');
     expect(result.ok).toBe(true);
@@ -46,11 +46,10 @@ describe('runValidation', () => {
 
     const report = await runValidation(result.value);
 
-    // Checks 1–7 should all pass; check 8 is skipped.
+    // Checks 1–7 should all pass; check 8 is skipped (1.0 bundle has no submission files).
     const check8 = report.checks[7]!;
     expect(check8.id).toBe('submitted_code_match');
     expect(check8.status).toBe('skipped');
-    expect(check8.detail).toMatch(/course-staff cross-check/i);
 
     // overall is warn because check 8 is skipped.
     expect(report.overall).toBe('warn');
@@ -91,7 +90,7 @@ describe('runValidation', () => {
     expect(elapsed).toBeLessThan(1500);
   }, 10_000); // 10s vitest timeout to handle slow machines
 
-  it('check 8 detail mentions v1 and course-staff input', async () => {
+  it('check 8 is skipped on a 1.0 bundle with a detail explaining why', async () => {
     const { blob } = await buildTestBundle();
     const result = await loadBundle(blob, 'test.zip');
     expect(result.ok).toBe(true);
@@ -99,7 +98,43 @@ describe('runValidation', () => {
 
     const report = await runValidation(result.value);
     const check8 = report.checks.find((c) => c.id === 'submitted_code_match')!;
-    expect(check8.detail).toMatch(/v1/i);
-    expect(check8.detail).toMatch(/course-staff/i);
+    expect(check8.status).toBe('skipped');
+    expect(check8.detail).toBeTruthy();
+  });
+
+  it('runs Check 8 and reports pass on a 1.1 bundle with matching submitted file', async () => {
+    // Build a bundle where:
+    //   - A doc.open event seeds reconstruction with known content.
+    //   - A doc.save event records the sha256 of that same content (passes Check 7).
+    //   - The submitted file in the zip has the same content (passes Check 8).
+    const { sha256Hex } = await import('@provenance/log-core');
+    const content = 'print(1)\n';
+    const contentSha = sha256Hex(new TextEncoder().encode(content));
+
+    const { blob } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path: 'hw1.py', sha256: contentSha, content },
+            },
+            {
+              kind: 'doc.save',
+              data: { path: 'hw1.py', sha256: contentSha },
+            },
+          ],
+        },
+      ],
+      submissionFiles: [{ path: 'hw1.py', status: 'present', content }],
+    });
+    const result = await loadBundle(blob, 'test.zip');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const report = await runValidation(result.value);
+    const c8 = report.checks.find((c) => c.id === 'submitted_code_match')!;
+    expect(c8.status).toBe('pass');
+    expect(report.overall).toBe('pass');
   });
 });

@@ -22,20 +22,43 @@ export type BundleShapeError =
 // Types
 // ---------------------------------------------------------------------------
 
+export type SubmissionFileEntry = {
+  /** Workspace-relative path; matches a files_under_review entry. */
+  path: string;
+  /** 'present' = bytes are in the bundle; 'missing' = listed but absent on disk at seal. */
+  status: 'present' | 'missing';
+  /** Hex sha256 of the raw on-disk bytes. null iff status === 'missing'. */
+  sha256: string | null;
+};
+
 export type BundleManifest = {
-  format_version: '1.0';
+  /**
+   * '1.0' = legacy bundles (no submission_files). '1.1' = carries the final
+   * on-disk state of every files_under_review entry. The validator accepts both;
+   * `submission_files` is therefore optional at the type level (absent on 1.0).
+   */
+  format_version: '1.0' | '1.1';
   assignment_id: string;
   semester: string;
   /** Hex sha256 of the recorder extension. */
   extension_hash: string;
   sessions: ReadonlyArray<{
-    session_id: string;
+    /**
+     * The session UUID from the session.start event.
+     * null when the .slog could not be parsed (corrupt/truncated session).
+     */
+    session_id: string | null;
     prev_session_id: string | null;
     /** Hex sha256 of the .slog file. */
     slog_sha256: string;
     /** Hex sha256 of the .slog.meta file. */
     meta_sha256: string;
   }>;
+  /**
+   * Final on-disk state of every files_under_review entry (PRD §5.3, 1.1+).
+   * Absent (undefined) on legacy 1.0 bundles — read as `submission_files ?? []`.
+   */
+  submission_files?: ReadonlyArray<SubmissionFileEntry>;
 };
 
 /**
@@ -82,9 +105,10 @@ export function validateBundleManifestShape(
 
   const obj = value as Record<string, unknown>;
 
-  // format_version
-  if (obj['format_version'] !== '1.0') {
-    return err({ kind: 'wrong_version', actual: obj['format_version'] });
+  // format_version: accept 1.0 (legacy, no submission_files) and 1.1.
+  const version = obj['format_version'];
+  if (version !== '1.0' && version !== '1.1') {
+    return err({ kind: 'wrong_version', actual: version });
   }
 
   // assignment_id
@@ -134,14 +158,17 @@ export function validateBundleManifestShape(
     }
     const sObj = s as Record<string, unknown>;
 
-    if (typeof sObj['session_id'] !== 'string' || sObj['session_id'].length === 0) {
+    if (
+      sObj['session_id'] !== null &&
+      (typeof sObj['session_id'] !== 'string' || sObj['session_id'].length === 0)
+    ) {
       if (sObj['session_id'] === undefined) {
         return err({ kind: 'missing_field', field: `sessions[${i}].session_id` });
       }
       return err({
         kind: 'invalid_field',
         field: `sessions[${i}].session_id`,
-        reason: 'must be a non-empty string',
+        reason: 'must be a non-empty string or null',
       });
     }
 
@@ -177,6 +204,60 @@ export function validateBundleManifestShape(
         field: `sessions[${i}].meta_sha256`,
         reason: 'must be 64 hex chars',
       });
+    }
+  }
+
+  // submission_files: required iff format_version === '1.1'. Absent on legacy 1.0.
+  if (version === '1.1') {
+    if (!Array.isArray(obj['submission_files'])) {
+      if (obj['submission_files'] === undefined) {
+        return err({ kind: 'missing_field', field: 'submission_files' });
+      }
+      return err({ kind: 'invalid_field', field: 'submission_files', reason: 'must be an array' });
+    }
+    for (let i = 0; i < obj['submission_files'].length; i++) {
+      const f = (obj['submission_files'] as unknown[])[i];
+      if (typeof f !== 'object' || f === null) {
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}]`,
+          reason: 'must be an object',
+        });
+      }
+      const fObj = f as Record<string, unknown>;
+      if (typeof fObj['path'] !== 'string' || fObj['path'].length === 0) {
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}].path`,
+          reason: 'must be a non-empty string',
+        });
+      }
+      const status = fObj['status'];
+      if (status !== 'present' && status !== 'missing') {
+        return err({
+          kind: 'invalid_field',
+          field: `submission_files[${i}].status`,
+          reason: "must be 'present' or 'missing'",
+        });
+      }
+      const sha = fObj['sha256'];
+      if (status === 'present') {
+        if (typeof sha !== 'string' || !HEX_64_RE.test(sha)) {
+          return err({
+            kind: 'invalid_field',
+            field: `submission_files[${i}].sha256`,
+            reason: 'present file must have a 64-hex sha256',
+          });
+        }
+      } else {
+        if (sha !== null) {
+          return err({
+            kind: 'invalid_field',
+            field: `submission_files[${i}].sha256`,
+            reason: 'missing file must have sha256 === null',
+          });
+        }
+      }
     }
   }
 
