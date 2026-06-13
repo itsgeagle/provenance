@@ -47,6 +47,10 @@ import { GutterDecorations } from './GutterDecorations.js';
 import { LineHoverProvider } from './LineHoverProvider.js';
 import { EventSidebar } from './EventSidebar.js';
 import { ColorLegend } from './ColorLegend.js';
+import { FocusAwayOverlay } from './FocusAwayOverlay.js';
+import { currentFocusAwaySpan, currentEditedFile } from './focus-and-follow.js';
+import { CursorMarker } from './CursorMarker.js';
+import { currentSelection } from './cursor-position.js';
 import {
   findNextPaste,
   findNextExternalChange,
@@ -208,6 +212,39 @@ export function ReplayInner({
 
   // All events ordered (for hover lookup).
   const orderedEvents = useMemo(() => index?.ordered ?? [], [index]);
+
+  // ---------------------------------------------------------------------------
+  // Focus-away overlay + auto-follow the edited file.
+  // ---------------------------------------------------------------------------
+
+  // Whether the student is focused away from the window at the current playhead.
+  const focusAway = useMemo(
+    () => currentFocusAwaySpan(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
+
+  // The file being edited at the current playhead.
+  const editedFile = useMemo(
+    () => currentEditedFile(sessionEvents, state.currentGlobalIdx),
+    [sessionEvents, state.currentGlobalIdx],
+  );
+
+  // Auto-follow: switch the active file ONLY when the edited file transitions to a
+  // new path. This follows the action during playback without overriding a manual
+  // tab selection while paused (the playhead — and thus editedFile — isn't moving).
+  const prevEditedFileRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (editedFile !== null && editedFile !== prevEditedFileRef.current) {
+      prevEditedFileRef.current = editedFile;
+      setActiveFile(editedFile);
+    }
+  }, [editedFile]);
+
+  // The student's cursor/selection in the shown file at the current playhead.
+  const cursorSelection = useMemo(
+    () => currentSelection(sessionEvents, state.currentGlobalIdx, resolvedFile),
+    [sessionEvents, state.currentGlobalIdx, resolvedFile],
+  );
 
   // ---------------------------------------------------------------------------
   // Jump controls: pre-compute next targets + remaining counts.
@@ -403,6 +440,8 @@ export function ReplayInner({
               />
               {/* Phase 14: headless side-effect drivers */}
               <GutterDecorations editor={monacoEditor} fileState={activeFileState} />
+              {/* Student cursor / selection marker at the playhead. */}
+              <CursorMarker editor={monacoEditor} selection={cursorSelection} />
               <LineHoverProvider
                 editor={monacoEditor}
                 monaco={monacoInstance}
@@ -421,6 +460,8 @@ export function ReplayInner({
               No files under review in this session.
             </div>
           )}
+          {/* Focus-away overlay — covers the code pane while the student is focused away. */}
+          {focusAway !== null && <FocusAwayOverlay reason={focusAway.reason} />}
         </div>
 
         {/* Event sidebar — 30% width */}

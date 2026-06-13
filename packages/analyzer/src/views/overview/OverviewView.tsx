@@ -18,6 +18,8 @@ import { Actions } from './Actions.js';
 import { ValidationReportPanel } from './ValidationReportPanel.js';
 import { SummaryStatsPanel } from './SummaryStatsPanel.js';
 import { FlagDashboardPanel } from './FlagDashboardPanel.js';
+import { collectActiveExtensions } from '../../extensions/collect-active-extensions.js';
+import { ActiveExtensionsCard } from '../../extensions/ActiveExtensionsCard.js';
 
 export function OverviewView() {
   const { bundles, index, validationReport, flags } = useBundle();
@@ -28,11 +30,17 @@ export function OverviewView() {
 
   const bundle = bundles[0]!;
 
+  const activeExtensions = collectActiveExtensions(
+    index.byKind.get('ext.snapshot') ?? [],
+    index.byKind.get('ext.activate') ?? [],
+  );
+
   return (
     <div className="container mx-auto py-8 space-y-8" data-testid="overview-view">
       <Actions />
       <ValidationReportPanel report={validationReport} />
       <SummaryStatsPanel index={index} bundle={bundle} />
+      <ActiveExtensionsCard extensions={activeExtensions} />
       <FlagDashboardPanel flags={flags} />
     </div>
   );

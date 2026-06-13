@@ -48,6 +48,23 @@ function makeDocChangeEvent(globalIdx: number, sessionId: string, file: string):
   };
 }
 
+function makeFocusEvent(
+  globalIdx: number,
+  sessionId: string,
+  gained: boolean,
+  reason?: string,
+): IndexedEvent {
+  return {
+    sessionId,
+    seq: globalIdx,
+    globalIdx,
+    wall: '2026-01-01T00:00:00.000Z',
+    t: globalIdx * 100,
+    kind: 'focus.change',
+    payload: reason !== undefined ? { gained, reason } : { gained },
+  };
+}
+
 function buildIndex(events: IndexedEvent[]): EventIndex {
   const bySeq = new Map<string, IndexedEvent>();
   const byKind = new Map<EventKind, IndexedEvent[]>();
@@ -197,6 +214,48 @@ describe('ReplayView', () => {
       await waitFor(() => {
         const editor = screen.getByTestId('monaco-editor');
         expect(editor.getAttribute('data-value')).toBe('CBA');
+      });
+    });
+  });
+
+  describe('focus-away overlay', () => {
+    it('shows the overlay while the playhead is inside a focus-away span', async () => {
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'a.py'),
+        makeFocusEvent(1, 'sess1', false, 'window'),
+        makeDocChangeEvent(2, 'sess1', 'a.py'),
+      ]);
+      renderReplayView('sess1', '?event=2'); // focus lost at 1, never regained
+      await waitFor(() => {
+        expect(screen.getByTestId('focus-away-overlay')).toBeDefined();
+      });
+    });
+
+    it('hides the overlay once focus has been regained', async () => {
+      mockIndex.current = buildIndex([
+        makeFocusEvent(0, 'sess1', false, 'window'),
+        makeDocChangeEvent(1, 'sess1', 'a.py'),
+        makeFocusEvent(2, 'sess1', true),
+      ]);
+      renderReplayView('sess1', '?event=2'); // on the regain event
+      await waitFor(() => {
+        expect(screen.getByTestId('monaco-editor')).toBeDefined();
+      });
+      expect(screen.queryByTestId('focus-away-overlay')).toBeNull();
+    });
+  });
+
+  describe('auto-follow edited file', () => {
+    it('switches the active file to the file edited at the playhead', async () => {
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'a.py'), // inserts 'A' into a.py
+        makeDocChangeEvent(1, 'sess1', 'b.py'), // inserts 'B' into b.py
+      ]);
+      // Without auto-follow, resolvedFile would stay a.py (files[0]) showing 'A'.
+      // With auto-follow, the playhead at event 1 follows to b.py → content 'B'.
+      renderReplayView('sess1', '?event=1');
+      await waitFor(() => {
+        expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('B');
       });
     });
   });
