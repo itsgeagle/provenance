@@ -49,6 +49,8 @@ import { EventSidebar } from './EventSidebar.js';
 import { ColorLegend } from './ColorLegend.js';
 import { FocusAwayOverlay } from './FocusAwayOverlay.js';
 import { currentFocusAwaySpan, currentEditedFile } from './focus-and-follow.js';
+import { CursorMarker } from './CursorMarker.js';
+import { currentSelection } from './cursor-position.js';
 import {
   findNextPaste,
   findNextExternalChange,
@@ -237,6 +239,12 @@ export function ReplayInner({
       setActiveFile(editedFile);
     }
   }, [editedFile]);
+
+  // The student's cursor/selection in the shown file at the current playhead.
+  const cursorSelection = useMemo(
+    () => currentSelection(sessionEvents, state.currentGlobalIdx, resolvedFile),
+    [sessionEvents, state.currentGlobalIdx, resolvedFile],
+  );
 
   // ---------------------------------------------------------------------------
   // Jump controls: pre-compute next targets + remaining counts.
@@ -432,6 +440,8 @@ export function ReplayInner({
               />
               {/* Phase 14: headless side-effect drivers */}
               <GutterDecorations editor={monacoEditor} fileState={activeFileState} />
+              {/* Student cursor / selection marker at the playhead. */}
+              <CursorMarker editor={monacoEditor} selection={cursorSelection} />
               <LineHoverProvider
                 editor={monacoEditor}
                 monaco={monacoInstance}

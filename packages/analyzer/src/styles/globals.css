@@ -83,3 +83,15 @@ body,
 .replay-external-region {
   background-color: rgba(239, 68, 68, 0.2);
 }
+
+/* Student cursor marker (CursorMarker.tsx). The caret is a Monaco
+ * beforeContentClassName pseudo-element rendered as a 2px blue line; the
+ * selection highlight tints the selected range. */
+.replay-cursor-caret::before {
+  content: '';
+  border-left: 2px solid rgba(59, 130, 246, 0.95);
+  margin-left: -1px;
+}
+.replay-cursor-selection {
+  background-color: rgba(59, 130, 246, 0.25);
+}
