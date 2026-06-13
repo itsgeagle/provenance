@@ -22,7 +22,7 @@ const NAV_LINKS: { to: string; label: string; end?: boolean }[] = [
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
+    <div className="mx-auto w-full max-w-6xl px-4 py-6">
       <div className="mb-1 text-[10px] uppercase tracking-wider text-indigo-700">Superadmin</div>
       <h1 className="mb-4 text-xl font-semibold text-gray-900">Admin</h1>
 
