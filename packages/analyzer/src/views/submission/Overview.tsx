@@ -5,7 +5,10 @@
  * Works with both ApiSubmissionDataProvider and InMemorySubmissionDataProvider.
  */
 
+import { useMemo } from 'react';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
+import { collectActiveExtensions } from '../../extensions/collect-active-extensions.js';
+import { ActiveExtensionsCard } from '../../extensions/ActiveExtensionsCard.js';
 
 // ---------------------------------------------------------------------------
 // Severity chip
@@ -64,6 +67,15 @@ export function Overview() {
   const flagsQuery = provider.useFlags();
   const validationQuery = provider.useValidation();
   const filesQuery = provider.useFiles();
+  const extEventsQuery = provider.useEvents({ kind: ['ext.snapshot', 'ext.activate'] });
+
+  const activeExtensions = useMemo(() => {
+    const events = extEventsQuery.data ?? [];
+    return collectActiveExtensions(
+      events.filter((e) => e.kind === 'ext.snapshot'),
+      events.filter((e) => e.kind === 'ext.activate'),
+    );
+  }, [extEventsQuery.data]);
 
   if (summaryQuery.isLoading) {
     return (
@@ -147,6 +159,9 @@ export function Overview() {
           </div>
         </dl>
       </section>
+
+      {/* Active extensions */}
+      <ActiveExtensionsCard extensions={activeExtensions} />
 
       {/* Validation summary */}
       {validationQuery.data && (
