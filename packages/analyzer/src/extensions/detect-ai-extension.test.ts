@@ -9,6 +9,9 @@ describe('detectAiExtension', () => {
       'GitHub.copilot-labs',
       'anysphere.cursor-always-local',
       'Codeium.codeium',
+      'anthropic.claude-code',
+      'saoudrizwan.claude-dev',
+      'rooveterinaryinc.roo-cline',
       'Continue.continue',
       'TabNine.tabnine-vscode',
       'TabNine.tabnine-enterprise',
@@ -58,6 +61,7 @@ describe('detectAiExtension', () => {
   describe('token-pattern matching', () => {
     const tokenCases: Array<[string, string]> = [
       ['SomePublisher.copilot-helper', 'copilot'],
+      ['someorg.claude-companion', 'claude'],
       ['acme.codeium-plus', 'codeium'],
       ['x.my-cursor-thing', 'cursor'],
       ['x.tabnine-extras', 'tabnine'],

@@ -34,6 +34,12 @@ const CURATED_AI_IDS = new Set<string>([
   'codeium.codeium-enterprise-updater',
   'codeium.windsurf',
   'exafunction.windsurf',
+  // Anthropic Claude Code
+  'anthropic.claude-code',
+  // Cline (formerly "Claude Dev")
+  'saoudrizwan.claude-dev',
+  // Roo Code (Cline fork)
+  'rooveterinaryinc.roo-cline',
   // Continue
   'continue.continue',
   // Tabnine
@@ -76,6 +82,7 @@ const CURATED_AI_IDS = new Set<string>([
  */
 const AI_TOKENS = new Set<string>([
   'copilot',
+  'claude',
   'codeium',
   'cursor',
   'tabnine',
