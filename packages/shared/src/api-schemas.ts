@@ -335,6 +335,38 @@ export const IngestJobListItemSchema = z.object({
 });
 export type IngestJobListItem = z.infer<typeof IngestJobListItemSchema>;
 
+// ---------------------------------------------------------------------------
+// Gradescope export ingest (POST /semesters/:id/ingest:gradescope)
+// ---------------------------------------------------------------------------
+
+/** Roster rows added vs updated by the export's roster upsert. */
+export const RosterUpsertSummarySchema = z.object({
+  added: z.number().int(),
+  updated: z.number().int(),
+});
+export type RosterUpsertSummary = z.infer<typeof RosterUpsertSummarySchema>;
+
+/** A submission folder that could not be processed as a bundle. */
+export const GradescopeSkippedEntrySchema = z.object({
+  folder_key: z.string(),
+  reason: z.enum(['no_manifest', 'no_submitters']),
+});
+export type GradescopeSkippedEntry = z.infer<typeof GradescopeSkippedEntrySchema>;
+
+/**
+ * Response from POST /ingest:gradescope. `job_id` is null when the export has
+ * no processable bundles (roster was still upserted). Otherwise it is the
+ * enqueued ingest job, with one staged submission per submitter.
+ */
+export const GradescopeIngestResponseSchema = z.object({
+  job_id: z.string().uuid().nullable(),
+  roster: RosterUpsertSummarySchema,
+  bundles_processed: z.number().int(),
+  submissions_queued: z.number().int(),
+  skipped: z.array(GradescopeSkippedEntrySchema),
+});
+export type GradescopeIngestResponse = z.infer<typeof GradescopeIngestResponseSchema>;
+
 export const IngestJobListResponseSchema = z.object({
   items: z.array(IngestJobListItemSchema),
   next_cursor: z.string().nullable(),

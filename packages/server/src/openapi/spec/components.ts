@@ -239,6 +239,34 @@ export const components = {
       },
     },
 
+    GradescopeIngestResponse: {
+      type: 'object',
+      required: ['job_id', 'roster', 'bundles_processed', 'submissions_queued', 'skipped'],
+      properties: {
+        // null when the export had no processable bundles (roster-only upload).
+        job_id: { oneOf: [{ $ref: '#/components/schemas/UUID' }, { type: 'null' }] },
+        roster: {
+          type: 'object',
+          properties: {
+            added: { type: 'integer' },
+            updated: { type: 'integer' },
+          },
+        },
+        bundles_processed: { type: 'integer' },
+        submissions_queued: { type: 'integer' },
+        skipped: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              folder_key: { type: 'string' },
+              reason: { type: 'string', enum: ['no_manifest', 'no_submitters'] },
+            },
+          },
+        },
+      },
+    },
+
     // -------------------------------------------------------------------------
     // Submissions / cohort
     // -------------------------------------------------------------------------

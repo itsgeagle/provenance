@@ -127,6 +127,59 @@ export const ingestPaths = {
       },
     },
   },
+  '/semesters/{semesterId}/ingest:gradescope': {
+    post: {
+      tags: ['Ingest'],
+      summary: 'Upload a Gradescope export (semester admin) — primary upload path',
+      description:
+        'Upload the ZIP from Gradescope\'s "Download Submissions" (a submission_metadata.yml plus one already-unzipped folder per submission). Does NOT require a pre-existing roster: the roster is upserted from the metadata, then one bundle per submitter is staged and processed. Group submissions yield one submission per co-submitter. Returns 202 with a job, or 200 with job_id=null when the export had no processable bundles.',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'multipart/form-data': {
+            schema: {
+              type: 'object',
+              required: ['archive'],
+              properties: {
+                archive: { type: 'string', format: 'binary' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '202': {
+          description: 'Job accepted; one submission staged per submitter',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/GradescopeIngestResponse' },
+            },
+          },
+        },
+        '200': {
+          description: 'Roster upserted; no processable bundles (job_id null)',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/GradescopeIngestResponse' },
+            },
+          },
+        },
+        '400': {
+          description: 'VALIDATION (not a ZIP / missing or invalid submission_metadata.yml)',
+        },
+        '413': { description: 'INGEST_BATCH_TOO_LARGE or INGEST_FILE_TOO_LARGE' },
+      },
+    },
+  },
   '/semesters/{semesterId}/ingest/jobs': {
     get: {
       tags: ['Ingest'],

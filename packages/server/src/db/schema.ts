@@ -526,6 +526,17 @@ export const ingest_files = pgTable(
     }),
     submission_id: uuid('submission_id').references(() => submissions.id, { onDelete: 'set null' }),
     filename_capture: jsonb('filename_capture'),
+    /**
+     * Out-of-band match hint (Gradescope export ingest, migration 0015).
+     *
+     * When non-null, the worker matches this file to the roster by this `sid`
+     * directly — taken from `submission_metadata.yml` — instead of applying the
+     * semester's `filename_convention` regex, and dedups per
+     * (semester, student, blob) so co-submitters of one group bundle each get
+     * their own submission. Null for the normal /ingest path (filename-regex
+     * match, blob-only dedup). See services/ingest/gradescope/.
+     */
+    match_sid: text('match_sid'),
     error: jsonb('error'),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
