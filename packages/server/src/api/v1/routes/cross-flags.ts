@@ -29,6 +29,7 @@ import {
 import { getCrossFlag } from '../../../services/cross-flags/detail.js';
 import { authorize } from '../../../auth/authorize.js';
 import { findMembership } from '../../../auth/membership-cache.js';
+import { requirePrincipal } from '../../middleware/auth-session.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
@@ -87,7 +88,8 @@ export function createCrossFlagsRouter(): Hono {
         );
       }
 
-      const result = await listCrossFlags(db, semesterId, filters, cursor, limit);
+      const protectedMode = requirePrincipal(c).user.protected;
+      const result = await listCrossFlags(db, semesterId, filters, cursor, limit, protectedMode);
 
       return c.json({
         items: result.items,
@@ -118,8 +120,10 @@ export function createCrossFlagsRouter(): Hono {
       );
     }
 
+    const protectedMode = principal.user.protected;
+
     // Fetch the cross_flag row to get semester_id
-    const result = await getCrossFlag(db, crossFlagId);
+    const result = await getCrossFlag(db, crossFlagId, protectedMode);
     if (result === null) {
       return c.json(Errors.notFound().toBody(), 404);
     }

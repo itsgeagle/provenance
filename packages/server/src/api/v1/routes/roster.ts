@@ -24,6 +24,7 @@ import crypto from 'node:crypto';
 import { getDb } from '../../../db/client.js';
 import { getConfig } from '../../../config/index.js';
 import { requireAuth } from '../../middleware/authorize.js';
+import { requirePrincipal } from '../../middleware/auth-session.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
 import { audit } from '../../middleware/audit.js';
 import { Errors } from '../errors.js';
@@ -31,6 +32,7 @@ import { parseRosterCsv } from '../../../services/roster/parse.js';
 import { diffRoster } from '../../../services/roster/diff.js';
 import { putPreview, getPreview } from '../../../services/roster/preview-cache.js';
 import { commitRoster, listRoster, updateRosterEntry } from '../../../services/roster/index.js';
+import { projectStudent, maskEmail, maskExtras } from '../../../services/protect.js';
 import { roster_entries } from '../../../db/schema.js';
 import { eq } from 'drizzle-orm';
 
@@ -85,14 +87,21 @@ export function createRosterRouter(): Hono {
       if (q !== undefined) listOpts.q = q;
 
       const result = await listRoster(db, listOpts);
+      const protectedMode = requirePrincipal(c).user.protected;
 
       return c.json({
         entries: result.entries.map((e) => ({
-          id: e.id,
-          sid: e.sid,
-          display_name: e.display_name,
-          email: e.email,
-          extras: e.extras,
+          ...projectStudent(
+            {
+              id: e.id,
+              sid: e.sid,
+              display_name: e.display_name,
+              protected_index: e.protected_index,
+            },
+            protectedMode,
+          ),
+          email: maskEmail(e.email, protectedMode),
+          extras: maskExtras(e.extras, protectedMode),
         })),
         next_cursor: result.next_cursor,
         total_count: result.total_count,
@@ -286,12 +295,20 @@ export function createRosterRouter(): Hono {
         throw Errors.notFound();
       }
 
+      const protectedMode = requirePrincipal(c).user.protected;
+
       return c.json({
-        id: updated.id,
-        sid: updated.sid,
-        display_name: updated.display_name,
-        email: updated.email,
-        extras: updated.extras,
+        ...projectStudent(
+          {
+            id: updated.id,
+            sid: updated.sid,
+            display_name: updated.display_name,
+            protected_index: updated.protected_index,
+          },
+          protectedMode,
+        ),
+        email: maskEmail(updated.email, protectedMode),
+        extras: maskExtras(updated.extras, protectedMode),
       });
     },
   );

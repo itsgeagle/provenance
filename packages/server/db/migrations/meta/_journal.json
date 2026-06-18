@@ -99,6 +99,13 @@
       "when": 1749300000000,
       "tag": "0015_ingest_files_match_sid",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1749400000000,
+      "tag": "0016_protected_mode",
+      "breakpoints": true
     }
   ]
 }

@@ -77,7 +77,8 @@ export function createSubmissionsRouter(): Hono {
       return c.json(Errors.notFound().toBody(), 404);
     }
 
-    const summary = await getSubmissionSummary(db, submissionId);
+    const protectedMode = principal.user.protected;
+    const summary = await getSubmissionSummary(db, submissionId, protectedMode);
     if (summary === null) {
       return c.json(Errors.notFound().toBody(), 404);
     }

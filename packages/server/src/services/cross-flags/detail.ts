@@ -23,6 +23,7 @@ export type CrossFlagDetailResult = {
 export async function getCrossFlag(
   db: DrizzleDb,
   crossFlagId: string,
+  protectedMode: boolean,
 ): Promise<CrossFlagDetailResult> {
   const rows = await db
     .select({
@@ -41,7 +42,7 @@ export async function getCrossFlag(
   if (rows.length === 0) return null;
 
   const row = rows[0]!;
-  const participantsMap = await fetchParticipants(db, [row.id]);
+  const participantsMap = await fetchParticipants(db, [row.id], protectedMode);
 
   return {
     item: {

@@ -1103,6 +1103,23 @@ export function useDeleteUser() {
   });
 }
 
+/** Mutation: PATCH /admin/users/:userId/protected. Cannot be applied to your own account (server-enforced + UI-disabled). */
+export function useSetUserProtected() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, protected: isProtected }: { userId: string; protected: boolean }) =>
+      apiFetch(`/admin/users/${userId}/protected`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ protected: isProtected }),
+      }),
+    onSuccess: () => {
+      // Prefix-match invalidates all pages of the admin users list.
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
 /** Mutation: POST /admin/view-as. Sticky on the session row until exit. */
 export function useStartViewAs() {
   const queryClient = useQueryClient();

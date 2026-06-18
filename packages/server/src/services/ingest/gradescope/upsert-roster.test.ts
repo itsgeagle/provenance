@@ -107,4 +107,42 @@ describe('upsertRosterFromSubmitters', () => {
       expect((await getEntry(db, semesterId, '100'))!.display_name).toBe('First');
     });
   });
+
+  it('assigns a stable, unique protected_index to newly-added entries', async () => {
+    await withTestDb(async (db) => {
+      const semesterId = await seedSemester(db);
+      await upsertRosterFromSubmitters(db, semesterId, [
+        { sid: '100', name: 'Alice' },
+        { sid: '200', name: 'Bob' },
+      ]);
+
+      // Protected mode masks identity to "Student <protected_index>"; without an
+      // assigned index a Gradescope-rostered student would fall back to a UUID
+      // stub. Every new entry must therefore receive a non-null, unique index.
+      const alice = await getEntry(db, semesterId, '100');
+      const bob = await getEntry(db, semesterId, '200');
+      expect(alice!.protected_index).not.toBeNull();
+      expect(bob!.protected_index).not.toBeNull();
+      expect(alice!.protected_index).not.toBe(bob!.protected_index);
+
+      // The index is stable: a later upsert (update-only) does not change it, and
+      // a newly-added student continues from the existing max (no collision).
+      const aliceIndexBefore = alice!.protected_index;
+      const result = await upsertRosterFromSubmitters(db, semesterId, [
+        { sid: '100', email: 'alice.new@berkeley.edu' },
+        { sid: '300', name: 'Carol' },
+      ]);
+      expect(result).toEqual({ added: 1, updated: 1 });
+
+      expect((await getEntry(db, semesterId, '100'))!.protected_index).toBe(aliceIndexBefore);
+      const carol = await getEntry(db, semesterId, '300');
+      expect(carol!.protected_index).not.toBeNull();
+      const indices = [
+        (await getEntry(db, semesterId, '100'))!.protected_index,
+        bob!.protected_index,
+        carol!.protected_index,
+      ];
+      expect(new Set(indices).size).toBe(3);
+    });
+  });
 });

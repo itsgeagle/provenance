@@ -10,6 +10,7 @@ import { roster_entries } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';
 import type { CachedPreview } from './preview-cache.js';
+import { assignMissingProtectedIndices } from '../protected-index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,6 +91,9 @@ export async function commitRoster(
         deleted++;
       }
     }
+
+    // Newly-inserted rows have NULL protected_index; assign per-semester indices.
+    await assignMissingProtectedIndices(tx, semesterId);
   });
 
   return { added, updated, deleted };

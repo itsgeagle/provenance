@@ -40,6 +40,8 @@ const ViewAsRequestSchema = z.object({
   user_id: z.string().uuid(),
 });
 
+const SetProtectedRequestSchema = z.object({ protected: z.boolean() });
+
 // ---------------------------------------------------------------------------
 // Cursor (created_at desc, id desc for stable tie-break)
 // ---------------------------------------------------------------------------
@@ -114,6 +116,7 @@ export function createAdminRouter(): Hono {
           email: users.email,
           display_name: users.display_name,
           is_superadmin: users.is_superadmin,
+          protected: users.protected,
           created_at: users.created_at,
           last_login_at: users.last_login_at,
         })
@@ -128,6 +131,7 @@ export function createAdminRouter(): Hono {
         email: u.email,
         display_name: u.display_name,
         is_superadmin: u.is_superadmin,
+        protected: u.protected,
         created_at: u.created_at.toISOString(),
         last_login_at: u.last_login_at !== null ? u.last_login_at.toISOString() : null,
       }));
@@ -179,6 +183,7 @@ export function createAdminRouter(): Hono {
           email: u.email,
           display_name: u.display_name,
           is_superadmin: u.is_superadmin,
+          protected: u.protected,
           created_at: u.created_at.toISOString(),
           last_login_at: u.last_login_at !== null ? u.last_login_at.toISOString() : null,
         },
@@ -238,6 +243,73 @@ export function createAdminRouter(): Hono {
       }).catch(() => {});
 
       return c.body(null, 204);
+    },
+  );
+
+  // ===========================================================================
+  // PATCH /admin/users/:userId/protected — lock/unlock protected mode
+  // (superadmin only; cannot change your OWN flag — that is the lock)
+  // ===========================================================================
+  router.patch(
+    '/users/:userId/protected',
+    rateLimit('write.misc'),
+    requireAuth({ action: 'admin', target: 'global' }),
+    async (c) => {
+      const principal = requirePrincipal(c);
+      const userId = c.req.param('userId');
+
+      if (userId === principal.user.id) {
+        return c.json(
+          Errors.validation([
+            { field: 'user_id', issue: 'cannot change your own protected flag' },
+          ]).toBody(),
+          400,
+        );
+      }
+
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json(Errors.validation([{ field: 'body', issue: 'invalid JSON' }]).toBody(), 400);
+      }
+      const parsed = SetProtectedRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json(
+          Errors.validation([{ field: 'protected', issue: 'must be boolean' }]).toBody(),
+          400,
+        );
+      }
+
+      const targetRows = await db()
+        .select({ id: users.id, email: users.email, protected: users.protected })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const target = targetRows[0];
+      if (target === undefined) {
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+
+      await db()
+        .update(users)
+        .set({ protected: parsed.data.protected })
+        .where(eq(users.id, userId));
+
+      void insertAuditRow({
+        actorUserId: principal.user.id,
+        actorTokenId: principal.principal_kind === 'token' ? principal.token.id : null,
+        semesterId: null,
+        action: 'admin.user.set_protected',
+        targetType: 'user',
+        targetId: userId,
+        detail: { email: target.email, from: target.protected, to: parsed.data.protected },
+        ip: c.req.header('x-forwarded-for') ?? null,
+        userAgent: c.req.header('user-agent') ?? null,
+        at: new Date(),
+      }).catch(() => {});
+
+      return c.json({ id: userId, protected: parsed.data.protected });
     },
   );
 

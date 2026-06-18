@@ -49,6 +49,7 @@ export const users = pgTable(
     email: text('email').notNull(),
     display_name: text('display_name').notNull().default(''),
     is_superadmin: boolean('is_superadmin').notNull().default(false),
+    protected: boolean('protected').notNull().default(false),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -257,6 +258,7 @@ export const roster_entries = pgTable(
     extras: jsonb('extras')
       .notNull()
       .default(sql`'{}'`),
+    protected_index: integer('protected_index'),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .default(sql`now()`),
@@ -267,6 +269,7 @@ export const roster_entries = pgTable(
   (t) => [
     unique('roster_entries_semester_sid_key').on(t.semester_id, t.sid),
     index('roster_entries_semester_id_idx').on(t.semester_id),
+    unique('roster_entries_semester_protected_index_key').on(t.semester_id, t.protected_index),
   ],
 );
 

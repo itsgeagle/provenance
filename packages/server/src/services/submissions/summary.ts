@@ -32,6 +32,7 @@ import {
   validation_results,
 } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
+import { projectStudent, maskFilename, protectedLabel } from '../protect.js';
 
 // ---------------------------------------------------------------------------
 // Response type
@@ -98,6 +99,7 @@ function synthesizeValidationDetail(detail: unknown, overall: string): string | 
 export async function getSubmissionSummary(
   db: DrizzleDb,
   submissionId: string,
+  protectedMode: boolean,
 ): Promise<SubmissionSummary | null> {
   // Query 1: core submission + assignment + student JOINs
   const rows = await db
@@ -122,6 +124,7 @@ export async function getSubmissionSummary(
       student_id: roster_entries.id,
       student_sid: roster_entries.sid,
       student_display_name: roster_entries.display_name,
+      student_protected_index: roster_entries.protected_index,
     })
     .from(submissions)
     .innerJoin(assignments, eq(submissions.assignment_id, assignments.id))
@@ -191,13 +194,21 @@ export async function getSubmissionSummary(
       assignment_id_str: row.assignment_id_str,
       label: row.assignment_label,
     },
-    student: {
-      id: row.student_id,
-      sid: row.student_sid,
-      display_name: row.student_display_name,
-    },
+    student: projectStudent(
+      {
+        id: row.student_id,
+        sid: row.student_sid,
+        display_name: row.student_display_name,
+        protected_index: row.student_protected_index,
+      },
+      protectedMode,
+    ),
     ingested_at: row.ingested_at.toISOString(),
-    source_filename: row.source_filename,
+    source_filename: maskFilename(
+      row.source_filename,
+      protectedMode,
+      `${protectedLabel(row.student_protected_index, row.student_id)} — submission`,
+    ),
     blob_sha256: row.blob_sha256,
     recorder_version: row.recorder_version,
     format_version: row.format_version,

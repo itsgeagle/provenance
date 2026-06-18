@@ -73,6 +73,7 @@ function makeSessionPrincipal(userId: string): Principal {
       email: 'test@berkeley.edu',
       display_name: 'Test',
       is_superadmin: false,
+      protected: false,
       created_at: new Date(),
       last_login_at: null,
     },
