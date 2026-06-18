@@ -20,6 +20,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { roster_entries } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
 import type { GradescopeSubmitter } from './parse-metadata.js';
+import { assignMissingProtectedIndices } from '../../protected-index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,6 +88,13 @@ export async function upsertRosterFromSubmitters(
 
       if (existing.has(s.sid)) updated += 1;
       else added += 1;
+    }
+
+    // Newly-inserted rows have NULL protected_index; assign per-semester indices
+    // so Gradescope-rostered students get stable "Student N" labels in protected
+    // mode (matching the CSV commitRoster path), not the UUID-stub fallback.
+    if (added > 0) {
+      await assignMissingProtectedIndices(tx, semesterId);
     }
 
     return { added, updated };
