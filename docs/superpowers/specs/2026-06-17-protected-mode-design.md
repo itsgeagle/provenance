@@ -37,9 +37,14 @@ during implementation:
 4. **Mask scope:** `display_name`, `sid`, `email`, roster `extras` (stripped),
    and identity-bearing ingest filenames. Exports inherit masking automatically
    because they are built from already-masked data.
-5. **No API contract change.** Masked values keep their existing types
-   (`sid`/`display_name` stay non-empty strings; `email` is already nullable).
-   `packages/shared` schemas are unchanged; no format/version bump.
+5. **No *student-identity* contract change.** Masked student values keep their
+   existing types (`sid`/`display_name` stay non-empty strings; `email`/`extras`
+   are already nullable), so the student sub-object schemas in `packages/shared`
+   are unchanged and need no version bump. The feature *does* add one **additive**
+   field — `protected: z.boolean()` — to `UserSchema` and `AdminUserSummarySchema`
+   (the `/me` and `/admin/users` shapes). Server and analyzer are updated in the
+   same change, and the contract test (`contract.test.ts`) enforces it. Staff
+   emails on those endpoints are **not** masked — only student identity is.
 
 ## Threat model & re-identification oracles
 
@@ -112,11 +117,18 @@ When `ctx.protected` is true:
 | `display_name`   | `Student {protected_index}`           |
 | `sid`            | `S{protected_index}`                  |
 | `email`          | `null`                                |
-| `extras`         | omitted (`undefined`)                 |
-| matched filename | `Student {index} — {assignment}`      |
-| unmatched filename | `(unmatched file #{k})`             |
+| `extras`         | `null` (stripped)                     |
+| matched filename | `Student {index} — file`              |
+| unmatched filename | `(unmatched file {id8})`            |
+| `source_filename` (submission) | `Student {index} — submission` |
+| `filename_capture` (ingest)    | dropped                       |
 
 `ctx.protected` is read from the principal (derived from the real user row).
+
+**Label fallback:** the placeholder is derived from `protected_index`. If that is
+ever null (e.g. a row inserted before assignment runs), the label falls back to a
+short slice of the student's random UUID (`Student {uuid6}` / `S-{uuid6}`) — still
+name-independent, so masking can never degrade to real PII.
 
 ### Service builders that must route through `projectStudent`
 
