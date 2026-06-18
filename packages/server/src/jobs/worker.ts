@@ -49,7 +49,7 @@ import {
 import { recordIngestJobTerminal } from '../api/middleware/metrics.js';
 import { dedupFile } from '../services/ingest/dedup.js';
 import { parseBundlePhase } from '../services/ingest/parse-bundle-phase.js';
-import { matchStudent } from '../services/ingest/match-student.js';
+import { matchStudent, type MatchStudentResult } from '../services/ingest/match-student.js';
 import { createSubmission } from '../services/ingest/create-submission.js';
 import { materializeEvents } from '../services/ingest/materialize-events.js';
 import { computeAndStoreStats } from '../services/ingest/stats.js';
@@ -176,9 +176,59 @@ export async function startWorker(): Promise<() => Promise<void>> {
       const filenameConvention = semesterRows[0]!.filename_convention;
 
       // -----------------------------------------------------------------------
-      // Phase 2: Dedup
+      // Roster resolver: looks up roster_entries.id by (semesterId, sid).
+      // Shared by the match-hint path (below) and the Phase 4 filename match.
       // -----------------------------------------------------------------------
-      const dedupResult = await dedupFile(db, semesterId, fileRow.blob_sha256);
+      const rosterResolver = async (semId: string, sid: string) => {
+        const { roster_entries } = await import('../db/schema.js');
+        const rows = await db
+          .select({ id: roster_entries.id })
+          .from(roster_entries)
+          .where(and(eq(roster_entries.semester_id, semId), eq(roster_entries.sid, sid)))
+          .limit(1);
+        return rows.length > 0 ? rows[0]!.id : null;
+      };
+
+      // -----------------------------------------------------------------------
+      // Match hint (Gradescope export ingest): when ingest_files.match_sid is
+      // set, the student identity was resolved from submission_metadata.yml at
+      // upload time. Resolve it now so Phase 2 dedup can be scoped per-student
+      // (co-submitters of one group bundle each keep their own submission) and
+      // Phase 4 can skip the filename_convention regex. An unknown sid lands in
+      // the unmatched tray, same as the filename path.
+      // -----------------------------------------------------------------------
+      const hintSid = fileRow.match_sid;
+      let hintedStudentId: string | null = null;
+      if (hintSid !== null) {
+        hintedStudentId = await rosterResolver(semesterId, hintSid);
+        if (hintedStudentId === null) {
+          await db
+            .update(ingest_files)
+            .set({
+              status: 'unmatched',
+              error: { phase: 'match_student', cause: 'unknown_sid' },
+              resolved_at: new Date(),
+            })
+            .where(eq(ingest_files.id, ingestFileId));
+
+          logger.info({ ingestFileId, sid: hintSid }, 'ingest_file: match_sid not found in roster');
+          await maybeEnqueueFinalize(boss, db, ingestJobId);
+          return;
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // Phase 2: Dedup
+      //
+      // Hinted (Gradescope) files dedup per (semester, student, blob); normal
+      // files dedup per (semester, blob). See dedupFile docs.
+      // -----------------------------------------------------------------------
+      const dedupResult = await dedupFile(
+        db,
+        semesterId,
+        fileRow.blob_sha256,
+        hintedStudentId ?? undefined,
+      );
 
       if (dedupResult.isDuplicate) {
         await db
@@ -228,26 +278,28 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
       // -----------------------------------------------------------------------
       // Phase 4: Match student
+      //
+      // Hinted (Gradescope) files match directly to the student resolved from
+      // match_sid above, with the assignment taken from the signed bundle
+      // manifest. Normal files run the semester's filename_convention regex.
+      // (When hintSid is set we already returned above on an unknown sid, so
+      // hintedStudentId is non-null here.)
       // -----------------------------------------------------------------------
-
-      // Roster resolver: looks up roster_entries.id by (semesterId, sid).
-      const rosterResolver = async (semId: string, sid: string) => {
-        const { roster_entries } = await import('../db/schema.js');
-        const rows = await db
-          .select({ id: roster_entries.id })
-          .from(roster_entries)
-          .where(and(eq(roster_entries.semester_id, semId), eq(roster_entries.sid, sid)))
-          .limit(1);
-        return rows.length > 0 ? rows[0]!.id : null;
-      };
-
-      const matchResult = await matchStudent(
-        semesterId,
-        filenameConvention,
-        fileRow.original_filename,
-        bundle.manifest,
-        rosterResolver,
-      );
+      const matchResult: MatchStudentResult =
+        hintSid !== null
+          ? {
+              matched: true,
+              studentId: hintedStudentId!,
+              assignmentIdStr: bundle.manifest.assignment_id,
+              filenameCapture: { sid: hintSid },
+            }
+          : await matchStudent(
+              semesterId,
+              filenameConvention,
+              fileRow.original_filename,
+              bundle.manifest,
+              rosterResolver,
+            );
 
       if (!matchResult.matched) {
         await db
