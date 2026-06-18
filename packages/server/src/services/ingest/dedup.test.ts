@@ -192,4 +192,50 @@ describe('dedupFile', () => {
       expect(result.isDuplicate).toBe(false);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Student-scoped dedup (Gradescope group submissions)
+  // -------------------------------------------------------------------------
+
+  it('with studentId: matches only the same student (co-submitter blob is NOT a duplicate)', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const studentA = await seedRosterEntry(db, semester.id, '111111');
+      const studentB = await seedRosterEntry(db, semester.id, '222222');
+      const assignment = await seedAssignment(db, semester.id);
+      const job = await seedIngestJob(db, semester.id, user.id);
+
+      // One group bundle: identical blob bytes ingested for student A.
+      const sha256 = 'a1'.repeat(32);
+      await seedSubmission(db, semester.id, assignment.id, studentA.id, job.id, sha256);
+
+      // Student B (co-submitter, same blob) must NOT be seen as a duplicate.
+      const forB = await dedupFile(db, semester.id, sha256, studentB.id);
+      expect(forB.isDuplicate).toBe(false);
+
+      // Student A re-uploading the same blob IS a duplicate (their own resubmit).
+      const forA = await dedupFile(db, semester.id, sha256, studentA.id);
+      expect(forA.isDuplicate).toBe(true);
+    });
+  });
+
+  it('with studentId: blob-only callers still see the existing submission as a duplicate', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const studentA = await seedRosterEntry(db, semester.id, '111111');
+      const assignment = await seedAssignment(db, semester.id);
+      const job = await seedIngestJob(db, semester.id, user.id);
+
+      const sha256 = 'b2'.repeat(32);
+      const sub = await seedSubmission(db, semester.id, assignment.id, studentA.id, job.id, sha256);
+
+      // No studentId (normal /ingest path) — blob-only dedup still fires.
+      const result = await dedupFile(db, semester.id, sha256);
+      expect(result.isDuplicate).toBe(true);
+      if (!result.isDuplicate) return;
+      expect(result.existingSubmissionId).toBe(sub.id);
+    });
+  });
 });

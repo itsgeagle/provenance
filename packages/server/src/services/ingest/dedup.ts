@@ -48,16 +48,35 @@ export type DedupResult =
  * exact same blob as a student's earlier version should not produce a new
  * submission — it is a true duplicate regardless of whether that prior version
  * was later superseded.
+ *
+ * ## Student scoping (Gradescope group submissions)
+ *
+ * When `studentId` is provided, the dedup is narrowed to
+ * `(semester_id, student_id, blob_sha256)`. This is used by the Gradescope
+ * export path, where two co-submitters of one group bundle legitimately share
+ * identical blob bytes and must each get their own submission — a blob-only
+ * dedup would collapse the second submitter into a "duplicate". The normal
+ * /ingest path passes no `studentId` and keeps the original blob-only semantics
+ * (dedup runs before the student is known).
  */
 export async function dedupFile(
   db: DrizzleDb,
   semesterId: string,
   blobSha256: string,
+  studentId?: string,
 ): Promise<DedupResult> {
+  const predicates = [
+    eq(submissions.semester_id, semesterId),
+    eq(submissions.blob_sha256, blobSha256),
+  ];
+  if (studentId !== undefined) {
+    predicates.push(eq(submissions.student_id, studentId));
+  }
+
   const rows = await db
     .select({ id: submissions.id })
     .from(submissions)
-    .where(and(eq(submissions.semester_id, semesterId), eq(submissions.blob_sha256, blobSha256)))
+    .where(and(...predicates))
     .limit(1);
 
   if (rows.length > 0) {
