@@ -982,6 +982,29 @@ For brevity, each endpoint is specified as `METHOD path` + auth requirement + re
 - Errors: `INGEST_BATCH_TOO_LARGE`, `INGEST_FILE_TOO_LARGE`, `INGEST_TOO_MANY_FILES`, `ROSTER_REQUIRED` (semester has no roster yet).
 - Rate: `write.ingest`.
 
+**`POST /api/v1/semesters/{semesterId}/ingest:gradescope`** _(semester admin)_ — **primary upload path**
+
+- Multipart, single field `archive` — the ZIP produced by Gradescope's "Download
+  Submissions". This is a single archive containing a `submission_metadata.yml`
+  and one **folder per submission** (`submission_<id>/`), because Gradescope
+  unzips each student's bundle on upload. Folders may nest provenance files under
+  `.provenance/` or hold them flat; both are accepted.
+- Unlike `POST /ingest`, this does **not** require a pre-existing roster. The
+  server **upserts** `roster_entries` from the metadata's submitters (add/update
+  by `sid`, never delete), then rebuilds a sealed bundle ZIP from each submission
+  folder and stages **one file per submitter** with a `match_sid` hint. The
+  worker matches by that hint (not the filename convention) and dedups per
+  `(semester, student, blob)`, so each co-submitter of a group project gets their
+  own submission from the shared bundle.
+- Headers: `Content-Length` enforced against `INGEST_MAX_BATCH_BYTES`.
+- Response:
+  - `202` with `{ job_id, roster: { added, updated }, bundles_processed, submissions_queued, skipped: [{ folder_key, reason }] }` when an ingest job was enqueued.
+  - `200` with the same shape and `job_id: null` when the export had no
+    processable bundles (the roster was still upserted). `skipped[].reason` is
+    `no_manifest` (folder has no provenance bundle) or `no_submitters`.
+- Errors: `VALIDATION` (not a ZIP / missing `submission_metadata.yml` / unparseable metadata), `INGEST_BATCH_TOO_LARGE`, `INGEST_FILE_TOO_LARGE`, `INGEST_TOO_MANY_FILES`.
+- Rate: `write.ingest`.
+
 **`GET /api/v1/semesters/{semesterId}/ingest/jobs`**
 
 - Query: `status?`, `cursor?`, `limit?`.

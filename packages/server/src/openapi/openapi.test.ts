@@ -277,6 +277,8 @@ const PATH_EQUIVALENCES: Record<string, string> = {
   // roster action routes: Hono sees ":upload"/":commit" as params; spec uses colon-action syntax
   '/semesters/{semesterId}/roster{upload}': '/semesters/{semesterId}/roster:upload',
   '/semesters/{semesterId}/roster{commit}': '/semesters/{semesterId}/roster:commit',
+  // ingest:gradescope is likewise a colon-action route, not a path param.
+  '/semesters/{semesterId}/ingest{gradescope}': '/semesters/{semesterId}/ingest:gradescope',
   // submissions summary: route is /summary but spec uses bare /submissions/{id}
   '/submissions/{submissionId}/summary': '/submissions/{submissionId}',
   // files content/provenance: after stripping {.+} regex, path ends up without the .+

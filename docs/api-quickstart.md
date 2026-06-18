@@ -263,6 +263,24 @@ curl -s -X POST \
   | python3 -m json.tool
 ```
 
+### Upload a Gradescope export (primary path)
+
+Upload the ZIP from Gradescope's "Download Submissions" directly. The roster is
+populated from the export's `submission_metadata.yml` (no separate roster upload
+needed) and every student bundle is processed in one job. Group submissions
+produce one submission per co-submitter.
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $PROVENANCE_TOKEN" \
+  -F "archive=@assignment_8046601_export.zip;type=application/zip" \
+  "$PROVENANCE_BASE_URL/semesters/$SEMESTER_ID/ingest:gradescope" \
+  | python3 -m json.tool
+# -> { "job_id": "...", "roster": { "added": N, "updated": M },
+#      "bundles_processed": N, "submissions_queued": N, "skipped": [...] }
+# Poll the job with: GET /semesters/$SEMESTER_ID/ingest/jobs/$JOB_ID
+```
+
 ## API reference
 
 Full documentation at: `https://provenance.example.edu/api/v1/docs`
