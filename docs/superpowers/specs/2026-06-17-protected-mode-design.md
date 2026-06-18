@@ -23,12 +23,12 @@ during implementation:
 1. **Hard, server-side boundary.** Real `display_name` / `sid` / `email` must
    never leave the server for a protected principal — not over the wire, not in
    DevTools, not in exports, not in pagination cursors. Masking happens in the
-   service layer *before* serialization. The protected user has **no reveal
+   service layer _before_ serialization. The protected user has **no reveal
    path**.
 2. **Controlling-party lock via "can't change your own flag."** Reuse the
    existing superadmin role. A superadmin may set/clear `protected` on any
    account **except their own**. Lifting your own protection therefore requires a
-   *second* superadmin. No new role tier is introduced.
+   _second_ superadmin. No new role tier is introduced.
 3. **Stable, per-semester, name-independent placeholder.** Each student gets a
    `protected_index` stored on their roster row, assigned in **randomized order**
    (not derived from name/SID/insertion order, so the number leaks nothing).
@@ -37,10 +37,10 @@ during implementation:
 4. **Mask scope:** `display_name`, `sid`, `email`, roster `extras` (stripped),
    and identity-bearing ingest filenames. Exports inherit masking automatically
    because they are built from already-masked data.
-5. **No *student-identity* contract change.** Masked student values keep their
+5. **No _student-identity_ contract change.** Masked student values keep their
    existing types (`sid`/`display_name` stay non-empty strings; `email`/`extras`
    are already nullable), so the student sub-object schemas in `packages/shared`
-   are unchanged and need no version bump. The feature *does* add one **additive**
+   are unchanged and need no version bump. The feature _does_ add one **additive**
    field — `protected: z.boolean()` — to `UserSchema` and `AdminUserSummarySchema`
    (the `/me` and `/admin/users` shapes). Server and analyzer are updated in the
    same change, and the contract test (`contract.test.ts`) enforces it. Staff
@@ -54,7 +54,7 @@ protected mode:
 
 - **Search-by-name (`filters.q`).** `services/cohort/students.ts` and the cohort
   list run `ILIKE` against `display_name`/`sid`. If left active, a protected
-  user could type a real name and observe *which* `Student N` matches — a lookup
+  user could type a real name and observe _which_ `Student N` matches — a lookup
   oracle. In protected mode, `q` matching against name/SID is disabled (the
   search either no-ops or is restricted to placeholder matching).
 - **Sort-by-name (`student_asc`).** Ordering rows by hidden real name leaks
@@ -112,16 +112,16 @@ protectFilename(name: string, ctx: ProtectContext,
 
 When `ctx.protected` is true:
 
-| Field            | Masked value                          |
-| ---------------- | ------------------------------------- |
-| `display_name`   | `Student {protected_index}`           |
-| `sid`            | `S{protected_index}`                  |
-| `email`          | `null`                                |
-| `extras`         | `null` (stripped)                     |
-| matched filename | `Student {index} — file`              |
-| unmatched filename | `(unmatched file {id8})`            |
+| Field                          | Masked value                   |
+| ------------------------------ | ------------------------------ |
+| `display_name`                 | `Student {protected_index}`    |
+| `sid`                          | `S{protected_index}`           |
+| `email`                        | `null`                         |
+| `extras`                       | `null` (stripped)              |
+| matched filename               | `Student {index} — file`       |
+| unmatched filename             | `(unmatched file {id8})`       |
 | `source_filename` (submission) | `Student {index} — submission` |
-| `filename_capture` (ingest)    | dropped                       |
+| `filename_capture` (ingest)    | dropped                        |
 
 `ctx.protected` is read from the principal (derived from the real user row).
 
@@ -153,7 +153,7 @@ principal) across every endpoint.
   every protected-flag change (who, target, old→new, when).
 - `authorize()` itself is unchanged; the masking decision is orthogonal to the
   read/write/admin decision (a protected user keeps all their normal
-  permissions; only the *content* of student identity is masked).
+  permissions; only the _content_ of student identity is masked).
 
 ## API contract
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Update `.notes/progress.md` after each phase.
 
-**Goal:** Add a server-enforced "Protected mode" account flag that masks all student identity (name, SID, email, roster extras, identity-bearing filenames) behind stable, name-independent `Student N` placeholders, lockable only by a *different* superadmin.
+**Goal:** Add a server-enforced "Protected mode" account flag that masks all student identity (name, SID, email, roster extras, identity-bearing filenames) behind stable, name-independent `Student N` placeholders, lockable only by a _different_ superadmin.
 
 **Architecture:** A `users.protected` boolean derives onto the request `Principal` from the real user row. A pure masking module (`services/protect.ts`) substitutes identity values; service builders that emit student objects call it. A per-semester `roster_entries.protected_index` (randomized, name-independent) supplies stable labels. List/aggregate services additionally close re-identification oracles (name search, name sort, cursor contents) in protected mode. UI adds a banner + a superadmin toggle.
 
@@ -12,13 +12,14 @@
 
 **Conventions:** `git commit --no-gpg-sign`, conventional-commit prefixes, **no Co-Authored-By trailer**. Read a file before editing. Run `npm run typecheck` + `npm run lint` + relevant tests before marking a phase done. All commands run from the worktree root `/Users/aaryanmehta/projects/provenance/.claude/worktrees/protected-mode`. Server tests need Docker running (testcontainers).
 
-**What is NOT masked (explicit):** staff emails on `/me` and `/admin/users` (those are admins/graders, not students); student *code content*; file paths inside a submission (`files[].path`). These are out of scope per the spec.
+**What is NOT masked (explicit):** staff emails on `/me` and `/admin/users` (those are admins/graders, not students); student _code content_; file paths inside a submission (`files[].path`). These are out of scope per the spec.
 
 ---
 
 ## Phase 0: Schema + migration + index assignment
 
 **Files:**
+
 - Modify: `packages/server/src/db/schema.ts` (users, roster_entries)
 - Create: `packages/server/db/migrations/0015_protected_mode.sql`
 - Modify: `packages/server/db/migrations/meta/_journal.json` (via `db:generate`)
@@ -90,8 +91,14 @@ import { roster_entries, semesters, courses } from '../db/schema.js';
 import { assignMissingProtectedIndices } from './protected-index.js';
 
 async function seedSemester(db: any): Promise<string> {
-  const [course] = await db.insert(courses).values({ slug: `c-${crypto.randomUUID().slice(0, 8)}`, title: 'C' }).returning();
-  const [sem] = await db.insert(semesters).values({ course_id: course!.id, slug: `s-${crypto.randomUUID().slice(0, 8)}`, title: 'S' }).returning();
+  const [course] = await db
+    .insert(courses)
+    .values({ slug: `c-${crypto.randomUUID().slice(0, 8)}`, title: 'C' })
+    .returning();
+  const [sem] = await db
+    .insert(semesters)
+    .values({ course_id: course!.id, slug: `s-${crypto.randomUUID().slice(0, 8)}`, title: 'S' })
+    .returning();
   return sem!.id;
 }
 
@@ -100,10 +107,15 @@ describe('assignMissingProtectedIndices', () => {
     await withTestDb(async (db) => {
       const semId = await seedSemester(db);
       for (let i = 0; i < 5; i++) {
-        await db.insert(roster_entries).values({ semester_id: semId, sid: `s${i}`, display_name: `Name ${i}` });
+        await db
+          .insert(roster_entries)
+          .values({ semester_id: semId, sid: `s${i}`, display_name: `Name ${i}` });
       }
       await assignMissingProtectedIndices(db, semId);
-      const rows = await db.select({ pi: roster_entries.protected_index }).from(roster_entries).where(sql`${roster_entries.semester_id} = ${semId}`);
+      const rows = await db
+        .select({ pi: roster_entries.protected_index })
+        .from(roster_entries)
+        .where(sql`${roster_entries.semester_id} = ${semId}`);
       const indices = rows.map((r: any) => r.pi).sort((a: number, b: number) => a - b);
       expect(indices).toEqual([1, 2, 3, 4, 5]);
     });
@@ -112,10 +124,15 @@ describe('assignMissingProtectedIndices', () => {
   it('continues numbering from the existing max for newly-added NULL rows', async () => {
     await withTestDb(async (db) => {
       const semId = await seedSemester(db);
-      await db.insert(roster_entries).values({ semester_id: semId, sid: 'a', display_name: 'A', protected_index: 1 });
+      await db
+        .insert(roster_entries)
+        .values({ semester_id: semId, sid: 'a', display_name: 'A', protected_index: 1 });
       await db.insert(roster_entries).values({ semester_id: semId, sid: 'b', display_name: 'B' });
       await assignMissingProtectedIndices(db, semId);
-      const rows = await db.select({ pi: roster_entries.protected_index }).from(roster_entries).where(sql`${roster_entries.semester_id} = ${semId}`);
+      const rows = await db
+        .select({ pi: roster_entries.protected_index })
+        .from(roster_entries)
+        .where(sql`${roster_entries.semester_id} = ${semId}`);
       const indices = rows.map((r: any) => r.pi).sort((a: number, b: number) => a - b);
       expect(indices).toEqual([1, 2]);
     });
@@ -182,6 +199,7 @@ git commit --no-gpg-sign -m "feat(server): add protected flag, protected_index c
 ## Phase 1: Masking module
 
 **Files:**
+
 - Create: `packages/server/src/services/protect.ts`
 - Test: `packages/server/src/services/protect.test.ts`
 
@@ -216,7 +234,11 @@ describe('protectedLabel / protectedSid', () => {
 describe('projectStudent', () => {
   const raw = { id: ID, sid: 'abc123', display_name: 'Alice Zhao', protected_index: 7 };
   it('passes identity through when not protected', () => {
-    expect(projectStudent(raw, false)).toEqual({ id: ID, sid: 'abc123', display_name: 'Alice Zhao' });
+    expect(projectStudent(raw, false)).toEqual({
+      id: ID,
+      sid: 'abc123',
+      display_name: 'Alice Zhao',
+    });
   });
   it('masks identity when protected', () => {
     expect(projectStudent(raw, true)).toEqual({ id: ID, sid: 'S7', display_name: 'Student 7' });
@@ -231,8 +253,12 @@ describe('maskEmail / maskExtras / maskFilename', () => {
     expect(maskExtras({ section: '1' }, false)).toEqual({ section: '1' });
   });
   it('replaces a filename with the supplied label when protected', () => {
-    expect(maskFilename('chan_alice_lab03.zip', true, 'Student 7 — lab03')).toBe('Student 7 — lab03');
-    expect(maskFilename('chan_alice_lab03.zip', false, 'Student 7 — lab03')).toBe('chan_alice_lab03.zip');
+    expect(maskFilename('chan_alice_lab03.zip', true, 'Student 7 — lab03')).toBe(
+      'Student 7 — lab03',
+    );
+    expect(maskFilename('chan_alice_lab03.zip', false, 'Student 7 — lab03')).toBe(
+      'chan_alice_lab03.zip',
+    );
   });
 });
 ```
@@ -322,6 +348,7 @@ git commit --no-gpg-sign -m "feat(server): add pure protected-mode masking helpe
 ## Phase 2: Cohort list (projection + q-oracle + sort/cursor-oracle)
 
 **Files:**
+
 - Modify: `packages/server/src/services/cohort/list.ts`
 - Modify: `packages/server/src/api/v1/routes/cohort.ts` (pass `protected`)
 - Test: `packages/server/src/services/cohort/list.test.ts` (create if absent; else add cases)
@@ -344,9 +371,9 @@ export type CohortCursor =
 In `decodeCursor` (after the `display_name` branch, ~line 105) add:
 
 ```ts
-    if (kind === 'protected_index' && typeof p['protected_index'] === 'number') {
-      return { kind: 'protected_index', protected_index: p['protected_index'], id: p['id'] };
-    }
+if (kind === 'protected_index' && typeof p['protected_index'] === 'number') {
+  return { kind: 'protected_index', protected_index: p['protected_index'], id: p['id'] };
+}
 ```
 
 Change the function signature (line 136-143) to accept `protectedMode`:
@@ -368,17 +395,17 @@ export async function listCohortSubmissions(
 In the `q` filter block (lines 244-252) and its duplicate in the count block (lines 396-404), guard on `!protectedMode` so a protected user's free-text never matches real name/sid:
 
 ```ts
-  // q: free-text ILIKE on roster_entries.display_name or sid.
-  // Disabled in protected mode (it would be a name->Student-N lookup oracle).
-  if (!protectedMode && filters.q !== undefined && filters.q.trim() !== '') {
-    const pattern = `%${filters.q.trim()}%`;
-    whereConditions.push(
-      or(
-        sql`${roster_entries.display_name} ILIKE ${pattern}`,
-        sql`${roster_entries.sid} ILIKE ${pattern}`,
-      )!,
-    );
-  }
+// q: free-text ILIKE on roster_entries.display_name or sid.
+// Disabled in protected mode (it would be a name->Student-N lookup oracle).
+if (!protectedMode && filters.q !== undefined && filters.q.trim() !== '') {
+  const pattern = `%${filters.q.trim()}%`;
+  whereConditions.push(
+    or(
+      sql`${roster_entries.display_name} ILIKE ${pattern}`,
+      sql`${roster_entries.sid} ILIKE ${pattern}`,
+    )!,
+  );
+}
 ```
 
 Apply the identical `!protectedMode &&` guard to the count-query copy at lines 396-404.
@@ -567,6 +594,7 @@ git commit --no-gpg-sign -m "feat(server): mask cohort list identity + close nam
 ## Phase 3: Students rollup (projection + oracle + nested worst_submission)
 
 **Files:**
+
 - Modify: `packages/server/src/services/cohort/students.ts`
 - Modify: `packages/server/src/api/v1/routes/cohort.ts` (students handler)
 - Test: `packages/server/src/services/cohort/students.test.ts`
@@ -586,9 +614,13 @@ export type StudentCursor =
 Add to `decodeStudentCursor` (after the `display_name` branch, ~line 69):
 
 ```ts
-    if (kind === 'protected_index' && typeof p['protected_index'] === 'number') {
-      return { kind: 'protected_index', protected_index: p['protected_index'], student_id: p['student_id'] };
-    }
+if (kind === 'protected_index' && typeof p['protected_index'] === 'number') {
+  return {
+    kind: 'protected_index',
+    protected_index: p['protected_index'],
+    student_id: p['student_id'],
+  };
+}
 ```
 
 Change `listStudents` signature (line 109-116) to add `protectedMode: boolean` as the last param.
@@ -657,15 +689,15 @@ import { projectStudent, maskEmail } from '../protect.js';
 The nested `worst_submission` is built by `listCohortSubmissions` (line 302-309). Pass `protectedMode` as its new last arg so it masks too:
 
 ```ts
-      const { items: worstItems } = await listCohortSubmissions(
-        db,
-        semesterId,
-        { ...filters, studentId: agg.student_id },
-        'score_desc',
-        null,
-        1,
-        protectedMode,
-      );
+const { items: worstItems } = await listCohortSubmissions(
+  db,
+  semesterId,
+  { ...filters, studentId: agg.student_id },
+  'score_desc',
+  null,
+  1,
+  protectedMode,
+);
 ```
 
 Replace the returned `student` block (lines 357-362):
@@ -704,6 +736,7 @@ git commit --no-gpg-sign -m "feat(server): mask students rollup + close oracles 
 ## Phase 4: Submission summary (student + source_filename)
 
 **Files:**
+
 - Modify: `packages/server/src/services/submissions/summary.ts`
 - Modify: `packages/server/src/api/v1/routes/submissions.ts`
 - Test: `packages/server/src/services/submissions/summary.test.ts`
@@ -757,6 +790,7 @@ git commit --no-gpg-sign -m "feat(server): mask submission summary student + sou
 ## Phase 5: Cross-flag participants
 
 **Files:**
+
 - Modify: `packages/server/src/services/cross-flags/list.ts`
 - Modify: `packages/server/src/api/v1/routes/cross-flags.ts`
 - Test: `packages/server/src/services/cross-flags/list.test.ts`
@@ -802,6 +836,7 @@ git commit --no-gpg-sign -m "feat(server): mask cross-flag participants in prote
 ## Phase 6: Roster listing (name + sid + email + extras)
 
 **Files:**
+
 - Modify: `packages/server/src/services/roster/index.ts` (or mask in the route — see step)
 - Modify: `packages/server/src/api/v1/routes/roster.ts`
 - Test: `packages/server/src/api/v1/routes/roster.test.ts`
@@ -855,6 +890,7 @@ git commit --no-gpg-sign -m "feat(server): mask roster listing (name/sid/email/e
 ## Phase 7: Ingest + unmatched file listings
 
 **Files:**
+
 - Modify: `packages/server/src/api/v1/routes/ingest.ts`
 - Modify: `packages/server/src/api/v1/routes/unmatched.ts`
 - Test: `packages/server/src/api/v1/routes/unmatched.test.ts`, `ingest.test.ts`
@@ -873,26 +909,33 @@ import { requirePrincipal } from '../../middleware/auth-session.js';
 Change `formatFileSummary(row)` (line ~90) to `formatFileSummary(row, protectedMode: boolean)`. Replace the filename + matched_student construction:
 
 ```ts
-  const idxLabel =
-    row.matched_student_id !== null ? protectedLabel(row.matched_student_protected_index, row.matched_student_id) : null;
-  const out: Record<string, unknown> = {
-    id: row.id,
-    original_filename: maskFilename(
-      row.original_filename,
-      protectedMode,
-      idxLabel !== null ? `${idxLabel} — file` : `(unmatched file ${row.id.slice(0, 8)})`,
-    ),
-    size_bytes: row.size_bytes,
-    blob_sha256: row.blob_sha256,
-    status: row.status,
-  };
+const idxLabel =
+  row.matched_student_id !== null
+    ? protectedLabel(row.matched_student_protected_index, row.matched_student_id)
+    : null;
+const out: Record<string, unknown> = {
+  id: row.id,
+  original_filename: maskFilename(
+    row.original_filename,
+    protectedMode,
+    idxLabel !== null ? `${idxLabel} — file` : `(unmatched file ${row.id.slice(0, 8)})`,
+  ),
+  size_bytes: row.size_bytes,
+  blob_sha256: row.blob_sha256,
+  status: row.status,
+};
 
-  if (row.matched_student_id !== null) {
-    out['matched_student'] = projectStudent(
-      { id: row.matched_student_id, sid: row.matched_student_sid, display_name: row.matched_student_display_name, protected_index: row.matched_student_protected_index },
-      protectedMode,
-    );
-  }
+if (row.matched_student_id !== null) {
+  out['matched_student'] = projectStudent(
+    {
+      id: row.matched_student_id,
+      sid: row.matched_student_sid,
+      display_name: row.matched_student_display_name,
+      protected_index: row.matched_student_protected_index,
+    },
+    protectedMode,
+  );
+}
 ```
 
 Add `matched_student_protected_index: roster_entries.protected_index` to the `FILE_SELECT` object (line ~130). In the route handler, compute `const protectedMode = requirePrincipal(c).user.protected;` and pass it to `formatFileSummary(row, protectedMode)` at the map call (line ~238).
@@ -923,6 +966,7 @@ git commit --no-gpg-sign -m "feat(server): mask ingest/unmatched filenames + mat
 ## Phase 8: Roster import assigns protected_index
 
 **Files:**
+
 - Modify: `packages/server/src/services/roster/index.ts` (`commitRoster`)
 - Test: `packages/server/src/services/roster/index.test.ts` (or existing roster test)
 
@@ -937,8 +981,8 @@ import { assignMissingProtectedIndices } from '../protected-index.js';
 After the insert/update/delete logic inside the transaction (after line ~84, before the transaction returns), add:
 
 ```ts
-    // Newly-inserted rows have NULL protected_index; assign per-semester indices.
-    await assignMissingProtectedIndices(tx, semesterId);
+// Newly-inserted rows have NULL protected_index; assign per-semester indices.
+await assignMissingProtectedIndices(tx, semesterId);
 ```
 
 (Confirm the transaction variable is named `tx`; `assignMissingProtectedIndices` accepts any `DrizzleDb`-compatible executor — the Drizzle transaction object qualifies.)
@@ -963,6 +1007,7 @@ git commit --no-gpg-sign -m "feat(server): assign protected_index on roster impo
 ## Phase 9: Shared schema — add `protected` to user schemas
 
 **Files:**
+
 - Modify: `packages/shared/src/api-schemas.ts`
 - Test: `packages/shared/src/api-schemas.test.ts` (if present; else rely on contract test)
 
@@ -983,6 +1028,7 @@ git commit --no-gpg-sign -m "feat(shared): add protected field to user + admin-u
 ## Phase 10: Server — emit `protected`, add toggle endpoint, audit, self-guard
 
 **Files:**
+
 - Modify: `packages/server/src/api/v1/routes/me.ts`
 - Modify: `packages/server/src/api/v1/routes/admin.ts`
 - Modify: `packages/server/src/api/v1/contract.test.ts` (registry already validates; ensure responses include `protected`)
@@ -1009,13 +1055,18 @@ it('PATCH /admin/users/:id/protected sets the flag (superadmin, not self)', asyn
     const sess = await seedSession(db, admin.id);
     const target = await seedUser(db);
     const app = createV1App();
-    const res = await app.fetch(new Request(`http://localhost/admin/users/${target.id}/protected`, {
-      method: 'PATCH',
-      headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ protected: true }),
-    }));
+    const res = await app.fetch(
+      new Request(`http://localhost/admin/users/${target.id}/protected`, {
+        method: 'PATCH',
+        headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ protected: true }),
+      }),
+    );
     expect(res.status).toBe(200);
-    const [row] = await db.select({ p: users.protected }).from(users).where(eq(users.id, target.id));
+    const [row] = await db
+      .select({ p: users.protected })
+      .from(users)
+      .where(eq(users.id, target.id));
     expect(row!.p).toBe(true);
   });
 });
@@ -1027,11 +1078,13 @@ it('rejects changing your OWN protected flag', async () => {
     const admin = await seedUser(db, { is_superadmin: true });
     const sess = await seedSession(db, admin.id);
     const app = createV1App();
-    const res = await app.fetch(new Request(`http://localhost/admin/users/${admin.id}/protected`, {
-      method: 'PATCH',
-      headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ protected: false }),
-    }));
+    const res = await app.fetch(
+      new Request(`http://localhost/admin/users/${admin.id}/protected`, {
+        method: 'PATCH',
+        headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ protected: false }),
+      }),
+    );
     expect(res.status).toBe(400);
   });
 });
@@ -1053,64 +1106,69 @@ const SetProtectedRequestSchema = z.object({ protected: z.boolean() });
 Add the route inside `createAdminRouter` (after the DELETE handler, before view-as). It mirrors the DELETE handler's self-guard + audit pattern:
 
 ```ts
-  // ===========================================================================
-  // PATCH /admin/users/:userId/protected — lock/unlock protected mode
-  // (superadmin only; cannot change your OWN flag — that is the lock)
-  // ===========================================================================
-  router.patch(
-    '/users/:userId/protected',
-    rateLimit('write.misc'),
-    requireAuth({ action: 'admin', target: 'global' }),
-    async (c) => {
-      const principal = requirePrincipal(c);
-      const userId = c.req.param('userId');
+// ===========================================================================
+// PATCH /admin/users/:userId/protected — lock/unlock protected mode
+// (superadmin only; cannot change your OWN flag — that is the lock)
+// ===========================================================================
+router.patch(
+  '/users/:userId/protected',
+  rateLimit('write.misc'),
+  requireAuth({ action: 'admin', target: 'global' }),
+  async (c) => {
+    const principal = requirePrincipal(c);
+    const userId = c.req.param('userId');
 
-      if (userId === principal.user.id) {
-        return c.json(
-          Errors.validation([{ field: 'user_id', issue: 'cannot change your own protected flag' }]).toBody(),
-          400,
-        );
-      }
+    if (userId === principal.user.id) {
+      return c.json(
+        Errors.validation([
+          { field: 'user_id', issue: 'cannot change your own protected flag' },
+        ]).toBody(),
+        400,
+      );
+    }
 
-      let body: unknown;
-      try {
-        body = await c.req.json();
-      } catch {
-        return c.json(Errors.validation([{ field: 'body', issue: 'invalid JSON' }]).toBody(), 400);
-      }
-      const parsed = SetProtectedRequestSchema.safeParse(body);
-      if (!parsed.success) {
-        return c.json(Errors.validation([{ field: 'protected', issue: 'must be boolean' }]).toBody(), 400);
-      }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json(Errors.validation([{ field: 'body', issue: 'invalid JSON' }]).toBody(), 400);
+    }
+    const parsed = SetProtectedRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        Errors.validation([{ field: 'protected', issue: 'must be boolean' }]).toBody(),
+        400,
+      );
+    }
 
-      const targetRows = await db()
-        .select({ id: users.id, email: users.email, protected: users.protected })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
-      const target = targetRows[0];
-      if (target === undefined) {
-        return c.json(Errors.notFound().toBody(), 404);
-      }
+    const targetRows = await db()
+      .select({ id: users.id, email: users.email, protected: users.protected })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const target = targetRows[0];
+    if (target === undefined) {
+      return c.json(Errors.notFound().toBody(), 404);
+    }
 
-      await db().update(users).set({ protected: parsed.data.protected }).where(eq(users.id, userId));
+    await db().update(users).set({ protected: parsed.data.protected }).where(eq(users.id, userId));
 
-      void insertAuditRow({
-        actorUserId: principal.user.id,
-        actorTokenId: principal.principal_kind === 'token' ? principal.token.id : null,
-        semesterId: null,
-        action: 'admin.user.set_protected',
-        targetType: 'user',
-        targetId: userId,
-        detail: { email: target.email, from: target.protected, to: parsed.data.protected },
-        ip: c.req.header('x-forwarded-for') ?? null,
-        userAgent: c.req.header('user-agent') ?? null,
-        at: new Date(),
-      }).catch(() => {});
+    void insertAuditRow({
+      actorUserId: principal.user.id,
+      actorTokenId: principal.principal_kind === 'token' ? principal.token.id : null,
+      semesterId: null,
+      action: 'admin.user.set_protected',
+      targetType: 'user',
+      targetId: userId,
+      detail: { email: target.email, from: target.protected, to: parsed.data.protected },
+      ip: c.req.header('x-forwarded-for') ?? null,
+      userAgent: c.req.header('user-agent') ?? null,
+      at: new Date(),
+    }).catch(() => {});
 
-      return c.json({ id: userId, protected: parsed.data.protected });
-    },
-  );
+    return c.json({ id: userId, protected: parsed.data.protected });
+  },
+);
 ```
 
 Run: `npx vitest run packages/server/src/api/v1/routes/admin.test.ts`
@@ -1134,6 +1192,7 @@ git commit --no-gpg-sign -m "feat(server): expose protected on /me + /admin/user
 ## Phase 11: Analyzer — banner + admin toggle
 
 **Files:**
+
 - Create: `packages/analyzer/src/components/nav/ProtectedModeBanner.tsx`
 - Modify: `packages/analyzer/src/components/nav/AppShell.tsx`
 - Modify: `packages/analyzer/src/api/queries.ts` (add `useSetUserProtected`)
@@ -1279,4 +1338,7 @@ git log --oneline -15
 - No student-identity contract change; additive `protected` field on user schemas → Phase 9.
 - Banner + admin toggle → Phase 11.
 - Out of scope (code content, staff emails, files[].path) → explicitly untouched.
+
+```
+
 ```
