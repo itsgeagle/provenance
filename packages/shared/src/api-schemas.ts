@@ -21,6 +21,7 @@ export const UserSchema = z.object({
   email: z.string().email(),
   display_name: z.string().nullable(),
   is_superadmin: z.boolean(),
+  protected: z.boolean(),
   created_at: z.string().datetime(),
   last_login_at: z.string().datetime().nullable(),
 });
@@ -804,6 +805,7 @@ export const AdminUserSummarySchema = z.object({
   email: z.string().email(),
   display_name: z.string().nullable(),
   is_superadmin: z.boolean(),
+  protected: z.boolean(),
   created_at: z.string().datetime(),
   last_login_at: z.string().datetime().nullable(),
 });
