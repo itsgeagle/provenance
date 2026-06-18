@@ -29,6 +29,7 @@ const superAdminPrincipal: Principal = {
     email: 'admin@example.com',
     display_name: 'Admin User',
     is_superadmin: true,
+    protected: false,
     created_at: new Date(),
     last_login_at: new Date(),
   },
