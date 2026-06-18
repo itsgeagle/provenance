@@ -30,6 +30,7 @@ interface UserSummary {
   email: string;
   display_name: string | null;
   is_superadmin: boolean;
+  protected: boolean;
   created_at: string;
   last_login_at: string | null;
 }
@@ -115,6 +116,7 @@ export function createMeRouter(): Hono {
       email: user.email,
       display_name: user.display_name,
       is_superadmin: user.is_superadmin,
+      protected: user.protected,
       created_at: user.created_at.toISOString(),
       last_login_at: user.last_login_at !== null ? user.last_login_at.toISOString() : null,
     };

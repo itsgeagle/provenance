@@ -78,7 +78,7 @@ function makeTestEnv() {
 
 async function seedUser(
   db: DrizzleDb,
-  opts?: { isSuperadmin?: boolean; email?: string; displayName?: string },
+  opts?: { isSuperadmin?: boolean; is_superadmin?: boolean; email?: string; displayName?: string },
 ) {
   const id = crypto.randomUUID();
   const [user] = await db
@@ -88,7 +88,7 @@ async function seedUser(
       google_subject: `sub-${id}`,
       email: opts?.email ?? `user-${id}@berkeley.edu`,
       display_name: opts?.displayName ?? 'Test User',
-      is_superadmin: opts?.isSuperadmin ?? false,
+      is_superadmin: opts?.is_superadmin ?? opts?.isSuperadmin ?? false,
     })
     .returning();
   return user!;
@@ -438,6 +438,95 @@ describe('POST /admin/view-as/exit', () => {
         }),
       );
       expect(res.status).toBe(204);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §7. PATCH /admin/users/:id/protected — protected-mode toggle
+// ---------------------------------------------------------------------------
+
+describe('PATCH /admin/users/:id/protected', () => {
+  it('sets the protected flag (superadmin acting on another user)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+      const admin = await seedUser(db, { is_superadmin: true });
+      const sess = await seedSession(db, admin.id);
+      const target = await seedUser(db);
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request(`http://localhost/admin/users/${target.id}/protected`, {
+          method: 'PATCH',
+          headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ protected: true }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { id: string; protected: boolean };
+      expect(body.protected).toBe(true);
+      const [row] = await db
+        .select({ p: users.protected })
+        .from(users)
+        .where(eq(users.id, target.id));
+      expect(row!.p).toBe(true);
+    });
+  });
+
+  it('rejects changing your OWN protected flag (400)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+      const admin = await seedUser(db, { is_superadmin: true });
+      const sess = await seedSession(db, admin.id);
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request(`http://localhost/admin/users/${admin.id}/protected`, {
+          method: 'PATCH',
+          headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ protected: false }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe('VALIDATION');
+    });
+  });
+
+  it('returns 404 for a missing target user', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+      const admin = await seedUser(db, { is_superadmin: true });
+      const sess = await seedSession(db, admin.id);
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request('http://localhost/admin/users/00000000-0000-0000-0000-000000000000/protected', {
+          method: 'PATCH',
+          headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ protected: true }),
+        }),
+      );
+      expect(res.status).toBe(404);
+    });
+  });
+
+  it('returns 403 for non-superadmin', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+      const user = await seedUser(db);
+      const sess = await seedSession(db, user.id);
+      const target = await seedUser(db);
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request(`http://localhost/admin/users/${target.id}/protected`, {
+          method: 'PATCH',
+          headers: { Cookie: `__Host-prov_sess=${sess}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ protected: true }),
+        }),
+      );
+      expect(res.status).toBe(403);
     });
   });
 });
