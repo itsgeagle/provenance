@@ -71,7 +71,7 @@ no data leaves your machine.
 
 ### Run the recorder extension
 
-Open this repo in VS Code and press F5 (or pick **"Run Recorder Extension"** in the
+Open this repo in VS Code and press Fn + F5 (or pick **"Run Recorder Extension"** in the
 Run & Debug panel). A second VS Code window opens with `test-workspace/` loaded; the
 status bar shows "CS 61A: recording".
 
