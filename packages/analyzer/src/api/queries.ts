@@ -46,6 +46,7 @@ import {
   CourseListResponseSchema,
   SemesterListResponseSchema,
   AuditListResponseSchema,
+  GradescopeIngestResponseSchema,
 } from '@provenance/shared/api-schemas';
 import type {
   Membership,
@@ -53,6 +54,7 @@ import type {
   CreateTokenRequest,
   CreateCourseRequest,
   CreateSemesterRequest,
+  GradescopeIngestResponse,
 } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
@@ -448,6 +450,67 @@ export function useStartIngest(semesterId: string) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJobs(semesterId) });
+    },
+  });
+}
+
+/**
+ * Mutation: POST /semesters/:semesterId/ingest:gradescope (multipart upload).
+ *
+ * The primary upload path: a single Gradescope "Download Submissions" export
+ * ZIP in the `archive` field. Uses XMLHttpRequest for upload progress. The
+ * server upserts the roster and enqueues an ingest job; the response carries
+ * the roster diff, processed/queued counts, and skipped folders. `job_id` is
+ * null when the export had no processable bundles (roster-only upload).
+ */
+export function useStartGradescopeIngest(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      file,
+      onProgress,
+    }: {
+      file: File;
+      onProgress?: (pct: number) => void;
+    }): Promise<GradescopeIngestResponse> =>
+      new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('archive', file);
+        const xhr = new XMLHttpRequest();
+        xhr.withCredentials = true;
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable && onProgress) {
+            onProgress(Math.round((evt.loaded / evt.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          // 202 (job enqueued) and 200 (roster-only, no bundles) both succeed.
+          if (xhr.status === 202 || xhr.status === 200) {
+            try {
+              resolve(GradescopeIngestResponseSchema.parse(JSON.parse(xhr.responseText)));
+            } catch (e) {
+              reject(e instanceof Error ? e : new Error('Invalid server response'));
+            }
+          } else {
+            try {
+              const err = JSON.parse(xhr.responseText) as {
+                error?: { code: string; message: string };
+              };
+              reject(new Error(err.error?.message ?? `HTTP ${xhr.status}`));
+            } catch {
+              reject(new Error(`HTTP ${xhr.status}`));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        const base = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/v1';
+        xhr.open('POST', `${base}/semesters/${semesterId}/ingest:gradescope`);
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.send(formData);
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJobs(semesterId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.roster(semesterId) });
     },
   });
 }
