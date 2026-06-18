@@ -12,6 +12,7 @@ import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useMe, useLogout, useSemesters } from '../../api/queries.js';
 import { SemesterSwitcher } from './SemesterSwitcher.js';
 import { ViewAsBanner } from './ViewAsBanner.js';
+import { ProtectedModeBanner } from './ProtectedModeBanner.js';
 
 interface AppShellProps {
   children: ReactNode;
@@ -88,6 +89,8 @@ export function AppShell({ children }: AppShellProps) {
     <div className="flex h-screen flex-col overflow-hidden">
       {/* View-as banner (only renders when /me reports active view-as) */}
       <ViewAsBanner />
+      {/* Protected-mode banner (only renders when current user has protected flag) */}
+      <ProtectedModeBanner />
 
       {/* Top bar */}
       <header className="flex h-14 items-center border-b border-gray-200 bg-white px-4 overflow-x-auto">

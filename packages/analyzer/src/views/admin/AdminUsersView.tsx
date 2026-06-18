@@ -13,7 +13,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AdminLayout } from './AdminLayout.js';
-import { useAdminUsers, useDeleteUser, useStartViewAs } from '../../api/queries.js';
+import {
+  useAdminUsers,
+  useDeleteUser,
+  useMe,
+  useSetUserProtected,
+  useStartViewAs,
+} from '../../api/queries.js';
 import { ApiError } from '../../api/client.js';
 import type { AdminUserSummary } from '@provenance/shared/api-schemas';
 
@@ -37,6 +43,8 @@ export function AdminUsersView() {
   const { data, isLoading, error } = useAdminUsers(q);
   const { mutate: deleteUser } = useDeleteUser();
   const { mutate: startViewAs, isPending: isStartingViewAs } = useStartViewAs();
+  const { mutate: setProtected } = useSetUserProtected();
+  const { data: me } = useMe();
   const navigate = useNavigate();
 
   const [toast, setToast] = useState<string | null>(null);
@@ -141,6 +149,15 @@ export function AdminUsersView() {
                           data-testid={`view-as-btn-${u.id}`}
                         >
                           View as
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setProtected({ userId: u.id, protected: !u.protected })}
+                          disabled={u.id === me?.user.id}
+                          className="rounded border border-amber-300 px-2.5 py-1 text-xs text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                          data-testid={`protected-toggle-${u.id}`}
+                        >
+                          {u.protected ? 'Unprotect' : 'Protect'}
                         </button>
                         {deleteConfirm === u.id ? (
                           <>
