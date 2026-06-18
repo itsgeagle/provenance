@@ -2,8 +2,16 @@
  * Ingest routes (PRD §8.6).
  *
  * POST   /semesters/:semesterId/ingest                 — multipart upload, 202
+ * POST   /semesters/:semesterId/ingest:gradescope       — Gradescope export upload, 202
  * GET    /semesters/:semesterId/ingest/jobs             — paginated job list
  * POST   /semesters/:semesterId/ingest/jobs/:jobId/cancel — cancel a job
+ *
+ * The ingest:gradescope route is the primary upload path: it accepts the ZIP
+ * Gradescope produces from "Download Submissions" (a submission_metadata.yml
+ * plus one already-unzipped folder per submission), upserts the roster from the
+ * metadata (so no pre-existing roster is required), rebuilds a sealed bundle ZIP
+ * per submission, and stages one file per submitter with a match_sid hint so the
+ * worker matches by metadata rather than the filename convention.
  *
  * Phase 9a scope:
  *   - Stage each file to MinIO, create ingest_files rows with status='pending'.
@@ -40,6 +48,8 @@ import {
 import { stageBlob } from '../../../services/ingest/stage-blob.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
 import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
+import { parseGradescopeExport } from '../../../services/ingest/gradescope/parse-export.js';
+import { upsertRosterFromSubmitters } from '../../../services/ingest/gradescope/upsert-roster.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -441,6 +451,182 @@ export function createIngestRouter(): Hono {
       c.set('auditDetail', { job_id: jobId, file_count: filesToStage.length });
 
       return c.json({ job_id: jobId }, 202);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // POST /semesters/:semesterId/ingest:gradescope
+  //
+  // Primary upload path. Accepts the ZIP that Gradescope produces from
+  // "Download Submissions": a single archive with a submission_metadata.yml and
+  // one (already-unzipped) folder per submission. Unlike POST /ingest this does
+  // NOT require a pre-existing roster — it populates/upserts the roster from the
+  // metadata, then rebuilds and stages one bundle per submitter (group projects
+  // → one submission per co-submitter via the match_sid hint).
+  // -------------------------------------------------------------------------
+
+  router.post(
+    '/semesters/:semesterId/ingest:gradescope',
+    rateLimit('write.ingest'),
+    requireAuth({
+      action: 'write',
+      target: (c) => ({ semesterId: c.req.param('semesterId')! }),
+    }),
+    audit('ingest.start', 'ingest_job', (c) => (c.get('auditDetail')?.['job_id'] as string) ?? ''),
+    async (c) => {
+      const semesterId = c.req.param('semesterId')!;
+      const cfg = getConfig();
+      const db = getDb();
+      const principal = c.var.principal!;
+
+      // Content-Length pre-check (reject before buffering).
+      const contentLengthHeader = c.req.header('content-length');
+      if (contentLengthHeader !== undefined) {
+        const contentLength = parseInt(contentLengthHeader, 10);
+        if (!isNaN(contentLength) && contentLength > cfg.INGEST_MAX_BATCH_BYTES) {
+          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
+        }
+      }
+
+      // Parse multipart body — expect a single `archive` = the export ZIP.
+      let formData: Record<string, unknown>;
+      try {
+        formData = await c.req.parseBody();
+      } catch {
+        return c.json(
+          Errors.validation([
+            { field: 'multipart', issue: 'Failed to parse multipart body' },
+          ]).toBody(),
+          400,
+        );
+      }
+
+      const archive = formData['archive'];
+      if (!(archive instanceof File)) {
+        return c.json(
+          Errors.validation([
+            { field: 'archive', issue: 'Missing Gradescope export ZIP in `archive` field.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      if (archive.size > cfg.INGEST_MAX_BATCH_BYTES) {
+        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
+      }
+
+      // Parse the export: roster submitters + rebuilt bundles + skipped folders.
+      const buffer = await archive.arrayBuffer();
+      const parsed = await parseGradescopeExport(buffer);
+      if (!parsed.ok) {
+        return c.json(
+          Errors.validation([
+            {
+              field: 'archive',
+              issue: `Invalid Gradescope export (${parsed.error}): ${parsed.detail}`,
+            },
+          ]).toBody(),
+          400,
+        );
+      }
+
+      const { rosterSubmitters, bundles, skipped } = parsed.value;
+
+      // Fan out: one staged file per submitter (co-submitters share blob bytes).
+      const toStage: Array<{ folderKey: string; sid: string; body: ArrayBuffer }> = [];
+      for (const b of bundles) {
+        if (b.bundleZip.byteLength > cfg.INGEST_MAX_BUNDLE_BYTES) {
+          return c.json(Errors.ingestFileTooLarge(cfg.INGEST_MAX_BUNDLE_BYTES).toBody(), 413);
+        }
+        for (const s of b.submitters) {
+          toStage.push({ folderKey: b.folderKey, sid: s.sid, body: b.bundleZip });
+        }
+      }
+
+      if (toStage.length > cfg.INGEST_MAX_BATCH_FILES) {
+        return c.json(
+          Errors.ingestTooManyFiles(toStage.length, cfg.INGEST_MAX_BATCH_FILES).toBody(),
+          400,
+        );
+      }
+      const totalBytes = toStage.reduce((acc, f) => acc + f.body.byteLength, 0);
+      if (totalBytes > cfg.INGEST_MAX_BATCH_BYTES) {
+        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
+      }
+
+      // Populate/upsert the roster from the metadata (add/update, never delete).
+      const roster = await upsertRosterFromSubmitters(db, semesterId, rosterSubmitters);
+
+      const skippedSummary = skipped.map((s) => ({ folder_key: s.folderKey, reason: s.reason }));
+
+      // No bundles to process (roster-only export, or all folders skipped):
+      // the roster is upserted but there is no ingest job to create.
+      if (toStage.length === 0) {
+        c.set('auditDetail', { roster_added: roster.added, roster_updated: roster.updated });
+        return c.json(
+          {
+            job_id: null,
+            roster,
+            bundles_processed: 0,
+            submissions_queued: 0,
+            skipped: skippedSummary,
+          },
+          200,
+        );
+      }
+
+      // Create the ingest job and stage one bundle per submitter.
+      const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+
+      try {
+        for (const f of toStage) {
+          const fileId = crypto.randomUUID();
+          const { blobSha256, sizeBytes } = await stageBlob(
+            { storageClient },
+            { jobId, ingestFileId: fileId, body: f.body },
+          );
+          await db.insert(ingest_files).values({
+            id: fileId,
+            ingest_job_id: jobId,
+            original_filename: `${f.folderKey}.zip`,
+            size_bytes: sizeBytes,
+            blob_sha256: blobSha256,
+            status: 'pending',
+            match_sid: f.sid,
+          });
+        }
+      } catch (stagingErr) {
+        const detail = stagingErr instanceof Error ? stagingErr.message : String(stagingErr);
+        await failIngestJob(db, jobId, detail);
+        throw stagingErr;
+      }
+
+      const boss = await getBoss();
+      const stagedFileIds = await db
+        .select({ id: ingest_files.id })
+        .from(ingest_files)
+        .where(eq(ingest_files.ingest_job_id, jobId));
+
+      for (const { id: ingestFileId } of stagedFileIds) {
+        await boss.send(
+          JOB_KINDS.INGEST_FILE,
+          { ingestFileId, ingestJobId: jobId },
+          { retryLimit: 3 },
+        );
+      }
+
+      c.set('auditDetail', { job_id: jobId, file_count: toStage.length });
+
+      return c.json(
+        {
+          job_id: jobId,
+          roster,
+          bundles_processed: bundles.length,
+          submissions_queued: toStage.length,
+          skipped: skippedSummary,
+        },
+        202,
+      );
     },
   );
 
