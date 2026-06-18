@@ -25,6 +25,7 @@ import {
 } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import { projectStudent } from '../protect.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -94,6 +95,7 @@ export async function listCrossFlags(
   filters: CrossFlagFilters,
   cursor: CrossFlagCursor | null,
   limit: number,
+  protectedMode: boolean,
 ): Promise<{ items: CrossFlagSummary[]; nextCursor: string | null }> {
   const whereConditions: SQL[] = [];
 
@@ -175,7 +177,7 @@ export async function listCrossFlags(
 
   // Fetch participants for all returned cross_flag_ids
   const crossFlagIds = pageRows.map((r) => r.id);
-  const participantsMap = await fetchParticipants(db, crossFlagIds);
+  const participantsMap = await fetchParticipants(db, crossFlagIds, protectedMode);
 
   const items: CrossFlagSummary[] = pageRows.map((row) => ({
     id: row.id,
@@ -197,6 +199,7 @@ export async function listCrossFlags(
 export async function fetchParticipants(
   db: DrizzleDb,
   crossFlagIds: string[],
+  protectedMode: boolean,
 ): Promise<Map<string, CrossFlagParticipantRow[]>> {
   const result = new Map<string, CrossFlagParticipantRow[]>();
   if (crossFlagIds.length === 0) return result;
@@ -209,6 +212,7 @@ export async function fetchParticipants(
       student_id: roster_entries.id,
       student_sid: roster_entries.sid,
       student_display_name: roster_entries.display_name,
+      student_protected_index: roster_entries.protected_index,
       assignment_id: assignments.id,
       assignment_id_str: assignments.assignment_id_str,
     })
@@ -224,11 +228,15 @@ export async function fetchParticipants(
     }
     result.get(row.cross_flag_id)!.push({
       submission_id: row.submission_id,
-      student: {
-        id: row.student_id,
-        sid: row.student_sid,
-        display_name: row.student_display_name,
-      },
+      student: projectStudent(
+        {
+          id: row.student_id,
+          sid: row.student_sid,
+          display_name: row.student_display_name,
+          protected_index: row.student_protected_index,
+        },
+        protectedMode,
+      ),
       assignment: {
         id: row.assignment_id,
         assignment_id_str: row.assignment_id_str,
