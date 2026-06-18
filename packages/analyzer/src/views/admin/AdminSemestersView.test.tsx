@@ -26,6 +26,7 @@ const SUPERADMIN_ME = {
     email: 'sa@berkeley.edu',
     display_name: 'Superadmin',
     is_superadmin: true,
+    protected: false,
     created_at: '2025-01-01T00:00:00.000Z',
     last_login_at: '2025-01-15T10:00:00.000Z',
   },

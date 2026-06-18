@@ -70,6 +70,7 @@ function setupListHandler(items: object[] = [], nextCursor: string | null = null
           email: 'ta@berkeley.edu',
           display_name: 'Test TA',
           is_superadmin: false,
+          protected: false,
           created_at: '2025-01-01T00:00:00.000Z',
           last_login_at: null,
         },
