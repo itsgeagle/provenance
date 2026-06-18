@@ -18,6 +18,7 @@
 import { Hono } from 'hono';
 import { getDb } from '../../../db/client.js';
 import { requireAuth } from '../../middleware/authorize.js';
+import { requirePrincipal } from '../../middleware/auth-session.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
 import { Errors } from '../errors.js';
 import {
@@ -158,9 +159,12 @@ export function createCohortRouter(): Hono {
         );
       }
 
+      const principal = requirePrincipal(c);
+      const protectedMode = principal.user.protected;
+
       // Execute list + facets in parallel
       const [listResult, facets] = await Promise.all([
-        listCohortSubmissions(db, semesterId, filters, sort, cursor, limit),
+        listCohortSubmissions(db, semesterId, filters, sort, cursor, limit, protectedMode),
         buildFacets(db, semesterId, filters),
       ]);
 

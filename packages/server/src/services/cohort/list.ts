@@ -25,6 +25,7 @@ import { submissions, assignments, roster_entries } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
 import { SEVERITY_RANK } from '../scoring/denorm.js';
+import { projectStudent } from '../protect.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -59,6 +60,7 @@ export type CohortCursor =
   | { kind: 'score'; score_total: number; id: string }
   | { kind: 'wall'; wall: string; id: string }
   | { kind: 'display_name'; display_name: string; id: string }
+  | { kind: 'protected_index'; protected_index: number; id: string }
   | { kind: 'assignment_label'; assignment_label: string; id: string };
 
 export type SubmissionRow = {
@@ -103,6 +105,9 @@ export function decodeCursor(encoded: string): CohortCursor | null {
     if (kind === 'display_name' && typeof p['display_name'] === 'string') {
       return { kind: 'display_name', display_name: p['display_name'], id: p['id'] };
     }
+    if (kind === 'protected_index' && typeof p['protected_index'] === 'number') {
+      return { kind: 'protected_index', protected_index: p['protected_index'], id: p['id'] };
+    }
     if (kind === 'assignment_label' && typeof p['assignment_label'] === 'string') {
       return { kind: 'assignment_label', assignment_label: p['assignment_label'], id: p['id'] };
     }
@@ -140,6 +145,7 @@ export async function listCohortSubmissions(
   sort: CohortSort,
   cursor: CohortCursor | null,
   limit: number,
+  protectedMode: boolean,
 ): Promise<{ items: SubmissionRow[]; nextCursor: string | null; totalCount: number }> {
   // Build WHERE conditions
   const whereConditions: SQL[] = [];
@@ -240,8 +246,9 @@ export async function listCohortSubmissions(
     );
   }
 
-  // q: free-text ILIKE on roster_entries.display_name or sid
-  if (filters.q !== undefined && filters.q.trim() !== '') {
+  // q: free-text ILIKE on roster_entries.display_name or sid.
+  // Disabled in protected mode (it would be a name->Student-N lookup oracle).
+  if (!protectedMode && filters.q !== undefined && filters.q.trim() !== '') {
     const pattern = `%${filters.q.trim()}%`;
     whereConditions.push(
       or(
@@ -253,7 +260,7 @@ export async function listCohortSubmissions(
 
   // Apply cursor-based pagination based on sort
   if (cursor !== null) {
-    const cursorCond = buildCursorCondition(sort, cursor);
+    const cursorCond = buildCursorCondition(sort, cursor, protectedMode);
     if (cursorCond !== null) {
       whereConditions.push(cursorCond);
     }
@@ -262,7 +269,7 @@ export async function listCohortSubmissions(
   const whereClause = and(...whereConditions);
 
   // Build ORDER BY
-  const orderBy = buildOrderBy(sort);
+  const orderBy = buildOrderBy(sort, protectedMode);
 
   // Execute main query (limit + 1 to detect next page).
   // P1-1a: flag_counts and top_flags read directly from denormalized jsonb
@@ -288,6 +295,7 @@ export async function listCohortSubmissions(
       // From roster_entries JOIN
       student_sid: roster_entries.sid,
       student_display_name: roster_entries.display_name,
+      student_protected_index: roster_entries.protected_index,
     })
     .from(submissions)
     .innerJoin(assignments, eq(submissions.assignment_id, assignments.id))
@@ -303,7 +311,7 @@ export async function listCohortSubmissions(
   let nextCursor: string | null = null;
   if (hasMore && pageRows.length > 0) {
     const last = pageRows[pageRows.length - 1]!;
-    const c = buildCursorFromRow(sort, last);
+    const c = buildCursorFromRow(sort, last, protectedMode);
     nextCursor = encodeCursor(c);
   }
 
@@ -318,11 +326,15 @@ export async function listCohortSubmissions(
       assignment_id_str: row.assignment_assignment_id_str,
       label: row.assignment_label,
     },
-    student: {
-      id: row.student_id,
-      sid: row.student_sid,
-      display_name: row.student_display_name,
-    },
+    student: projectStudent(
+      {
+        id: row.student_id,
+        sid: row.student_sid,
+        display_name: row.student_display_name,
+        protected_index: row.student_protected_index,
+      },
+      protectedMode,
+    ),
     score_total: row.score_total,
     score_max_severity: row.score_max_severity as Severity,
     flag_counts: row.flag_counts as { info: number; low: number; medium: number; high: number },
@@ -393,7 +405,8 @@ export async function listCohortSubmissions(
       sql`NOT EXISTS (SELECT 1 FROM flags f WHERE f.submission_id = ${submissions.id} AND f.heuristic_id = 'large_paste')`,
     );
   }
-  if (filters.q !== undefined && filters.q.trim() !== '') {
+  // q: disabled in protected mode (oracle closure — same guard as main query).
+  if (!protectedMode && filters.q !== undefined && filters.q.trim() !== '') {
     const pattern = `%${filters.q.trim()}%`;
     countConditions.push(
       or(
@@ -419,7 +432,7 @@ export async function listCohortSubmissions(
 // Private helpers
 // ---------------------------------------------------------------------------
 
-function buildOrderBy(sort: CohortSort): SQL[] {
+function buildOrderBy(sort: CohortSort, protectedMode: boolean): SQL[] {
   switch (sort) {
     case 'score_desc':
       return [sql`${submissions.score_total} DESC`, sql`${submissions.id} DESC`];
@@ -428,15 +441,23 @@ function buildOrderBy(sort: CohortSort): SQL[] {
     case 'ingested_desc':
       return [sql`${submissions.ingested_at} DESC`, sql`${submissions.id} DESC`];
     case 'student_asc':
-      return [sql`${roster_entries.display_name} ASC`, sql`${submissions.id} ASC`];
+      return protectedMode
+        ? [sql`${roster_entries.protected_index} ASC`, sql`${submissions.id} ASC`]
+        : [sql`${roster_entries.display_name} ASC`, sql`${submissions.id} ASC`];
     case 'student_desc':
-      return [sql`${roster_entries.display_name} DESC`, sql`${submissions.id} DESC`];
+      return protectedMode
+        ? [sql`${roster_entries.protected_index} DESC`, sql`${submissions.id} DESC`]
+        : [sql`${roster_entries.display_name} DESC`, sql`${submissions.id} DESC`];
     case 'assignment_asc':
       return [sql`${assignments.label} ASC`, sql`${submissions.id} ASC`];
   }
 }
 
-function buildCursorCondition(sort: CohortSort, cursor: CohortCursor): SQL | null {
+function buildCursorCondition(
+  sort: CohortSort,
+  cursor: CohortCursor,
+  protectedMode: boolean,
+): SQL | null {
   switch (sort) {
     case 'score_desc': {
       if (cursor.kind !== 'score') return null;
@@ -480,6 +501,16 @@ function buildCursorCondition(sort: CohortSort, cursor: CohortCursor): SQL | nul
       )!;
     }
     case 'student_asc': {
+      if (protectedMode) {
+        if (cursor.kind !== 'protected_index') return null;
+        return or(
+          sql`${roster_entries.protected_index} > ${cursor.protected_index}`,
+          and(
+            sql`${roster_entries.protected_index} = ${cursor.protected_index}`,
+            sql`${submissions.id} > ${cursor.id}`,
+          ),
+        )!;
+      }
       if (cursor.kind !== 'display_name') return null;
       return or(
         sql`${roster_entries.display_name} > ${cursor.display_name}`,
@@ -490,6 +521,16 @@ function buildCursorCondition(sort: CohortSort, cursor: CohortCursor): SQL | nul
       )!;
     }
     case 'student_desc': {
+      if (protectedMode) {
+        if (cursor.kind !== 'protected_index') return null;
+        return or(
+          sql`${roster_entries.protected_index} < ${cursor.protected_index}`,
+          and(
+            sql`${roster_entries.protected_index} = ${cursor.protected_index}`,
+            sql`${submissions.id} < ${cursor.id}`,
+          ),
+        )!;
+      }
       if (cursor.kind !== 'display_name') return null;
       return or(
         sql`${roster_entries.display_name} < ${cursor.display_name}`,
@@ -519,8 +560,10 @@ function buildCursorFromRow(
     score_total: number;
     ingested_at: Date;
     student_display_name: string;
+    student_protected_index: number | null;
     assignment_label: string;
   },
+  protectedMode: boolean,
 ): CohortCursor {
   switch (sort) {
     case 'score_desc':
@@ -530,7 +573,9 @@ function buildCursorFromRow(
       return { kind: 'wall', wall: row.ingested_at.toISOString(), id: row.id };
     case 'student_asc':
     case 'student_desc':
-      return { kind: 'display_name', display_name: row.student_display_name, id: row.id };
+      return protectedMode
+        ? { kind: 'protected_index', protected_index: row.student_protected_index ?? 0, id: row.id }
+        : { kind: 'display_name', display_name: row.student_display_name, id: row.id };
     case 'assignment_asc':
       return { kind: 'assignment_label', assignment_label: row.assignment_label, id: row.id };
   }

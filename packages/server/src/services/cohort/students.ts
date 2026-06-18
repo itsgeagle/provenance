@@ -306,6 +306,7 @@ export async function listStudents(
         'score_desc',
         null,
         1,
+        false, // protectedMode: threaded properly in Phase 3
       );
 
       // Fetch all submission recompute statuses for this student
