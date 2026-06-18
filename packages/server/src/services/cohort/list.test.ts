@@ -227,7 +227,9 @@ describe('listCohortSubmissions — protected mode', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
       const assignment = await seedAssignment(db, semester.id);
 
+      // Seed TWO students: one whose name matches the query, one who does not.
       const zara = await seedStudent(db, semester.id, 'stu-zara', 'Zara', 1);
+      const bob = await seedStudent(db, semester.id, 'stu-bob', 'Bob', 2);
       await seedSubmission(db, {
         semesterId: semester.id,
         assignmentId: assignment.id,
@@ -235,8 +237,16 @@ describe('listCohortSubmissions — protected mode', () => {
         ingestJobId: job.id,
         versionIndex: 1,
       });
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: bob.id,
+        ingestJobId: job.id,
+        versionIndex: 2,
+      });
 
-      // q='Zara' in protected mode must NOT filter to just matching students
+      // q='Zara' in protected mode must NOT filter to just matching students.
+      // Both submissions must be returned (ILIKE suppressed), not just Zara's.
       const res = await listCohortSubmissions(
         db,
         semester.id,
@@ -246,8 +256,47 @@ describe('listCohortSubmissions — protected mode', () => {
         50,
         true,
       );
-      // q did not filter — the 1 submission is still returned
-      expect(res.totalCount).toBeGreaterThan(0);
+      expect(res.totalCount).toBe(2);
+    });
+  });
+
+  it('non-protected q search still filters correctly', async () => {
+    await withTestDb(async (db) => {
+      const { semester } = await seedCourseAndSemester(db);
+      const user = await seedUser(db);
+      const job = await seedIngestJob(db, semester.id, user.id);
+      const assignment = await seedAssignment(db, semester.id);
+
+      // Two students: Zara matches query, Bob does not.
+      const zara = await seedStudent(db, semester.id, 'stu-zara', 'Zara', 1);
+      const bob = await seedStudent(db, semester.id, 'stu-bob', 'Bob', 2);
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: zara.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
+      });
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: bob.id,
+        ingestJobId: job.id,
+        versionIndex: 2,
+      });
+
+      // In non-protected mode q='Zara' should filter to exactly 1 result.
+      const res = await listCohortSubmissions(
+        db,
+        semester.id,
+        { q: 'Zara' },
+        'score_desc',
+        null,
+        50,
+        false,
+      );
+      expect(res.totalCount).toBe(1);
+      expect(res.items[0]!.student.display_name).toBe('Zara');
     });
   });
 

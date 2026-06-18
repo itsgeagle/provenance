@@ -21,7 +21,7 @@ import {
   users,
 } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
-import { listStudents } from './students.js';
+import { listStudents, decodeStudentCursor } from './students.js';
 
 // ---------------------------------------------------------------------------
 // Seed helpers (adapted from cohort.test.ts)
@@ -253,7 +253,9 @@ describe('listStudents — protected mode', () => {
       const job = await seedIngestJob(db, semester.id, user.id);
       const assignment = await seedAssignment(db, semester.id);
 
+      // Seed TWO students: one whose name matches the query, one who does not.
       const zara = await seedStudent(db, semester.id, 'stu-zara', 'Zara', 1);
+      const bob = await seedStudent(db, semester.id, 'stu-bob', 'Bob', 2);
       await seedSubmission(db, {
         semesterId: semester.id,
         assignmentId: assignment.id,
@@ -261,8 +263,16 @@ describe('listStudents — protected mode', () => {
         ingestJobId: job.id,
         versionIndex: 1,
       });
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: bob.id,
+        ingestJobId: job.id,
+        versionIndex: 2,
+      });
 
-      // q='Zara' in protected mode must NOT filter to just matching students
+      // q='Zara' in protected mode must NOT filter to just matching students.
+      // Both students must be returned (ILIKE suppressed), not just Zara's.
       const res = await listStudents(
         db,
         semester.id,
@@ -272,8 +282,47 @@ describe('listStudents — protected mode', () => {
         50,
         true,
       );
-      // q did not filter — the 1 student is still returned
-      expect(res.totalCount).toBeGreaterThan(0);
+      expect(res.totalCount).toBe(2);
+    });
+  });
+
+  it('non-protected q search still filters correctly', async () => {
+    await withTestDb(async (db) => {
+      const { semester } = await seedCourseAndSemester(db);
+      const user = await seedUser(db);
+      const job = await seedIngestJob(db, semester.id, user.id);
+      const assignment = await seedAssignment(db, semester.id);
+
+      // Two students: Zara matches query, Bob does not.
+      const zara = await seedStudent(db, semester.id, 'stu-zara', 'Zara', 1);
+      const bob = await seedStudent(db, semester.id, 'stu-bob', 'Bob', 2);
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: zara.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
+      });
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: bob.id,
+        ingestJobId: job.id,
+        versionIndex: 2,
+      });
+
+      // In non-protected mode q='Zara' should filter to exactly 1 student.
+      const res = await listStudents(
+        db,
+        semester.id,
+        { q: 'Zara' },
+        'score_sum_desc',
+        null,
+        50,
+        false,
+      );
+      expect(res.totalCount).toBe(1);
+      expect(res.items[0]!.student.display_name).toBe('Zara');
     });
   });
 
@@ -322,6 +371,85 @@ describe('listStudents — protected mode', () => {
       const worstSub = res.items[0]!.worst_submission;
       expect(worstSub.student.display_name).not.toBe('Zara');
       expect(worstSub.student.display_name).toMatch(/^Student \d+$/);
+    });
+  });
+
+  it('cursor round-trip delivers correct page 2 and sid is masked in protected mode', async () => {
+    await withTestDb(async (db) => {
+      const { semester } = await seedCourseAndSemester(db);
+      const user = await seedUser(db);
+      const job = await seedIngestJob(db, semester.id, user.id);
+      const assignment = await seedAssignment(db, semester.id);
+
+      // Seed 3 students with explicit protected_indices 1, 2, 3.
+      for (let i = 1; i <= 3; i++) {
+        const s = await seedStudent(db, semester.id, `stu-real-${i}`, `RealName${i}`, i);
+        await seedSubmission(db, {
+          semesterId: semester.id,
+          assignmentId: assignment.id,
+          studentId: s.id,
+          ingestJobId: job.id,
+          versionIndex: i,
+        });
+      }
+
+      // Page 1: limit=1 with student_asc in protected mode.
+      const res1 = await listStudents(db, semester.id, {}, 'student_asc', null, 1, true);
+      expect(res1.items).toHaveLength(1);
+      expect(res1.items[0]!.student.display_name).toBe('Student 1');
+      // sid must be masked (starts with 'S', not the raw 'stu-real-1')
+      expect(res1.items[0]!.student.sid).toMatch(/^S/);
+      expect(res1.items[0]!.student.sid).not.toBe('stu-real-1');
+      // worst_submission.student.sid is also masked
+      expect(res1.items[0]!.worst_submission.student.sid).toMatch(/^S/);
+      expect(res1.nextCursor).not.toBeNull();
+
+      // Feed cursor into page 2 — should start at Student 2.
+      const cursor1 = decodeStudentCursor(res1.nextCursor!);
+      expect(cursor1).not.toBeNull();
+      expect(cursor1!.kind).toBe('protected_index');
+
+      const res2 = await listStudents(db, semester.id, {}, 'student_asc', cursor1, 1, true);
+      expect(res2.items).toHaveLength(1);
+      expect(res2.items[0]!.student.display_name).toBe('Student 2');
+      expect(res2.items[0]!.student.sid).toMatch(/^S/);
+
+      // No overlap between pages.
+      expect(res1.items[0]!.student.sid).not.toBe(res2.items[0]!.student.sid);
+    });
+  });
+
+  it('protected student_asc sorts numerically: Student 2 before Student 10', async () => {
+    await withTestDb(async (db) => {
+      const { semester } = await seedCourseAndSemester(db);
+      const user = await seedUser(db);
+      const job = await seedIngestJob(db, semester.id, user.id);
+      const assignment = await seedAssignment(db, semester.id);
+
+      // Seed two students with protected_index 10 and 2 (inserted in that order to
+      // confirm the sort is not insertion-order).
+      const s10 = await seedStudent(db, semester.id, 'stu-ten', 'Ten', 10);
+      const s2 = await seedStudent(db, semester.id, 'stu-two', 'Two', 2);
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: s10.id,
+        ingestJobId: job.id,
+        versionIndex: 1,
+      });
+      await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: s2.id,
+        ingestJobId: job.id,
+        versionIndex: 2,
+      });
+
+      const res = await listStudents(db, semester.id, {}, 'student_asc', null, 50, true);
+      expect(res.items).toHaveLength(2);
+      // Zero-padded numeric sort: 2 comes before 10 (not lexicographic "10" < "2").
+      expect(res.items[0]!.student.display_name).toBe('Student 2');
+      expect(res.items[1]!.student.display_name).toBe('Student 10');
     });
   });
 });
