@@ -96,6 +96,56 @@ export const adminPaths = {
       },
     },
   },
+  '/admin/users/{userId}/protected': {
+    patch: {
+      tags: ['Admin'],
+      summary: 'Set protected flag on a user (superadmin; cannot change own flag)',
+      description:
+        'Enables or disables the protected flag for the given user. Superadmin cannot change their own flag.',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'userId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['protected'],
+              properties: { protected: { type: 'boolean' } },
+            },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Protected flag updated',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['id', 'protected'],
+                properties: {
+                  id: { $ref: '#/components/schemas/UUID' },
+                  protected: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        '400': { description: 'VALIDATION_ERROR (cannot change own flag; invalid body)' },
+        '401': { description: 'AUTH_REQUIRED' },
+        '403': { description: 'INSUFFICIENT_ROLE (not superadmin)' },
+        '404': { description: 'NOT_FOUND' },
+      },
+    },
+  },
   '/admin/view-as': {
     post: {
       tags: ['Admin'],
