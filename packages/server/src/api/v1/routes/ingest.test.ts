@@ -91,6 +91,7 @@ async function seedUser(db: DrizzleDb, overrides?: Partial<typeof users.$inferIn
       email: `user-${id}@berkeley.edu`,
       display_name: 'Test User',
       is_superadmin: false,
+      protected: false,
       ...overrides,
     })
     .returning();
@@ -135,13 +136,18 @@ async function seedMembership(
     .values({ user_id: userId, semester_id: semesterId, role, granted_by: userId });
 }
 
-async function seedRosterEntry(db: DrizzleDb, semesterId: string) {
+async function seedRosterEntry(
+  db: DrizzleDb,
+  semesterId: string,
+  opts?: { sid?: string; display_name?: string; protected_index?: number },
+) {
   const [entry] = await db
     .insert(roster_entries)
     .values({
       semester_id: semesterId,
-      sid: `stu-${crypto.randomUUID().slice(0, 8)}`,
-      display_name: 'Test Student',
+      sid: opts?.sid ?? `stu-${crypto.randomUUID().slice(0, 8)}`,
+      display_name: opts?.display_name ?? 'Test Student',
+      protected_index: opts?.protected_index ?? null,
     })
     .returning();
   return entry!;
@@ -965,6 +971,278 @@ describe('POST /semesters/:semesterId/ingest — zip-bomb guard (Critical 2)', (
           expect(res.status).toBe(413);
           const body = (await res.json()) as { error: { code: string } };
           expect(body.error.code).toBe('INGEST_BATCH_TOO_LARGE');
+        } finally {
+          _testDb = null;
+        }
+      });
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Protected mode — job detail and files listing masking
+// ---------------------------------------------------------------------------
+
+describe('GET /semesters/:semesterId/ingest/jobs/:jobId — protected mode', () => {
+  it('masks original_filename and matched_student when user is protected', async () => {
+    await withTestDb(async (db) => {
+      await withTestMinio(async ({ client, bucketName }) => {
+        _testDb = db;
+        try {
+          _setConfigForTest(
+            parseEnv(makeTestEnv(client.bucketUrl.replace(`/${bucketName}`, ''), bucketName)),
+          );
+
+          // Protected user
+          const admin = await seedUser(db, { protected: true });
+          const sessionId = await seedSession(db, admin.id);
+          const { semester } = await seedCourseAndSemester(db);
+          await seedMembership(db, admin.id, semester.id, 'admin');
+
+          // Seed a roster entry with a real name
+          const student = await seedRosterEntry(db, semester.id, {
+            sid: '123456',
+            display_name: 'Chan Alice',
+            protected_index: 5,
+          });
+
+          // Create a job directly
+          const [job] = await db
+            .insert(ingest_jobs)
+            .values({ semester_id: semester.id, uploaded_by: admin.id, status: 'running' })
+            .returning();
+
+          // Seed a matched file with a name-bearing filename
+          await db.insert(ingest_files).values({
+            ingest_job_id: job!.id,
+            original_filename: 'chan_alice_lab03.zip',
+            size_bytes: 1024,
+            blob_sha256: `sha256-${crypto.randomUUID()}`,
+            status: 'matched',
+            matched_student_id: student.id,
+          });
+
+          const app = createV1App();
+          const res = await app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/ingest/jobs/${job!.id}`, {
+              headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+            }),
+          );
+
+          expect(res.status).toBe(200);
+          const body = (await res.json()) as {
+            files: Array<{
+              original_filename: string;
+              matched_student?: { display_name: string; sid: string };
+              filename_capture?: unknown;
+            }>;
+          };
+          expect(body.files).toHaveLength(1);
+          const file = body.files[0]!;
+
+          // filename must not contain real name tokens
+          expect(file.original_filename).not.toMatch(/chan|alice/i);
+          expect(file.original_filename).toMatch(/Student 5/);
+
+          // matched_student must be masked
+          expect(file.matched_student).toBeDefined();
+          expect(file.matched_student!.display_name).toMatch(/^Student \d+$/);
+          expect(file.matched_student!.sid).toBe('S5');
+
+          // filename_capture must be absent in protected mode
+          expect(file.filename_capture).toBeUndefined();
+        } finally {
+          _testDb = null;
+        }
+      });
+    });
+  });
+
+  it('returns real filename and matched_student when user is NOT protected (job detail)', async () => {
+    await withTestDb(async (db) => {
+      await withTestMinio(async ({ client, bucketName }) => {
+        _testDb = db;
+        try {
+          _setConfigForTest(
+            parseEnv(makeTestEnv(client.bucketUrl.replace(`/${bucketName}`, ''), bucketName)),
+          );
+
+          const admin = await seedUser(db, { protected: false });
+          const sessionId = await seedSession(db, admin.id);
+          const { semester } = await seedCourseAndSemester(db);
+          await seedMembership(db, admin.id, semester.id, 'admin');
+
+          const student = await seedRosterEntry(db, semester.id, {
+            sid: '123456',
+            display_name: 'Chan Alice',
+            protected_index: 5,
+          });
+
+          const [job] = await db
+            .insert(ingest_jobs)
+            .values({ semester_id: semester.id, uploaded_by: admin.id, status: 'running' })
+            .returning();
+
+          await db.insert(ingest_files).values({
+            ingest_job_id: job!.id,
+            original_filename: 'chan_alice_lab03.zip',
+            size_bytes: 1024,
+            blob_sha256: `sha256-${crypto.randomUUID()}`,
+            status: 'matched',
+            matched_student_id: student.id,
+          });
+
+          const app = createV1App();
+          const res = await app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/ingest/jobs/${job!.id}`, {
+              headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+            }),
+          );
+
+          expect(res.status).toBe(200);
+          const body = (await res.json()) as {
+            files: Array<{
+              original_filename: string;
+              matched_student?: { display_name: string; sid: string };
+            }>;
+          };
+          expect(body.files).toHaveLength(1);
+          const file = body.files[0]!;
+
+          // Real values must appear
+          expect(file.original_filename).toBe('chan_alice_lab03.zip');
+          expect(file.matched_student).toBeDefined();
+          expect(file.matched_student!.display_name).toBe('Chan Alice');
+          expect(file.matched_student!.sid).toBe('123456');
+        } finally {
+          _testDb = null;
+        }
+      });
+    });
+  });
+});
+
+describe('GET /semesters/:semesterId/ingest/jobs/:jobId/files — protected mode', () => {
+  it('masks filenames and matched_student in files listing when protected', async () => {
+    await withTestDb(async (db) => {
+      await withTestMinio(async ({ client, bucketName }) => {
+        _testDb = db;
+        try {
+          _setConfigForTest(
+            parseEnv(makeTestEnv(client.bucketUrl.replace(`/${bucketName}`, ''), bucketName)),
+          );
+
+          const admin = await seedUser(db, { protected: true });
+          const sessionId = await seedSession(db, admin.id);
+          const { semester } = await seedCourseAndSemester(db);
+          await seedMembership(db, admin.id, semester.id, 'admin');
+
+          const student = await seedRosterEntry(db, semester.id, {
+            sid: '123456',
+            display_name: 'Chan Alice',
+            protected_index: 7,
+          });
+
+          const [job] = await db
+            .insert(ingest_jobs)
+            .values({ semester_id: semester.id, uploaded_by: admin.id, status: 'running' })
+            .returning();
+
+          await db.insert(ingest_files).values({
+            ingest_job_id: job!.id,
+            original_filename: 'chan_alice_lab03.zip',
+            size_bytes: 1024,
+            blob_sha256: `sha256-${crypto.randomUUID()}`,
+            status: 'matched',
+            matched_student_id: student.id,
+          });
+
+          const app = createV1App();
+          const res = await app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/ingest/jobs/${job!.id}/files`, {
+              headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+            }),
+          );
+
+          expect(res.status).toBe(200);
+          const body = (await res.json()) as {
+            items: Array<{
+              original_filename: string;
+              matched_student?: { display_name: string; sid: string };
+              filename_capture?: unknown;
+            }>;
+          };
+          expect(body.items).toHaveLength(1);
+          const item = body.items[0]!;
+
+          expect(item.original_filename).not.toMatch(/chan|alice/i);
+          expect(item.original_filename).toMatch(/Student 7/);
+          expect(item.matched_student).toBeDefined();
+          expect(item.matched_student!.display_name).toMatch(/^Student \d+$/);
+          expect(item.matched_student!.sid).toBe('S7');
+          expect(item.filename_capture).toBeUndefined();
+        } finally {
+          _testDb = null;
+        }
+      });
+    });
+  });
+
+  it('returns real values in files listing when NOT protected', async () => {
+    await withTestDb(async (db) => {
+      await withTestMinio(async ({ client, bucketName }) => {
+        _testDb = db;
+        try {
+          _setConfigForTest(
+            parseEnv(makeTestEnv(client.bucketUrl.replace(`/${bucketName}`, ''), bucketName)),
+          );
+
+          const admin = await seedUser(db, { protected: false });
+          const sessionId = await seedSession(db, admin.id);
+          const { semester } = await seedCourseAndSemester(db);
+          await seedMembership(db, admin.id, semester.id, 'admin');
+
+          const student = await seedRosterEntry(db, semester.id, {
+            sid: '123456',
+            display_name: 'Chan Alice',
+            protected_index: 7,
+          });
+
+          const [job] = await db
+            .insert(ingest_jobs)
+            .values({ semester_id: semester.id, uploaded_by: admin.id, status: 'running' })
+            .returning();
+
+          await db.insert(ingest_files).values({
+            ingest_job_id: job!.id,
+            original_filename: 'chan_alice_lab03.zip',
+            size_bytes: 1024,
+            blob_sha256: `sha256-${crypto.randomUUID()}`,
+            status: 'matched',
+            matched_student_id: student.id,
+          });
+
+          const app = createV1App();
+          const res = await app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/ingest/jobs/${job!.id}/files`, {
+              headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+            }),
+          );
+
+          expect(res.status).toBe(200);
+          const body = (await res.json()) as {
+            items: Array<{
+              original_filename: string;
+              matched_student?: { display_name: string; sid: string };
+            }>;
+          };
+          expect(body.items).toHaveLength(1);
+          const item = body.items[0]!;
+
+          expect(item.original_filename).toBe('chan_alice_lab03.zip');
+          expect(item.matched_student).toBeDefined();
+          expect(item.matched_student!.display_name).toBe('Chan Alice');
+          expect(item.matched_student!.sid).toBe('123456');
         } finally {
           _testDb = null;
         }

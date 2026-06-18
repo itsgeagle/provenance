@@ -36,6 +36,7 @@ import { eq, and, desc, lt, sql, count } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { getConfig } from '../../../config/index.js';
 import { requireAuth } from '../../middleware/authorize.js';
+import { requirePrincipal } from '../../middleware/auth-session.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
 import { audit } from '../../middleware/audit.js';
 import { Errors, ApiError } from '../errors.js';
@@ -50,6 +51,7 @@ import { createStorageClient, storageConfigFromEnv } from '../../../services/sto
 import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
 import { parseGradescopeExport } from '../../../services/ingest/gradescope/parse-export.js';
 import { upsertRosterFromSubmitters } from '../../../services/ingest/gradescope/upsert-roster.js';
+import { projectStudent, maskFilename, protectedLabel } from '../../../services/protect.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -151,6 +153,7 @@ interface RawFileRow {
   matched_student_id: string | null;
   matched_student_sid: string | null;
   matched_student_display_name: string | null;
+  matched_student_protected_index: number | null;
   matched_assignment_id: string | null;
   matched_assignment_id_str: string | null;
   matched_assignment_label: string | null;
@@ -196,21 +199,33 @@ function normalizeJobSummary(raw: unknown): {
   };
 }
 
-function formatFileSummary(row: RawFileRow): Record<string, unknown> {
+function formatFileSummary(row: RawFileRow, protectedMode: boolean): Record<string, unknown> {
+  const idxLabel =
+    row.matched_student_id !== null
+      ? protectedLabel(row.matched_student_protected_index, row.matched_student_id)
+      : null;
   const out: Record<string, unknown> = {
     id: row.id,
-    original_filename: row.original_filename,
+    original_filename: maskFilename(
+      row.original_filename,
+      protectedMode,
+      idxLabel !== null ? `${idxLabel} — file` : `(unmatched file ${row.id.slice(0, 8)})`,
+    ),
     size_bytes: row.size_bytes,
     blob_sha256: row.blob_sha256,
     status: row.status,
   };
 
   if (row.matched_student_id !== null) {
-    out['matched_student'] = {
-      id: row.matched_student_id,
-      sid: row.matched_student_sid,
-      display_name: row.matched_student_display_name,
-    };
+    out['matched_student'] = projectStudent(
+      {
+        id: row.matched_student_id,
+        sid: row.matched_student_sid ?? '',
+        display_name: row.matched_student_display_name ?? '',
+        protected_index: row.matched_student_protected_index,
+      },
+      protectedMode,
+    );
   }
   if (row.matched_assignment_id !== null) {
     out['matched_assignment'] = {
@@ -222,7 +237,7 @@ function formatFileSummary(row: RawFileRow): Record<string, unknown> {
   if (row.submission_id !== null) {
     out['submission_id'] = row.submission_id;
   }
-  if (row.filename_capture !== null && row.filename_capture !== undefined) {
+  if (!protectedMode && row.filename_capture !== null && row.filename_capture !== undefined) {
     out['filename_capture'] = row.filename_capture;
   }
   if (row.error !== null && row.error !== undefined) {
@@ -775,6 +790,7 @@ export function createIngestRouter(): Hono {
           matched_student_id: ingest_files.matched_student_id,
           matched_student_sid: roster_entries.sid,
           matched_student_display_name: roster_entries.display_name,
+          matched_student_protected_index: roster_entries.protected_index,
           matched_assignment_id: ingest_files.matched_assignment_id,
           matched_assignment_id_str: assignments.assignment_id_str,
           matched_assignment_label: assignments.label,
@@ -790,6 +806,7 @@ export function createIngestRouter(): Hono {
         .orderBy(ingest_files.created_at)
         .limit(200);
 
+      const jobDetailProtectedMode = requirePrincipal(c).user.protected;
       return c.json({
         id: job.id,
         semester_id: job.semester_id,
@@ -798,7 +815,7 @@ export function createIngestRouter(): Hono {
         started_at: job.started_at?.toISOString() ?? null,
         completed_at: job.completed_at?.toISOString() ?? null,
         summary,
-        files: fileRows.map(formatFileSummary),
+        files: fileRows.map((row) => formatFileSummary(row, jobDetailProtectedMode)),
       });
     },
   );
@@ -852,6 +869,7 @@ export function createIngestRouter(): Hono {
           matched_student_id: ingest_files.matched_student_id,
           matched_student_sid: roster_entries.sid,
           matched_student_display_name: roster_entries.display_name,
+          matched_student_protected_index: roster_entries.protected_index,
           matched_assignment_id: ingest_files.matched_assignment_id,
           matched_assignment_id_str: assignments.assignment_id_str,
           matched_assignment_label: assignments.label,
@@ -876,8 +894,9 @@ export function createIngestRouter(): Hono {
       const items = hasMore ? fileRows.slice(0, limit) : fileRows;
       const nextCursor = hasMore ? (items.at(-1)?.created_at?.toISOString() ?? null) : null;
 
+      const filesListProtectedMode = requirePrincipal(c).user.protected;
       return c.json({
-        items: items.map(formatFileSummary),
+        items: items.map((row) => formatFileSummary(row, filesListProtectedMode)),
         next_cursor: nextCursor,
       });
     },
