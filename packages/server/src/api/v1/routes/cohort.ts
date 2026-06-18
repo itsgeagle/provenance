@@ -165,7 +165,7 @@ export function createCohortRouter(): Hono {
       // Execute list + facets in parallel
       const [listResult, facets] = await Promise.all([
         listCohortSubmissions(db, semesterId, filters, sort, cursor, limit, protectedMode),
-        buildFacets(db, semesterId, filters),
+        buildFacets(db, semesterId, filters, protectedMode),
       ]);
 
       return c.json({

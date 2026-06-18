@@ -46,6 +46,7 @@ function buildWhereConditions(
   semesterId: string,
   filters: CohortFilters,
   omitDimensions: Set<'severity' | 'validation' | 'assignment'>,
+  protectedMode: boolean,
 ): SQL[] {
   const conds: SQL[] = [];
 
@@ -126,7 +127,9 @@ function buildWhereConditions(
     );
   }
 
-  if (filters.q !== undefined && filters.q.trim() !== '') {
+  // q: free-text ILIKE on roster_entries.display_name or sid.
+  // Disabled in protected mode (it would be a name->Student-N lookup oracle).
+  if (!protectedMode && filters.q !== undefined && filters.q.trim() !== '') {
     const pattern = `%${filters.q.trim()}%`;
     conds.push(
       or(
@@ -147,6 +150,7 @@ export async function buildFacets(
   db: DrizzleDb,
   semesterId: string,
   filters: CohortFilters,
+  protectedMode: boolean = false,
 ): Promise<CohortFacets> {
   // --- by_severity: group by score_max_severity, ignoring severityMin filter ---
   const severityRows = await db
@@ -157,7 +161,7 @@ export async function buildFacets(
     .from(submissions)
     .innerJoin(assignments, eq(submissions.assignment_id, assignments.id))
     .innerJoin(roster_entries, eq(submissions.student_id, roster_entries.id))
-    .where(and(...buildWhereConditions(semesterId, filters, new Set(['severity']))))
+    .where(and(...buildWhereConditions(semesterId, filters, new Set(['severity']), protectedMode)))
     .groupBy(submissions.score_max_severity);
 
   const bySeverity = { info: 0, low: 0, medium: 0, high: 0 };
@@ -177,7 +181,9 @@ export async function buildFacets(
     .from(submissions)
     .innerJoin(assignments, eq(submissions.assignment_id, assignments.id))
     .innerJoin(roster_entries, eq(submissions.student_id, roster_entries.id))
-    .where(and(...buildWhereConditions(semesterId, filters, new Set(['validation']))))
+    .where(
+      and(...buildWhereConditions(semesterId, filters, new Set(['validation']), protectedMode)),
+    )
     .groupBy(submissions.validation_status);
 
   const byValidation = { pass: 0, warn: 0, fail: 0 };
@@ -198,7 +204,9 @@ export async function buildFacets(
     .from(submissions)
     .innerJoin(assignments, eq(submissions.assignment_id, assignments.id))
     .innerJoin(roster_entries, eq(submissions.student_id, roster_entries.id))
-    .where(and(...buildWhereConditions(semesterId, filters, new Set(['assignment']))))
+    .where(
+      and(...buildWhereConditions(semesterId, filters, new Set(['assignment']), protectedMode)),
+    )
     .groupBy(assignments.id, assignments.label)
     .orderBy(sql`COUNT(*) DESC`);
 

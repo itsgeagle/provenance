@@ -1484,3 +1484,217 @@ describe('GET /semesters/:semesterId/recompute/:jobId', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Protected mode — dry-run top_movers masking
+// ---------------------------------------------------------------------------
+
+describe('computeDryRunDiff — protected mode masks top_movers student identity', () => {
+  it('masked: top_movers.student has Student N / SN (never real name/sid)', async () => {
+    await withTestDb(async (db) => {
+      const adminUser = await insertUser(db);
+      const course = await insertCourse(db);
+      const semester = await insertSemester(db, course.id);
+      await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
+
+      const [ingestJob] = await db
+        .insert((await import('../../../db/schema.js')).ingest_jobs)
+        .values({
+          semester_id: semester.id,
+          uploaded_by: adminUser.id,
+          status: 'succeeded',
+        })
+        .returning();
+
+      const [assignment] = await db
+        .insert(assignments)
+        .values({
+          semester_id: semester.id,
+          assignment_id_str: 'hw_pm',
+          label: 'Homework PM',
+        })
+        .returning();
+
+      // Insert a student with a known protected_index so we can assert on label.
+      const [student] = await db
+        .insert(roster_entries)
+        .values({
+          semester_id: semester.id,
+          sid: 'real_sid_001',
+          display_name: 'Real Student Name',
+          protected_index: 7,
+        })
+        .returning();
+
+      // Submission with a medium flag so it shows up in top_movers.
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          semester_id: semester.id,
+          assignment_id: assignment!.id,
+          student_id: student!.id,
+          blob_object_key: 'test/pm_blob',
+          blob_sha256: 'pm_hash_abc',
+          source_filename: 'hw_pm_real_sid_001.zip',
+          ingest_job_id: ingestJob!.id,
+          version_index: 1,
+          score_total: 3,
+          score_max_severity: 'medium',
+        })
+        .returning();
+
+      await db.insert(flags).values({
+        submission_id: submission!.id,
+        semester_id: semester.id,
+        heuristic_id: 'large_paste',
+        severity: 'medium',
+        confidence: 1.0,
+        weight_at_compute: 1.0,
+        score_contribution: 3,
+        heuristic_config_version: 1,
+      });
+
+      // Candidate that disables large_paste so score drops → tier change → top_mover.
+      const candidateConfig = JSON.parse(
+        JSON.stringify(DEFAULT_SERVER_CONFIG),
+      ) as typeof DEFAULT_SERVER_CONFIG;
+      candidateConfig.per_flag['large_paste']!.enabled = false;
+
+      // Protected mode = true: student identity must be masked.
+      const protectedResult = await computeDryRunDiff(
+        db,
+        semester.id,
+        candidateConfig,
+        2,
+        true, // protectedMode
+      );
+
+      expect(protectedResult.diff.top_movers).toHaveLength(1);
+      const mover = protectedResult.diff.top_movers[0]!;
+      // Must match Student N pattern (protected_index = 7).
+      expect(mover.student.display_name).toBe('Student 7');
+      expect(mover.student.sid).toBe('S7');
+      // Real values must NOT appear.
+      expect(mover.student.display_name).not.toBe('Real Student Name');
+      expect(mover.student.sid).not.toBe('real_sid_001');
+
+      // Non-protected mode: real values must appear.
+      const realResult = await computeDryRunDiff(
+        db,
+        semester.id,
+        candidateConfig,
+        2,
+        false, // protectedMode
+      );
+
+      expect(realResult.diff.top_movers).toHaveLength(1);
+      const realMover = realResult.diff.top_movers[0]!;
+      expect(realMover.student.display_name).toBe('Real Student Name');
+      expect(realMover.student.sid).toBe('real_sid_001');
+
+      void submission;
+    });
+  });
+
+  it('protected dry-run via HTTP: top_movers.student masked', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        // Protected principal.
+        const admin = await insertUser(db, { protected: true });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+        const [ingestJob] = await db
+          .insert((await import('../../../db/schema.js')).ingest_jobs)
+          .values({
+            semester_id: semester.id,
+            uploaded_by: admin.id,
+            status: 'succeeded',
+          })
+          .returning();
+
+        const [assignment] = await db
+          .insert(assignments)
+          .values({
+            semester_id: semester.id,
+            assignment_id_str: 'hw_http_pm',
+            label: 'HW HTTP PM',
+          })
+          .returning();
+
+        const [student] = await db
+          .insert(roster_entries)
+          .values({
+            semester_id: semester.id,
+            sid: 'http_real_sid',
+            display_name: 'HTTP Real Name',
+            protected_index: 3,
+          })
+          .returning();
+
+        const [submission] = await db
+          .insert(submissions)
+          .values({
+            semester_id: semester.id,
+            assignment_id: assignment!.id,
+            student_id: student!.id,
+            blob_object_key: 'test/http_pm_blob',
+            blob_sha256: 'http_pm_hash',
+            source_filename: 'hw_http_pm_http_real_sid.zip',
+            ingest_job_id: ingestJob!.id,
+            version_index: 1,
+            score_total: 3,
+            score_max_severity: 'medium',
+          })
+          .returning();
+
+        await db.insert(flags).values({
+          submission_id: submission!.id,
+          semester_id: semester.id,
+          heuristic_id: 'large_paste',
+          severity: 'medium',
+          confidence: 1.0,
+          weight_at_compute: 1.0,
+          score_contribution: 3,
+          heuristic_config_version: 1,
+        });
+
+        const candidateConfig = JSON.parse(
+          JSON.stringify(DEFAULT_SERVER_CONFIG),
+        ) as typeof DEFAULT_SERVER_CONFIG;
+        candidateConfig.per_flag['large_paste']!.enabled = false;
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+            method: 'PUT',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'Content-Type': 'application/json',
+              'If-Match': '1',
+            },
+            body: JSON.stringify(candidateConfig),
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          diff: { top_movers: { student: { display_name: string; sid: string } }[] };
+        };
+        expect(body.diff.top_movers).toHaveLength(1);
+        expect(body.diff.top_movers[0]!.student.display_name).toMatch(/^Student \d+$/);
+        expect(body.diff.top_movers[0]!.student.sid).toMatch(/^S/);
+        expect(body.diff.top_movers[0]!.student.display_name).not.toBe('HTTP Real Name');
+        expect(body.diff.top_movers[0]!.student.sid).not.toBe('http_real_sid');
+
+        void submission;
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});

@@ -1198,3 +1198,119 @@ describe('GET /semesters/:semesterId/roster — protected mode masking', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 6 (cont.): Protected mode — PATCH echo masking
+// ---------------------------------------------------------------------------
+
+describe('PATCH /semesters/:semesterId/roster/:id — protected mode masking', () => {
+  it('protected PATCH echo returns masked identity (Student N / SN / null email / null extras)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, {
+          email: 'admin@berkeley.edu',
+          is_superadmin: true,
+          protected: true,
+        });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        // Entry with known protected_index.
+        const entry = await insertRosterEntry(db, semester.id, {
+          sid: 'patch_real_sid',
+          display_name: 'Patch Real Name',
+          email: 'patch@berkeley.edu',
+          extras: { section: '2A' },
+          protected_index: 5,
+        });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/roster/${entry.id}`, {
+            method: 'PATCH',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ display_name: 'Updated Real Name' }),
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          id: string;
+          display_name: string;
+          sid: string;
+          email: unknown;
+          extras: unknown;
+        };
+
+        // display_name must be masked (Student 5 for protected_index=5).
+        expect(body.display_name).toBe('Student 5');
+        expect(body.sid).toBe('S5');
+        // email and extras must be null.
+        expect(body.email).toBeNull();
+        expect(body.extras).toBeNull();
+        // Real values must not appear.
+        expect(body.display_name).not.toBe('Updated Real Name');
+        expect(body.sid).not.toBe('patch_real_sid');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('non-protected PATCH echo returns real identity', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, {
+          email: 'admin@berkeley.edu',
+          is_superadmin: true,
+          protected: false,
+        });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        const entry = await insertRosterEntry(db, semester.id, {
+          sid: 'np_real_sid',
+          display_name: 'NP Real Name',
+          email: 'np@berkeley.edu',
+          extras: { section: '3A' },
+          protected_index: 9,
+        });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/roster/${entry.id}`, {
+            method: 'PATCH',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ display_name: 'NP Updated Name' }),
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          display_name: string;
+          sid: string;
+          email: unknown;
+          extras: unknown;
+        };
+        expect(body.display_name).toBe('NP Updated Name');
+        expect(body.sid).toBe('np_real_sid');
+        expect(body.email).toBe('np@berkeley.edu');
+        expect(body.extras).toEqual({ section: '3A' });
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});

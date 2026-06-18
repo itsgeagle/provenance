@@ -38,6 +38,7 @@ import { submissions, roster_entries, assignments } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { recomputeSubmission } from './recompute-submission.js';
+import { projectStudent } from '../protect.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
@@ -118,6 +119,7 @@ export async function computeDryRunDiff(
   semesterId: string,
   candidateConfig: ServerHeuristicConfig,
   candidateVersion: number,
+  protectedMode: boolean = false,
 ): Promise<DryRunDiff> {
   // -------------------------------------------------------------------------
   // Step 1: Enumerate non-superseded submissions in the semester.
@@ -132,6 +134,7 @@ export async function computeDryRunDiff(
       assignment_id: submissions.assignment_id,
       student_sid: roster_entries.sid,
       student_display_name: roster_entries.display_name,
+      student_protected_index: roster_entries.protected_index,
       assignment_id_str: assignments.assignment_id_str,
       assignment_label: assignments.label,
     })
@@ -168,6 +171,7 @@ export async function computeDryRunDiff(
     student_id: string;
     student_sid: string;
     student_display_name: string;
+    student_protected_index: number | null;
     assignment_id: string;
     assignment_id_str: string;
     assignment_label: string;
@@ -194,6 +198,7 @@ export async function computeDryRunDiff(
       student_id: sub.student_id,
       student_sid: sub.student_sid,
       student_display_name: sub.student_display_name,
+      student_protected_index: sub.student_protected_index,
       assignment_id: sub.assignment_id,
       assignment_id_str: sub.assignment_id_str,
       assignment_label: sub.assignment_label,
@@ -217,11 +222,15 @@ export async function computeDryRunDiff(
   );
   const topMovers: TierMover[] = sorted.slice(0, 20).map((d) => ({
     submission_id: d.submission_id,
-    student: {
-      id: d.student_id,
-      sid: d.student_sid,
-      display_name: d.student_display_name,
-    },
+    student: projectStudent(
+      {
+        id: d.student_id,
+        sid: d.student_sid,
+        display_name: d.student_display_name,
+        protected_index: d.student_protected_index,
+      },
+      protectedMode,
+    ),
     assignment: {
       id: d.assignment_id,
       assignment_id_str: d.assignment_id_str,

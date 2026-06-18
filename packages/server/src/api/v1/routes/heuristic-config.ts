@@ -55,6 +55,7 @@ import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { requireAuth } from '../../middleware/authorize.js';
+import { requirePrincipal } from '../../middleware/auth-session.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
 import { audit, insertAuditRow } from '../../middleware/audit.js';
 import { Errors } from '../errors.js';
@@ -244,7 +245,14 @@ export function createHeuristicConfigRouter(): Hono {
       // Branch: dry-run path.
       // -----------------------------------------------------------------------
       if (isDryRun) {
-        const diff = await computeDryRunDiff(db, semesterId, candidateConfig, candidateVersion);
+        const protectedMode = requirePrincipal(c).user.protected;
+        const diff = await computeDryRunDiff(
+          db,
+          semesterId,
+          candidateConfig,
+          candidateVersion,
+          protectedMode,
+        );
 
         // Fire audit row fire-and-forget.
         void insertAuditRow({

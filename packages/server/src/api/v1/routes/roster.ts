@@ -295,12 +295,20 @@ export function createRosterRouter(): Hono {
         throw Errors.notFound();
       }
 
+      const protectedMode = requirePrincipal(c).user.protected;
+
       return c.json({
-        id: updated.id,
-        sid: updated.sid,
-        display_name: updated.display_name,
-        email: updated.email,
-        extras: updated.extras,
+        ...projectStudent(
+          {
+            id: updated.id,
+            sid: updated.sid,
+            display_name: updated.display_name,
+            protected_index: updated.protected_index,
+          },
+          protectedMode,
+        ),
+        email: maskEmail(updated.email, protectedMode),
+        extras: maskExtras(updated.extras, protectedMode),
       });
     },
   );
