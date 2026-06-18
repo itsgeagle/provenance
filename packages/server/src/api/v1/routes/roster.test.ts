@@ -1082,3 +1082,119 @@ describe('POST /semesters/:semesterId/roster:upload — Content-Length pre-check
 // exercised by the route-level tests above. The former placeholder test
 // `expect(true).toBe(true)` has been removed — it implied coverage that did
 // not exist.
+
+// ---------------------------------------------------------------------------
+// Phase 6: Protected mode — roster listing masking
+// ---------------------------------------------------------------------------
+
+describe('GET /semesters/:semesterId/roster — protected mode masking', () => {
+  it('returns masked identity (Student N / SN / null email / null extras) for a protected user', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        // Protected superadmin: has membership to the semester.
+        const admin = await insertUser(db, {
+          email: 'admin@berkeley.edu',
+          is_superadmin: true,
+          protected: true,
+        });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        // Seed two roster entries with known protected_index and real identity.
+        await insertRosterEntry(db, semester.id, {
+          sid: 'stu001',
+          display_name: 'Alice Zhao',
+          email: 'alice@berkeley.edu',
+          extras: { section: '1A' },
+          protected_index: 1,
+        });
+        await insertRosterEntry(db, semester.id, {
+          sid: 'stu002',
+          display_name: 'Bob Lee',
+          email: 'bob@berkeley.edu',
+          extras: { section: '1B' },
+          protected_index: 2,
+        });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/roster`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          entries: { display_name: string; sid: string; email: unknown; extras: unknown }[];
+          total_count: number;
+        };
+        expect(body.total_count).toBe(2);
+
+        for (const entry of body.entries) {
+          // display_name must be masked
+          expect(entry.display_name).toMatch(/^Student \d+$/);
+          // real names must not appear
+          expect(entry.display_name).not.toBe('Alice Zhao');
+          expect(entry.display_name).not.toBe('Bob Lee');
+          // sid must be masked (Sn)
+          expect(entry.sid).toMatch(/^S\d+$/);
+          expect(entry.sid).not.toBe('stu001');
+          expect(entry.sid).not.toBe('stu002');
+          // email and extras must be null
+          expect(entry.email).toBeNull();
+          expect(entry.extras).toBeNull();
+        }
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns real identity for a non-protected user', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, {
+          email: 'admin@berkeley.edu',
+          is_superadmin: true,
+          protected: false,
+        });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        await insertRosterEntry(db, semester.id, {
+          sid: 'stu001',
+          display_name: 'Alice Zhao',
+          email: 'alice@berkeley.edu',
+          extras: { section: '1A' },
+          protected_index: 1,
+        });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/roster`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          entries: { display_name: string; sid: string; email: unknown; extras: unknown }[];
+        };
+        expect(body.entries).toHaveLength(1);
+        const entry = body.entries[0]!;
+        expect(entry.display_name).toBe('Alice Zhao');
+        expect(entry.sid).toBe('stu001');
+        expect(entry.email).toBe('alice@berkeley.edu');
+        expect(entry.extras).toEqual({ section: '1A' });
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
