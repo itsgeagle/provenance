@@ -285,7 +285,17 @@ export function createCohortRouter(): Hono {
         );
       }
 
-      const result = await listStudents(db, semesterId, filters, sort, cursor, limit);
+      const protectedMode = requirePrincipal(c).user.protected;
+
+      const result = await listStudents(
+        db,
+        semesterId,
+        filters,
+        sort,
+        cursor,
+        limit,
+        protectedMode,
+      );
 
       return c.json({
         items: result.items,

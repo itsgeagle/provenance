@@ -20,13 +20,15 @@ import { submissions, assignments, roster_entries, flags } from '../../db/schema
 import type { DrizzleDb } from '../../db/client.js';
 import type { SubmissionRow, CohortFilters } from './list.js';
 import { listCohortSubmissions } from './list.js';
+import { projectStudent, maskEmail } from '../protect.js';
 
 export type StudentSort = 'score_sum_desc' | 'score_max_desc' | 'student_asc';
 
 export type StudentCursor =
   | { kind: 'score_sum'; score_sum: number; student_id: string }
   | { kind: 'score_max'; score_max: number; student_id: string }
-  | { kind: 'display_name'; display_name: string; student_id: string };
+  | { kind: 'display_name'; display_name: string; student_id: string }
+  | { kind: 'protected_index'; protected_index: number; student_id: string };
 
 export type StudentRow = {
   student: { id: string; sid: string; display_name: string; email?: string | null };
@@ -64,6 +66,13 @@ export function decodeStudentCursor(encoded: string): StudentCursor | null {
       return {
         kind: 'display_name',
         display_name: p['display_name'],
+        student_id: p['student_id'],
+      };
+    }
+    if (kind === 'protected_index' && typeof p['protected_index'] === 'number') {
+      return {
+        kind: 'protected_index',
+        protected_index: p['protected_index'],
         student_id: p['student_id'],
       };
     }
@@ -113,6 +122,7 @@ export async function listStudents(
   sort: StudentSort,
   cursor: StudentCursor | null,
   limit: number,
+  protectedMode: boolean,
 ): Promise<{ items: StudentRow[]; nextCursor: string | null; totalCount: number }> {
   // Build base WHERE conditions (shared with cohort list logic)
   const buildConditions = (omitStudent = false): SQL[] => {
@@ -174,7 +184,9 @@ export async function listStudents(
         sql`NOT EXISTS (SELECT 1 FROM flags f WHERE f.submission_id = ${submissions.id} AND f.heuristic_id = 'large_paste')`,
       );
     }
-    if (filters.q !== undefined && filters.q.trim() !== '') {
+    // q: free-text ILIKE on roster_entries.display_name or sid.
+    // Disabled in protected mode (it would be a name->Student-N lookup oracle).
+    if (!protectedMode && filters.q !== undefined && filters.q.trim() !== '') {
       const pattern = `%${filters.q.trim()}%`;
       conds.push(
         or(
@@ -195,6 +207,7 @@ export async function listStudents(
       sid: roster_entries.sid,
       display_name: roster_entries.display_name,
       email: roster_entries.email,
+      protected_index: roster_entries.protected_index,
       submission_count: sql<number>`COUNT(*)::int`,
       score_sum: sql<number>`SUM(${submissions.score_total})`,
       score_max: sql<number>`MAX(${submissions.score_total})`,
@@ -208,7 +221,11 @@ export async function listStudents(
       roster_entries.sid,
       roster_entries.display_name,
       roster_entries.email,
+      roster_entries.protected_index,
     );
+
+  const nameKey = (r: { display_name: string; protected_index: number | null }) =>
+    protectedMode ? String(r.protected_index ?? 0).padStart(12, '0') : r.display_name;
 
   // Sort in-memory
   const sorted = [...aggRows].sort((a, b) => {
@@ -219,9 +236,12 @@ export async function listStudents(
       case 'score_max_desc':
         if (b.score_max !== a.score_max) return b.score_max - a.score_max;
         return a.student_id < b.student_id ? -1 : 1;
-      case 'student_asc':
-        if (a.display_name !== b.display_name) return a.display_name < b.display_name ? -1 : 1;
+      case 'student_asc': {
+        const ak = nameKey(a);
+        const bk = nameKey(b);
+        if (ak !== bk) return ak < bk ? -1 : 1;
         return a.student_id < b.student_id ? -1 : 1;
+      }
     }
   });
 
@@ -249,7 +269,12 @@ export async function listStudents(
           }
           break;
         case 'student_asc':
-          if (cursor.kind === 'display_name') {
+          if (protectedMode && cursor.kind === 'protected_index') {
+            const rk = r.protected_index ?? 0;
+            afterCursor =
+              rk > cursor.protected_index ||
+              (rk === cursor.protected_index && r.student_id > cursor.student_id);
+          } else if (!protectedMode && cursor.kind === 'display_name') {
             afterCursor =
               r.display_name > cursor.display_name ||
               (r.display_name === cursor.display_name && r.student_id > cursor.student_id);
@@ -280,11 +305,13 @@ export async function listStudents(
         c = { kind: 'score_max', score_max: last.score_max, student_id: last.student_id };
         break;
       case 'student_asc':
-        c = {
-          kind: 'display_name',
-          display_name: last.display_name,
-          student_id: last.student_id,
-        };
+        c = protectedMode
+          ? {
+              kind: 'protected_index',
+              protected_index: last.protected_index ?? 0,
+              student_id: last.student_id,
+            }
+          : { kind: 'display_name', display_name: last.display_name, student_id: last.student_id };
         break;
     }
     nextCursor = encodeStudentCursor(c);
@@ -306,7 +333,7 @@ export async function listStudents(
         'score_desc',
         null,
         1,
-        false, // protectedMode: threaded properly in Phase 3
+        protectedMode,
       );
 
       // Fetch all submission recompute statuses for this student
@@ -356,10 +383,16 @@ export async function listStudents(
 
       return {
         student: {
-          id: agg.student_id,
-          sid: agg.sid,
-          display_name: agg.display_name,
-          email: agg.email,
+          ...projectStudent(
+            {
+              id: agg.student_id,
+              sid: agg.sid,
+              display_name: agg.display_name,
+              protected_index: agg.protected_index,
+            },
+            protectedMode,
+          ),
+          email: maskEmail(agg.email, protectedMode),
         },
         submission_count: agg.submission_count,
         score_sum: agg.score_sum,
