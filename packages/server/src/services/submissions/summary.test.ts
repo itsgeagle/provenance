@@ -1,0 +1,244 @@
+/**
+ * Integration tests for getSubmissionSummary — Phase 4 protected-mode masking.
+ *
+ * Tests that:
+ * - student.display_name and student.sid are masked when protectedMode=true
+ * - source_filename does not contain the real uploaded filename when protectedMode=true
+ * - files[].path (workspace file paths inside the submission) are NOT masked
+ * - Non-protected mode returns real values unchanged
+ */
+
+import { describe, it, expect } from 'vitest';
+import { withTestDb } from '../../../test/helpers/db.js';
+import {
+  courses,
+  semesters,
+  roster_entries,
+  assignments,
+  ingest_jobs,
+  submissions,
+  users,
+  per_file_stats,
+} from '../../db/schema.js';
+import type { DrizzleDb } from '../../db/client.js';
+import { getSubmissionSummary } from './summary.js';
+
+// ---------------------------------------------------------------------------
+// Seed helpers (mirrored from cohort/list.test.ts pattern)
+// ---------------------------------------------------------------------------
+
+async function seedCourseAndSemester(db: DrizzleDb) {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const [course] = await db
+    .insert(courses)
+    .values({ name: 'CS 61A', slug: `cs61a-${uid}` })
+    .returning();
+  const [semester] = await db
+    .insert(semesters)
+    .values({
+      course_id: course!.id,
+      term: 'fa',
+      year: 2024,
+      slug: `fa2024-${uid}`,
+      display_name: 'Fall 2024',
+      filename_convention: '^(?<assignment_id>[a-z0-9_-]+)[-_](?<sid>\\d{6,12})\\.zip$',
+    })
+    .returning();
+  return { course: course!, semester: semester! };
+}
+
+async function seedStudent(
+  db: DrizzleDb,
+  semesterId: string,
+  opts: { sid: string; displayName: string; protectedIndex?: number },
+) {
+  const [entry] = await db
+    .insert(roster_entries)
+    .values({
+      semester_id: semesterId,
+      sid: opts.sid,
+      display_name: opts.displayName,
+      ...(opts.protectedIndex !== undefined && { protected_index: opts.protectedIndex }),
+    })
+    .returning();
+  return entry!;
+}
+
+async function seedAssignment(db: DrizzleDb, semesterId: string) {
+  const [a] = await db
+    .insert(assignments)
+    .values({
+      semester_id: semesterId,
+      assignment_id_str: `hw-${crypto.randomUUID().slice(0, 6)}`,
+      label: 'HW1',
+    })
+    .returning();
+  return a!;
+}
+
+async function seedUser(db: DrizzleDb) {
+  const id = crypto.randomUUID();
+  const [user] = await db
+    .insert(users)
+    .values({
+      id,
+      google_subject: `sub-${id}`,
+      email: `user-${id}@berkeley.edu`,
+      display_name: 'Test User',
+    })
+    .returning();
+  return user!;
+}
+
+async function seedIngestJob(db: DrizzleDb, semesterId: string, userId: string) {
+  const [job] = await db
+    .insert(ingest_jobs)
+    .values({ semester_id: semesterId, uploaded_by: userId, status: 'succeeded' })
+    .returning();
+  return job!;
+}
+
+async function seedSubmission(
+  db: DrizzleDb,
+  opts: {
+    semesterId: string;
+    assignmentId: string;
+    studentId: string;
+    ingestJobId: string;
+    sourceFilename?: string;
+  },
+) {
+  const id = crypto.randomUUID();
+  const [sub] = await db
+    .insert(submissions)
+    .values({
+      id,
+      semester_id: opts.semesterId,
+      assignment_id: opts.assignmentId,
+      student_id: opts.studentId,
+      blob_object_key: `semesters/${opts.semesterId}/submissions/${id}/bundle.zip`,
+      blob_sha256: `sha256-${id}`,
+      source_filename: opts.sourceFilename ?? 'test.zip',
+      ingest_job_id: opts.ingestJobId,
+      version_index: 1,
+      score_total: 0,
+      score_max_severity: 'info',
+      validation_status: 'pass',
+    })
+    .returning();
+  return sub!;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('getSubmissionSummary — protected mode masking', () => {
+  it('masks student identity and source_filename when protectedMode=true', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const { semester } = await seedCourseAndSemester(db);
+      const student = await seedStudent(db, semester.id, {
+        sid: 'smith123',
+        displayName: 'John Smith',
+        protectedIndex: 7,
+      });
+      const assignment = await seedAssignment(db, semester.id);
+      const job = await seedIngestJob(db, semester.id, user.id);
+      const sub = await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: student.id,
+        ingestJobId: job.id,
+        sourceFilename: 'smith_john_hw01.zip',
+      });
+
+      // Seed a per_file_stat to verify files[].path is NOT masked
+      await db.insert(per_file_stats).values({
+        submission_id: sub.id,
+        file_path: 'lab01/q1.py',
+        saves: 3,
+        chars_typed: 100,
+        chars_pasted: 0,
+        chars_external_change_delta: 0,
+        final_length: 100,
+        start_length: 0,
+      });
+
+      const summary = await getSubmissionSummary(db, sub.id, true);
+      expect(summary).not.toBeNull();
+
+      // student.display_name must match /^Student \d+$/
+      expect(summary!.student.display_name).toMatch(/^Student \d+$/);
+      // student.sid must start with S
+      expect(summary!.student.sid).toMatch(/^S/);
+      // source_filename must NOT contain 'smith' or 'john'
+      expect(summary!.source_filename.toLowerCase()).not.toContain('smith');
+      expect(summary!.source_filename.toLowerCase()).not.toContain('john');
+      // The label should be Student 7 — submission (using the protected_index)
+      expect(summary!.source_filename).toBe('Student 7 — submission');
+      // files[].path must NOT be masked (out of scope per spec)
+      expect(summary!.files[0]!.path).toBe('lab01/q1.py');
+    });
+  });
+
+  it('returns real values when protectedMode=false', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const { semester } = await seedCourseAndSemester(db);
+      const student = await seedStudent(db, semester.id, {
+        sid: 'smith123',
+        displayName: 'John Smith',
+        protectedIndex: 7,
+      });
+      const assignment = await seedAssignment(db, semester.id);
+      const job = await seedIngestJob(db, semester.id, user.id);
+      const sub = await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: student.id,
+        ingestJobId: job.id,
+        sourceFilename: 'smith_john_hw01.zip',
+      });
+
+      const summary = await getSubmissionSummary(db, sub.id, false);
+      expect(summary).not.toBeNull();
+
+      // Real display name and sid must be present
+      expect(summary!.student.display_name).toBe('John Smith');
+      expect(summary!.student.sid).toBe('smith123');
+      // Real source_filename must be present
+      expect(summary!.source_filename).toBe('smith_john_hw01.zip');
+    });
+  });
+
+  it('falls back to UUID-derived label when protected_index is null', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const { semester } = await seedCourseAndSemester(db);
+      // No protectedIndex set — it will be null in the DB
+      const student = await seedStudent(db, semester.id, {
+        sid: 'jones456',
+        displayName: 'Alice Jones',
+      });
+      const assignment = await seedAssignment(db, semester.id);
+      const job = await seedIngestJob(db, semester.id, user.id);
+      const sub = await seedSubmission(db, {
+        semesterId: semester.id,
+        assignmentId: assignment.id,
+        studentId: student.id,
+        ingestJobId: job.id,
+        sourceFilename: 'jones_alice_hw01.zip',
+      });
+
+      const summary = await getSubmissionSummary(db, sub.id, true);
+      expect(summary).not.toBeNull();
+
+      // Fallback: display_name uses UUID stub (still matches /^Student /)
+      expect(summary!.student.display_name).toMatch(/^Student /);
+      // source_filename must not contain 'jones' or 'alice'
+      expect(summary!.source_filename.toLowerCase()).not.toContain('jones');
+      expect(summary!.source_filename.toLowerCase()).not.toContain('alice');
+    });
+  });
+});
