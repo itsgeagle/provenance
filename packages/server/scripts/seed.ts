@@ -1,0 +1,325 @@
+/**
+ * Seed a local dev database with an example cohort by running a generated
+ * Gradescope export through the REAL ingest pipeline.
+ *
+ * Run from the server workspace:
+ *
+ *   npm run seed --workspace=packages/server                 # ingest the committed export
+ *   npm run seed --workspace=packages/server -- --regenerate # rebuild the export ZIP first
+ *
+ * Prerequisites (same as `npm run dev`):
+ *   - docker compose up -d   (Postgres + MinIO)
+ *   - npm run db:migrate --workspace=packages/server
+ *   - packages/server/.env present (copy of .env.example; OAuth creds may be dummy)
+ *
+ * What it does, end to end:
+ *   1. ensures the MinIO bucket exists,
+ *   2. seeds an admin user + course + semester + membership (idempotent),
+ *   3. builds (or reuses) the committed example Gradescope export ZIP,
+ *   4. starts the pg-boss worker in-process,
+ *   5. POSTs the export to /semesters/:id/ingest:gradescope (the real route),
+ *   6. waits for the ingest job to reach a terminal status,
+ *   7. prints a summary.
+ *
+ * Re-running is safe and idempotent: once the seed semester is populated the
+ * script short-circuits. (The server repacks each bundle ZIP on ingest with
+ * non-stable archive metadata, so a re-ingest would otherwise stack a new
+ * submission version per student rather than dedupe.) Pass --regenerate to
+ * rebuild the export and force a fresh ingest.
+ *
+ * This is dev tooling, not shipped server code, so it lives under scripts/ and
+ * drives the server's own modules directly.
+ */
+
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { eq, and, count } from 'drizzle-orm';
+
+import { getConfig } from '../src/config/index.js';
+import { getDb, closeDb } from '../src/db/client.js';
+import {
+  users,
+  sessions,
+  courses,
+  semesters,
+  memberships,
+  roster_entries,
+  assignments,
+  submissions,
+  ingest_jobs,
+} from '../src/db/schema.js';
+import { createStorageClient, storageConfigFromEnv } from '../src/services/storage/client.js';
+import { startWorker } from '../src/jobs/worker.js';
+import { createV1App } from '../src/api/v1/index.js';
+import {
+  buildExampleExportZip,
+  SEED_SEMESTER,
+  SEED_ROSTER,
+  SEED_ASSIGNMENT_ID,
+} from './seed/build-example-export.js';
+import type { DrizzleDb } from '../src/db/client.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const EXPORT_ZIP_PATH = path.join(__dirname, 'seed', 'example-gradescope-export.zip');
+
+// A clearly-synthetic admin used only to author the ingest job. NOT a real
+// person's email — using a real staff email here would collide with the user
+// row their Google login creates. To VIEW the seeded data in the analyzer, add
+// your own email to AUTH_SUPERADMIN_EMAILS in .env instead (see the README).
+const SEED_ADMIN_EMAIL = 'seed-admin@berkeley.edu';
+// Stable 43-char session id so re-runs reuse the same row.
+const SEED_SESSION_ID = 'seed00000000000000000000000000000000000000z';
+
+function log(msg: string): void {
+  process.stdout.write(`[seed] ${msg}\n`);
+}
+
+/** Best-effort CreateBucket so a fresh MinIO doesn't 404 the staged uploads. */
+async function ensureBucket(): Promise<void> {
+  const cfg = getConfig();
+  const storage = createStorageClient(storageConfigFromEnv(cfg));
+  const res = await storage.aws.fetch(storage.bucketUrl, { method: 'PUT' });
+  // 200 = created; 409 BucketAlreadyOwnedByYou / BucketAlreadyExists = fine.
+  if (res.ok || res.status === 409) {
+    log(`bucket "${cfg.OBJECT_STORAGE_BUCKET}" ready`);
+    return;
+  }
+  log(`warning: could not ensure bucket (HTTP ${res.status}); continuing`);
+}
+
+async function ensureAdminUser(db: DrizzleDb): Promise<string> {
+  const existing = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, SEED_ADMIN_EMAIL))
+    .limit(1);
+  if (existing.length > 0) return existing[0]!.id;
+
+  const [row] = await db
+    .insert(users)
+    .values({
+      google_subject: 'seed-admin-subject',
+      email: SEED_ADMIN_EMAIL,
+      display_name: 'Seed Admin',
+    })
+    .returning({ id: users.id });
+  return row!.id;
+}
+
+async function ensureSession(db: DrizzleDb, userId: string): Promise<void> {
+  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+  const existing = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.id, SEED_SESSION_ID))
+    .limit(1);
+  if (existing.length > 0) {
+    await db
+      .update(sessions)
+      .set({ expires_at: expiresAt })
+      .where(eq(sessions.id, SEED_SESSION_ID));
+    return;
+  }
+  await db.insert(sessions).values({ id: SEED_SESSION_ID, user_id: userId, expires_at: expiresAt });
+}
+
+async function ensureSemester(db: DrizzleDb): Promise<string> {
+  const existing = await db
+    .select({ id: semesters.id })
+    .from(semesters)
+    .where(eq(semesters.slug, SEED_SEMESTER.slug))
+    .limit(1);
+  if (existing.length > 0) return existing[0]!.id;
+
+  let courseId: string;
+  const existingCourse = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(eq(courses.slug, SEED_SEMESTER.courseSlug))
+    .limit(1);
+  if (existingCourse.length > 0) {
+    courseId = existingCourse[0]!.id;
+  } else {
+    const [course] = await db
+      .insert(courses)
+      .values({ name: SEED_SEMESTER.courseName, slug: SEED_SEMESTER.courseSlug })
+      .returning({ id: courses.id });
+    courseId = course!.id;
+  }
+
+  const [semester] = await db
+    .insert(semesters)
+    .values({
+      course_id: courseId,
+      term: SEED_SEMESTER.term,
+      year: SEED_SEMESTER.year,
+      slug: SEED_SEMESTER.slug,
+      display_name: SEED_SEMESTER.displayName,
+      filename_convention: SEED_SEMESTER.filenameConvention,
+    })
+    .returning({ id: semesters.id });
+  return semester!.id;
+}
+
+async function ensureMembership(db: DrizzleDb, userId: string, semesterId: string): Promise<void> {
+  const existing = await db
+    .select({ user_id: memberships.user_id })
+    .from(memberships)
+    .where(and(eq(memberships.user_id, userId), eq(memberships.semester_id, semesterId)))
+    .limit(1);
+  if (existing.length > 0) return;
+  await db.insert(memberships).values({
+    user_id: userId,
+    semester_id: semesterId,
+    role: 'admin',
+    granted_by: userId,
+  });
+}
+
+function loadOrBuildExport(regenerate: boolean): Promise<Uint8Array> {
+  if (!regenerate && existsSync(EXPORT_ZIP_PATH)) {
+    log(`using committed export ${path.relative(process.cwd(), EXPORT_ZIP_PATH)}`);
+    return Promise.resolve(new Uint8Array(readFileSync(EXPORT_ZIP_PATH)));
+  }
+  log(regenerate ? 'regenerating export ZIP…' : 'export ZIP missing — generating…');
+  return buildExampleExportZip().then((bytes) => {
+    writeFileSync(EXPORT_ZIP_PATH, bytes);
+    log(`wrote ${path.relative(process.cwd(), EXPORT_ZIP_PATH)} (${bytes.byteLength} bytes)`);
+    return bytes;
+  });
+}
+
+async function pollJobTerminal(db: DrizzleDb, jobId: string, timeoutMs = 120_000): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const [row] = await db
+      .select({ status: ingest_jobs.status })
+      .from(ingest_jobs)
+      .where(eq(ingest_jobs.id, jobId))
+      .limit(1);
+    const status = row?.status ?? 'unknown';
+    if (status !== 'queued' && status !== 'running') return status;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return 'timeout';
+}
+
+async function main(): Promise<void> {
+  const regenerate = process.argv.slice(2).includes('--regenerate');
+
+  // Touch config early so a bad/missing .env fails loudly before any work.
+  const cfg = getConfig();
+  const db = getDb();
+
+  await ensureBucket();
+
+  log('seeding admin + course + semester…');
+  const adminId = await ensureAdminUser(db);
+  await ensureSession(db, adminId);
+  const semesterId = await ensureSemester(db);
+  await ensureMembership(db, adminId, semesterId);
+  log(`semester ${SEED_SEMESTER.slug} → ${semesterId}`);
+
+  // Idempotency: the server rebuilds each bundle ZIP on ingest with non-stable
+  // archive metadata, so a re-ingest of the same export does not dedupe and
+  // would stack a new submission version per student. Skip by default once the
+  // seed semester is populated; --regenerate forces a fresh ingest.
+  const [{ value: existingSubs } = { value: 0 }] = await db
+    .select({ value: count() })
+    .from(submissions)
+    .where(eq(submissions.semester_id, semesterId));
+  if (existingSubs > 0 && !regenerate) {
+    log(`already populated (${existingSubs} submission(s)) — nothing to do.`);
+    log('Re-run with --regenerate to rebuild the export and ingest a fresh version.');
+    await closeDb();
+    process.exit(0);
+  }
+
+  const exportBytes = await loadOrBuildExport(regenerate);
+
+  log('starting worker…');
+  const stopWorker = await startWorker();
+
+  let finalStatus = 'unknown';
+  try {
+    const app = createV1App();
+    const formData = new FormData();
+    formData.append(
+      'archive',
+      new Blob([exportBytes.buffer as ArrayBuffer], { type: 'application/zip' }),
+      'assignment_hw10_export.zip',
+    );
+
+    log('POST /ingest:gradescope …');
+    const res = await app.fetch(
+      new Request(`http://localhost/semesters/${semesterId}/ingest:gradescope`, {
+        method: 'POST',
+        headers: { Cookie: `${cfg.SESSION_COOKIE_NAME}=${SEED_SESSION_ID}` },
+        body: formData,
+      }),
+    );
+
+    if (res.status !== 202) {
+      throw new Error(`ingest returned HTTP ${res.status}: ${await res.text()}`);
+    }
+    const body = (await res.json()) as {
+      job_id: string;
+      roster: { added: number; updated: number };
+      bundles_processed: number;
+      submissions_queued: number;
+      skipped: Array<{ folder_key: string; reason: string }>;
+    };
+    log(
+      `accepted: roster +${body.roster.added}/~${body.roster.updated}, ` +
+        `${body.bundles_processed} bundles, ${body.submissions_queued} submissions queued, ` +
+        `${body.skipped.length} skipped`,
+    );
+
+    log('waiting for ingest to finish…');
+    finalStatus = await pollJobTerminal(db, body.job_id);
+  } finally {
+    // Best-effort worker drain. pg-boss's graceful stop can take tens of
+    // seconds; this is a one-shot script, so cap the wait and let the final
+    // process.exit() reclaim the rest.
+    await Promise.race([stopWorker(), new Promise((r) => setTimeout(r, 5_000))]);
+  }
+
+  // Summary counts straight from the DB.
+  const [{ value: rosterCount } = { value: 0 }] = await db
+    .select({ value: count() })
+    .from(roster_entries)
+    .where(eq(roster_entries.semester_id, semesterId));
+  const [{ value: assignmentCount } = { value: 0 }] = await db
+    .select({ value: count() })
+    .from(assignments)
+    .where(eq(assignments.semester_id, semesterId));
+  const [{ value: submissionCount } = { value: 0 }] = await db
+    .select({ value: count() })
+    .from(submissions)
+    .where(eq(submissions.semester_id, semesterId));
+
+  await closeDb();
+
+  log('');
+  log(`ingest finished: ${finalStatus}`);
+  log(
+    `semester "${SEED_SEMESTER.displayName}" (${SEED_SEMESTER.slug}): ` +
+      `${rosterCount} roster, ${assignmentCount} assignment(s) incl. ${SEED_ASSIGNMENT_ID}, ` +
+      `${submissionCount} submission(s); expected roster ${SEED_ROSTER.length}.`,
+  );
+  log('');
+  log('To view this in the analyzer, add your Google email to AUTH_SUPERADMIN_EMAILS');
+  log('in packages/server/.env, restart the server, and sign in.');
+
+  // Force exit: pg-boss / postgres may keep the event loop alive even after
+  // teardown, which would otherwise hang the script.
+  process.exit(finalStatus === 'succeeded' ? 0 : 1);
+}
+
+main().catch((err: unknown) => {
+  process.stderr.write(
+    `[seed] failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+  );
+  process.exit(1);
+});
