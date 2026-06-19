@@ -62,7 +62,7 @@ export type SealDeps = {
   /** Assignment id + semester from the loaded manifest. */
   assignmentId: string;
   semester: string;
-  /** Workspace-relative paths of the files under review (.cs61a files_under_review). */
+  /** Workspace-relative paths of the files under review (.provenance-manifest files_under_review). */
   filesUnderReview: readonly string[];
   /** Active session private key for signing the bundle manifest. 32 bytes. */
   sessionPrivkey: Uint8Array;

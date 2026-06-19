@@ -1,7 +1,7 @@
 /**
- * Dev tooling: generate an ed25519 keypair and sign a .cs61a manifest.
+ * Dev tooling: generate an ed25519 keypair and sign a .provenance-manifest file.
  *
- * Usage (run once to generate keypair + sign test-workspace/.cs61a):
+ * Usage (run once to generate keypair + sign test-workspace/.provenance-manifest):
  *   node --experimental-strip-types tools/sign-cs61a-manifest.ts
  *
  * The keypair is saved to .notes/dev-keypair.json (git-excluded via .git/info/exclude).
@@ -30,7 +30,8 @@ const KEYPAIR_PATH =
   process.env.PROVENANCE_COURSE_KEYPAIR_PATH ?? path.join(REPO_ROOT, '.notes', 'dev-keypair.json');
 
 // Default target manifest; can be overridden by passing a path as argv[2].
-const manifestPath = process.argv[2] ?? path.join(REPO_ROOT, 'test-workspace', '.cs61a');
+const manifestPath =
+  process.argv[2] ?? path.join(REPO_ROOT, 'test-workspace', '.provenance-manifest');
 
 // ---------------------------------------------------------------------------
 // Types

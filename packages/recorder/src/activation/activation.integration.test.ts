@@ -3,7 +3,7 @@
  * Does NOT use @vscode/test-electron. Uses activateImpl() with injected dependencies
  * so the real VS Code runtime is not required.
  *
- * Verifies the happy path: signed .cs61a → status bar mount → session.start written
+ * Verifies the happy path: signed .provenance-manifest → status bar mount → session.start written
  * to a .slog file that round-trips through parseEntries + validateChain.
  *
  * CLAUDE.md: "test the event-to-log-entry transformation as a pure function,
@@ -68,13 +68,13 @@ function makeWorkspaceFolder(fsPath: string): import('vscode').WorkspaceFolder {
 
 function makeExtension(): import('vscode').Extension<unknown> {
   return {
-    id: 'berkeley-cs61a.provenance-recorder',
+    id: 'itsgeagle.provenance-recorder',
     extensionUri: { fsPath: '/fake/ext' } as import('vscode').Uri,
     extensionPath: '/fake/ext',
     isActive: true,
     packageJSON: {
       version: '0.0.0',
-      publisher: 'berkeley-cs61a',
+      publisher: 'itsgeagle',
       name: 'provenance-recorder',
     },
     exports: undefined,
@@ -130,7 +130,7 @@ describe('activateImpl — integration', () => {
 
   it('returns null when manifest file is missing', async () => {
     const { pubkeyHex } = await generateTestKeypair();
-    // Don't write any .cs61a file — simulates missing manifest.
+    // Don't write any .provenance-manifest file — simulates missing manifest.
 
     const disposables: import('vscode').Disposable[] = [];
     const result = await activateImpl({
@@ -153,7 +153,7 @@ describe('activateImpl — integration', () => {
   });
 
   it('creates .provenance/ dir and a .slog file with a valid session.start entry', async () => {
-    // Arrange: create a signed .cs61a in the workspace dir.
+    // Arrange: create a signed .provenance-manifest in the workspace dir.
     const { pubkeyHex, privkeyHex } = await generateTestKeypair();
     const manifestFields = {
       assignment_id: 'hw03',
@@ -256,7 +256,7 @@ describe('activateImpl — integration', () => {
     const sig = await signManifest(manifestFields, privkeyA);
 
     // Write the signed manifest to disk with keypair A's signature.
-    const manifestPath = path.join(workspaceDir, '.cs61a');
+    const manifestPath = path.join(workspaceDir, '.provenance-manifest');
     const manifest: Cs61aManifest = { ...manifestFields, sig };
     await fs.writeFile(manifestPath, JSON.stringify(manifest) + '\n', 'utf8');
 

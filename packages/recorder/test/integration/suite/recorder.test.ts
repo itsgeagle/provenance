@@ -22,7 +22,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { statSync } from 'node:fs';
 
-const EXTENSION_ID = 'berkeley-cs61a.provenance-recorder';
+const EXTENSION_ID = 'itsgeagle.provenance-recorder';
 const POLL_INTERVAL_MS = 500;
 const ACTIVATION_TIMEOUT_MS = 15_000;
 

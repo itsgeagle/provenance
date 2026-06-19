@@ -1,21 +1,17 @@
 {
   "name": "provenance-recorder",
-  "displayName": "CS 61A Provenance",
-  "description": "Academic integrity telemetry for CS 61A assignments.",
+  "displayName": "Provenance",
+  "description": "Academic integrity telemetry for course assignments.",
   "version": "0.2.0",
   "private": true,
-  "publisher": "berkeley-cs61a",
+  "publisher": "itsgeagle",
   "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/berkeley-cs61a/provenance"
-  },
   "engines": {
     "vscode": "^1.94.0"
   },
   "main": "./dist/extension.js",
   "activationEvents": [
-    "workspaceContains:.cs61a"
+    "workspaceContains:.provenance-manifest"
   ],
   "contributes": {
     "commands": [
