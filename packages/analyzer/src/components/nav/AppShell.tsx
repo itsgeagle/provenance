@@ -13,6 +13,7 @@ import { useMe, useLogout, useSemesters } from '../../api/queries.js';
 import { SemesterSwitcher } from './SemesterSwitcher.js';
 import { ViewAsBanner } from './ViewAsBanner.js';
 import { ProtectedModeBanner } from './ProtectedModeBanner.js';
+import { ProvenanceMark } from './ProvenanceMark.js';
 
 interface AppShellProps {
   children: ReactNode;
@@ -95,7 +96,12 @@ export function AppShell({ children }: AppShellProps) {
       {/* Top bar */}
       <header className="flex h-14 items-center border-b border-gray-200 bg-white px-4 overflow-x-auto">
         {/* Logo */}
-        <Link to="/home" className="mr-4 shrink-0 text-sm font-semibold text-gray-900">
+        <Link
+          to="/home"
+          className="mr-4 flex shrink-0 items-center gap-2 text-sm font-semibold text-gray-900"
+          aria-label="Provenance home"
+        >
+          <ProvenanceMark className="h-6 w-6" />
           Provenance
         </Link>
 
