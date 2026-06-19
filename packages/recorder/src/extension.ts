@@ -40,7 +40,7 @@ import { sealBundle } from './commands/seal.js';
 import { computeExtensionHash } from './commands/extension-hash.js';
 import { DiskFullHandler } from './failure/disk-full-handler.js';
 import type { LargeInsertCounter } from './wiring/doc-wiring.js';
-import type { Cs61aManifest } from '@provenance/log-core';
+import type { Manifest } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
 // Injected dependencies for activateImpl
@@ -67,7 +67,7 @@ export type ActivateDeps = {
   /** Optional override for createStatusBar (tests can provide a no-op). */
   createStatusBar?: (disposables: vscode.Disposable[]) => vscode.StatusBarItem;
   /** Optional pre-loaded manifest (skips file I/O in tests that construct a manifest directly). */
-  preloadedManifest?: Cs61aManifest;
+  preloadedManifest?: Manifest;
   /**
    * Heartbeat + clock-watcher VS Code subscriptions.
    * Tests inject no-op stubs; production wires to vscode.window / workspace.
@@ -116,7 +116,7 @@ let activeSession: ActiveSession | null = null;
  * and by integration tests with injected deps.
  *
  * Returns an ActiveSession if activation succeeded, or null if the workspace
- * is not a valid CS 61A assignment (callers should silently return).
+ * is not a valid assignment workspace (callers should silently return).
  */
 export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | null> {
   const { workspaceFolder, extension, vscodeVersion, platform, clock, disposables } = deps;
@@ -125,7 +125,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   activeSession = null;
 
   // Step 1: Load and verify the .provenance-manifest file.
-  let manifest: Cs61aManifest;
+  let manifest: Manifest;
   if (deps.preloadedManifest !== undefined) {
     manifest = deps.preloadedManifest;
   } else {

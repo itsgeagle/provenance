@@ -3,7 +3,7 @@
  * PRD §5.4 step 2.
  *
  * Each session's session.start.data.manifest_sig is the signature copied from
- * the .cs61a assignment manifest the session was started against. All sessions
+ * the .provenance-manifest assignment manifest the session was started against. All sessions
  * in a bundle should have been started against the same assignment, meaning
  * their manifest_sig values should all be identical.
  *
@@ -39,7 +39,7 @@ export function verifySessionBinding(bundle: Bundle): ValidationCheck {
         label: 'Session binding to assignment manifest',
         status: 'fail',
         detail:
-          `Session ${session.sessionId} was started against a different .cs61a manifest ` +
+          `Session ${session.sessionId} was started against a different assignment manifest ` +
           `(manifest_sig mismatch vs session ${bundle.sessions[0]!.sessionId}). ` +
           `This bundle mixes sessions from different assignments.`,
         supportingSeqs: [{ sessionId: session.sessionId, seq: 0 }],

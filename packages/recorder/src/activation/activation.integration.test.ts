@@ -17,7 +17,7 @@ import * as os from 'node:os';
 import * as ed from '@noble/ed25519';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { FixedClock, parseEntries, validateChain, canonicalize } from '@provenance/log-core';
-import type { Cs61aManifest } from '@provenance/log-core';
+import type { Manifest } from '@provenance/log-core';
 import { activateImpl } from '../extension.js';
 
 // ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ describe('activateImpl — integration', () => {
       files_under_review: ['hw.py'],
     };
     const sig = await signManifest(manifestFields, privkeyHex);
-    const manifest: Cs61aManifest = { ...manifestFields, sig };
+    const manifest: Manifest = { ...manifestFields, sig };
 
     const clock = new FixedClock(0, new Date('2026-01-01T00:00:00.000Z'));
     const disposables: import('vscode').Disposable[] = [];
@@ -257,7 +257,7 @@ describe('activateImpl — integration', () => {
 
     // Write the signed manifest to disk with keypair A's signature.
     const manifestPath = path.join(workspaceDir, '.provenance-manifest');
-    const manifest: Cs61aManifest = { ...manifestFields, sig };
+    const manifest: Manifest = { ...manifestFields, sig };
     await fs.writeFile(manifestPath, JSON.stringify(manifest) + '\n', 'utf8');
 
     const disposables: import('vscode').Disposable[] = [];

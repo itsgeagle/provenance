@@ -16,7 +16,7 @@ import type { Result } from './result.js';
 // Types
 // ---------------------------------------------------------------------------
 
-export type Cs61aManifest = {
+export type Manifest = {
   assignment_id: string;
   semester: string;
   /** ISO 8601 timestamp. */
@@ -43,7 +43,7 @@ const HEX_64_RE = /^[0-9a-f]{64}$/;
  * The sig field is excluded — only the four payload fields are canonicalized.
  * JCS key ordering means these four fields are serialized in a deterministic order.
  */
-function buildSignedPayload(manifest: Omit<Cs61aManifest, 'sig'>): Uint8Array {
+function buildSignedPayload(manifest: Omit<Manifest, 'sig'>): Uint8Array {
   const payload = canonicalize({
     assignment_id: manifest.assignment_id,
     semester: manifest.semester,
@@ -58,10 +58,10 @@ function buildSignedPayload(manifest: Omit<Cs61aManifest, 'sig'>): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a .provenance-manifest file (text content) into a Cs61aManifest.
+ * Parse a .provenance-manifest file (text content) into a Manifest.
  * Validates JSON structure and field shapes. Does NOT verify the signature.
  */
-export function parseManifest(text: string): Result<Cs61aManifest, ManifestError> {
+export function parseManifest(text: string): Result<Manifest, ManifestError> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -128,7 +128,7 @@ export function parseManifest(text: string): Result<Cs61aManifest, ManifestError
 }
 
 /**
- * Verify the ed25519 signature on a parsed Cs61aManifest.
+ * Verify the ed25519 signature on a parsed Manifest.
  *
  * @param manifest  A manifest returned by parseManifest (sig already validated as 128 hex chars).
  * @param pubkey    Hex-encoded ed25519 public key (32 bytes → 64 hex chars).
@@ -137,7 +137,7 @@ export function parseManifest(text: string): Result<Cs61aManifest, ManifestError
  * The `sig` field is excluded from the payload (PRD §4.1).
  */
 export async function verifyManifest(
-  manifest: Cs61aManifest,
+  manifest: Manifest,
   pubkey: string,
 ): Promise<Result<true, ManifestError>> {
   if (!HEX_64_RE.test(pubkey)) {

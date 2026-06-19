@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as ed from '@noble/ed25519';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { parseManifest, verifyManifest } from './cs61a-manifest.js';
+import { parseManifest, verifyManifest } from './manifest.js';
 import { canonicalize } from './canonical.js';
 
 // ---------------------------------------------------------------------------
@@ -9,7 +9,7 @@ import { canonicalize } from './canonical.js';
 // ---------------------------------------------------------------------------
 
 /**
- * Build the signed payload bytes for a manifest (mirrors buildSignedPayload in cs61a-manifest.ts).
+ * Build the signed payload bytes for a manifest (mirrors buildSignedPayload in manifest.ts).
  * The sig field is excluded.
  */
 function buildPayload(fields: {

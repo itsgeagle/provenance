@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { parseManifest, verifyManifest } from '@provenance/log-core';
-import type { Cs61aManifest, Result } from '@provenance/log-core';
+import type { Manifest, Result } from '@provenance/log-core';
 import { COURSE_PUBLIC_KEY_HEX } from './course-keys.js';
 
 // ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ export type ActivationError =
 export async function loadAndVerifyManifest(
   workspaceFolder: vscode.WorkspaceFolder,
   pubkeyHex: string = COURSE_PUBLIC_KEY_HEX,
-): Promise<Result<Cs61aManifest, ActivationError>> {
+): Promise<Result<Manifest, ActivationError>> {
   const manifestFilePath = path.join(workspaceFolder.uri.fsPath, '.provenance-manifest');
 
   // Step 1: Read the file.

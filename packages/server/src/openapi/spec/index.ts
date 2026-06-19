@@ -47,7 +47,7 @@ export const openApiSpec = {
   info: {
     title: 'Provenance Analyzer v3 API',
     description: [
-      'Academic integrity telemetry system for CS 61A.',
+      'Academic integrity telemetry and analysis system.',
       '',
       'Authentication: POST /auth/google/start to start the OAuth flow, or create an API token',
       'via POST /me/tokens and pass it as a Bearer token.',
@@ -57,7 +57,7 @@ export const openApiSpec = {
     ].join('\n'),
     version: '3.0.0',
     contact: {
-      name: 'CS 61A Academic Integrity',
+      name: 'Provenance Academic Integrity',
     },
   },
   servers: [

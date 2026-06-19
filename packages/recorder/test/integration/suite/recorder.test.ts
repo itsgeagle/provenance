@@ -13,7 +13,7 @@
  * Limitations:
  *  - We cannot verify the status bar item directly (VS Code's test API doesn't
  *    expose status bar items; it's a known gap in the API).
- *  - The .cs61a manifest in test-workspace must be signed with the dev keypair
+ *  - The .provenance-manifest in test-workspace must be signed with the dev keypair
  *    whose public key matches COURSE_PUBLIC_KEY_HEX in course-keys.ts.
  */
 

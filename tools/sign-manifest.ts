@@ -2,14 +2,14 @@
  * Dev tooling: generate an ed25519 keypair and sign a .provenance-manifest file.
  *
  * Usage (run once to generate keypair + sign test-workspace/.provenance-manifest):
- *   node --experimental-strip-types tools/sign-cs61a-manifest.ts
+ *   node --experimental-strip-types tools/sign-manifest.ts
  *
  * The keypair is saved to .notes/dev-keypair.json (git-excluded via .git/info/exclude).
  * Only the public key should be copied into packages/recorder/src/activation/course-keys.ts.
  * The private key NEVER enters the repo.
  *
  * Signing payload: canonicalize({assignment_id, semester, issued_at, files_under_review})
- * — same as cs61a-manifest.ts in log-core.
+ * — same as manifest.ts in log-core.
  */
 
 import * as fs from 'node:fs';
@@ -42,7 +42,7 @@ type StoredKeypair = {
   private_key_hex: string;
 };
 
-type Cs61aManifestJson = {
+type ManifestJson = {
   assignment_id: string;
   semester: string;
   issued_at: string;
@@ -111,36 +111,36 @@ async function main(): Promise<void> {
   let keypair: StoredKeypair;
 
   if (fs.existsSync(KEYPAIR_PATH)) {
-    console.log(`[sign-cs61a-manifest] Loading existing keypair from ${KEYPAIR_PATH}`);
+    console.log(`[sign-manifest] Loading existing keypair from ${KEYPAIR_PATH}`);
     const raw = fs.readFileSync(KEYPAIR_PATH, 'utf8');
     keypair = JSON.parse(raw) as StoredKeypair;
   } else {
-    console.log('[sign-cs61a-manifest] Generating new ed25519 keypair...');
+    console.log('[sign-manifest] Generating new ed25519 keypair...');
     const { privateKeyHex, publicKeyHex } = generateKeypair();
     keypair = { public_key_hex: publicKeyHex, private_key_hex: privateKeyHex };
     fs.writeFileSync(KEYPAIR_PATH, JSON.stringify(keypair, null, 2) + '\n', { mode: 0o600 });
-    console.log(`[sign-cs61a-manifest] Keypair saved to ${KEYPAIR_PATH}`);
+    console.log(`[sign-manifest] Keypair saved to ${KEYPAIR_PATH}`);
   }
 
-  console.log(`[sign-cs61a-manifest] Public key: ${keypair.public_key_hex}`);
+  console.log(`[sign-manifest] Public key: ${keypair.public_key_hex}`);
 
   // Step 2: Read the target manifest.
   if (!fs.existsSync(manifestPath)) {
-    console.error(`[sign-cs61a-manifest] ERROR: manifest not found at ${manifestPath}`);
+    console.error(`[sign-manifest] ERROR: manifest not found at ${manifestPath}`);
     process.exit(1);
   }
 
   const rawManifest = fs.readFileSync(manifestPath, 'utf8');
-  let manifest: Cs61aManifestJson;
+  let manifest: ManifestJson;
   try {
-    manifest = JSON.parse(rawManifest) as Cs61aManifestJson;
+    manifest = JSON.parse(rawManifest) as ManifestJson;
   } catch (e) {
-    console.error(`[sign-cs61a-manifest] ERROR: failed to parse manifest JSON: ${e}`);
+    console.error(`[sign-manifest] ERROR: failed to parse manifest JSON: ${e}`);
     process.exit(1);
   }
 
   // Step 3: Strip existing sig field and build signing payload.
-  // The sig covers only the four content fields (PRD §4.1 / cs61a-manifest.ts in log-core).
+  // The sig covers only the four content fields (PRD §4.1 / manifest.ts in log-core).
   const { sig: _existingSig, ...payloadFields } = manifest;
   const signingPayload = canonicalizeLib({
     assignment_id: payloadFields.assignment_id,
@@ -150,37 +150,35 @@ async function main(): Promise<void> {
   });
 
   if (signingPayload === undefined) {
-    console.error('[sign-cs61a-manifest] ERROR: canonicalize returned undefined');
+    console.error('[sign-manifest] ERROR: canonicalize returned undefined');
     process.exit(1);
   }
 
-  console.log(`[sign-cs61a-manifest] Signing payload: ${signingPayload}`);
+  console.log(`[sign-manifest] Signing payload: ${signingPayload}`);
 
   // Step 4: Sign the UTF-8 bytes of the canonical JSON.
   const payloadBytes = new TextEncoder().encode(signingPayload);
   const sigHex = signMessage(payloadBytes, keypair.private_key_hex);
 
   // Step 5: Attach sig and write back.
-  const signedManifest: Cs61aManifestJson = {
+  const signedManifest: ManifestJson = {
     ...payloadFields,
     sig: sigHex,
   };
 
   const canonicalOutput = canonicalizeLib(signedManifest);
   if (canonicalOutput === undefined) {
-    console.error('[sign-cs61a-manifest] ERROR: canonicalize returned undefined for output');
+    console.error('[sign-manifest] ERROR: canonicalize returned undefined for output');
     process.exit(1);
   }
   fs.writeFileSync(manifestPath, canonicalOutput + '\n');
-  console.log(`[sign-cs61a-manifest] Manifest signed and written to ${manifestPath}`);
-  console.log(`[sign-cs61a-manifest] sig (128 hex chars): ${sigHex}`);
-  console.log(
-    '\n[sign-cs61a-manifest] PASTE THIS INTO packages/recorder/src/activation/course-keys.ts:',
-  );
+  console.log(`[sign-manifest] Manifest signed and written to ${manifestPath}`);
+  console.log(`[sign-manifest] sig (128 hex chars): ${sigHex}`);
+  console.log('\n[sign-manifest] PASTE THIS INTO packages/recorder/src/activation/course-keys.ts:');
   console.log(`  COURSE_PUBLIC_KEY_HEX = '${keypair.public_key_hex}'`);
 }
 
 main().catch((e: unknown) => {
-  console.error('[sign-cs61a-manifest] Fatal error:', e);
+  console.error('[sign-manifest] Fatal error:', e);
   process.exit(1);
 });

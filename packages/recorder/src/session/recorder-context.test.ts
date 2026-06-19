@@ -7,13 +7,13 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildRecorderContext } from './recorder-context.js';
-import type { Cs61aManifest } from '@provenance/log-core';
+import type { Manifest } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-const TEST_MANIFEST: Cs61aManifest = {
+const TEST_MANIFEST: Manifest = {
   assignment_id: 'hw03',
   semester: 'fa26',
   issued_at: '2026-09-15T00:00:00Z',

@@ -8,7 +8,7 @@
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
-import type { Cs61aManifest, SessionStartPayload } from '@provenance/log-core';
+import type { Manifest, SessionStartPayload } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,7 +59,7 @@ function computeMachineId(sessionId: string): string {
  *                          Pass '' for pre-Phase-9 sessions or tests that don't need a real key.
  */
 export function buildRecorderContext(args: {
-  manifest: Cs61aManifest;
+  manifest: Manifest;
   prevSessionId: string | null;
   extension: vscode.Extension<unknown>;
   vscodeVersion: string;

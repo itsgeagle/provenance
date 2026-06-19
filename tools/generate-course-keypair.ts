@@ -127,7 +127,7 @@ function main(): void {
       `  1. Back up ${outPath} to physical media. Verify the backup.\n` +
       `  2. Embed the public key into the recorder build (see tools/embed-course-key.ts\n` +
       `     once it exists, or paste the hex into packages/recorder/src/activation/course-keys.ts).\n` +
-      `  3. Sign your first .provenance-manifest file with tools/sign-cs61a-manifest.ts, pointing it at\n` +
+      `  3. Sign your first .provenance-manifest file with tools/sign-manifest.ts, pointing it at\n` +
       `     this file instead of .notes/dev-keypair.json.\n` +
       `  4. Once you're satisfied with the backup, securely delete the local copy of ${outPath}.\n`,
   );

@@ -4,7 +4,7 @@
  *
  * The "streaming" aspect is per-file hash tracking; we recompute SHA-256
  * from the full content on each access (memoized, invalidated on change).
- * Full recompute is fine for typical CS 61A file sizes (kilobytes).
+ * Full recompute is fine for typical assignment file sizes (kilobytes).
  */
 
 import { sha256 } from '@noble/hashes/sha2.js';

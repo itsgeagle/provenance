@@ -57,7 +57,7 @@ describe('verifySessionBinding', () => {
 
     const check = verifySessionBinding(result.value);
     expect(check.status).toBe('fail');
-    expect(check.detail).toMatch(/different .cs61a manifest/);
+    expect(check.detail).toMatch(/different assignment manifest/);
     expect(check.supportingSeqs).toHaveLength(1);
     expect(check.supportingSeqs?.[0]?.seq).toBe(0);
   });

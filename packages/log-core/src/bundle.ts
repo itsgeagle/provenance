@@ -71,7 +71,7 @@ export type ValidationReport = {
   steps: ReadonlyArray<{
     step:
       | 'manifest_signature'
-      | 'session_pubkey_bound_to_cs61a_sig'
+      | 'session_pubkey_bound_to_manifest_sig'
       | 'hash_chain_intact'
       | 'no_seq_gaps'
       | 't_monotonic'
