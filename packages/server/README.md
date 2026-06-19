@@ -84,27 +84,36 @@ What it creates (all under an isolated `seed-demo` semester, so it never collide
 a real one):
 
 - a `CS 61A (seed)` course + `Seed Demo — CS 61A` semester,
-- five rostered students including one **group submission** (two co-submitters share a
-  bundle) and one student who submitted **without the recorder** (skipped, but rostered),
-- one assignment (`hw10`) with a recorder bundle per student, fully ingested (events,
-  per-file stats, validation, heuristics).
+- **~700 rostered students** across three assignments (`hw10`, `hw11`, `proj02`),
+  including a few **group submissions** (co-submitters share a bundle) and a few students
+  who submitted **without the recorder** (skipped, but rostered),
+- a recorder bundle per student, fully ingested (events, per-file stats, validation,
+  heuristics), with a deliberate spread of findings: most students type normally; ~214
+  paste a large blob (`large_paste`, `paste_is_solution`, `low_typing_high_output`); six
+  clusters paste identical blobs on the same assignment, producing
+  `paste_shared_across_students` cross-flags (plus a handful of `editing_pattern_clone`).
+
+This is intentionally cohort-sized so the analyzer's pagination, filters, and
+cross-submission views have real volume — and so the ingest flow itself can be
+stress-tested. Expect the ingest to take a few minutes (the worker processes bundles one
+at a time).
 
 Flags and notes:
 
-- **Idempotent by default.** Re-running once `seed-demo` is populated is a no-op. The
-  server rebuilds each bundle ZIP on ingest with non-stable archive metadata, so a
-  re-ingest would otherwise stack a new submission *version* per student.
-- **`--regenerate`** rebuilds the committed example export
-  (`scripts/seed/example-gradescope-export.zip`) and forces a fresh ingest:
-  `npm run seed --workspace=packages/server -- --regenerate`. The export content
-  (students, event timelines) is deterministic; only the per-build signing key differs.
+- **Idempotent by default.** Re-running once `seed-demo` is populated is a no-op.
+- **`--regenerate`** wipes the seed semester's own data (scoped strictly to `seed-demo`),
+  rebuilds the committed example export (`scripts/seed/example-gradescope-export.zip`,
+  ~6 MB), and reseeds from scratch:
+  `npm run seed --workspace=packages/server -- --regenerate`. The export content (roster,
+  event timelines, paste contents) is deterministic; only the per-build signing key differs.
 - **Viewing it.** The seed authors the ingest as a synthetic `seed-admin@berkeley.edu`
   user (not a real login). To see the data in the analyzer UI, add your own Google email
   to `AUTH_SUPERADMIN_EMAILS` in `.env`, restart the server, and sign in — superadmins
   see every semester.
 
 The example export ZIP is committed, so you can also upload it manually via the UI or
-`POST /ingest:gradescope` against any semester you own.
+`POST /ingest:gradescope` against any semester you own — handy for stress-testing the
+ingestion flow by hand.
 
 ## Cron jobs (Phase 25)
 

@@ -80,11 +80,13 @@ migrations), populate the database with an example cohort:
 npm run seed --workspace=packages/server
 ```
 
-This generates a Gradescope export and runs it through the real ingest pipeline,
-creating an isolated `seed-demo` semester (a few students, a group submission, and a
-skipped no-recorder folder). To view it in the analyzer, add your Google email to
-`AUTH_SUPERADMIN_EMAILS` in `packages/server/.env` and sign in. Details and the
-`--regenerate` flag are in [`packages/server/README.md`](packages/server/README.md).
+This generates a Gradescope export (~700 students across three assignments, with a
+deliberate spread of paste and cross-submission flags) and runs it through the real ingest
+pipeline into an isolated `seed-demo` semester. The ingest takes a few minutes. To view it
+in the analyzer, add your Google email to `AUTH_SUPERADMIN_EMAILS` in
+`packages/server/.env` and sign in. The export ZIP is committed
+(`packages/server/scripts/seed/example-gradescope-export.zip`) for manual upload too.
+Details and the `--regenerate` flag are in [`packages/server/README.md`](packages/server/README.md).
 
 ### Run the analyzer frontend
 
