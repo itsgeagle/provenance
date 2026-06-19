@@ -22,8 +22,8 @@ CLAUDE.md forbids new dependencies without approval. The following are needed be
 
 **Other up-front decisions (proposals; can be redirected):**
 
-1. **Course public key for dev.** Generate a development keypair, store the public key as a TypeScript constant in `log-core` (or `recorder`), keep the private key out of the repo. Add a `tools/sign-cs61a-manifest.ts` script for producing test manifests.
-2. **KDF for session-key encryption** (PRD §4.6: "encrypted with a key derived from the `.cs61a` manifest's signature"). HKDF-SHA256(manifest_sig, info=`"provenance-session-key-v1"`, salt=session_id). Symmetric algorithm: XChaCha20-Poly1305 via `@noble/ciphers` if approved, else AES-GCM via Node `crypto`.
+1. **Course public key for dev.** Generate a development keypair, store the public key as a TypeScript constant in `log-core` (or `recorder`), keep the private key out of the repo. Add a `tools/sign-manifest.ts` script for producing test manifests.
+2. **KDF for session-key encryption** (PRD §4.6: "encrypted with a key derived from the `.provenance-manifest` manifest's signature"). HKDF-SHA256(manifest_sig, info=`"provenance-session-key-v1"`, salt=session_id). Symmetric algorithm: XChaCha20-Poly1305 via `@noble/ciphers` if approved, else AES-GCM via Node `crypto`.
 3. **`machine_id`** (PRD §5.1). `sha256(os.hostname() + os.userInfo().username + per-session-salt)`. The salt prevents cross-assignment correlation.
 4. **`extension_hash`** (PRD §6). Compute at session start over the unpacked extension `dist/` directory contents (sorted, JCS-ish concatenation). Store in `session.start.recorder.extension_hash`. Course-known-good value lives in the analyzer's verification config later.
 5. **Worker-thread hashing** (CLAUDE.md "all hashing happens on a worker thread"). Defer to Phase 4. The streaming SHA-256 work is small per event; if we hit the 1ms p99 budget without a worker thread, we ship without it and document. If not, we add a `worker_threads` hasher.
@@ -84,7 +84,7 @@ If any of these are wrong, redirect before Phase 1.
   ```
   No I/O here — types and a `validateMetaShape` function only.
 - `bundle.ts` — TypeScript types for `manifest.json` (PRD §5.3): assignment_id, session count, per-session `{session_id, slog_sha256, meta_sha256}`, `extension_hash`. Plus the validation report shape from PRD §5.4 that the analyzer will eventually emit.
-- `cs61a-manifest.ts` — type + parser + signature-verify helper for the `.cs61a` manifest (PRD §4.1).
+- `manifest.ts` — type + parser + signature-verify helper for the `.provenance-manifest` manifest (PRD §4.1).
 
 **Tests:** round-trip serialize → parse → validate; rejects malformed lines without crashing parser; meta shape validation; manifest signature verify against a known test keypair.
 
@@ -100,8 +100,8 @@ If any of these are wrong, redirect before Phase 1.
 
 **Deliverables in `packages/recorder/src/`:**
 
-- `activation/manifest-loader.ts` — read `.cs61a` from `workspace.workspaceFolders[0]`, parse JSON, call `log-core`'s `verifyManifest`. Returns `Result<ValidManifest, ActivationError>`. **No recording at all if invalid** (PRD §4.1 "the extension does nothing").
-- `activation/status-bar.ts` — non-dismissible status bar item "CS 61A: recording" (PRD §4.1). Disposed only on `deactivate`.
+- `activation/manifest-loader.ts` — read `.provenance-manifest` from `workspace.workspaceFolders[0]`, parse JSON, call `log-core`'s `verifyManifest`. Returns `Result<ValidManifest, ActivationError>`. **No recording at all if invalid** (PRD §4.1 "the extension does nothing").
+- `activation/status-bar.ts` — non-dismissible status bar item "Provenance: recording" (PRD §4.1). Disposed only on `deactivate`.
 - `session/session-host.ts` — holds the active session: session_id, monotonic clock origin, current seq, last hash. Exposes `emit(envelope)` (no fs yet, just wires through to the writer in Phase 4).
 - `session/recorder-context.ts` — gathers PRD §5.1 fields: `vscode.version`, OS via `process.platform`+`process.arch`, machine_id, extension version, full extension snapshot via `vscode.extensions.all`.
 - `extension.ts` — replace the existing stub:
@@ -244,7 +244,7 @@ If any of these are wrong, redirect before Phase 1.
 
 **Deliverables:**
 
-- `crypto/session-keys.ts` — generate ephemeral ed25519 keypair at `session.start`; expose `session_pubkey`. Public key goes into the session.start payload. Private key encrypted under HKDF-SHA256(manifest_sig) using XChaCha20-Poly1305 (or AES-GCM) and stored in `.meta`.
+- `crypto/session-keys.ts` — generate ephemeral ed25519 keypair at `session.start`; expose `session_pubkey`. Public key goes into the session.start payload. Private key encrypted under HKDF-SHA256(manifest_sig) using XChaCha20-Poly1305 (or AES-GCM) and stored in `.meta`. (Manifest signature comes from `.provenance-manifest`.)
 - `crypto/checkpoint-signer.ts` — every N (proposed N=100) events, append a signed `{seq, hash, sig}` checkpoint to `.meta` via `atomic-write`.
 - `startup/chain-recovery.ts` — on `activate`, if a prior `.slog` exists in `.provenance/`:
   1. Validate the existing chain via `log-core/chain-validator`.
@@ -274,7 +274,7 @@ If any of these are wrong, redirect before Phase 1.
 - `commands/seal.ts` — VS Code command `provenance.prepareSubmissionBundle`:
   1. Stop accepting new events (or atomically snapshot the current `.slog`).
   2. Compute `manifest.json` per PRD §5.3:
-     - `assignment_id`, `semester` from the `.cs61a` manifest.
+     - `assignment_id`, `semester` from the `.provenance-manifest` manifest.
      - `sessions: [{session_id, slog_sha256, meta_sha256, prev_session_id}]`.
      - `extension_hash` computed over the unpacked `dist/`.
      - `format_version: '1.0'`.
@@ -345,7 +345,7 @@ If any of these are wrong, redirect before Phase 1.
 2. Course dev keypair generation + storage convention.
 3. Exact KDF + symmetric algorithm for session privkey encryption (§0.2).
 4. Worker-thread hashing — defer or build now? (§0.5, Phase 4).
-5. PRD §10 Q1: how does `.cs61a` get into the workspace? Affects Phase 3 UX (silent vs friendly first-run).
+5. PRD §10 Q1: how does `.provenance-manifest` get into the workspace? Affects Phase 3 UX (silent vs friendly first-run).
 6. PRD §10 Q2: multi-machine sessions — `prev_session_id` is self-asserted; do we want any cross-machine binding now or punt?
 7. Heartbeat cadence and clock-skew threshold (PRD §4.2 says 30s; §4.2 `clock.skew` row doesn't define the threshold).
 8. Reserve `accessibility_mode` field shape in session.start now or later (PRD §9).

@@ -288,7 +288,7 @@ Design notes:
 
 - `flags.semester_id` is denormalized for cohort filters; integrity maintained at write time (submissions never change semester). A trigger could enforce it; app-level enforcement is fine if the write path is centralized in one service module.
 - `submissions.heuristic_config_version` lets the cohort view show "this submission was scored under config v7" — important during a recompute, when some rows are stale and others are fresh.
-- Events live in a single wide table. At CS 61A scale (~thousands of submissions × tens of thousands of events ≈ low millions per semester) Postgres on modern hardware will not blink. If a future high-volume semester pushes this past ~50M rows we revisit partitioning.
+- Events live in a single wide table. At course scale (~thousands of submissions × tens of thousands of events ≈ low millions per semester) Postgres on modern hardware will not blink. If a future high-volume semester pushes this past ~50M rows we revisit partitioning.
 - `cross_flag_participants` is a junction table so cohort queries can find "all cross-flags involving submission X" without a JSONB scan.
 
 ### 6.3 File reconstruction cache
@@ -314,7 +314,7 @@ The v2 `reconstructFileWithProvenance` function is ported as-is into the server 
 3. **Parse manifest + sessions.** Reuse `packages/log-core`'s parser to read `manifest.json`, validate session signatures, walk events. Failure here marks the file `failed` with the error in `error_jsonb`; the bundle blob is retained for forensics.
 4. **Match student.** Apply the semester's filename convention regex to `original_filename`. Extract `sid` and (if present) `assignment_id_str`.
    - If `sid` resolves to a roster entry: matched.
-   - If `assignment_id_str` is absent from the filename, fall back to the bundle's signed `.cs61a` manifest's `assignment_id`.
+   - If `assignment_id_str` is absent from the filename, fall back to the bundle's signed `.provenance-manifest` manifest's `assignment_id`.
    - If `sid` is absent or unknown: status `unmatched`. Sits in the tray awaiting manual reconciliation.
 5. **Create submission row.** Allocate `version_index` = `max(existing for (semester, assignment, student)) + 1`. Existing submissions with lower indexes are flagged `superseded_by_submission_id` pointing at the new row, but kept for history.
 6. **Materialize events.** Insert event rows. For a typical submission this is hundreds-to-tens-of-thousands of rows; batched with `COPY` or a multi-row `INSERT`.
@@ -506,7 +506,7 @@ Every write action and every blob download is appended to `audit_log`. Reads of 
 
 ### 12.5 Cost posture
 
-CS 61A scale (rough order-of-magnitude — to be confirmed in Open Question B):
+Course scale (rough order-of-magnitude — to be confirmed in Open Question B):
 
 - ~3000 students × ~10 assignments × ~5 MB median bundle ≈ 150 GB per semester in object storage.
 - ~3000 × 10 × ~10,000 events ≈ 300M event rows per semester — at the upper end of the "single table" comfort zone. May force the partitioning revisit noted in §6.2.
@@ -541,7 +541,7 @@ Because the API is documented and public, v3 ships with:
 
 ## 15. Open issues and risks
 
-A. **FERPA / Berkeley IT posture** — VM ownership, backup policy, registering the Google OAuth client under a CS 61A-owned Google Cloud project, key management. Blocks production launch, not design. Tracked separately.
+A. **FERPA / institution IT posture** — VM ownership, backup policy, registering the Google OAuth client under a course-owned Google Cloud project, key management. Blocks production launch, not design. Tracked separately.
 
 B. **Real semester scale** — confirm per-bundle median size, peak submissions per assignment, peak events per bundle. Affects partitioning, worker sizing, and storage cost. Likely answer: order-of-magnitude in §12.5.
 

@@ -25,7 +25,7 @@ evidence never reaches the analyzer.
 
 1. The bundle becomes the single source of truth for **both** provenance **and**
    the student's submission. It carries the final on-disk bytes of every file in
-   the `.cs61a` manifest's `files_under_review`.
+   the `.provenance-manifest` manifest's `files_under_review`.
 2. Sealing **always produces a bundle**, regardless of chain breakage, tampering,
    or corruption. Integrity problems are detected at **analysis time**, not by
    refusing to seal.
@@ -192,4 +192,4 @@ otherwise every new bundle trips `extension_hash_mismatch`.
   autoformatter run outside the recorder) would surface as a `fail`. Accepted —
   staff review the flag; the chosen "hard fail" strictness was the explicit
   product decision.
-- Bundle size grows by the size of the reviewed files (text; negligible for CS 61A).
+- Bundle size grows by the size of the reviewed files (text; negligible for typical assignments).

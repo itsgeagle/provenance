@@ -1,19 +1,19 @@
-# PRD: CS 61A Academic Integrity Telemetry & Analysis System
+# PRD: Academic Integrity Telemetry & Analysis System
 
 **Working name:** _Provenance_
 **Status:** Draft v0.1
-**Audience:** Engineering (you + Claude Code), CS 61A course staff (review)
+**Audience:** Engineering (you + Claude Code), course staff (review)
 **Last updated:** May 2026
 
 ---
 
 ## 1. Background and motivation
 
-CS 61A has seen a sharp rise in AI-assisted cheating on homeworks, projects, and labs. Existing controls (MOSS, manual review, in-person exams) catch some of it after the fact but don't scale to thousands of students and don't surface the _process_ by which a submission was produced — only the final artifact.
+The course has seen a sharp rise in AI-assisted cheating on homeworks, projects, and labs. Existing controls (MOSS, manual review, in-person exams) catch some of it after the fact but don't scale to thousands of students and don't surface the _process_ by which a submission was produced — only the final artifact.
 
 This document specifies a two-part system:
 
-1. **Provenance Recorder** — a VS Code extension that runs while a student works on a 61A assignment and produces a tamper-evident log of how the code came into existence.
+1. **Provenance Recorder** — a VS Code extension that runs while a student works on an assignment and produces a tamper-evident log of how the code came into existence.
 2. **Provenance Analyzer** — a web app used by course staff to inspect those logs: a replay UI for manual review, plus an automated heuristics engine that flags suspicious patterns for human attention.
 
 The system is bundled with the assignment submission; the log file is uploaded alongside the student's code at submission time. (How that bundling happens is a course-staff integration question and is out of scope for this PRD.)
@@ -42,7 +42,7 @@ The system is bundled with the assignment submission; the log file is uploaded a
 
 - **NG1.** True tamper-proofness. Cryptographic chaining raises the bar but does not make the log unforgeable on a machine the student controls.
 - **NG2.** Real-time streaming or network calls during the assignment. The Recorder is offline; the log is sealed and uploaded at submission. (Per product decision.)
-- **NG3.** A general-purpose IDE telemetry product. This is scoped to CS 61A assignment folders, detected by a marker file the course provides.
+- **NG3.** A general-purpose IDE telemetry product. This is scoped to assignment folders, detected by a marker file the course provides.
 - **NG4.** Building the submission/upload integration. We define the artifact format; course staff decides how it rides along with Gradescope submissions.
 - **NG5.** **Classifier-style "is this AI-generated?" scoring.** We do not train or use a model that outputs a probability that the code itself was AI-written. The v3 LLM review feature (§7.6) is different: it reasons over the _process log_ — pastes, external edits, timing — not over the code. Process evidence is defensible in an integrity hearing; "this code looks AI-written" is not.
 - **NG6.** Supporting editors other than VS Code in v1. Future versions might add JetBrains or a CLI shim for terminal users.
@@ -50,7 +50,7 @@ The system is bundled with the assignment submission; the log file is uploaded a
 
 ### Success criteria
 
-- v1: 80% of CS 61A students complete at least one project using the extension without filing a bug; logs validate at submission time; staff can open a log in the Analyzer and see a timeline.
+- v1: 80% of students complete at least one project using the extension without filing a bug; logs validate at submission time; staff can open a log in the Analyzer and see a timeline.
 - v2: The heuristic suite flags >70% of submissions that staff manually identify as AI-assisted (measured on a labeled sample), with <10% false-positive rate at the flag-threshold staff chooses.
 
 ---
@@ -82,9 +82,9 @@ There is no live server. The Recorder is purely local. The Analyzer is a static 
 
 ### 4.1 Activation
 
-The extension activates only when the workspace is recognized as a CS 61A assignment. The recognition rule is:
+The extension activates only when the workspace is recognized as an assignment. The recognition rule is:
 
-- A file named `.cs61a` exists at the workspace root.
+- A file named `.provenance-manifest` exists at the workspace root.
 - That file is a small JSON manifest signed by the course staff's offline signing key:
   ```json
   {
@@ -95,13 +95,13 @@ The extension activates only when the workspace is recognized as a CS 61A assign
     "sig": "<ed25519 signature over the above fields>"
   }
   ```
-- The extension ships the course's public key embedded in its source. If the signature doesn't verify, the extension does nothing (no recording, no UI noise). This prevents the extension from quietly recording on any folder that happens to contain a file named `.cs61a`.
+- The extension ships the course's public key embedded in its source. If the signature doesn't verify, the extension does nothing (no recording, no UI noise). This prevents the extension from quietly recording on any folder that happens to contain a file named `.provenance-manifest`.
 
 The extension does **not** activate on arbitrary workspaces, and does **not** record anything outside the assignment folder. This is a deliberate privacy constraint: the recorder watches one folder and shuts up everywhere else.
 
 Concretely, every document event subscription (`onDidOpenTextDocument`, `onDidChangeTextDocument`, `onDidSaveTextDocument`, `onDidCloseTextDocument`, `onDidChangeTextEditorSelection`) drops events whose document URI either (a) has a scheme other than `file` (excluding `vscode-userdata`, `output`, `git`, `untitled`, and other virtual schemes) or (b) is outside the activated workspace folder (detected by `workspace.asRelativePath(uri)` returning the unchanged absolute `fsPath`). This guard applies uniformly to live events and to the startup catch-up loop that emits synthetic `doc.open` for documents already open at activation. Files like the student's user-level `settings.json` or tool-written scratch files outside the workspace must never appear in a `.slog`.
 
-On activation, the extension shows a non-dismissible status bar item ("CS 61A: recording") so the student is always aware that telemetry is active. This is both an ethical disclosure and a usability signal — if the indicator disappears, something is wrong.
+On activation, the extension shows a non-dismissible status bar item ("Provenance: recording") so the student is always aware that telemetry is active. This is both an ethical disclosure and a usability signal — if the indicator disappears, something is wrong.
 
 ### 4.2 What is recorded
 
@@ -216,7 +216,7 @@ The log is written to `<workspace>/.provenance/session-<uuid>.slog`. The format 
 A companion `session-<uuid>.slog.meta` file holds:
 
 - The session UUID
-- A per-session ephemeral signing keypair (private key encrypted with a key derived from the `.cs61a` manifest's signature — this means it can't be recovered without the manifest, raising the bar for replay attacks)
+- A per-session ephemeral signing keypair (private key encrypted with a key derived from the `.provenance-manifest` manifest's signature — this means it can't be recovered without the manifest, raising the bar for replay attacks)
 - The chain of `seq → hash` checkpoints, signed every N events
 
 Both files are written atomically (write to `.tmp`, fsync, rename). On startup, the Recorder validates any previous `.slog` files. If the chain is broken, it quarantines the offending file (renames it to `<file>.corrupt-<ISO timestamp>`), starts a new session, and emits a `recorder.recovered_from_corruption` event in the new session whose payload references the quarantined path. We don't try to "fix" tampering by silently dropping records, and we don't continue writing into a chain we can't validate — the quarantined file is preserved for the analyzer's `validate_chain` step to inspect.
@@ -273,7 +273,7 @@ The first line of every `.slog` file is a special `session.start` event with `se
     "session_id": "<uuid>",
     "prev_session_id": null,
     "assignment": { "id": "hw03", "semester": "fa26" },
-    "manifest_sig": "<copy of .cs61a sig, for binding>",
+    "manifest_sig": "<copy of .provenance-manifest sig, for binding>",
     "machine_id": "<sha256(stable machine ID + session salt)>",
     "vscode": { "version": "1.97.0", "commit": "...", "platform": "darwin-arm64" },
     "recorder": { "version": "1.0.0", "extension_id": "..." },
@@ -306,7 +306,7 @@ Submission bundle = ZIP of `.provenance/` directory. The Analyzer accepts the ZI
 When a bundle is loaded, the Analyzer runs these checks in order and produces a `validation_report` shown above the timeline:
 
 1. Bundle manifest signature verifies against the session_pubkey.
-2. session_pubkey is bound to the `.cs61a` manifest_sig (proves this session was started against a real course-issued assignment).
+2. session_pubkey is bound to the `.provenance-manifest` manifest_sig (proves this session was started against a real course-issued assignment).
 3. Hash chain is intact end-to-end.
 4. No `seq` gaps.
 5. `t` is monotonically non-decreasing.
@@ -328,12 +328,12 @@ Any failure produces a hard flag on the submission. The flag is informational, n
 
 - **Mid-stream edits are detectable.** Modifying any event after the fact breaks the hash chain at that point. The student would have to recompute every hash from the modified point to the end and re-sign the bundle manifest.
 - **Re-signing the bundle requires the session private key,** which is encrypted with a key derived from the course-issued manifest signature. Recovering it requires either reverse-engineering the encryption (the algorithm is in our source, so this is bounded difficulty) or capturing the key from memory during a real session.
-- **Replay of an old session** is detectable because every session binds to a specific `manifest_sig`, which the course rotates per-assignment. You can't replay last week's session for this week's assignment.
+- **Replay of an old session** is detectable because every session binds to a specific `manifest_sig`, which the course rotates per assignment. You can't replay last week's session for this week's assignment.
 - **`fs.external_change` events** are emitted by the Recorder itself based on real-time disk observation. Producing a clean log that avoids them requires either disabling the Recorder (detectable: gap in heartbeats, missing checkpoints) or producing forged `doc.change` events that exactly reproduce a plausible typing pattern (high effort).
 
 ### What doesn't work
 
-- **A student who reads our extension source can extract the manifest-derived key once they have a valid `.cs61a` manifest.** They can then produce a fully-valid forged log. The course's only defense is (a) requiring submission of the bundle promptly (less time to forge), (b) keeping the forge cost — writing a tool that synthesizes a believable editing session — high enough that students just do the homework, and (c) sampling: even if forgeries are undetectable in isolation, statistical anomalies across many students surface.
+- **A student who reads our extension source can extract the manifest-derived key once they have a valid `.provenance-manifest` manifest.** They can then produce a fully-valid forged log. The course's only defense is (a) requiring submission of the bundle promptly (less time to forge), (b) keeping the forge cost — writing a tool that synthesizes a believable editing session — high enough that students just do the homework, and (c) sampling: even if forgeries are undetectable in isolation, statistical anomalies across many students surface.
 - **Running a parallel VS Code without the extension** and copying files into the watched workspace at the end produces an `fs.external_change` event but is otherwise hard to attribute. The Analyzer flags it; a human decides.
 - **Modifying our extension to silently drop events** is a meaningful attack and we acknowledge it. We mitigate by shipping the extension as a signed VSIX from a course-controlled source and checking the extension's own hash at submission time. A student running a modified build will have an `extension_hash` field in the bundle manifest that doesn't match the course-known good hash. They can also forge that field — see preceding bullet.
 
@@ -578,9 +578,9 @@ This section is not a legal review. It flags issues the team and course staff sh
 
 ## 10. Open questions
 
-1. **Marker file distribution.** How does a student get the `.cs61a` manifest into their project folder? Bundled with the starter code? Generated by `ok` on first run? This affects what counts as "assignment opened."
+1. **Marker file distribution.** How does a student get the `.provenance-manifest` manifest into their project folder? Bundled with the starter code? Generated by `ok` on first run? This affects what counts as "assignment opened."
 2. **Multiple machines.** Students who work on both a laptop and a lab computer will produce two separate sessions. We chain them via `prev_session_id`, but the chaining is self-asserted. Is that good enough?
-3. **Pair programming.** Some 61A projects allow pairs. How should we handle two students editing one repo? (Probably: each runs the extension on their own machine, both bundles are submitted, the Analyzer correlates.)
+3. **Pair programming.** Some projects allow pairs. How should we handle two students editing one repo? (Probably: each runs the extension on their own machine, both bundles are submitted, the Analyzer correlates.)
 4. **Course solution corpus for `paste_matches_known_source`.** What's in it, who maintains it, how is it kept out of student hands?
 5. **Threshold tuning.** Heuristic severity weights will need calibration on real data. We'll need a labeled set of past submissions (known clean, known cheated) to tune against.
 6. **Communication to students.** A blunt "we are surveilling your editing" announcement will land differently than "here's a tool to help establish your authorship if your work is ever questioned." The framing matters for adoption.
@@ -591,7 +591,7 @@ This section is not a legal review. It flags issues the team and course staff sh
 ## 11. Glossary
 
 - **Bundle.** The ZIP of `.provenance/` containing the session log and signing metadata; the unit of submission.
-- **`.cs61a` manifest.** The course-signed file in the assignment folder that authorizes recording.
+- **`.provenance-manifest` manifest.** The course-signed file in the assignment folder that authorizes recording.
 - **Event.** A single line in the `.slog`, with hash chain.
 - **`fs.external_change`.** An event indicating a file changed on disk without a corresponding `doc.change`; the primary signal for outside-VS-Code edits.
 - **Flag.** A heuristic finding shown in the Analyzer.

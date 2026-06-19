@@ -67,7 +67,7 @@ Surfaced from the PRD §5.4 bundle validation checks as flags in the same dashbo
 
 | Heuristic                   | Severity | Detects                                                                                        | Source check                                                                                 |
 | --------------------------- | -------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `manifest_sig_invalid`      | high     | The `.cs61a` manifest signature didn't verify against the course public key.                   | [`verify-manifest-sig.ts`](../packages/analyzer/src/validation/verify-manifest-sig.ts)       |
+| `manifest_sig_invalid`      | high     | The `.provenance-manifest` manifest signature didn't verify against the course public key.     | [`verify-manifest-sig.ts`](../packages/analyzer/src/validation/verify-manifest-sig.ts)       |
 | `session_binding_invalid`   | high     | The session keypair isn't bound to the manifest signature (replay-attack signal — see PRD §6). | [`verify-session-binding.ts`](../packages/analyzer/src/validation/verify-session-binding.ts) |
 | `chain_broken`              | high     | Hash chain failed validation at some seq — tampering, corruption, or recorder crash.           | [`verify-chain.ts`](../packages/analyzer/src/validation/verify-chain.ts)                     |
 | `monotonic_t_regression`    | medium   | Session-relative `t` field went backwards.                                                     | [`verify-monotonic-t.ts`](../packages/analyzer/src/validation/verify-monotonic-t.ts)         |

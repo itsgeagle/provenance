@@ -851,7 +851,7 @@ Approved as a single v3.0 bundle by the PRD's §2 + this plan's §0. Adding anyt
 - **OQ-L (cross-flag scaling).** Addressed in Phase 14 if measurements demand it.
 - **OQ-M (PDF rendering).** This plan commits to Puppeteer (server-side headless Chromium). Phase 24 implements it. If Puppeteer proves operationally heavy, the fallback is server-side jsPDF without HTML rendering at lower fidelity.
 - **Phase split discipline.** Phases 9, 13, 21, 23 are explicitly flagged as likely splits. The controller (whoever orchestrates the subagents) decides at dispatch time.
-- **OAuth in production.** Google OAuth client must be created under a CS 61A-owned Google Cloud project; this is operational, not engineering. Tracked as a prerequisite to the Phase 25 deploy.
+- **OAuth in production.** Google OAuth client must be created under a course-owned Google Cloud project; this is operational, not engineering. Tracked as a prerequisite to the Phase 25 deploy.
 - **DB migrations on production data.** v3 has no production data on day zero; the first ingest is the bootstrap. Forward-only migrations are safe because rollback restores from PITR (PRD §18.1).
 
 ---

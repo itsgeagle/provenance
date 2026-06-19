@@ -566,7 +566,7 @@ v2 starts after v1 has merged to `main` and been used against at least one assig
 
 ## What's not in this plan, on purpose
 
-- **Threshold-calibration tooling** — was Phase 20 in an earlier draft; dropped because CS 61A doesn't have a labeled past-submission corpus to calibrate against. Heuristic thresholds in `heuristics/config.ts` are tunable in code by course staff. Revisit if/when a labeled set exists.
+- **Threshold-calibration tooling** — was Phase 20 in an earlier draft; dropped because the course doesn't have a labeled past-submission corpus to calibrate against. Heuristic thresholds in `heuristics/config.ts` are tunable in code by course staff. Revisit if/when a labeled set exists.
 - **LLM-assisted review (PRD §7.6)** — v3. Depends on v2 being stable and on a privacy review.
 - **Server-side bulk-review mode (PRD §8 v3)** — out of scope.
 - **Submission-time server verification (PRD §8 v3)** — out of scope.

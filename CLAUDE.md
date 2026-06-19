@@ -4,7 +4,7 @@ Project conventions and standing instructions for Claude Code working in this re
 
 ## What this is
 
-Provenance: a CS 61A academic-integrity telemetry and analysis system. Five workspaces in one repo, all currently shipped:
+Provenance: an academic-integrity telemetry and analysis system. Five workspaces in one repo, all currently shipped:
 
 - `packages/log-core/` — pure-TS log format: event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle + manifest shapes, ed25519 manifest verification. Used by every other package.
 - `packages/recorder/` — VS Code extension (**v1.1**) that records a tamper-evident `.provenance` log while a student works. All PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode.

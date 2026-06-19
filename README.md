@@ -3,7 +3,7 @@
   <img alt="Provenance" src="brand/exports/lockup-light.png" width="360" />
 </picture>
 
-**A CS 61A academic-integrity telemetry and analysis system.**
+**An academic-integrity telemetry and analysis system.**
 
 Provenance has two halves that share one artifact:
 
@@ -106,7 +106,7 @@ no data leaves your machine.
 
 Open this repo in VS Code and press Fn + F5 (or pick **"Run Recorder Extension"** in the
 Run & Debug panel). A second VS Code window opens with `test-workspace/` loaded; the
-status bar shows "CS 61A: recording".
+status bar shows "Provenance: recording".
 
 For richer recorder instructions see [`docs/recorder.md`](docs/recorder.md).
 The student-facing description that ships with the VSIX lives at
@@ -161,7 +161,7 @@ provenance/
 
 ## Course staff: key & manifest workflow
 
-The recorder verifies every `.cs61a` manifest against an ed25519 public key embedded in the extension. The keypair is generated **offline** on a secured machine; the private key never enters the repo.
+The recorder verifies every `.provenance-manifest` manifest against an ed25519 public key embedded in the extension. The keypair is generated **offline** on a secured machine; the private key never enters the repo.
 
 **Generate the course keypair** (once, on a secured machine):
 
@@ -171,7 +171,7 @@ node --experimental-strip-types tools/generate-course-keypair.ts /Volumes/SECURE
 
 The public key is printed to stdout (paste into a clipboard or pipe into the production build). The private key is written to the chosen path with mode `0600`. Back it up to physical media.
 
-**Author the unsigned `.cs61a`** in the assignment starter folder. Drop this file at the workspace root the students will open:
+**Author the unsigned `.provenance-manifest`** in the assignment starter folder. Drop this file at the workspace root the students will open:
 
 ```json
 {
@@ -182,7 +182,7 @@ The public key is printed to stdout (paste into a clipboard or pipe into the pro
 }
 ```
 
-Field rules (enforced by `parseManifest` in `packages/log-core/src/cs61a-manifest.ts`):
+Field rules (enforced by `parseManifest` in `packages/log-core/src/manifest.ts`):
 
 - `assignment_id` — non-empty string, unique per assignment. Rotating it per assignment is what prevents replay of an old session against a new assignment (PRD §6).
 - `semester` — non-empty string, e.g. `"fa26"`.
@@ -195,10 +195,10 @@ Omit the `sig` field; the signer adds it. (If you re-sign an already-signed mani
 
 ```sh
 PROVENANCE_COURSE_KEYPAIR_PATH=/Volumes/SECURE/cs61a-fa26.json \
-  node --experimental-strip-types tools/sign-cs61a-manifest.ts /path/to/assignment-starter/.cs61a
+  node --experimental-strip-types tools/sign-manifest.ts /path/to/assignment-starter/.provenance-manifest
 ```
 
-The script strips any existing signature, canonicalizes the remaining fields (via JCS), signs with the private key, and writes the updated `.cs61a` back to disk.
+The script strips any existing signature, canonicalizes the remaining fields (via JCS), signs with the private key, and writes the updated `.provenance-manifest` back to disk.
 
 **Produce a production VSIX** with the course public key embedded:
 

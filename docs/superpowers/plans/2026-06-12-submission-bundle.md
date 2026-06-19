@@ -309,7 +309,7 @@ Expected: FAIL — `filesUnderReview` is not a known dep; `submission_files` not
 In `seal.ts`, add to `SealDeps` (after `semester`):
 
 ```ts
-  /** Workspace-relative paths of the files under review (.cs61a files_under_review). */
+  /** Workspace-relative paths of the files under review (.provenance-manifest files_under_review). */
   filesUnderReview: readonly string[];
 ```
 
@@ -570,7 +570,7 @@ git commit --no-gpg-sign -m "feat(recorder): always seal; carry chain/parse warn
 Run: `grep -rn "sealBundle(" packages/recorder/src --include=*.ts | grep -v test`
 Expected: one production call site (in the command registration, likely `extension.ts` or `commands/`).
 
-- [ ] **Step 2: Pass `filesUnderReview` from the loaded `.cs61a` manifest**
+- [ ] **Step 2: Pass `filesUnderReview` from the loaded `.provenance-manifest` manifest**
 
 At the call site, the loaded manifest (`manifest.files_under_review`) is in scope (it's used to build `ExpectedContentRegistry` per `extension.ts:93`). Add `filesUnderReview: manifest.files_under_review` to the `sealBundle({...})` deps object.
 
