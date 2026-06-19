@@ -2,7 +2,7 @@
  * Per-session ephemeral ed25519 keypair generation and private-key encryption.
  *
  * PRD §4.6: "a per-session ephemeral signing keypair (private key encrypted with
- * a key derived from the `.cs61a` manifest's signature — this means it can't be
+ * a key derived from the `.provenance-manifest` manifest's signature — this means it can't be
  * recovered without the manifest, raising the bar for replay attacks)"
  *
  * Implementation decisions:

@@ -60,7 +60,7 @@ function makeStartEnvelope(
       manifest_sig: 'a'.repeat(128),
       machine_id: 'b'.repeat(64),
       vscode: { version: '1.97.0', commit: '', platform: 'darwin-arm64' },
-      recorder: { version: '0.0.0', extension_id: 'berkeley-cs61a.provenance-recorder' },
+      recorder: { version: '0.0.0', extension_id: 'itsgeagle.provenance-recorder' },
       session_pubkey: 'c'.repeat(64),
     },
   };

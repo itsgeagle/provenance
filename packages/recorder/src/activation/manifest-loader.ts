@@ -1,5 +1,5 @@
 /**
- * Reads and verifies the .cs61a manifest from a workspace folder.
+ * Reads and verifies the .provenance-manifest file from a workspace folder.
  * PRD §4.1: "If the signature doesn't verify, the extension does nothing."
  */
 
@@ -26,7 +26,7 @@ export type ActivationError =
 // ---------------------------------------------------------------------------
 
 /**
- * Read, parse, and cryptographically verify the .cs61a manifest in the given workspace folder.
+ * Read, parse, and cryptographically verify the .provenance-manifest file in the given workspace folder.
  *
  * @param workspaceFolder  The VS Code workspace folder to look in.
  * @param pubkeyHex        Optional override for the course public key (used in tests).
@@ -39,7 +39,7 @@ export async function loadAndVerifyManifest(
   workspaceFolder: vscode.WorkspaceFolder,
   pubkeyHex: string = COURSE_PUBLIC_KEY_HEX,
 ): Promise<Result<Cs61aManifest, ActivationError>> {
-  const manifestFilePath = path.join(workspaceFolder.uri.fsPath, '.cs61a');
+  const manifestFilePath = path.join(workspaceFolder.uri.fsPath, '.provenance-manifest');
 
   // Step 1: Read the file.
   let rawText: string;

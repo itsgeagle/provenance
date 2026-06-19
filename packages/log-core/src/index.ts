@@ -14,7 +14,7 @@ export type { SlogMeta, MetaShapeError } from './meta.js';
 export { validateBundleManifestShape } from './bundle.js';
 export type { BundleManifest, BundleShapeError, ValidationReport } from './bundle.js';
 
-// CS61A manifest (.cs61a)
+// CS61A manifest (.provenance-manifest)
 export { parseManifest, verifyManifest } from './cs61a-manifest.js';
 export type { Cs61aManifest, ManifestError } from './cs61a-manifest.js';
 

@@ -203,13 +203,13 @@ describe('buildRecorderContext', () => {
       prevSessionId: null,
       extension: makeExtension({
         version: '1.0.0',
-        publisher: 'berkeley-cs61a',
+        publisher: 'itsgeagle',
         name: 'provenance-recorder',
       }),
       vscodeVersion: '1.97.0',
       platform: 'darwin-arm64',
     });
-    expect(ctx.recorder.extension_id).toBe('berkeley-cs61a.provenance-recorder');
+    expect(ctx.recorder.extension_id).toBe('itsgeagle.provenance-recorder');
   });
 
   it('falls back to extension.id when publisher/name missing from packageJSON', () => {

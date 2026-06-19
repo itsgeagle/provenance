@@ -41,7 +41,7 @@ async function generateTestKeypair(): Promise<{ pubkeyHex: string; privkeyHex: s
 }
 
 /**
- * Sign a .cs61a manifest payload (the four content fields, JCS-canonicalized) with the given key.
+ * Sign a .provenance-manifest file payload (the four content fields, JCS-canonicalized) with the given key.
  * Returns the 128-char hex signature.
  */
 async function signManifest(
@@ -99,7 +99,7 @@ describe('loadAndVerifyManifest', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns no_manifest_file when .cs61a does not exist', async () => {
+  it('returns no_manifest_file when .provenance-manifest does not exist', async () => {
     const folder = makeWorkspaceFolder(tmpDir);
     const result = await loadAndVerifyManifest(folder, 'a'.repeat(64));
     expect(result.ok).toBe(false);
@@ -109,7 +109,7 @@ describe('loadAndVerifyManifest', () => {
   });
 
   it('returns manifest_parse_error for malformed JSON', async () => {
-    await fs.writeFile(path.join(tmpDir, '.cs61a'), 'not valid json', 'utf8');
+    await fs.writeFile(path.join(tmpDir, '.provenance-manifest'), 'not valid json', 'utf8');
     const folder = makeWorkspaceFolder(tmpDir);
     const result = await loadAndVerifyManifest(folder, 'a'.repeat(64));
     expect(result.ok).toBe(false);
@@ -126,7 +126,11 @@ describe('loadAndVerifyManifest', () => {
       files_under_review: ['hw03.py'],
       // sig: missing
     };
-    await fs.writeFile(path.join(tmpDir, '.cs61a'), JSON.stringify(badManifest), 'utf8');
+    await fs.writeFile(
+      path.join(tmpDir, '.provenance-manifest'),
+      JSON.stringify(badManifest),
+      'utf8',
+    );
     const folder = makeWorkspaceFolder(tmpDir);
     const result = await loadAndVerifyManifest(folder, 'a'.repeat(64));
     expect(result.ok).toBe(false);
@@ -149,7 +153,11 @@ describe('loadAndVerifyManifest', () => {
     const sigHex = await signManifest(manifestData, otherPrivkey);
     const fullManifest = { ...manifestData, sig: sigHex };
 
-    await fs.writeFile(path.join(tmpDir, '.cs61a'), JSON.stringify(fullManifest), 'utf8');
+    await fs.writeFile(
+      path.join(tmpDir, '.provenance-manifest'),
+      JSON.stringify(fullManifest),
+      'utf8',
+    );
     const folder = makeWorkspaceFolder(tmpDir);
 
     // Verify with pubkeyHex (from a different keypair than the signing key).
@@ -171,7 +179,7 @@ describe('loadAndVerifyManifest', () => {
       sig: '0'.repeat(128),
     };
 
-    await fs.writeFile(path.join(tmpDir, '.cs61a'), JSON.stringify(manifest), 'utf8');
+    await fs.writeFile(path.join(tmpDir, '.provenance-manifest'), JSON.stringify(manifest), 'utf8');
     const folder = makeWorkspaceFolder(tmpDir);
     const result = await loadAndVerifyManifest(folder, pubkeyHex);
     expect(result.ok).toBe(false);
@@ -191,7 +199,11 @@ describe('loadAndVerifyManifest', () => {
     const sigHex = await signManifest(manifestData, privkeyHex);
     const fullManifest = { ...manifestData, sig: sigHex };
 
-    await fs.writeFile(path.join(tmpDir, '.cs61a'), JSON.stringify(fullManifest), 'utf8');
+    await fs.writeFile(
+      path.join(tmpDir, '.provenance-manifest'),
+      JSON.stringify(fullManifest),
+      'utf8',
+    );
     const folder = makeWorkspaceFolder(tmpDir);
 
     const result = await loadAndVerifyManifest(folder, pubkeyHex);
@@ -205,8 +217,8 @@ describe('loadAndVerifyManifest', () => {
   });
 
   it('handles a read error (e.g. directory where file expected) as manifest_read_error', async () => {
-    // Create a directory named .cs61a instead of a file.
-    await fs.mkdir(path.join(tmpDir, '.cs61a'));
+    // Create a directory named .provenance-manifest instead of a file.
+    await fs.mkdir(path.join(tmpDir, '.provenance-manifest'));
     const folder = makeWorkspaceFolder(tmpDir);
     const result = await loadAndVerifyManifest(folder, 'a'.repeat(64));
     expect(result.ok).toBe(false);

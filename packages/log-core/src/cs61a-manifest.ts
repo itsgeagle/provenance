@@ -1,5 +1,5 @@
 /**
- * Parser and signature verifier for the .cs61a assignment manifest.
+ * Parser and signature verifier for the .provenance-manifest assignment file.
  * PRD §4.1 — the recorder activates only when this manifest is present and valid.
  *
  * Signing payload: canonicalize({assignment_id, semester, issued_at, files_under_review})
@@ -58,7 +58,7 @@ function buildSignedPayload(manifest: Omit<Cs61aManifest, 'sig'>): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a .cs61a file (text content) into a Cs61aManifest.
+ * Parse a .provenance-manifest file (text content) into a Cs61aManifest.
  * Validates JSON structure and field shapes. Does NOT verify the signature.
  */
 export function parseManifest(text: string): Result<Cs61aManifest, ManifestError> {

@@ -60,7 +60,7 @@ export type DocWiringDeps = {
   emitSelectionChange: (data: SelectionChangePayload) => void;
   emitFocusChange: (data: FocusChangePayload) => void;
   emitFsExternalChange: (data: FsExternalChangePayload) => void;
-  /** Relative paths from the .cs61a manifest. */
+  /** Relative paths from the .provenance-manifest file. */
   filesUnderReview: readonly string[];
   /** Registry for expected-content model. */
   expectedContent: ExpectedContentRegistry;

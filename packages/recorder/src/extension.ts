@@ -3,7 +3,7 @@
  * activate() is a thin wrapper that constructs production dependencies and
  * calls activateImpl(), which contains the real logic and is testable in isolation.
  *
- * PRD §4.1: Activate only when .cs61a is present and signature-valid.
+ * PRD §4.1: Activate only when .provenance-manifest is present and signature-valid.
  * PRD §5.1: Emit session.start with full context; emit session.end on deactivate.
  * PRD §4.2: session.heartbeat every 30s; clock.skew on wall-clock drift.
  * PRD §4.7: Buffered, async I/O via SessionWriter (not a raw WriteStream).
@@ -124,7 +124,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   // Initialize activeSession to null before we begin (in case we early-return or error).
   activeSession = null;
 
-  // Step 1: Load and verify the .cs61a manifest.
+  // Step 1: Load and verify the .provenance-manifest file.
   let manifest: Cs61aManifest;
   if (deps.preloadedManifest !== undefined) {
     manifest = deps.preloadedManifest;
@@ -535,7 +535,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // The recorder's own Extension object.
-  const ownExtension = vscode.extensions.getExtension('berkeley-cs61a.provenance-recorder');
+  const ownExtension = vscode.extensions.getExtension('itsgeagle.provenance-recorder');
   if (ownExtension === undefined) {
     // Fallback: build a minimal extension-like object from context.
     // This happens in the Extension Host sandbox during development.
@@ -548,11 +548,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const extension: vscode.Extension<unknown> =
     ownExtension ??
     ({
-      id: 'berkeley-cs61a.provenance-recorder',
+      id: 'itsgeagle.provenance-recorder',
       extensionUri: context.extensionUri,
       extensionPath: context.extensionPath,
       isActive: true,
-      packageJSON: { version: '0.0.0', publisher: 'berkeley-cs61a', name: 'provenance-recorder' },
+      packageJSON: { version: '0.0.0', publisher: 'itsgeagle', name: 'provenance-recorder' },
       exports: undefined,
       activate: () => Promise.resolve(undefined),
       extensionKind: vscode.ExtensionKind.Workspace,
