@@ -140,12 +140,17 @@ whose Google account belongs to your institution's Google Workspace domain can l
 4. Click **Create Credentials → OAuth client ID**.
 5. Application type: **Web application**.
 6. Name: `Provenance Analyzer`.
-7. **Authorized redirect URIs:** add:
+7. **Javascript authorized origins:** add:
+    ```
+    https://provenance.example.edu
+    ```
+    (Replace with your actual domain. For local dev: `http://localhost` and `http://localhost:5173`)
+8. **Authorized redirect URIs:** add:
    ```
    https://provenance.example.edu/api/v1/auth/google/callback
    ```
    (Replace with your actual domain. For local dev: `http://localhost:3000/api/v1/auth/google/callback`.)
-8. Click **Create**. Copy the **Client ID** and **Client Secret**.
+9.  Click **Create**. Copy the **Client ID** and **Client Secret**.
 
 ### 3.2 Configure hosted domain restriction
 
