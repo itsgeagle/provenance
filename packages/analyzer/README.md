@@ -1,10 +1,37 @@
 # Provenance Analyzer
 
-A web app for course staff to inspect Provenance Recorder logs: validates tamper-evident bundles, renders a searchable timeline of editing events, and flags suspicious patterns.
+The Analyzer v3 SPA — the course-staff web app for reviewing Provenance Recorder logs at
+cohort scale. It validates tamper-evident bundles, scores them with tunable heuristics, and
+lets staff drill into any submission's timeline, replay, and validation. The full app is
+backed by the [`@provenance/server`](../server) API; it also ships a standalone in-browser
+mode for inspecting one-off bundles with no server.
 
 ## What it does
 
-The Analyzer loads one or more `.zip` bundles produced by the Provenance Recorder. It validates each bundle's integrity, reconstructs the editing sessions, and surfaces heuristic flags (large pastes, external edits, suspicious typing patterns, chain breaks) in a dashboard. Staff can replay any session in a Monaco-based replay view (`/replay/:sessionId`) with transport controls, speed adjustment, and paste/external-change gutter decorations. Multiple bundles can be loaded simultaneously for cross-submission comparison (`/compare`), which runs cross-bundle heuristics to detect shared paste content and editing-pattern clones. Findings export to Markdown or PDF.
+**Server-backed (the main flow).** Staff sign in with Google (OAuth, hosted-domain
+restricted), pick a semester, and work a cohort:
+
+- **Ingest** — upload a Gradescope export; the server parses, matches students, scores
+  heuristics, and runs cross-submission detection. An unmatched tray catches non-matching
+  files; a roster view manages students.
+- **Cohort list** — virtualized, filterable, sortable table of every submission with its
+  flags and stats; export to CSV.
+- **Per-submission drill-in** — overview, a searchable **timeline** of editing events, a
+  Monaco-based **replay** with transport controls and paste/external-change gutter
+  decorations, and the bundle **validation** report.
+- **Heuristics tuning** — a 24-slider UI to adjust thresholds, dry-run the diff, and
+  recompute.
+- **Cross-flags** — a semester-wide view of shared-paste and editing-pattern-clone findings
+  across students.
+
+Per-submission heuristics include large pastes, external edits, suspicious typing patterns,
+and chain breaks; the cross-submission pass detects shared paste content and editing-pattern
+clones.
+
+**Standalone `/local` mode.** Drop one or more `.zip` bundles and inspect them entirely
+in-browser — no auth, no server, no data leaves the machine. This is the preserved v2
+"drop a zip" UX (load / overview / timeline / replay / compare), useful for a quick one-off
+look without standing up the backend.
 
 ## Development
 
@@ -59,7 +86,12 @@ To test against a real-recorder session, see `packages/analyzer/test/integration
 - **React 18 + TypeScript** — UI runtime with strict mode.
 - **Vite** — bundler and dev server.
 - **Tailwind + shadcn/ui** — styling and accessible component primitives.
-- **react-router-dom** — routing (`/load`, `/overview`, `/timeline`, `/replay/:sessionId`, `/compare`).
+- **react-router-dom** — semester-scoped routes (`/home`, `/s/:semester`, per-submission
+  drill-in, `/s/:semester/ingest` · `/roster` · `/members` · `/assignments`) plus a
+  standalone `/local/*` subtree (load / overview / timeline / replay / compare, no auth).
+  Legacy `/load`, `/overview`, … redirect into `/local/*`.
+- **TanStack Query** — server state / API caching for the v3 flow.
+- `@provenance/shared` — Zod API schemas shared with the server.
 - `@provenance/log-core` — shared event types, validation, and hash chain. Runs unmodified in the browser.
 
 ## Learn more
