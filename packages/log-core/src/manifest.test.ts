@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as ed from '@noble/ed25519';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { parseManifest, verifyManifest } from './manifest.js';
+import { parseManifest, verifyManifest, signManifest } from './manifest.js';
 import { canonicalize } from './canonical.js';
 
 // ---------------------------------------------------------------------------
@@ -319,5 +319,61 @@ describe('verifyManifest', () => {
     expect(roundTripped).toEqual(pubkeyBytes);
     expect(hex).toHaveLength(64);
     expect(hex).toMatch(/^[0-9a-f]+$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// signManifest tests
+// ---------------------------------------------------------------------------
+
+describe('signManifest', () => {
+  it('produces a 128-hex sig that verifyManifest accepts (round-trip)', async () => {
+    const secretKey = ed.utils.randomSecretKey();
+    const pubkeyHex = bytesToHex(await ed.getPublicKeyAsync(secretKey));
+    const fields = {
+      assignment_id: 'hw07',
+      semester: 'fa26',
+      issued_at: '2026-10-01T00:00:00Z',
+      files_under_review: ['hw07.py', 'helpers.py'] as readonly string[],
+    };
+
+    const sig = await signManifest(fields, secretKey);
+    expect(sig).toHaveLength(128);
+    expect(sig).toMatch(/^[0-9a-f]+$/);
+
+    const verified = await verifyManifest({ ...fields, sig }, pubkeyHex);
+    expect(verified.ok).toBe(true);
+  });
+
+  it('signs the same payload verifyManifest checks (excludes sig field)', async () => {
+    const secretKey = ed.utils.randomSecretKey();
+    const fields = {
+      assignment_id: 'proj01',
+      semester: 'sp26',
+      issued_at: '2026-02-01T00:00:00Z',
+      files_under_review: ['a.py'] as readonly string[],
+    };
+    const sig = await signManifest(fields, secretKey);
+    // The sig must match a hand-rolled signature over the canonical payload bytes.
+    const payload = buildPayload(fields);
+    const expected = bytesToHex(await ed.signAsync(payload, secretKey));
+    expect(sig).toBe(expected);
+  });
+
+  it('a tampered field fails verification', async () => {
+    const secretKey = ed.utils.randomSecretKey();
+    const pubkeyHex = bytesToHex(await ed.getPublicKeyAsync(secretKey));
+    const fields = {
+      assignment_id: 'hw08',
+      semester: 'fa26',
+      issued_at: '2026-10-08T00:00:00Z',
+      files_under_review: ['hw08.py'] as readonly string[],
+    };
+    const sig = await signManifest(fields, secretKey);
+    const tampered = await verifyManifest(
+      { ...fields, assignment_id: 'hw09', sig },
+      pubkeyHex,
+    );
+    expect(tampered.ok).toBe(false);
   });
 });

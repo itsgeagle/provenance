@@ -7,7 +7,7 @@
  */
 
 import * as ed from '@noble/ed25519';
-import { hexToBytes } from '@noble/hashes/utils.js';
+import { hexToBytes, bytesToHex } from '@noble/hashes/utils.js';
 import { canonicalize } from './canonical.js';
 import { ok, err } from './result.js';
 import type { Result } from './result.js';
@@ -125,6 +125,23 @@ export function parseManifest(text: string): Result<Manifest, ManifestError> {
     files_under_review: obj['files_under_review'] as readonly string[],
     sig: obj['sig'] as string,
   });
+}
+
+/**
+ * Sign an assignment manifest with the course private key (inverse of
+ * verifyManifest). Returns the hex ed25519 signature over
+ * canonicalize({assignment_id, semester, issued_at, files_under_review}).
+ *
+ * This is the routine course staff tooling (and the dev seed) use to produce a
+ * `.provenance-manifest` sig; verifyManifest against the same payload confirms it.
+ */
+export async function signManifest(
+  manifest: Omit<Manifest, 'sig'>,
+  signingPrivkey: Uint8Array,
+): Promise<string> {
+  const payloadBytes = buildSignedPayload(manifest);
+  const sig = await ed.signAsync(payloadBytes, signingPrivkey);
+  return bytesToHex(sig);
 }
 
 /**

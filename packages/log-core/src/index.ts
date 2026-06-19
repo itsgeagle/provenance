@@ -36,7 +36,7 @@ export { signCheckpoint, verifyCheckpoint } from './checkpoint-signer.js';
 export type { Checkpoint } from './checkpoint-signer.js';
 
 // Assignment manifest (.provenance-manifest)
-export { parseManifest, verifyManifest } from './manifest.js';
+export { parseManifest, verifyManifest, signManifest } from './manifest.js';
 export type { Manifest, ManifestError } from './manifest.js';
 
 // Events
