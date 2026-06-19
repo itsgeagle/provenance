@@ -42,21 +42,49 @@ npm run build && npm run typecheck && npm run lint && npm run test
 
 ### Run the analyzer v3 server (API + worker)
 
+Requires Docker. The [`packages/server/README.md`](packages/server/README.md) has the
+full server dev guide (run modes, migrations, env var reference); the essentials are:
+
 ```sh
-# Start Postgres + MinIO
+# 1. Start Postgres + MinIO
 docker compose up -d
 
-# Configure environment (fill in Google OAuth credentials)
+# 2. Create the MinIO storage bucket (one-time — uploads 404 without it)
+docker compose exec minio mc alias set local http://localhost:9000 minioadmin minioadmin
+docker compose exec minio mc mb local/provenance
+
+# 3. Configure environment. Defaults match the compose stack; fill in Google
+#    OAuth creds for real logins (dummy values are fine for API/worker/seed work).
 cp packages/server/.env.example packages/server/.env
 
-# Run migrations
+# 4. Run migrations
 npm run db:migrate --workspace=packages/server
 
-# Start server (API + worker combined)
+# 5. Start the server — API + pg-boss worker in ONE process (`--mode=all`)
 npm run dev --workspace=packages/server
 ```
 
 The server starts on `http://localhost:3000`. Swagger UI at `http://localhost:3000/api/v1/docs`.
+
+`npm run dev` runs the API and the background worker together (via `--mode=all`), so
+uploaded bundles are actually ingested. In production the two run as separate
+`--mode=api` and `--mode=worker` processes — see the server README. (To run the API
+alone in dev: `npm run dev --workspace=packages/server -- --mode=api`.)
+
+### Seed example data
+
+With the server prerequisites above in place (compose up, bucket created, `.env`,
+migrations), populate the database with an example cohort:
+
+```sh
+npm run seed --workspace=packages/server
+```
+
+This generates a Gradescope export and runs it through the real ingest pipeline,
+creating an isolated `seed-demo` semester (a few students, a group submission, and a
+skipped no-recorder folder). To view it in the analyzer, add your Google email to
+`AUTH_SUPERADMIN_EMAILS` in `packages/server/.env` and sign in. Details and the
+`--regenerate` flag are in [`packages/server/README.md`](packages/server/README.md).
 
 ### Run the analyzer frontend
 

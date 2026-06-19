@@ -12,7 +12,16 @@ The Analyzer loads one or more `.zip` bundles produced by the Provenance Recorde
 npm run dev --workspace=packages/analyzer
 ```
 
-Opens a dev server at `http://localhost:5173`. Drop a `.zip` bundle in the load view to inspect it.
+Opens the Vite dev server at `http://localhost:5173`.
+
+This is the v3 SPA: Google sign-in and the cohort / per-submission views talk to the
+API server, so run the backend too. See the
+[root quickstart](../../README.md#run-the-analyzer-v3-server-api--worker) and
+[`packages/server/README.md`](../../packages/server/README.md) for the server, and
+`npm run seed --workspace=packages/server` to populate an example cohort to browse.
+
+For a no-server flow, open `http://localhost:5173/local/load` and drop a `.zip` bundle —
+the standalone offline mode (`/local`) runs entirely in-browser, no auth required.
 
 ## Build
 
@@ -55,6 +64,7 @@ To test against a real-recorder session, see `packages/analyzer/test/integration
 
 ## Learn more
 
-- **Product spec** → [`docs/prd.md`](../../docs/prd.md) (§7.1–7.5 are the analyzer's scope)
+- **Product spec** → [`docs/analyzer-v3-prd.md`](../../docs/analyzer-v3-prd.md) (the analyzer + server v3 spec)
+- **Design doc** → [`docs/analyzer-v3-design.md`](../../docs/analyzer-v3-design.md)
 - **Repo conventions** → [`CLAUDE.md`](../../CLAUDE.md)
-- **Build plan** → [`docs/analyzer-implementation-plan.md`](../../docs/analyzer-implementation-plan.md)
+- **Build plan** → [`docs/analyzer-v3-implementation-plan.md`](../../docs/analyzer-v3-implementation-plan.md)

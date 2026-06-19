@@ -38,6 +38,10 @@ See `docs/analyzer-v3-prd.md §3` for the full env var reference.
 npm run dev --workspace=packages/server
 ```
 
+`npm run dev` runs in `--mode=all`: the HTTP API **and** the pg-boss worker in one
+process, so uploaded bundles are actually ingested. Override with
+`npm run dev --workspace=packages/server -- --mode=api` to run the API alone.
+
 Verify:
 
 ```bash
@@ -54,12 +58,53 @@ node dist/index.js --mode=api
 # Worker only (pg-boss job handlers + cron jobs)
 node dist/index.js --mode=worker
 
-# All-in-one — recommended for single-machine dev / staging
+# Both in one process — for single-machine dev / staging (what `npm run dev` uses)
 node dist/index.js --mode=all
 ```
 
-In production, run `--mode=api` and `--mode=worker` as separate processes so they
-can be scaled independently.
+Mode defaults to `api` when no flag is given. The last `--mode=` wins, so a script
+default can be overridden on the command line. In production, run `--mode=api` and
+`--mode=worker` as separate processes so they can be scaled independently.
+
+## Seeding example data
+
+`npm run seed` populates a local database with an example cohort so other staff can
+click around the analyzer without hunting for real submissions. It does the realistic
+thing end to end: it generates a Gradescope export ZIP and runs it through the **real**
+ingest pipeline (the same `POST /ingest:gradescope` route + worker that production uses).
+
+Prerequisites are the same as `npm run dev`: `docker compose up -d`, the MinIO bucket
+created (step 1 above), `.env` present, and migrations applied. Then:
+
+```bash
+npm run seed --workspace=packages/server
+```
+
+What it creates (all under an isolated `seed-demo` semester, so it never collides with
+a real one):
+
+- a `CS 61A (seed)` course + `Seed Demo — CS 61A` semester,
+- five rostered students including one **group submission** (two co-submitters share a
+  bundle) and one student who submitted **without the recorder** (skipped, but rostered),
+- one assignment (`hw10`) with a recorder bundle per student, fully ingested (events,
+  per-file stats, validation, heuristics).
+
+Flags and notes:
+
+- **Idempotent by default.** Re-running once `seed-demo` is populated is a no-op. The
+  server rebuilds each bundle ZIP on ingest with non-stable archive metadata, so a
+  re-ingest would otherwise stack a new submission *version* per student.
+- **`--regenerate`** rebuilds the committed example export
+  (`scripts/seed/example-gradescope-export.zip`) and forces a fresh ingest:
+  `npm run seed --workspace=packages/server -- --regenerate`. The export content
+  (students, event timelines) is deterministic; only the per-build signing key differs.
+- **Viewing it.** The seed authors the ingest as a synthetic `seed-admin@berkeley.edu`
+  user (not a real login). To see the data in the analyzer UI, add your own Google email
+  to `AUTH_SUPERADMIN_EMAILS` in `.env`, restart the server, and sign in — superadmins
+  see every semester.
+
+The example export ZIP is committed, so you can also upload it manually via the UI or
+`POST /ingest:gradescope` against any semester you own.
 
 ## Cron jobs (Phase 25)
 
