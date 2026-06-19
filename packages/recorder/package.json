@@ -3,6 +3,7 @@
   "displayName": "Provenance",
   "description": "Academic integrity telemetry for course assignments.",
   "version": "0.2.0",
+  "icon": "icon.png",
   "private": true,
   "publisher": "itsgeagle",
   "type": "module",

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Provenance">
+  <style>
+    .link { stroke: #18181b; }
+    .accent { stroke: #EA580C; }
+    @media (prefers-color-scheme: dark) {
+      .link { stroke: #fafafa; }
+      .accent { stroke: #F97316; }
+    }
+  </style>
+  <defs>
+    <clipPath id="topcross"><rect x="96" y="50" width="64" height="78"/></clipPath>
+  </defs>
+  <rect class="link" x="50" y="74" width="96" height="104" rx="34" fill="none" stroke-width="18"/>
+  <rect class="accent" x="110" y="74" width="96" height="104" rx="34" fill="none" stroke-width="18"/>
+  <g clip-path="url(#topcross)">
+    <rect class="link" x="50" y="74" width="96" height="104" rx="34" fill="none" stroke-width="18"/>
+  </g>
+</svg>

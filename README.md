@@ -1,4 +1,7 @@
-# Provenance
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/exports/lockup-dark.png" />
+  <img alt="Provenance" src="brand/exports/lockup-light.png" width="360" />
+</picture>
 
 **A CS 61A academic-integrity telemetry and analysis system.**
 
