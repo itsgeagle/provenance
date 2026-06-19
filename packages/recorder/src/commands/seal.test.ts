@@ -29,9 +29,9 @@ import {
   sha256Hex,
   validateBundleManifestShape,
   canonicalize,
+  generateSessionKeypair,
 } from '@provenance/log-core';
 import type { Envelope } from '@provenance/log-core';
-import { generateSessionKeypair } from '../crypto/session-keys.js';
 import { sealBundle, verifyManifestSig } from './seal.js';
 import type { SealDeps } from './seal.js';
 

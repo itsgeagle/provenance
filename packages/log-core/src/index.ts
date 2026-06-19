@@ -12,7 +12,28 @@ export type { SlogMeta, MetaShapeError } from './meta.js';
 
 // Bundle (manifest.json + validation report)
 export { validateBundleManifestShape } from './bundle.js';
-export type { BundleManifest, BundleShapeError, ValidationReport } from './bundle.js';
+export type {
+  BundleManifest,
+  SubmissionFileEntry,
+  BundleShapeError,
+  ValidationReport,
+} from './bundle.js';
+
+// Bundle manifest signing (shared by recorder seal + seed tooling)
+export { signBundleManifest } from './bundle-sign.js';
+export type { SignedBundleManifest } from './bundle-sign.js';
+
+// Per-session ephemeral keypair + private-key encryption (recorder PRD §4.6)
+export {
+  generateSessionKeypair,
+  encryptSessionPrivkey,
+  decryptSessionPrivkey,
+} from './session-keys.js';
+export type { SessionKeypair, EncryptedPrivkey } from './session-keys.js';
+
+// Signed seq→hash checkpoints (recorder PRD §4.6)
+export { signCheckpoint, verifyCheckpoint } from './checkpoint-signer.js';
+export type { Checkpoint } from './checkpoint-signer.js';
 
 // Assignment manifest (.provenance-manifest)
 export { parseManifest, verifyManifest } from './manifest.js';

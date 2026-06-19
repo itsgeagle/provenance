@@ -18,9 +18,7 @@
  */
 
 import { canonicalize } from '@provenance/log-core';
-import type { SlogMeta } from '@provenance/log-core';
-import type { EncryptedPrivkey } from '../crypto/session-keys.js';
-import type { Checkpoint } from '../crypto/checkpoint-signer.js';
+import type { SlogMeta, EncryptedPrivkey, Checkpoint } from '@provenance/log-core';
 import { atomicWriteFile } from './atomic-write.js';
 import type { AtomicWriteFs } from './atomic-write.js';
 

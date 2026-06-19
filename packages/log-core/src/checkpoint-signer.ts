@@ -11,7 +11,7 @@
 
 import * as ed from '@noble/ed25519';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { canonicalize } from '@provenance/log-core';
+import { canonicalize } from './canonical.js';
 
 // ---------------------------------------------------------------------------
 // Types

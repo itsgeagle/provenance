@@ -33,9 +33,9 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import * as ed from '@noble/ed25519';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { parseEntries, validateChain, canonicalize, sha256Hex } from '@provenance/log-core';
-import type { BundleManifest } from '@provenance/log-core';
+import { hexToBytes } from '@noble/hashes/utils.js';
+import { parseEntries, validateChain, sha256Hex, signBundleManifest } from '@provenance/log-core';
+import type { BundleManifest, SignedBundleManifest } from '@provenance/log-core';
 import { atomicWriteFile } from '../io/atomic-write.js';
 
 // ---------------------------------------------------------------------------
@@ -289,15 +289,14 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   };
 
   // Step 5: Canonicalize + sign + atomic-write manifest.json and manifest.sig.
+  // signBundleManifest is the single signing routine shared with seed tooling so
+  // the on-disk manifest.json/.sig are produced identically everywhere.
   const manifestPath = path.join(provenanceDir, 'manifest.json');
   const sigPath = path.join(provenanceDir, 'manifest.sig');
 
-  const canonicalManifest = canonicalize(manifest);
-  const canonicalBytes = new TextEncoder().encode(canonicalManifest);
-
-  let sigBytes: Uint8Array;
+  let signed: SignedBundleManifest;
   try {
-    sigBytes = await ed.signAsync(canonicalBytes, sessionPrivkey);
+    signed = await signBundleManifest(manifest, sessionPrivkey);
   } catch (e) {
     return {
       kind: 'write_error',
@@ -305,13 +304,11 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
     };
   }
 
-  const sigHex = bytesToHex(sigBytes);
-
   try {
     // Atomic write for manifest.json (write full canonical JSON, not the manifest object,
     // so what's on disk is exactly what was signed).
-    await atomicWriteFile(manifestPath, canonicalManifest);
-    await atomicWriteFile(sigPath, sigHex);
+    await atomicWriteFile(manifestPath, signed.canonicalJson);
+    await atomicWriteFile(sigPath, signed.signatureHex);
   } catch (e) {
     return {
       kind: 'write_error',
@@ -320,7 +317,7 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   }
 
   // Compute manifest SHA-256 for the return value.
-  const manifestSha256 = sha256Hex(canonicalBytes);
+  const manifestSha256 = sha256Hex(new TextEncoder().encode(signed.canonicalJson));
 
   // Step 6: ZIP all files in provenanceDir.
   let dirEntries: string[];

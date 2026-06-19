@@ -13,7 +13,12 @@ import * as vscode from 'vscode';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { SystemClock } from '@provenance/log-core';
+import {
+  SystemClock,
+  generateSessionKeypair,
+  encryptSessionPrivkey,
+  signCheckpoint,
+} from '@provenance/log-core';
 import type { HashedEnvelope } from '@provenance/log-core';
 import { loadAndVerifyManifest } from './activation/manifest-loader.js';
 import { createRecordingStatusBar } from './activation/status-bar.js';
@@ -33,8 +38,6 @@ import { startTerminalWiring } from './wiring/terminal-wiring.js';
 import { startExtensionSnapshot } from './wiring/extension-snapshot.js';
 import { startExtensionActivation } from './wiring/extension-activation.js';
 import { startGitWiring } from './wiring/git-wiring.js';
-import { generateSessionKeypair, encryptSessionPrivkey } from './crypto/session-keys.js';
-import { signCheckpoint } from './crypto/checkpoint-signer.js';
 import { recoverPreviousSession } from './startup/chain-recovery.js';
 import { sealBundle } from './commands/seal.js';
 import { computeExtensionHash } from './commands/extension-hash.js';
