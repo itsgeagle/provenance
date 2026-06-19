@@ -2,37 +2,33 @@
  * CLI entry point.
  *
  * Usage:
- *   node dist/index.js [--mode=<api|worker|all>]
+ *   node dist/index.js [--mode=<api|worker|all>]   (default: api)
  *
- * Modes:
- *   api    — start the HTTP API server (default)
- *   worker — start the background job worker (stub until Phase 12)
- *   all    — boot api only for now (worker added in Phase 12)
+ * Modes are documented in run-mode.ts. In short:
+ *   api    — HTTP API server only (production default).
+ *   worker — pg-boss job + cron handlers only.
+ *   all    — both in one process; for dev / single-machine staging.
+ *
+ * `npm run dev` passes `--mode=all` so a single dev process serves the API and
+ * processes background jobs. Override with `npm run dev -- --mode=api` to run
+ * the API alone.
  */
-import { startApi } from './api/start.js';
-import { startWorker } from './jobs/worker.js';
+import { parseMode, runMode } from './run-mode.js';
 
-const args = process.argv.slice(2);
-const modeArg = args.find((a) => a.startsWith('--mode='));
-const mode = modeArg ? modeArg.split('=')[1] : 'api';
+const mode = parseMode(process.argv.slice(2));
 
-switch (mode) {
-  case 'api':
-  case 'all':
-    startApi();
-    break;
-  case 'worker':
-    // startWorker() returns a teardown function; register it for graceful shutdown.
-    startWorker().then((teardown) => {
-      const shutdown = async () => {
-        await teardown();
-        process.exit(0);
-      };
-      process.on('SIGTERM', () => void shutdown());
-      process.on('SIGINT', () => void shutdown());
-    });
-    break;
-  default:
-    console.error(`Unknown --mode="${mode}". Expected: api | worker | all`);
+runMode(mode)
+  .then((teardown) => {
+    if (teardown === null) return;
+    // Worker (or all) mode owns a pg-boss connection — drain it on shutdown.
+    const shutdown = async () => {
+      await teardown();
+      process.exit(0);
+    };
+    process.on('SIGTERM', () => void shutdown());
+    process.on('SIGINT', () => void shutdown());
+  })
+  .catch((err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
-}
+  });
