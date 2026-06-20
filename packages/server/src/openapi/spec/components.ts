@@ -260,10 +260,40 @@ export const components = {
             type: 'object',
             properties: {
               folder_key: { type: 'string' },
-              reason: { type: 'string', enum: ['no_manifest', 'no_submitters'] },
+              reason: {
+                type: 'string',
+                enum: ['no_manifest', 'no_submitters', 'bundle_too_large'],
+              },
             },
           },
         },
+      },
+    },
+
+    // Resumable (chunked) upload
+    CreateUploadResponse: {
+      type: 'object',
+      required: ['upload_id', 's3_upload_id', 'chunk_size', 'total_parts'],
+      properties: {
+        upload_id: { $ref: '#/components/schemas/UUID' },
+        s3_upload_id: { type: 'string' },
+        chunk_size: { type: 'integer' },
+        total_parts: { type: 'integer' },
+      },
+    },
+    UploadStatusResponse: {
+      type: 'object',
+      required: ['received_parts'],
+      properties: {
+        received_parts: { type: 'array', items: { type: 'integer' } },
+      },
+    },
+    UploadPartResponse: {
+      type: 'object',
+      required: ['part_number', 'received'],
+      properties: {
+        part_number: { type: 'integer' },
+        received: { type: 'boolean', enum: [true] },
       },
     },
 

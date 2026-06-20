@@ -375,6 +375,49 @@ export const GradescopeIngestResponseSchema = z.object({
 });
 export type GradescopeIngestResponse = z.infer<typeof GradescopeIngestResponseSchema>;
 
+// ---------------------------------------------------------------------------
+// Resumable (chunked) Gradescope upload
+// (POST   /semesters/:id/ingest/uploads            — create)
+// (PUT    /semesters/:id/ingest/uploads/:uid/parts/:n?s3_upload_id=… — upload part)
+// (GET    /semesters/:id/ingest/uploads/:uid/parts?s3_upload_id=…    — resume status)
+// (POST   /semesters/:id/ingest/uploads/:uid/complete — complete + ingest)
+// (DELETE /semesters/:id/ingest/uploads/:uid?s3_upload_id=…          — abort)
+// ---------------------------------------------------------------------------
+
+/** Begin a resumable upload. `chunk_size` is a hint; the server may clamp it. */
+export const CreateUploadRequestSchema = z.object({
+  filename: z.string().min(1),
+  total_bytes: z.number().int().positive(),
+  chunk_size: z.number().int().positive().optional(),
+});
+export type CreateUploadRequest = z.infer<typeof CreateUploadRequestSchema>;
+
+/**
+ * Created-upload handle. The client uploads parts 1..total_parts of
+ * `chunk_size` bytes each (the last part may be smaller), echoing `s3_upload_id`
+ * on every subsequent request.
+ */
+export const CreateUploadResponseSchema = z.object({
+  upload_id: z.string().uuid(),
+  s3_upload_id: z.string(),
+  chunk_size: z.number().int().positive(),
+  total_parts: z.number().int().positive(),
+});
+export type CreateUploadResponse = z.infer<typeof CreateUploadResponseSchema>;
+
+/** Part numbers (1-based) already received — used to resume after an interruption. */
+export const UploadStatusResponseSchema = z.object({
+  received_parts: z.array(z.number().int().positive()),
+});
+export type UploadStatusResponse = z.infer<typeof UploadStatusResponseSchema>;
+
+/** Acknowledgement for a single uploaded part. */
+export const UploadPartResponseSchema = z.object({
+  part_number: z.number().int().positive(),
+  received: z.literal(true),
+});
+export type UploadPartResponse = z.infer<typeof UploadPartResponseSchema>;
+
 export const IngestJobListResponseSchema = z.object({
   items: z.array(IngestJobListItemSchema),
   next_cursor: z.string().nullable(),

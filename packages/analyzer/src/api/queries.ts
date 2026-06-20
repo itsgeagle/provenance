@@ -17,6 +17,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, UnauthorizedError } from './client.js';
+import { uploadGradescopeResumable, RESUMABLE_THRESHOLD_BYTES } from './resumable-upload.js';
 import {
   MeResponseSchema,
   CohortListResponseSchema,
@@ -472,8 +473,13 @@ export function useStartGradescopeIngest(semesterId: string) {
     }: {
       file: File;
       onProgress?: (pct: number) => void;
-    }): Promise<GradescopeIngestResponse> =>
-      new Promise((resolve, reject) => {
+    }): Promise<GradescopeIngestResponse> => {
+      // Large exports use the resumable (chunked) path; smaller ones the single
+      // request (which the server streams to disk).
+      if (file.size >= RESUMABLE_THRESHOLD_BYTES) {
+        return uploadGradescopeResumable(semesterId, file, onProgress);
+      }
+      return new Promise((resolve, reject) => {
         const formData = new FormData();
         formData.append('archive', file);
         const xhr = new XMLHttpRequest();
@@ -507,7 +513,8 @@ export function useStartGradescopeIngest(semesterId: string) {
         xhr.open('POST', `${base}/semesters/${semesterId}/ingest:gradescope`);
         xhr.setRequestHeader('Accept', 'application/json');
         xhr.send(formData);
-      }),
+      });
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.ingestJobs(semesterId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.roster(semesterId) });

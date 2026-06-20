@@ -52,6 +52,15 @@ import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
 import { recordPhase } from '../../../jobs/ingest-profile.js';
 import { streamUploadToTempFile } from '../../../services/ingest/stream-upload.js';
 import { ingestLocalPath } from '../../../services/ingest/local-path.js';
+import {
+  createResumableUpload,
+  putResumablePart,
+  listResumablePartNumbers,
+  completeResumableUpload,
+  abortResumableUpload,
+  resolveChunkBytes,
+} from '../../../services/ingest/resumable-upload.js';
+import { CreateUploadRequestSchema } from '@provenance/shared/api-schemas';
 import { projectStudent, maskFilename, protectedLabel } from '../../../services/protect.js';
 
 // ---------------------------------------------------------------------------
@@ -934,6 +943,271 @@ export function createIngestRouter(): Hono {
         },
         202,
       );
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Resumable (chunked) upload — for very large exports over HTTP.
+  //
+  // Backed by an S3/MinIO multipart upload so an interrupted transfer resumes by
+  // re-sending only missing parts (durable across processes/restarts). The
+  // (semesterId, uploadId) pair derives the storage key; the S3 upload id
+  // returned at create is the capability secret echoed on every request.
+  // -------------------------------------------------------------------------
+
+  // POST /semesters/:semesterId/ingest/uploads — begin a resumable upload.
+  router.post(
+    '/semesters/:semesterId/ingest/uploads',
+    rateLimit('write.ingest'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json(Errors.validation([{ error: 'Invalid JSON' }]).toBody(), 400);
+      }
+      const parsed = CreateUploadRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json(Errors.validation(parsed.error.issues).toBody(), 400);
+      }
+      if (parsed.data.total_bytes > cfg.INGEST_MAX_UPLOAD_BYTES) {
+        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_UPLOAD_BYTES).toBody(), 413);
+      }
+
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = crypto.randomUUID();
+      const chunkBytes = resolveChunkBytes(parsed.data.chunk_size);
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      const { s3UploadId, totalParts } = await createResumableUpload(
+        { storageClient },
+        { semesterId, uploadId, totalBytes: parsed.data.total_bytes, chunkBytes },
+      );
+
+      return c.json(
+        {
+          upload_id: uploadId,
+          s3_upload_id: s3UploadId,
+          chunk_size: chunkBytes,
+          total_parts: totalParts,
+        },
+        201,
+      );
+    },
+  );
+
+  // PUT /semesters/:semesterId/ingest/uploads/:uploadId/parts/:partNumber
+  router.put(
+    '/semesters/:semesterId/ingest/uploads/:uploadId/parts/:partNumber',
+    rateLimit('write.ingest_part'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+      const partNumber = parseInt(c.req.param('partNumber')!, 10);
+      const s3UploadId = c.req.query('s3_upload_id');
+
+      if (s3UploadId === undefined || s3UploadId === '') {
+        return c.json(
+          Errors.validation([
+            { field: 's3_upload_id', issue: 'Missing s3_upload_id query param.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      if (isNaN(partNumber) || partNumber < 1) {
+        return c.json(
+          Errors.validation([
+            { field: 'partNumber', issue: 'partNumber must be a positive integer.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      // Bound per-part memory: the part is buffered to compute its SigV4 hash.
+      const clHeader = c.req.header('content-length');
+      if (clHeader !== undefined) {
+        const cl = parseInt(clHeader, 10);
+        if (!isNaN(cl) && cl > 512 * 1024 * 1024 + 4096) {
+          return c.json(Errors.ingestBatchTooLarge(512 * 1024 * 1024).toBody(), 413);
+        }
+      }
+
+      const partBody = await c.req.arrayBuffer();
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      try {
+        await putResumablePart(
+          { storageClient },
+          { semesterId, uploadId, s3UploadId, partNumber, body: partBody },
+        );
+      } catch (err) {
+        return c.json(
+          Errors.validation([
+            {
+              field: 'part',
+              issue: `Failed to store part: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ]).toBody(),
+          400,
+        );
+      }
+
+      return c.json({ part_number: partNumber, received: true }, 200);
+    },
+  );
+
+  // GET /semesters/:semesterId/ingest/uploads/:uploadId/parts — resume status.
+  router.get(
+    '/semesters/:semesterId/ingest/uploads/:uploadId/parts',
+    rateLimit('write.ingest_part'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+      const s3UploadId = c.req.query('s3_upload_id');
+      if (s3UploadId === undefined || s3UploadId === '') {
+        return c.json(
+          Errors.validation([
+            { field: 's3_upload_id', issue: 'Missing s3_upload_id query param.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      try {
+        const received = await listResumablePartNumbers(
+          { storageClient },
+          { semesterId, uploadId, s3UploadId },
+        );
+        return c.json({ received_parts: received }, 200);
+      } catch {
+        // An unknown/aborted upload id has no parts to list.
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+    },
+  );
+
+  // POST /semesters/:semesterId/ingest/uploads/:uploadId/complete — finalize + ingest.
+  router.post(
+    '/semesters/:semesterId/ingest/uploads/:uploadId/complete',
+    rateLimit('write.ingest'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    audit('ingest.start', 'ingest_job', (c) => (c.get('auditDetail')?.['job_id'] as string) ?? ''),
+    async (c) => {
+      const cfg = getConfig();
+      const db = getDb();
+      const principal = c.var.principal!;
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json(Errors.validation([{ error: 'Invalid JSON' }]).toBody(), 400);
+      }
+      const s3UploadId = (body as { s3_upload_id?: unknown })?.s3_upload_id;
+      if (typeof s3UploadId !== 'string' || s3UploadId === '') {
+        return c.json(
+          Errors.validation([{ field: 's3_upload_id', issue: 'Missing s3_upload_id.' }]).toBody(),
+          400,
+        );
+      }
+
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      const result = await completeResumableUpload(
+        { storageClient },
+        {
+          db,
+          semesterId,
+          userId: principal.user.id,
+          uploadId,
+          s3UploadId,
+          maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
+          maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+        },
+      );
+
+      if (!result.ok) {
+        if (result.error === 'too_many_files') {
+          return c.json(
+            Errors.ingestTooManyFiles(
+              cfg.INGEST_MAX_BATCH_FILES + 1,
+              cfg.INGEST_MAX_BATCH_FILES,
+            ).toBody(),
+            400,
+          );
+        }
+        return c.json(
+          Errors.validation([
+            {
+              field: 'archive',
+              issue: `Invalid Gradescope export (${result.error}): ${result.detail}`,
+            },
+          ]).toBody(),
+          400,
+        );
+      }
+
+      const skippedSummary = result.skipped.map((s) => ({
+        folder_key: s.folderKey,
+        reason: s.reason,
+      }));
+
+      if (result.jobId === null) {
+        c.set('auditDetail', {
+          roster_added: result.roster.added,
+          roster_updated: result.roster.updated,
+        });
+        return c.json(
+          {
+            job_id: null,
+            roster: result.roster,
+            bundles_processed: result.bundlesProcessed,
+            submissions_queued: result.submissionsQueued,
+            skipped: skippedSummary,
+          },
+          200,
+        );
+      }
+
+      c.set('auditDetail', { job_id: result.jobId, file_count: result.submissionsQueued });
+      return c.json(
+        {
+          job_id: result.jobId,
+          roster: result.roster,
+          bundles_processed: result.bundlesProcessed,
+          submissions_queued: result.submissionsQueued,
+          skipped: skippedSummary,
+        },
+        202,
+      );
+    },
+  );
+
+  // DELETE /semesters/:semesterId/ingest/uploads/:uploadId — abort.
+  router.delete(
+    '/semesters/:semesterId/ingest/uploads/:uploadId',
+    rateLimit('write.misc'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+      const s3UploadId = c.req.query('s3_upload_id');
+      if (s3UploadId === undefined || s3UploadId === '') {
+        return c.json(
+          Errors.validation([
+            { field: 's3_upload_id', issue: 'Missing s3_upload_id query param.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      await abortResumableUpload({ storageClient }, { semesterId, uploadId, s3UploadId });
+      return c.body(null, 204);
     },
   );
 
