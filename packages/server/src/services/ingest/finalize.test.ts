@@ -270,6 +270,38 @@ describe('finalizeIngestJob (phase 9b)', () => {
     });
   });
 
+  it('refreshes the summary for a cancelled job while keeping status cancelled', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db);
+      const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
+      await markIngestJobRunning(db, jobId);
+
+      // A run that was cancelled mid-flight: one file had already matched, the
+      // rest were discarded by the cooperative-cancel gate in the worker.
+      await seedIngestFile(db, jobId, 'matched', 'f1.zip');
+      await seedIngestFile(db, jobId, 'discarded', 'f2.zip');
+      await seedIngestFile(db, jobId, 'discarded', 'f3.zip');
+
+      // Cancel the job (terminal).
+      await db
+        .update(ingest_jobs)
+        .set({ status: 'cancelled', completed_at: new Date() })
+        .where(eq(ingest_jobs.id, jobId));
+
+      await finalizeIngestJob(db, jobId);
+
+      const [job] = await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId));
+      // Status is preserved — cancel is terminal and never becomes succeeded/partial.
+      expect(job!.status).toBe('cancelled');
+      // ...but the summary now reflects what actually happened.
+      const summary = job!.summary as Record<string, number>;
+      expect(summary['total']).toBe(3);
+      expect(summary['matched']).toBe(1);
+      expect(summary['discarded']).toBe(2);
+    });
+  });
+
   it('sets total=0 and status=succeeded for a job with no files', async () => {
     await withTestDb(async (db) => {
       const user = await seedUser(db);

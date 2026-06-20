@@ -145,14 +145,12 @@ export async function startWorker(): Promise<() => Promise<void>> {
         return;
       }
 
-      // Mark parent job as running (idempotent — only transitions queued→running).
-      await markIngestJobRunning(db, ingestJobId);
-
       // -----------------------------------------------------------------------
-      // Fetch the semester's filename_convention for matchStudent.
+      // Load the parent job up front: we need its status to honor cancellation
+      // before doing any work, and its semester_id for matchStudent below.
       // -----------------------------------------------------------------------
       const jobRows = await db
-        .select({ semester_id: ingest_jobs.semester_id })
+        .select({ status: ingest_jobs.status, semester_id: ingest_jobs.semester_id })
         .from(ingest_jobs)
         .where(eq(ingest_jobs.id, ingestJobId));
 
@@ -161,8 +159,33 @@ export async function startWorker(): Promise<() => Promise<void>> {
         return;
       }
 
-      const semesterId = jobRows[0]!.semester_id;
+      const { status: jobStatus, semester_id: semesterId } = jobRows[0]!;
 
+      // Cooperative-cancellation gate. If the parent job was cancelled while this
+      // file was still queued — or pg-boss replayed the job after a server
+      // restart — do NOT process it. Mark the still-pending file 'discarded' and
+      // bail. This is the single source of truth for cancellation: it covers
+      // queued, in-flight, and restart-replayed jobs in one place. The outer
+      // finally still runs maybeEnqueueFinalize so the job can settle its summary.
+      if (jobStatus === 'cancelled') {
+        logger.info({ ingestFileId, ingestJobId }, 'ingest_file: parent job cancelled, discarding');
+        await db
+          .update(ingest_files)
+          .set({
+            status: 'discarded',
+            error: { phase: 'worker', cause: 'ingest_job_cancelled' },
+            resolved_at: new Date(),
+          })
+          .where(and(eq(ingest_files.id, ingestFileId), eq(ingest_files.status, 'pending')));
+        return;
+      }
+
+      // Mark parent job as running (idempotent — only transitions queued→running).
+      await markIngestJobRunning(db, ingestJobId);
+
+      // -----------------------------------------------------------------------
+      // Fetch the semester's filename_convention for matchStudent.
+      // -----------------------------------------------------------------------
       const semesterRows = await db
         .select({ filename_convention: semesters.filename_convention })
         .from(semesters)

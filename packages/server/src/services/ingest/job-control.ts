@@ -136,8 +136,10 @@ export interface IngestJobSummary {
  *   - 'failed'     — the caller explicitly requests failure (e.g. unrecoverable
  *                    worker error). Use `failIngestJob` for that path instead.
  *
- * Idempotent: silently no-ops if the job is already in a terminal or cancelled
- * state.
+ * Idempotent: silently no-ops if the job is already in an immutable terminal
+ * state (succeeded/partial/failed). For a cancelled job it preserves the
+ * 'cancelled' status and completed_at but refreshes the summary, so the
+ * matched/discarded counts from a cooperative cancel are reflected.
  */
 export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<void> {
   const rows = await db
@@ -151,9 +153,8 @@ export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<v
   }
 
   const job = rows[0]!;
-  // If already terminal or cancelled, leave as-is (idempotent).
-  const terminalStatuses = ['succeeded', 'partial', 'failed', 'cancelled'];
-  if (terminalStatuses.includes(job.status)) {
+  // Immutable terminal states — never recompute (idempotent).
+  if (job.status === 'succeeded' || job.status === 'partial' || job.status === 'failed') {
     return;
   }
 
@@ -195,6 +196,17 @@ export async function finalizeIngestJob(db: DrizzleDb, jobId: string): Promise<v
         break;
       // 'pending' and any unrecognized status: ignored (not counted in named fields).
     }
+  }
+
+  // A cancelled job keeps its terminal status and completed_at; we only refresh
+  // the summary so the matched/discarded counts from a cooperative cancel are
+  // visible to staff. Cancel never becomes succeeded/partial.
+  if (job.status === 'cancelled') {
+    await db
+      .update(ingest_jobs)
+      .set({ summary: summary as unknown as Record<string, unknown> })
+      .where(eq(ingest_jobs.id, jobId));
+    return;
   }
 
   // Determine terminal job status.
