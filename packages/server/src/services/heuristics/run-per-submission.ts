@@ -40,6 +40,7 @@
 
 import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
 import { runHeuristics } from '@provenance/analyzer/src/heuristics/run-heuristics.js';
+import type { EventIndex } from '@provenance/analyzer/src/index/event-index.js';
 import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
 import type { ValidationReport } from '@provenance/analyzer/src/validation/check-types.js';
 import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
@@ -93,6 +94,9 @@ type PerFlagConfig = {
  * @param bundle       - Fully-loaded Bundle value (from parseBundlePhase).
  * @param validationReport - ValidationReport from runValidation (used by
  *                       integrity-flags.ts adapter inside runHeuristics).
+ * @param index        - optional prebuilt EventIndex. The ingest worker builds
+ *                       the index once per submission and shares it across
+ *                       phases; falls back to buildIndex(bundle) when omitted.
  */
 export async function runAndStoreHeuristics(
   db: DrizzleDb,
@@ -100,6 +104,7 @@ export async function runAndStoreHeuristics(
   semesterId: string,
   bundle: Bundle,
   validationReport: ValidationReport,
+  index: EventIndex = buildIndex(bundle),
 ): Promise<void> {
   // -------------------------------------------------------------------------
   // Step 1: Look up the active server-side config for this semester.
@@ -119,9 +124,9 @@ export async function runAndStoreHeuristics(
   const configVersion = activeConfigRow?.version ?? HEURISTIC_CONFIG_VERSION_V0;
 
   // -------------------------------------------------------------------------
-  // Step 2: Build EventIndex from bundle.
+  // Step 2: EventIndex — supplied by the caller (worker shares one across
+  // phases) or built here as a fallback.
   // -------------------------------------------------------------------------
-  const index = buildIndex(bundle);
 
   // -------------------------------------------------------------------------
   // Step 3: Run v2's heuristic suite.

@@ -59,16 +59,20 @@ export async function withTransaction<T>(
 
 let _instance: { sql: postgres.Sql; db: DrizzleDb } | undefined;
 
+function getInstance(): { sql: postgres.Sql; db: DrizzleDb } {
+  if (_instance === undefined) {
+    const cfg = getConfig();
+    _instance = createDb(cfg.DATABASE_URL, cfg.DATABASE_POOL_MAX);
+  }
+  return _instance;
+}
+
 /**
  * Returns the process-lifetime database singleton.
  * Reads DATABASE_URL and DATABASE_POOL_MAX from the env config on first call.
  */
 export function getDb(): DrizzleDb {
-  if (_instance === undefined) {
-    const cfg = getConfig();
-    _instance = createDb(cfg.DATABASE_URL, cfg.DATABASE_POOL_MAX);
-  }
-  return _instance.db;
+  return getInstance().db;
 }
 
 /**

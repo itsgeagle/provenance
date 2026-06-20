@@ -17,7 +17,7 @@ import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
 import { computeStats } from '@provenance/analyzer/src/index/stats.js';
 import { reconstructFileWithProvenance } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
 import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
-import type { IndexedEvent } from '@provenance/analyzer/src/index/event-index.js';
+import type { EventIndex, IndexedEvent } from '@provenance/analyzer/src/index/event-index.js';
 import { per_file_stats } from '../../db/schema.js';
 import { sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';
@@ -39,8 +39,8 @@ export async function computeAndStoreStats(
   db: DrizzleDb,
   submissionId: string,
   bundle: Bundle,
+  index: EventIndex = buildIndex(bundle),
 ): Promise<void> {
-  const index = buildIndex(bundle);
   const bundleStats = computeStats(index);
   if (bundleStats.perFile.size === 0) return;
 

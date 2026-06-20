@@ -57,6 +57,7 @@ import { computeAndStoreStats } from '../services/ingest/stats.js';
 import { runAndStoreValidation } from '../services/ingest/validation.js';
 import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission.js';
 import { withTransaction } from '../db/client.js';
+import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
 import { registerRecomputeHandlers } from './recompute.js';
 import { registerCrossFlagsHandler, enqueueCrossFlagsJob } from './recompute-cross-flags.js';
 import { createRetentionSweepHandler } from './retention-sweep.js';
@@ -391,12 +392,19 @@ export async function startWorker(): Promise<() => Promise<void>> {
         });
       }
 
+      // Lever B: build the chronological index ONCE and share it across the
+      // materialize / stats / heuristics phases (each formerly rebuilt it).
+      // Shortens the transaction below and cuts per-bundle allocation/GC.
+      const index = await timePhase('build_index', () =>
+        Promise.resolve(buildIndex(bundle)),
+      );
+
       try {
         await timePhase('tx_total', () =>
         withTransaction(db, async (tx) => {
           try {
             await timePhase('materialize_events', () =>
-              materializeEvents(tx, submissionResult.submissionId, bundle),
+              materializeEvents(tx, submissionResult.submissionId, bundle, index),
             );
           } catch (e) {
             const cause = e instanceof Error ? e.message : String(e);
@@ -404,7 +412,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
           }
           try {
             await timePhase('compute_stats', () =>
-              computeAndStoreStats(tx, submissionResult.submissionId, bundle),
+              computeAndStoreStats(tx, submissionResult.submissionId, bundle, index),
             );
           } catch (e) {
             const cause = e instanceof Error ? e.message : String(e);
@@ -427,6 +435,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
                 semesterId,
                 bundle,
                 validationReport,
+                index,
               ),
             );
           } catch (e) {
