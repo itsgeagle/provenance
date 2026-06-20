@@ -5,12 +5,17 @@
  * always in production) every entry point is a branch-and-return no-op, so this
  * module imposes no measurable cost on the ingest hot path.
  *
- * When enabled it accumulates per-phase wall-clock time across the (serially
- * processed) bundles of a batch into process-local counters. Because a single
- * worker drains `INGEST_FILE` one job at a time, plain module-level state is a
- * faithful aggregate — there is no cross-bundle concurrency to race on. The
- * `scripts/profile-ingest.ts` harness (and `npm run seed`) dump the table once
- * the batch settles to show where the time went.
+ * When enabled it accumulates per-phase wall-clock time across the bundles of a
+ * batch into process-local counters. The `scripts/profile-ingest.ts` harness
+ * (and `npm run seed`) dump the table once the batch settles to show where the
+ * time went.
+ *
+ * Concurrency caveat: the worker now processes up to INGEST_CONCURRENCY files at
+ * once (pg-boss batch). When concurrency > 1 the per-phase spans of different
+ * bundles OVERLAP, so the summed table OVER-COUNTS relative to wall-clock — read
+ * it as a relative-cost shape, and trust the harness's separately-measured
+ * wall-clock drain for throughput. For a single bundle (`profile:large`, one
+ * job) there is no overlap and the table is exact.
  *
  * This is intentionally NOT wired into Prometheus: it answers "where does a
  * 700-bundle import spend its time", a one-off profiling question, not an
