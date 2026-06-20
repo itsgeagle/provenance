@@ -20,10 +20,15 @@
  *   identical `hashBySaveSeq`. The two paths thus stay in lockstep via tests
  *   rather than via code sharing.
  *
- * Performance: O(deltas × avg_delta_size). The `provenance` array is built
- * as a `number[]` and frozen into a `Uint32Array` at the end (option (a)
- * from the task spec) — dynamic growth on a `number[]` is the cheapest path
- * given the splice-heavy mutation pattern.
+ * Performance: a full reconstruction is O(n) in the number of events for the
+ * common append/local-edit stream (worst case O(n·lines) when edits land mid-
+ * document and shift following line starts). The earlier implementation called
+ * `content.split('\n')` on every position lookup — O(content length) per call,
+ * twice per delta — which made reconstruction O(n²) and dominated ingest on
+ * realistic bundles (see `.notes/ingest-perf-investigation.md`). We now keep an
+ * incrementally-maintained `lineStarts` index so position→offset is O(1), and
+ * mutate the `provenance` array in place rather than rebuilding it per delta.
+ * The `provenance` array is frozen into a `Uint32Array` at the return boundary.
  */
 
 import { diffLines } from 'diff';
@@ -91,26 +96,121 @@ export type FileReplayState = {
 };
 
 // ---------------------------------------------------------------------------
-// String + provenance splice helpers (pure)
+// Incremental line-index model (perf: O(1) position→offset)
+// ---------------------------------------------------------------------------
+//
+// `lineStarts[k]` is the flat offset where line `k` begins. `lineStarts[0]` is
+// always 0 and `lineStarts.length === (number of '\n' in content) + 1`. We
+// maintain it incrementally across edits (never re-scanning the whole content)
+// so converting a (line, character) position to a flat offset is O(1). This is
+// the lever-1 fix for the O(n²) reconstruction: the old `positionToOffset`
+// called `content.split('\n')` on every lookup.
+
+/** Build the line-start index for a content string from scratch (O(content)). */
+function computeLineStarts(content: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < content.length; i++) {
+    if (content.charCodeAt(i) === 10 /* '\n' */) starts.push(i + 1);
+  }
+  return starts;
+}
+
+/** First index `i` in the ascending array `arr` with `arr[i] > value`. */
+function firstIndexAbove(arr: number[], value: number): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (arr[mid]! > value) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+/**
+ * Update `lineStarts` in place to reflect a splice that removed content
+ * `[start, end)` and inserted `inserted` at offset `start`. Mirrors the byte
+ * edit applied to the content string without scanning it.
+ *
+ * Line starts in `(start, end]` correspond to '\n's removed from `[start, end)`
+ * and are dropped; entries strictly past the edit shift by the length delta;
+ * newlines inside `inserted` add fresh entries.
+ */
+function updateLineStarts(
+  lineStarts: number[],
+  start: number,
+  end: number,
+  inserted: string,
+): void {
+  const lenDiff = inserted.length - (end - start);
+  const lo = firstIndexAbove(lineStarts, start);
+  const hi = firstIndexAbove(lineStarts, end);
+  if (lenDiff !== 0) {
+    for (let i = hi; i < lineStarts.length; i++) lineStarts[i] = lineStarts[i]! + lenDiff;
+  }
+  const newStarts: number[] = [];
+  for (let i = 0; i < inserted.length; i++) {
+    if (inserted.charCodeAt(i) === 10) newStarts.push(start + i + 1);
+  }
+  lineStarts.splice(lo, hi - lo, ...newStarts);
+}
+
+/**
+ * Convert a line/character position to a flat string offset against a
+ * maintained `lineStarts` index. Clamps character to the line length and the
+ * result to the content length — byte-identical to the old `split('\n')`-based
+ * `positionToOffset`, but O(1).
+ */
+function offsetAt(content: string, lineStarts: number[], line: number, character: number): number {
+  if (line < 0) return 0;
+  if (line >= lineStarts.length) return content.length;
+  const lineStart = lineStarts[line]!;
+  const lineEnd = line + 1 < lineStarts.length ? lineStarts[line + 1]! - 1 : content.length;
+  const offset = lineStart + Math.min(character, lineEnd - lineStart);
+  return Math.min(offset, content.length);
+}
+
+// ---------------------------------------------------------------------------
+// Mutable replay buffer (content + per-char provenance + line index)
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a line/character position to a flat string offset.
- * Clamps character to the actual line length.
- *
- * Identical algorithm to v1's positionToOffset — kept here to avoid
- * exporting it from v1 (we don't want v1's surface to grow because Phase 12
- * needed a helper).
+ * The running state threaded through one reconstruction. `prov` is kept as a
+ * `number[]` and mutated in place (frozen to a `Uint32Array` at the very end);
+ * `lineStarts` is maintained incrementally. Invariant:
+ * `content.length === prov.length`.
  */
-function positionToOffset(content: string, line: number, character: number): number {
-  const lines = content.split('\n');
-  let offset = 0;
-  for (let l = 0; l < line && l < lines.length; l++) {
-    offset += (lines[l]?.length ?? 0) + 1; // +1 for the '\n'
+type ReplayBuf = {
+  content: string;
+  prov: number[];
+  lineStarts: number[];
+};
+
+/**
+ * Splice `[start, end)` → `replacement` in `buf`, attributing every inserted
+ * character to `globalIdx`. Mutates `content`, `prov`, and `lineStarts` in
+ * place. This is the in-place analogue of `spliceWithProvenance` (which stays
+ * pure for its unit tests).
+ */
+function spliceBuf(
+  buf: ReplayBuf,
+  start: number,
+  end: number,
+  replacement: string,
+  globalIdx: number,
+): void {
+  buf.content = buf.content.slice(0, start) + replacement + buf.content.slice(end);
+  const del = end - start;
+  if (replacement.length === 0) {
+    if (del > 0) buf.prov.splice(start, del);
+  } else if (del === 0 && start === buf.prov.length) {
+    // Append fast-path — avoids materialising + spreading a fill array.
+    for (let i = 0; i < replacement.length; i++) buf.prov.push(globalIdx);
+  } else {
+    const fill = new Array<number>(replacement.length).fill(globalIdx);
+    buf.prov.splice(start, del, ...fill);
   }
-  const targetLine = lines[line] ?? '';
-  offset += Math.min(character, targetLine.length);
-  return Math.min(offset, content.length);
+  updateLineStarts(buf.lineStarts, start, end, replacement);
 }
 
 /**
@@ -151,67 +251,51 @@ export function spliceWithProvenance(
 // ---------------------------------------------------------------------------
 
 /**
- * Apply a doc.change payload's deltas to `(content, provenance)`, attributing
- * every inserted character to `globalIdx`.
+ * Apply a doc.change payload's deltas to `buf`, attributing every inserted
+ * character to `globalIdx`. Returns `true` if at least one delta was applied
+ * (parity with the old reference-inequality check the caller used to decide
+ * whether to record the event in `kindByGlobalIdx`).
  *
  * IMPORTANT: deltas are applied in array order, matching v1's behavior.
  * VS Code emits them in reverse document order so each range is valid
  * against the pre-mutation document state — see v1's `applyDocChange` for
  * the long-form contract note.
  */
-function applyDocChangeWithProvenance(
-  content: string,
-  provenance: number[],
-  payload: unknown,
-  globalIdx: number,
-): { content: string; provenance: number[] } {
-  if (typeof payload !== 'object' || payload === null) return { content, provenance };
+function applyDocChangeBuf(buf: ReplayBuf, payload: unknown, globalIdx: number): boolean {
+  if (typeof payload !== 'object' || payload === null) return false;
   const p = payload as Record<string, unknown>;
   const deltas = p['deltas'];
-  if (!Array.isArray(deltas)) return { content, provenance };
+  if (!Array.isArray(deltas)) return false;
 
-  let curContent = content;
-  let curProv = provenance;
+  let applied = false;
   for (const delta of deltas as DocChangeDelta[]) {
-    const start = positionToOffset(curContent, delta.range.start.line, delta.range.start.character);
-    const end = positionToOffset(curContent, delta.range.end.line, delta.range.end.character);
-    const next = spliceWithProvenance(curContent, curProv, start, end, delta.text, globalIdx);
-    curContent = next.content;
-    curProv = next.provenance;
+    const start = offsetAt(buf.content, buf.lineStarts, delta.range.start.line, delta.range.start.character);
+    const end = offsetAt(buf.content, buf.lineStarts, delta.range.end.line, delta.range.end.character);
+    spliceBuf(buf, start, end, delta.text, globalIdx);
+    applied = true;
   }
-  return { content: curContent, provenance: curProv };
+  return applied;
 }
 
 /**
- * Apply a paste payload to `(content, provenance)`. Returns `applied: false`
- * for large pastes that lack the inline `content` field — caller decides how
- * to handle (we clear content + provenance for parity with v1's taint reset).
+ * Apply a paste payload to `buf`. Returns `false` for large pastes that lack
+ * the inline `content` field — caller clears content + provenance for parity
+ * with v1's taint reset.
  */
-function applyPasteWithProvenance(
-  content: string,
-  provenance: number[],
-  payload: unknown,
-  globalIdx: number,
-): { content: string; provenance: number[]; applied: boolean } {
-  if (typeof payload !== 'object' || payload === null) {
-    return { content, provenance, applied: false };
-  }
+function applyPasteBuf(buf: ReplayBuf, payload: unknown, globalIdx: number): boolean {
+  if (typeof payload !== 'object' || payload === null) return false;
   const p = payload as Record<string, unknown>;
 
-  if (typeof p['content'] !== 'string') {
-    return { content, provenance, applied: false };
-  }
+  if (typeof p['content'] !== 'string') return false;
   const rangeRaw = p['range'];
-  if (typeof rangeRaw !== 'object' || rangeRaw === null) {
-    return { content, provenance, applied: false };
-  }
+  if (typeof rangeRaw !== 'object' || rangeRaw === null) return false;
   const range = rangeRaw as Range;
   const text = p['content'] as string;
 
-  const start = positionToOffset(content, range.start.line, range.start.character);
-  const end = positionToOffset(content, range.end.line, range.end.character);
-  const next = spliceWithProvenance(content, provenance, start, end, text, globalIdx);
-  return { content: next.content, provenance: next.provenance, applied: true };
+  const start = offsetAt(buf.content, buf.lineStarts, range.start.line, range.start.character);
+  const end = offsetAt(buf.content, buf.lineStarts, range.end.line, range.end.character);
+  spliceBuf(buf, start, end, text, globalIdx);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,8 +331,7 @@ export function reconstructFileWithProvenance(
   filePath: string,
   upToGlobalIdx?: number,
 ): FileReplayState {
-  let content = '';
-  let provenance: number[] = [];
+  const buf: ReplayBuf = { content: '', prov: [], lineStarts: [0] };
   const kindByGlobalIdx = new Map<number, ProvenanceKind>();
   const hashBySaveSeq = new Map<string, string>();
 
@@ -272,8 +355,9 @@ export function reconstructFileWithProvenance(
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
           const initialText = p['content'];
-          content = initialText;
-          provenance = Array.from({ length: initialText.length }, () => e.globalIdx);
+          buf.content = initialText;
+          buf.prov = Array.from({ length: initialText.length }, () => e.globalIdx);
+          buf.lineStarts = computeLineStarts(initialText);
           // Clear all stale entries from before this re-seed. Subsequent
           // reconstruction will repopulate kindByGlobalIdx with only the events
           // that actually contribute to the current file state.
@@ -287,8 +371,8 @@ export function reconstructFileWithProvenance(
         break;
 
       case 'doc.change': {
-        const next = applyDocChangeWithProvenance(content, provenance, e.payload, e.globalIdx);
-        if (next.content !== content || next.provenance !== provenance) {
+        const applied = applyDocChangeBuf(buf, e.payload, e.globalIdx);
+        if (applied) {
           // Recorder v1.2 broadened the paste classifier (PRD §4.3): multi-
           // delta WorkspaceEdits and large replacement edits arrive as
           // `doc.change` events with `source: "paste_likely" |
@@ -307,23 +391,20 @@ export function reconstructFileWithProvenance(
             source === 'paste_likely' || source === 'paste_confirmed' ? 'paste' : 'typed';
           kindByGlobalIdx.set(e.globalIdx, provenanceKind);
         }
-        content = next.content;
-        provenance = next.provenance;
         break;
       }
 
       case 'paste': {
-        const next = applyPasteWithProvenance(content, provenance, e.payload, e.globalIdx);
-        if (next.applied) {
+        const applied = applyPasteBuf(buf, e.payload, e.globalIdx);
+        if (applied) {
           kindByGlobalIdx.set(e.globalIdx, 'paste');
-          content = next.content;
-          provenance = next.provenance;
         } else {
           // Large paste (> 4 KB, no inline content) — clear both. We do NOT
           // attribute the cleared state to the paste event in
           // kindByGlobalIdx because there are no characters to attribute.
-          content = '';
-          provenance = [];
+          buf.content = '';
+          buf.prov = [];
+          buf.lineStarts = [0];
         }
         break;
       }
@@ -351,8 +432,9 @@ export function reconstructFileWithProvenance(
         kindByGlobalIdx.set(e.globalIdx, 'external_change');
 
         if (operation === 'delete' || newContent === null) {
-          content = '';
-          provenance = [];
+          buf.content = '';
+          buf.prov = [];
+          buf.lineStarts = [0];
           break;
         }
 
@@ -362,7 +444,7 @@ export function reconstructFileWithProvenance(
         // (For 'create' the prior state is typically '', so diffLines
         // yields a single added hunk → whole file attributed to the
         // event, which is the right semantic.)
-        const hunks = diffLines(content, newContent);
+        const hunks = diffLines(buf.content, newContent);
         const newProv: number[] = [];
         let oldOffset = 0;
         for (const hunk of hunks) {
@@ -375,18 +457,19 @@ export function reconstructFileWithProvenance(
             for (let i = 0; i < len; i++) newProv.push(e.globalIdx);
           } else {
             // Unchanged characters — copy provenance verbatim. Defensive
-            // bounds guard: if `provenance` is shorter than expected
-            // (shouldn't happen given the invariant content.length ===
-            // provenance.length, but cheap to handle), fall back to the
-            // event's globalIdx for any tail positions.
+            // bounds guard: if `prov` is shorter than expected (shouldn't
+            // happen given the invariant content.length === prov.length, but
+            // cheap to handle), fall back to the event's globalIdx for any
+            // tail positions.
             for (let i = 0; i < len; i++) {
-              newProv.push(provenance[oldOffset + i] ?? e.globalIdx);
+              newProv.push(buf.prov[oldOffset + i] ?? e.globalIdx);
             }
             oldOffset += len;
           }
         }
-        content = newContent;
-        provenance = newProv;
+        buf.content = newContent;
+        buf.prov = newProv;
+        buf.lineStarts = computeLineStarts(newContent);
         break;
       }
 
@@ -404,8 +487,8 @@ export function reconstructFileWithProvenance(
   }
 
   return {
-    content,
-    provenance: Uint32Array.from(provenance),
+    content: buf.content,
+    provenance: Uint32Array.from(buf.prov),
     kindByGlobalIdx,
     hashBySaveSeq,
   };

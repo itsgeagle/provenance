@@ -143,6 +143,115 @@ export function applyPaste(
 }
 
 // ---------------------------------------------------------------------------
+// Incremental line-index model (perf)
+// ---------------------------------------------------------------------------
+//
+// `reconstructFile` replays a file's whole event stream. The exported
+// `applyDocChange` / `applyPaste` helpers above keep a pure `(content,
+// payload)` signature for their unit tests, but they re-split the content on
+// every position lookup — O(content) per call, which makes a full
+// reconstruction O(n²) in the number of events. The hot loop below instead
+// threads a small mutable buffer that maintains `lineStarts` incrementally,
+// so each position→offset lookup is O(1). See `.notes/ingest-perf-
+// investigation.md` and the matching model in `reconstruct-file-provenance.ts`
+// (kept in lockstep via the parity tests).
+
+/** Build the line-start index for a content string from scratch (O(content)). */
+function computeLineStarts(content: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < content.length; i++) {
+    if (content.charCodeAt(i) === 10 /* '\n' */) starts.push(i + 1);
+  }
+  return starts;
+}
+
+/** First index `i` in the ascending array `arr` with `arr[i] > value`. */
+function firstIndexAbove(arr: number[], value: number): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (arr[mid]! > value) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+/**
+ * Update `lineStarts` in place to reflect a splice that removed `[start, end)`
+ * and inserted `inserted` at `start`. Mirrors the byte edit without scanning
+ * the content.
+ */
+function updateLineStarts(
+  lineStarts: number[],
+  start: number,
+  end: number,
+  inserted: string,
+): void {
+  const lenDiff = inserted.length - (end - start);
+  const lo = firstIndexAbove(lineStarts, start);
+  const hi = firstIndexAbove(lineStarts, end);
+  if (lenDiff !== 0) {
+    for (let i = hi; i < lineStarts.length; i++) lineStarts[i] = lineStarts[i]! + lenDiff;
+  }
+  const newStarts: number[] = [];
+  for (let i = 0; i < inserted.length; i++) {
+    if (inserted.charCodeAt(i) === 10) newStarts.push(start + i + 1);
+  }
+  lineStarts.splice(lo, hi - lo, ...newStarts);
+}
+
+/** O(1) line/character → flat offset against a maintained `lineStarts` index. */
+function offsetAt(content: string, lineStarts: number[], line: number, character: number): number {
+  if (line < 0) return 0;
+  if (line >= lineStarts.length) return content.length;
+  const lineStart = lineStarts[line]!;
+  const lineEnd = line + 1 < lineStarts.length ? lineStarts[line + 1]! - 1 : content.length;
+  const offset = lineStart + Math.min(character, lineEnd - lineStart);
+  return Math.min(offset, content.length);
+}
+
+/** Running content + line index threaded through one reconstruction. */
+type ContentBuf = { content: string; lineStarts: number[] };
+
+/** Splice `[start, end)` → `replacement` in `buf`, maintaining the line index. */
+function spliceContent(buf: ContentBuf, start: number, end: number, replacement: string): void {
+  buf.content = buf.content.slice(0, start) + replacement + buf.content.slice(end);
+  updateLineStarts(buf.lineStarts, start, end, replacement);
+}
+
+/** Apply a doc.change payload's deltas to `buf` (in-place analogue of applyDocChange). */
+function applyDocChangeBuf(buf: ContentBuf, payload: unknown): void {
+  if (typeof payload !== 'object' || payload === null) return;
+  const p = payload as Record<string, unknown>;
+  const deltas = p['deltas'];
+  if (!Array.isArray(deltas)) return;
+  for (const delta of deltas as DocChangeDelta[]) {
+    const start = offsetAt(buf.content, buf.lineStarts, delta.range.start.line, delta.range.start.character);
+    const end = offsetAt(buf.content, buf.lineStarts, delta.range.end.line, delta.range.end.character);
+    spliceContent(buf, start, end, delta.text);
+  }
+}
+
+/**
+ * Apply a paste payload to `buf` (in-place analogue of applyPaste). Returns
+ * `false` for large pastes with no inline `content` — caller taints.
+ */
+function applyPasteBuf(buf: ContentBuf, payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  if (typeof p['content'] !== 'string') return false;
+  const rangeRaw = p['range'];
+  if (typeof rangeRaw !== 'object' || rangeRaw === null) return false;
+  const range = rangeRaw as Range;
+  const text = p['content'] as string;
+  const start = offsetAt(buf.content, buf.lineStarts, range.start.line, range.start.character);
+  const end = offsetAt(buf.content, buf.lineStarts, range.end.line, range.end.character);
+  spliceContent(buf, start, end, text);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // reconstructFile
 // ---------------------------------------------------------------------------
 
@@ -177,7 +286,7 @@ export function reconstructFile(
   filePath: string,
   upToGlobalIdx?: number,
 ): ReconstructResult {
-  let content = '';
+  const buf: ContentBuf = { content: '', lineStarts: [0] };
   const hashBySaveSeq = new Map<string, string>();
   let tainted = false;
   const taintReasons: TaintEntry[] = [];
@@ -188,8 +297,6 @@ export function reconstructFile(
     // upToGlobalIdx is exclusive: stop before processing this event.
     if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
 
-    // v2 extension point: after the switch, Phase 12's provenance-tracked
-    // loop will update a per-character attribution array here.
     switch (e.kind) {
       case 'doc.open': {
         // Recorder v1.1+ includes the file's initial content in the payload
@@ -200,7 +307,8 @@ export function reconstructFile(
         // recover initial content and reconstruction starts from ''.
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
-          content = p['content'];
+          buf.content = p['content'];
+          buf.lineStarts = computeLineStarts(buf.content);
         }
         break;
       }
@@ -211,20 +319,19 @@ export function reconstructFile(
 
       case 'doc.change':
         if (!tainted) {
-          content = applyDocChange(content, e.payload);
+          applyDocChangeBuf(buf, e.payload);
         }
         break;
 
       case 'paste': {
         if (!tainted) {
-          const result = applyPaste(content, e.payload);
-          if (result.applied) {
-            content = result.content;
-          } else {
+          const applied = applyPasteBuf(buf, e.payload);
+          if (!applied) {
             // Large paste (> 4 KB, no inline content) — taint.
             tainted = true;
             taintReasons.push({ globalIdx: e.globalIdx, reason: 'large_paste' });
-            content = '';
+            buf.content = '';
+            buf.lineStarts = [0];
           }
         }
         break;
@@ -247,9 +354,11 @@ export function reconstructFile(
         taintReasons.push({ globalIdx: e.globalIdx, reason: 'fs_external_change' });
         if (operation === 'delete' || newContent === null) {
           tainted = true;
-          content = '';
+          buf.content = '';
+          buf.lineStarts = [0];
         } else {
-          content = newContent;
+          buf.content = newContent;
+          buf.lineStarts = computeLineStarts(newContent);
         }
         break;
       }
@@ -268,5 +377,5 @@ export function reconstructFile(
     }
   }
 
-  return { content, hashBySaveSeq, tainted, taintReasons };
+  return { content: buf.content, hashBySaveSeq, tainted, taintReasons };
 }

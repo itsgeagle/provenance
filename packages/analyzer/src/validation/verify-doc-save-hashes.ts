@@ -44,33 +44,66 @@ import type { ValidationCheck } from './check-types.js';
 // ---------------------------------------------------------------------------
 // String content model helpers
 // ---------------------------------------------------------------------------
+//
+// Position→offset is resolved against an incrementally-maintained line-start
+// index rather than re-splitting the content on every lookup. The old
+// `split('\n')`-per-call made this check O(n²) in the number of events; see
+// `.notes/ingest-perf-investigation.md`. Kept in lockstep with the same model
+// in `src/index/reconstruct-file.ts`.
 
-/** Convert a line/character position to a flat string offset. */
-function positionToOffset(content: string, line: number, character: number): number {
-  const lines = content.split('\n');
-  let offset = 0;
-  for (let l = 0; l < line && l < lines.length; l++) {
-    // +1 for the '\n' separator
-    offset += (lines[l]?.length ?? 0) + 1;
+/** Build the line-start index for a content string from scratch (O(content)). */
+function computeLineStarts(content: string): number[] {
+  const starts = [0];
+  for (let i = 0; i < content.length; i++) {
+    if (content.charCodeAt(i) === 10 /* '\n' */) starts.push(i + 1);
   }
-  // Clamp character to the actual line length.
-  const targetLine = lines[line] ?? '';
-  offset += Math.min(character, targetLine.length);
+  return starts;
+}
+
+/** First index `i` in the ascending array `arr` with `arr[i] > value`. */
+function firstIndexAbove(arr: number[], value: number): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (arr[mid]! > value) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+/**
+ * Update `lineStarts` in place to reflect a splice that removed `[start, end)`
+ * and inserted `inserted` at `start`. Mirrors the byte edit without scanning
+ * the content.
+ */
+function updateLineStarts(
+  lineStarts: number[],
+  start: number,
+  end: number,
+  inserted: string,
+): void {
+  const lenDiff = inserted.length - (end - start);
+  const lo = firstIndexAbove(lineStarts, start);
+  const hi = firstIndexAbove(lineStarts, end);
+  if (lenDiff !== 0) {
+    for (let i = hi; i < lineStarts.length; i++) lineStarts[i] = lineStarts[i]! + lenDiff;
+  }
+  const newStarts: number[] = [];
+  for (let i = 0; i < inserted.length; i++) {
+    if (inserted.charCodeAt(i) === 10) newStarts.push(start + i + 1);
+  }
+  lineStarts.splice(lo, hi - lo, ...newStarts);
+}
+
+/** O(1) line/character → flat offset against a maintained `lineStarts` index. */
+function offsetAt(content: string, lineStarts: number[], line: number, character: number): number {
+  if (line < 0) return 0;
+  if (line >= lineStarts.length) return content.length;
+  const lineStart = lineStarts[line]!;
+  const lineEnd = line + 1 < lineStarts.length ? lineStarts[line + 1]! - 1 : content.length;
+  const offset = lineStart + Math.min(character, lineEnd - lineStart);
   return Math.min(offset, content.length);
-}
-
-/** Apply a single DocChangeDelta to a content string. */
-function applyDelta(content: string, delta: DocChangeDelta): string {
-  const start = positionToOffset(content, delta.range.start.line, delta.range.start.character);
-  const end = positionToOffset(content, delta.range.end.line, delta.range.end.character);
-  return content.slice(0, start) + delta.text + content.slice(end);
-}
-
-/** Apply a paste to a content string given a target Range and text. */
-function applyPaste(content: string, range: Range, text: string): string {
-  const start = positionToOffset(content, range.start.line, range.start.character);
-  const end = positionToOffset(content, range.end.line, range.end.character);
-  return content.slice(0, start) + text + content.slice(end);
 }
 
 // ---------------------------------------------------------------------------
@@ -79,12 +112,35 @@ function applyPaste(content: string, range: Range, text: string): string {
 
 type FileState = {
   content: string;
+  /** Incrementally-maintained line-start index for `content`. Invariant:
+   *  `lineStarts[0] === 0` and stays consistent with `content`. */
+  lineStarts: number[];
   /** True if a large paste (> 4 KB, no inline content) was seen since the
    *  last verified save. Content reconstruction is unreliable past this point. */
   indeterminate: boolean;
   /** True if a fs.external_change was seen since the last save. */
   externalChangeSinceSave: boolean;
 };
+
+/** Splice `[start, end)` → `replacement` in `state`, maintaining the line index. */
+function spliceFileState(state: FileState, start: number, end: number, replacement: string): void {
+  state.content = state.content.slice(0, start) + replacement + state.content.slice(end);
+  updateLineStarts(state.lineStarts, start, end, replacement);
+}
+
+/** Apply a single DocChangeDelta to `state`. */
+function applyDelta(state: FileState, delta: DocChangeDelta): void {
+  const start = offsetAt(state.content, state.lineStarts, delta.range.start.line, delta.range.start.character);
+  const end = offsetAt(state.content, state.lineStarts, delta.range.end.line, delta.range.end.character);
+  spliceFileState(state, start, end, delta.text);
+}
+
+/** Apply a paste to `state` given a target Range and text. */
+function applyPaste(state: FileState, range: Range, text: string): void {
+  const start = offsetAt(state.content, state.lineStarts, range.start.line, range.start.character);
+  const end = offsetAt(state.content, state.lineStarts, range.end.line, range.end.character);
+  spliceFileState(state, start, end, text);
+}
 
 // ---------------------------------------------------------------------------
 // Main check
@@ -112,6 +168,7 @@ function checkSession(
     if (!state) {
       state = {
         content: '',
+        lineStarts: [0],
         indeterminate: false,
         externalChangeSinceSave: false,
       };
@@ -137,6 +194,7 @@ function checkSession(
         const state = getOrCreate(data.path);
         if (typeof data.content === 'string') {
           state.content = data.content;
+          state.lineStarts = computeLineStarts(data.content);
           state.indeterminate = false;
         } else {
           state.indeterminate = true;
@@ -150,7 +208,7 @@ function checkSession(
         if (!state.indeterminate) {
           // Apply each delta in order.
           for (const delta of data.deltas) {
-            state.content = applyDelta(state.content, delta);
+            applyDelta(state, delta);
           }
         }
         break;
@@ -169,7 +227,7 @@ function checkSession(
 
         if (data.content !== undefined) {
           // Inline paste — apply it.
-          state.content = applyPaste(state.content, data.range, data.content);
+          applyPaste(state, data.range, data.content);
         } else {
           // Large paste: content not available inline. Reconstruction is no
           // longer possible until the next verified anchor.
@@ -197,6 +255,7 @@ function checkSession(
           // anchors us.
           state.externalChangeSinceSave = false;
           state.content = ''; // We don't know the new content, but mark as fresh anchor
+          state.lineStarts = [0];
           // We can't reconstruct from here either without knowing content.
           state.indeterminate = true;
           break;
