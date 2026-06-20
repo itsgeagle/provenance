@@ -47,6 +47,7 @@ import {
   failIngestJob,
 } from '../services/ingest/job-control.js';
 import { recordIngestJobTerminal } from '../api/middleware/metrics.js';
+import { timePhase, recordPhase, dumpProfile } from './ingest-profile.js';
 import { dedupFile } from '../services/ingest/dedup.js';
 import { parseBundlePhase } from '../services/ingest/parse-bundle-phase.js';
 import { matchStudent, type MatchStudentResult } from '../services/ingest/match-student.js';
@@ -123,6 +124,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
     logger.info({ ingestFileId, ingestJobId }, 'ingest_file: started');
 
+    const handlerStart = performance.now();
     try {
       // -----------------------------------------------------------------------
       // Look up the ingest_files row.
@@ -246,11 +248,10 @@ export async function startWorker(): Promise<() => Promise<void>> {
       // Hinted (Gradescope) files dedup per (semester, student, blob); normal
       // files dedup per (semester, blob). See dedupFile docs.
       // -----------------------------------------------------------------------
-      const dedupResult = await dedupFile(
-        db,
-        semesterId,
-        fileRow.blob_sha256,
-        hintedStudentId ?? undefined,
+      recordPhase('setup:db_lookups', performance.now() - handlerStart);
+
+      const dedupResult = await timePhase('dedup', () =>
+        dedupFile(db, semesterId, fileRow.blob_sha256, hintedStudentId ?? undefined),
       );
 
       if (dedupResult.isDuplicate) {
@@ -272,10 +273,8 @@ export async function startWorker(): Promise<() => Promise<void>> {
       // Phase 3: Parse bundle
       // -----------------------------------------------------------------------
       const stagingKey = ingestStagingKey(ingestJobId, ingestFileId);
-      const parsedResult = await parseBundlePhase(
-        storageClient,
-        stagingKey,
-        fileRow.original_filename,
+      const parsedResult = await timePhase('parse_bundle', () =>
+        parseBundlePhase(storageClient, stagingKey, fileRow.original_filename),
       );
 
       if (!parsedResult.ok) {
@@ -316,12 +315,14 @@ export async function startWorker(): Promise<() => Promise<void>> {
               assignmentIdStr: bundle.manifest.assignment_id,
               filenameCapture: { sid: hintSid },
             }
-          : await matchStudent(
-              semesterId,
-              filenameConvention,
-              fileRow.original_filename,
-              bundle.manifest,
-              rosterResolver,
+          : await timePhase('match_student', () =>
+              matchStudent(
+                semesterId,
+                filenameConvention,
+                fileRow.original_filename,
+                bundle.manifest,
+                rosterResolver,
+              ),
             );
 
       if (!matchResult.matched) {
@@ -349,19 +350,21 @@ export async function startWorker(): Promise<() => Promise<void>> {
       const recorderVersion = '';
       const formatVersion = bundle.manifest.format_version;
 
-      const submissionResult = await createSubmission(
-        { db, storageClient },
-        {
-          semesterId,
-          assignmentIdStr,
-          studentId,
-          blobSha256: fileRow.blob_sha256,
-          stagingKey,
-          originalFilename: fileRow.original_filename,
-          ingestJobId,
-          recorderVersion,
-          formatVersion,
-        },
+      const submissionResult = await timePhase('create_submission', () =>
+        createSubmission(
+          { db, storageClient },
+          {
+            semesterId,
+            assignmentIdStr,
+            studentId,
+            blobSha256: fileRow.blob_sha256,
+            stagingKey,
+            originalFilename: fileRow.original_filename,
+            ingestJobId,
+            recorderVersion,
+            formatVersion,
+          },
+        ),
       );
 
       // The supersede loop runs OUTSIDE the transaction below.
@@ -378,46 +381,53 @@ export async function startWorker(): Promise<() => Promise<void>> {
         // Update older submissions' ingest_files rows to 'superseded'.
         // Note: older ingest_files rows may be from a different ingest_job,
         // so we look them up by submission_id.
-        for (const oldSubId of submissionResult.supersededIds) {
-          await db
-            .update(ingest_files)
-            .set({ status: 'superseded' })
-            .where(eq(ingest_files.submission_id, oldSubId));
-        }
+        await timePhase('supersede', async () => {
+          for (const oldSubId of submissionResult.supersededIds) {
+            await db
+              .update(ingest_files)
+              .set({ status: 'superseded' })
+              .where(eq(ingest_files.submission_id, oldSubId));
+          }
+        });
       }
 
       try {
-        await withTransaction(db, async (tx) => {
+        await timePhase('tx_total', () =>
+        withTransaction(db, async (tx) => {
           try {
-            await materializeEvents(tx, submissionResult.submissionId, bundle);
+            await timePhase('materialize_events', () =>
+              materializeEvents(tx, submissionResult.submissionId, bundle),
+            );
           } catch (e) {
             const cause = e instanceof Error ? e.message : String(e);
             throw Object.assign(new Error(cause), { phase: 'materialize_events' as const });
           }
           try {
-            await computeAndStoreStats(tx, submissionResult.submissionId, bundle);
+            await timePhase('compute_stats', () =>
+              computeAndStoreStats(tx, submissionResult.submissionId, bundle),
+            );
           } catch (e) {
             const cause = e instanceof Error ? e.message : String(e);
             throw Object.assign(new Error(cause), { phase: 'compute_stats' as const });
           }
           let validationReport;
           try {
-            validationReport = await runAndStoreValidation(
-              tx,
-              submissionResult.submissionId,
-              bundle,
+            validationReport = await timePhase('run_validation', () =>
+              runAndStoreValidation(tx, submissionResult.submissionId, bundle),
             );
           } catch (e) {
             const cause = e instanceof Error ? e.message : String(e);
             throw Object.assign(new Error(cause), { phase: 'run_validation' as const });
           }
           try {
-            await runAndStoreHeuristics(
-              tx,
-              submissionResult.submissionId,
-              semesterId,
-              bundle,
-              validationReport,
+            await timePhase('run_heuristics', () =>
+              runAndStoreHeuristics(
+                tx,
+                submissionResult.submissionId,
+                semesterId,
+                bundle,
+                validationReport,
+              ),
             );
           } catch (e) {
             const cause = e instanceof Error ? e.message : String(e);
@@ -434,7 +444,8 @@ export async function startWorker(): Promise<() => Promise<void>> {
               resolved_at: new Date(),
             })
             .where(eq(ingest_files.id, ingestFileId));
-        });
+        }),
+        );
       } catch (err) {
         const cause = err instanceof Error ? err.message : String(err);
         const phase =
@@ -490,6 +501,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
         // Best-effort — do not re-throw from the error handler.
       }
     } finally {
+      recordPhase('handler_total', performance.now() - handlerStart);
       // Always check if we're the last pending file, even on error.
       try {
         await maybeEnqueueFinalize(boss, db, ingestJobId);
@@ -532,6 +544,10 @@ export async function startWorker(): Promise<() => Promise<void>> {
         }
 
         logger.info({ ingestJobId }, 'ingest_finalize: completed');
+
+        // Dev profiling (INGEST_PROFILE=1): the batch's per-file work is done by
+        // the time finalize runs, so dump the accumulated per-phase table.
+        dumpProfile((msg) => logger.info({ profile: true }, msg));
 
         // Enqueue cross-flag recompute for the semester (Phase 14).
         // Look up semesterId from the ingest_job row.

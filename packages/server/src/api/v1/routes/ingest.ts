@@ -49,6 +49,7 @@ import {
 import { stageBlob } from '../../../services/ingest/stage-blob.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
 import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
+import { recordPhase } from '../../../jobs/ingest-profile.js';
 import { parseGradescopeExport } from '../../../services/ingest/gradescope/parse-export.js';
 import { upsertRosterFromSubmitters } from '../../../services/ingest/gradescope/upsert-roster.js';
 import { projectStudent, maskFilename, protectedLabel } from '../../../services/protect.js';
@@ -531,7 +532,9 @@ export function createIngestRouter(): Hono {
 
       // Parse the export: roster submitters + rebuilt bundles + skipped folders.
       const buffer = await archive.arrayBuffer();
+      const parseExportStart = performance.now();
       const parsed = await parseGradescopeExport(buffer);
+      recordPhase('upload:parse_export', performance.now() - parseExportStart);
       if (!parsed.ok) {
         return c.json(
           Errors.validation([
@@ -593,6 +596,7 @@ export function createIngestRouter(): Hono {
       const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
       const storageClient = createStorageClient(storageConfigFromEnv(cfg));
 
+      const stageBlobsStart = performance.now();
       try {
         for (const f of toStage) {
           const fileId = crypto.randomUUID();
@@ -616,12 +620,15 @@ export function createIngestRouter(): Hono {
         throw stagingErr;
       }
 
+      recordPhase('upload:stage_blobs', performance.now() - stageBlobsStart);
+
       const boss = await getBoss();
       const stagedFileIds = await db
         .select({ id: ingest_files.id })
         .from(ingest_files)
         .where(eq(ingest_files.ingest_job_id, jobId));
 
+      const enqueueStart = performance.now();
       for (const { id: ingestFileId } of stagedFileIds) {
         await boss.send(
           JOB_KINDS.INGEST_FILE,
@@ -629,6 +636,7 @@ export function createIngestRouter(): Hono {
           { retryLimit: 3 },
         );
       }
+      recordPhase('upload:enqueue', performance.now() - enqueueStart);
 
       c.set('auditDetail', { job_id: jobId, file_count: toStage.length });
 

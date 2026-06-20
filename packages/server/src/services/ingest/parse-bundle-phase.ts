@@ -17,6 +17,7 @@
 
 import { getBlob } from '../storage/blobs.js';
 import type { StorageClient } from '../storage/client.js';
+import { recordPhase } from '../../jobs/ingest-profile.js';
 import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
 import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
 import type { LoaderError, SessionParseError } from '@provenance/analyzer/src/loader/types.js';
@@ -66,6 +67,7 @@ export async function parseBundlePhase(
   // -------------------------------------------------------------------------
   // Step 1: Read blob from object storage.
   // -------------------------------------------------------------------------
+  const blobReadStart = performance.now();
   let blobStream: ReadableStream<Uint8Array>;
   try {
     blobStream = await getBlob(storageClient, blobKey);
@@ -97,10 +99,12 @@ export async function parseBundlePhase(
     const detail = err instanceof Error ? err.message : String(err);
     return { ok: false, phase: 'parse_bundle', cause: 'blob_read_failed', detail };
   }
+  recordPhase('parse:blob_read', performance.now() - blobReadStart);
 
   // -------------------------------------------------------------------------
-  // Step 2: Parse via analyzer loader.
+  // Step 2: Parse via analyzer loader (unzip + JCS hash chain + ed25519 verify).
   // -------------------------------------------------------------------------
+  const loadStart = performance.now();
   let parseResult: Awaited<ReturnType<typeof loadBundle>>;
   try {
     parseResult = await loadBundle(blobBuffer, originalFilename);
@@ -109,6 +113,7 @@ export async function parseBundlePhase(
     const detail = err instanceof Error ? err.message : String(err);
     return { ok: false, phase: 'parse_bundle', cause: 'loader_threw', detail };
   }
+  recordPhase('parse:load+crypto', performance.now() - loadStart);
 
   if (!parseResult.ok) {
     const detail = errorDetail(parseResult.error);
