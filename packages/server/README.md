@@ -292,18 +292,17 @@ allowlist). Defaults to the "700 large bundles" scenario (700 students × 50,000
 
 ```bash
 npm run gen:fixture --workspace=packages/server
-npm run gen:fixture --workspace=packages/server -- --students 700 --events 50000 --shard 200
+npm run gen:fixture --workspace=packages/server -- --students 700 --events 50000 --out /tmp/fix.zip
 ```
 
 It is memory-safe by construction: each bundle is built, written to a staging directory,
-and released before the next, and shards are packaged with the streaming system `zip`
-(never a whole-export JSZip in memory). `--shard N` splits the output into separate zips
-of ≤N students; `--shard 0` forces a single zip. To **ingest** a single large fixture,
-generate it with `--shard 0` and load it via [`npm run ingest:local`](#ingesting-submissions)
-(local-path ingest streams it from disk; a multi-GB single upload would otherwise exceed
-the in-memory upload limit). The fixture's sids are `200001..200000+N` and its assignment
-is `hw10` — the target semester's roster and assignment must match (or use the Gradescope
-path, which upserts the roster from the export metadata automatically).
+and released before the next, then the staging tree is packaged with the streaming system
+`zip` (never a whole-export JSZip in memory). The result is one large export ZIP — ingest
+it via [`npm run ingest:local`](#ingesting-submissions) (reads it straight from disk), or
+upload it through the analyzer (the upload is streamed/resumable, so a multi-GB single
+file is fine). The fixture's sids are `200001..200000+N` and its assignment is `hw10` —
+the target semester's roster and assignment must match (or use the Gradescope path, which
+upserts the roster from the export metadata automatically).
 
 ### `profile:ingest` / `profile:large` — pipeline profiling
 
