@@ -6,7 +6,11 @@
  * Index hints (trust Postgres, no EXPLAIN tests per V35):
  *   - kind + t_from/t_to  → events_sub_kind_t_idx (submission_id, kind, t)
  *   - t_from/t_to only    → events_sub_t_idx (submission_id, t)
- *   - session_id          → events_sub_session_seq_idx (submission_id, session_id, seq)
+ *   - session_id          → PK (submission_id, seq) scan with a residual
+ *       session_id filter. The dedicated (submission_id, session_id, seq) index
+ *       was dropped (migration 0017) to cut ingest index-maintenance cost; the
+ *       PK already yields seq order, so this only over-reads other sessions —
+ *       cheap for the typical 1–3-session submission.
  *   - seq_from/seq_to     → PK (submission_id, seq)
  *   - file (payload->>'path')  → NO covering index; documented cost below
  *

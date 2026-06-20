@@ -594,7 +594,12 @@ export const events = pgTable(
     primaryKey({ columns: [t.submission_id, t.seq] }),
     index('events_sub_kind_t_idx').on(t.submission_id, t.kind, t.t),
     index('events_sub_t_idx').on(t.submission_id, t.t),
-    index('events_sub_session_seq_idx').on(t.submission_id, t.session_id, t.seq),
+    // NOTE: the former events_sub_session_seq_idx (submission_id, session_id, seq)
+    // was dropped (migration 0017). It cost ~360ms of the ~460ms per-50k-bundle
+    // index-maintenance floor on ingest, and the PK (submission_id, seq) already
+    // serves seq-ordered scans — per-session timeline queries fall back to the
+    // PK scan with a residual session_id filter, cheap for typical 1–3-session
+    // submissions. Re-add if profiling ever shows a per-session read regression.
   ],
 );
 

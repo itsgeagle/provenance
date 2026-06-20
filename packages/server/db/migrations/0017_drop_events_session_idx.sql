@@ -1,0 +1,17 @@
+-- Migration 0017: drop events_sub_session_seq_idx (perf — Lever E).
+--
+-- The (submission_id, session_id, seq) index cost ~360ms of the ~460ms
+-- per-50k-event-bundle index-maintenance floor on ingest (measured), the single
+-- largest remaining per-bundle write cost. The primary key (submission_id, seq)
+-- already provides seq-ordered scans, so per-session timeline queries
+-- (WHERE submission_id = ? AND session_id = ? ORDER BY seq) fall back to a PK
+-- scan with a residual session_id filter — already seq-ordered, just over-reading
+-- the other sessions, which is cheap for the typical 1–3-session submission.
+--
+-- DROP INDEX (non-CONCURRENT) is used because the drizzle migrator runs each
+-- migration inside a transaction and DROP INDEX CONCURRENTLY cannot. A plain
+-- drop takes only a brief ACCESS EXCLUSIVE lock and performs no scan, so it is
+-- effectively instant. For an extremely large live table where even that brief
+-- lock is unwanted, a DBA may run `DROP INDEX CONCURRENTLY events_sub_session_seq_idx`
+-- manually before deploying; the IF EXISTS below then makes this a no-op.
+DROP INDEX IF EXISTS "events_sub_session_seq_idx";
