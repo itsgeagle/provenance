@@ -76,7 +76,13 @@ export async function createResumableUpload(
 /** Upload one part (1-based partNumber). Returns the part ETag. */
 export async function putResumablePart(
   deps: ResumableDeps,
-  args: { semesterId: string; uploadId: string; s3UploadId: string; partNumber: number; body: ArrayBuffer },
+  args: {
+    semesterId: string;
+    uploadId: string;
+    s3UploadId: string;
+    partNumber: number;
+    body: ArrayBuffer;
+  },
 ): Promise<string> {
   const key = resumableUploadKey(args.semesterId, args.uploadId);
   return uploadPart(deps.storageClient, key, args.s3UploadId, args.partNumber, args.body);
@@ -125,6 +131,8 @@ export interface CompleteResumableArgs {
   s3UploadId: string;
   maxBundleBytes: number;
   maxBatchFiles: number;
+  /** Optional pre-created ingest job to stage into (see ingestLocalPath). */
+  jobId?: string;
 }
 
 /**
@@ -155,6 +163,7 @@ export async function completeResumableUpload(
         archivePath: tmp.path,
         maxBundleBytes: args.maxBundleBytes,
         maxBatchFiles: args.maxBatchFiles,
+        ...(args.jobId !== undefined ? { jobId: args.jobId } : {}),
       },
     );
   } finally {

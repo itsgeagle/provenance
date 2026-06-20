@@ -39,6 +39,14 @@ export interface IngestLocalPathArgs {
   archivePath: string;
   maxBundleBytes: number;
   maxBatchFiles: number;
+  /**
+   * Optional pre-created ingest job to stage into. When set, the function does
+   * NOT lazily create its own job — even a roster-only export returns this id
+   * (with `submissionsQueued: 0`) so the caller can settle the job. Used by the
+   * async resumable `ingest_stage_upload` path; omit it for the synchronous
+   * single-request / CLI local-path callers (which keep lazy creation).
+   */
+  jobId?: string;
 }
 
 export interface IngestLocalPathSkipped {
@@ -76,6 +84,7 @@ export async function ingestLocalPath(
 ): Promise<IngestLocalPathResult> {
   const { db, storageClient } = deps;
   const { semesterId, userId, archivePath, maxBundleBytes, maxBatchFiles } = args;
+  const existingJobId = args.jobId ?? null;
 
   const opened = await openLocalExport(archivePath);
   if (!opened.ok) {
@@ -90,7 +99,7 @@ export async function ingestLocalPath(
     const stagedFileIds: string[] = [];
     let bundlesProcessed = 0;
     let submissionsQueued = 0;
-    let jobId: string | null = null;
+    let jobId: string | null = existingJobId;
 
     try {
       for await (const sub of opened.submissions()) {
