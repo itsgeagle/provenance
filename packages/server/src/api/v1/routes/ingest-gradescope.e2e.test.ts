@@ -136,6 +136,152 @@ describe('POST /ingest:gradescope (export → roster + worker)', () => {
     await pgContainer.stop();
   });
 
+  it('resumable /complete returns 202 with job_id and the background job reaches succeeded', async () => {
+    await withTestMinio(async ({ client, bucketName }) => {
+      const minioEndpoint = client.bucketUrl.replace(`/${bucketName}`, '');
+      _setConfigForTest(
+        parseEnv({
+          NODE_ENV: 'test',
+          PUBLIC_BASE_URL: 'http://localhost:3000',
+          DATABASE_URL: pgContainer.getConnectionUri(),
+          OBJECT_STORAGE_ENDPOINT: minioEndpoint,
+          OBJECT_STORAGE_BUCKET: bucketName,
+          OBJECT_STORAGE_ACCESS_KEY_ID: 'minioadmin',
+          OBJECT_STORAGE_SECRET_ACCESS_KEY: 'minioadmin',
+          OBJECT_STORAGE_REGION: 'us-east-1',
+          GOOGLE_OAUTH_CLIENT_ID: 'client-id',
+          GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+          AUTH_ALLOWED_HOSTED_DOMAINS: '["berkeley.edu"]',
+          AUTH_SUPERADMIN_EMAILS: '["admin@berkeley.edu"]',
+          AUTH_COOKIE_SIGNING_SECRET: 'test-signing-secret-for-e2e-tests-123456789',
+          SESSION_TTL_DAYS: '14',
+          INGEST_MAX_BUNDLE_BYTES: '52428800',
+          INGEST_MAX_BATCH_BYTES: '5368709120',
+          INGEST_MAX_BATCH_FILES: '10000',
+        }),
+      );
+
+      // Seed an admin + session + semester. NO roster — the export creates it.
+      const userId = crypto.randomUUID();
+      await db.insert(users).values({
+        id: userId,
+        google_subject: `sub-${userId}`,
+        email: `admin-${userId}@berkeley.edu`,
+        display_name: 'Admin',
+      });
+      const sessionToken = `sess-${'y'.repeat(37)}`.slice(0, 43);
+      await db.insert(sessions).values({
+        id: sessionToken,
+        user_id: userId,
+        expires_at: new Date(Date.now() + 14 * 86400_000),
+      });
+      const [course] = await db
+        .insert(courses)
+        .values({ name: 'CS 61B', slug: `cs61b-${crypto.randomUUID().slice(0, 8)}` })
+        .returning();
+      const [semester] = await db
+        .insert(semesters)
+        .values({
+          course_id: course!.id,
+          term: 'fa',
+          year: 2026,
+          slug: `fa2026-${crypto.randomUUID().slice(0, 8)}`,
+          display_name: 'Fall 2026',
+          filename_convention: '^(?<assignment_id>[a-z0-9_-]+)[-_](?<sid>\\d{6,12})\\.zip$',
+        })
+        .returning();
+      await db.insert(memberships).values({
+        user_id: userId,
+        semester_id: semester!.id,
+        role: 'admin',
+        granted_by: userId,
+      });
+
+      workerStop = await startWorker();
+
+      const exportBytes = await buildExportZip();
+      const app = createV1App();
+      const semesterId = semester!.id;
+      const authHeader = { Cookie: `__Host-prov_sess=${sessionToken}` };
+
+      // --- create a resumable upload ---
+      const createRes = await app.fetch(
+        new Request(`http://localhost/semesters/${semesterId}/ingest/uploads`, {
+          method: 'POST',
+          headers: { ...authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: 'export.zip', total_bytes: exportBytes.byteLength }),
+        }),
+      );
+      expect(createRes.status).toBe(201);
+      const createBody = (await createRes.json()) as {
+        upload_id: string;
+        s3_upload_id: string;
+        chunk_size: number;
+        total_parts: number;
+      };
+      const { upload_id, s3_upload_id } = createBody;
+
+      // --- upload one part (the whole export fits in one part) ---
+      const putRes = await app.fetch(
+        new Request(
+          `http://localhost/semesters/${semesterId}/ingest/uploads/${upload_id}/parts/1?s3_upload_id=${encodeURIComponent(s3_upload_id)}`,
+          {
+            method: 'PUT',
+            headers: { ...authHeader, 'Content-Type': 'application/octet-stream' },
+            body: exportBytes.buffer as ArrayBuffer,
+          },
+        ),
+      );
+      expect(putRes.status).toBe(200);
+
+      // --- complete the upload — must return 202 with job_id immediately ---
+      const completeRes = await app.fetch(
+        new Request(
+          `http://localhost/semesters/${semesterId}/ingest/uploads/${upload_id}/complete`,
+          {
+            method: 'POST',
+            headers: { ...authHeader, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ s3_upload_id }),
+          },
+        ),
+      );
+      expect(completeRes.status).toBe(202);
+      const completeBody = (await completeRes.json()) as {
+        job_id: string;
+        roster: { added: number; updated: number };
+        bundles_processed: number;
+        submissions_queued: number;
+        skipped: unknown[];
+      };
+      expect(typeof completeBody.job_id).toBe('string');
+      expect(completeBody.job_id.length).toBeGreaterThan(0);
+      // Placeholder counts — the real counts come from the background job.
+      expect(completeBody.roster).toEqual({ added: 0, updated: 0 });
+      expect(completeBody.bundles_processed).toBe(0);
+      expect(completeBody.submissions_queued).toBe(0);
+
+      const jobId = completeBody.job_id;
+
+      // --- poll the job status until it reaches a terminal state ---
+      const start = Date.now();
+      let finalStatus: string | null = null;
+      while (Date.now() - start < 120_000) {
+        const statusRes = await app.fetch(
+          new Request(`http://localhost/semesters/${semesterId}/ingest/jobs/${jobId}`, {
+            headers: authHeader,
+          }),
+        );
+        const statusBody = (await statusRes.json()) as { status: string };
+        if (['succeeded', 'partial', 'failed', 'cancelled'].includes(statusBody.status)) {
+          finalStatus = statusBody.status;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      expect(finalStatus).toBe('succeeded');
+    });
+  });
+
   it('upserts roster, matches solo + group submitters, reports skipped folders', async () => {
     await withTestMinio(async ({ client, bucketName }) => {
       const minioEndpoint = client.bucketUrl.replace(`/${bucketName}`, '');

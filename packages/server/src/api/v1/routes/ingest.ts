@@ -56,10 +56,10 @@ import {
   createResumableUpload,
   putResumablePart,
   listResumablePartNumbers,
-  completeResumableUpload,
   abortResumableUpload,
   resolveChunkBytes,
 } from '../../../services/ingest/resumable-upload.js';
+import type { IngestStageUploadPayload } from '../../../services/ingest/stage-upload-job.js';
 import { CreateUploadRequestSchema } from '@provenance/shared/api-schemas';
 import { projectStudent, maskFilename, protectedLabel } from '../../../services/protect.js';
 
@@ -1116,71 +1116,40 @@ export function createIngestRouter(): Hono {
         );
       }
 
-      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
-      const result = await completeResumableUpload(
-        { storageClient },
+      // Create the ingest job row up front so the client gets a job_id to poll
+      // immediately, then hand the heavy assemble→download→stage work to a
+      // background `ingest_stage_upload` job. This keeps the request fast: a
+      // multi-GB export no longer blocks /complete for minutes (which left the
+      // UI stuck at "Uploading… 100%").
+      const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
+
+      const boss = await getBoss();
+      await boss.send(
+        JOB_KINDS.INGEST_STAGE_UPLOAD,
         {
-          db,
+          ingestJobId: jobId,
           semesterId,
           userId: principal.user.id,
           uploadId,
           s3UploadId,
-          maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
-          maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
-        },
+        } satisfies IngestStageUploadPayload,
+        // Not retryable: S3 multipart completion is non-idempotent. On failure
+        // the worker marks the job failed so the UI surfaces it.
+        { singletonKey: jobId, retryLimit: 0 },
       );
 
-      if (!result.ok) {
-        if (result.error === 'too_many_files') {
-          return c.json(
-            Errors.ingestTooManyFiles(
-              cfg.INGEST_MAX_BATCH_FILES + 1,
-              cfg.INGEST_MAX_BATCH_FILES,
-            ).toBody(),
-            400,
-          );
-        }
-        return c.json(
-          Errors.validation([
-            {
-              field: 'archive',
-              issue: `Invalid Gradescope export (${result.error}): ${result.detail}`,
-            },
-          ]).toBody(),
-          400,
-        );
-      }
+      c.set('auditDetail', { job_id: jobId });
 
-      const skippedSummary = result.skipped.map((s) => ({
-        folder_key: s.folderKey,
-        reason: s.reason,
-      }));
-
-      if (result.jobId === null) {
-        c.set('auditDetail', {
-          roster_added: result.roster.added,
-          roster_updated: result.roster.updated,
-        });
-        return c.json(
-          {
-            job_id: null,
-            roster: result.roster,
-            bundles_processed: result.bundlesProcessed,
-            submissions_queued: result.submissionsQueued,
-            skipped: skippedSummary,
-          },
-          200,
-        );
-      }
-
-      c.set('auditDetail', { job_id: result.jobId, file_count: result.submissionsQueued });
+      // The roster/counts/skipped are reported via GET /ingest/jobs/:jobId as the
+      // background job runs; the immediate response carries placeholders so the
+      // wire shape (and the analyzer's GradescopeIngestResponse parse) is stable.
       return c.json(
         {
-          job_id: result.jobId,
-          roster: result.roster,
-          bundles_processed: result.bundlesProcessed,
-          submissions_queued: result.submissionsQueued,
-          skipped: skippedSummary,
+          job_id: jobId,
+          roster: { added: 0, updated: 0 },
+          bundles_processed: 0,
+          submissions_queued: 0,
+          skipped: [],
         },
         202,
       );
