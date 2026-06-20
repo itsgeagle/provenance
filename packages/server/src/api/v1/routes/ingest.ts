@@ -141,6 +141,31 @@ interface FileToStage {
   body: ArrayBuffer;
 }
 
+/**
+ * Detect the "body too large to buffer in memory" failure mode.
+ *
+ * `c.req.parseBody()` defers to Node's FormData/undici multipart parser, which
+ * concatenates the entire request body into a single contiguous buffer before
+ * parsing. On 64-bit V8 that allocation trips a ~2 GiB-class ceiling (well
+ * below INGEST_MAX_BATCH_BYTES), throwing a RangeError. Without this detection
+ * the route's catch reports a misleading 400 "Request validation failed"; with
+ * it we can return an actionable 413 pointing at local-path ingest.
+ *
+ * Matches on the V8/undici allocation-failure messages rather than the error
+ * type alone, since the stack can surface these as RangeError or a plain Error.
+ */
+export function isUnbufferableBodyError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const m = err.message;
+  return (
+    m.includes('Array buffer allocation failed') ||
+    m.includes('Invalid typed array length') ||
+    m.includes('Cannot create a string longer than') ||
+    m.includes('Invalid string length') ||
+    m.includes('out of memory')
+  );
+}
+
 // ---------------------------------------------------------------------------
 // IngestFileSummary formatter (PRD §8.6)
 // ---------------------------------------------------------------------------
@@ -302,10 +327,16 @@ export function createIngestRouter(): Hono {
       let formData: Record<string, unknown>;
       try {
         formData = await c.req.parseBody({ all: true });
-      } catch {
+      } catch (err) {
+        if (isUnbufferableBodyError(err)) {
+          return c.json(Errors.ingestArchiveUnbufferable().toBody(), 413);
+        }
         return c.json(
           Errors.validation([
-            { field: 'multipart', issue: 'Failed to parse multipart body' },
+            {
+              field: 'multipart',
+              issue: `Failed to parse multipart body: ${err instanceof Error ? err.message : String(err)}`,
+            },
           ]).toBody(),
           400,
         );
@@ -508,10 +539,16 @@ export function createIngestRouter(): Hono {
       let formData: Record<string, unknown>;
       try {
         formData = await c.req.parseBody();
-      } catch {
+      } catch (err) {
+        if (isUnbufferableBodyError(err)) {
+          return c.json(Errors.ingestArchiveUnbufferable().toBody(), 413);
+        }
         return c.json(
           Errors.validation([
-            { field: 'multipart', issue: 'Failed to parse multipart body' },
+            {
+              field: 'multipart',
+              issue: `Failed to parse multipart body: ${err instanceof Error ? err.message : String(err)}`,
+            },
           ]).toBody(),
           400,
         );

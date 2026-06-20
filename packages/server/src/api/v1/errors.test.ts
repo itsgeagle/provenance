@@ -243,6 +243,14 @@ describe('Payload too large error factories', () => {
     expect(err.code).toBe('INGEST_FILE_TOO_LARGE');
     expect(err.status).toBe(413);
   });
+
+  it('ingestArchiveUnbufferable — 413 INGEST_BATCH_TOO_LARGE with reason detail', () => {
+    const err = Errors.ingestArchiveUnbufferable();
+    expect(err.code).toBe('INGEST_BATCH_TOO_LARGE');
+    expect(err.status).toBe(413);
+    expect(err.details?.reason).toBe('request_body_unbufferable');
+    expect(err.message).toContain('local-path ingest');
+  });
 });
 
 // ---------------------------------------------------------------------------
