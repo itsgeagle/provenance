@@ -76,6 +76,16 @@ export type DocWiringDeps = {
    * In production: reads via node:fs/promises. In tests: stub.
    */
   readFile: (relativePath: string) => Promise<string>;
+  /**
+   * Synchronously read the on-disk content of a file. Path is relative to the workspace.
+   * Used ONLY by the reload-from-disk discriminator in the doc.change handler to tell a
+   * genuine auto-reload (buffer converged to disk) from a user's first edit on a still-clean
+   * buffer (buffer diverged from disk). VS Code fires the content change before flipping
+   * document.isDirty, so isDirty alone can't distinguish the two. This runs at most once per
+   * clean→dirty transition (never on the keystroke firehose), so the sync read is cheap and
+   * keeps event ordering intact. In production: node:fs.readFileSync. In tests: stub.
+   */
+  readFileSync: (relativePath: string) => string;
   /** Optional explanation tagger (Phase 8 will hook formatters/git into it). */
   explanationTagger?: ExplanationTagger;
 };
@@ -116,6 +126,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
     largeInsertCounter,
     getNow,
     readFile,
+    readFileSync,
     explanationTagger,
   } = deps;
 
@@ -224,37 +235,66 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
     // open with a clean buffer (e.g. a student runs `claude` in a separate
     // terminal), VS Code auto-reloads the buffer from disk. The reload
     // surfaces here as onDidChangeTextDocument with reason === undefined
-    // and document.isDirty === false. Typed edits and programmatic
-    // WorkspaceEdits always leave the buffer dirty, so the combination is
-    // a strong discriminator for "the disk wrote first and VS Code
-    // mirrored it." Route this to fs.external_change so external-edit
-    // heuristics fire and the analyzer correctly taints the file.
+    // and document.isDirty === false.
+    //
+    // BUT that signature is necessary, not sufficient: VS Code delivers the
+    // content-change event BEFORE it flips document.isDirty, so a student's
+    // FIRST edit on a still-clean buffer (freshly opened, or just saved)
+    // also arrives as reason === undefined && isDirty === false. The dirty
+    // flag only flips on the following (empty-delta) event. Keying solely on
+    // isDirty therefore misroutes real edits (e.g. cmd+delete right after a
+    // save) to fs.external_change.
+    //
+    // The decisive test is whether the new buffer MATCHES what's on disk:
+    //   - genuine reload  → buffer converged to disk  → buffer == disk
+    //   - real user edit  → disk still holds the old, unsaved content → buffer != disk
+    // We read disk synchronously here. This branch only runs on the first
+    // content change after a buffer goes clean (once dirty, edits carry
+    // isDirty === true and skip it), never on the keystroke firehose, so the
+    // sync read is cheap and keeps event ordering intact.
     //
     // The fs-watcher path (fs-watcher.ts) covers the other half of §4.5:
     // writes that happen with no buffer open at all.
     // ---------------------------------------------------------------------
-    const isReloadFromDisk = event.reason === undefined && !event.document.isDirty;
-    if (isReloadFromDisk && expectedContent.isWatched(relativePath)) {
+    const maybeReloadFromDisk = event.reason === undefined && !event.document.isDirty;
+    if (maybeReloadFromDisk && expectedContent.isWatched(relativePath)) {
       const ec = expectedContent.get(relativePath);
       if (ec !== undefined) {
-        const oldHash = ec.hash;
-        const oldLength = ec.content.length;
         const newContent = event.document.getText();
         const newHash = computeHash(newContent);
-        if (newHash !== oldHash) {
-          const explanation = explanationTagger?.consume();
-          emitFsExternalChange({
-            path: relativePath,
-            operation: 'modify',
-            old_hash: oldHash,
-            new_hash: newHash,
-            diff_size: Math.abs(newContent.length - oldLength),
-            ...buildExternalChangeContent(newContent),
-            ...(explanation !== undefined ? { explanation } : {}),
-          });
-          ec.reset(newContent);
+
+        let onDiskContent: string | undefined;
+        try {
+          onDiskContent = readFileSync(relativePath);
+        } catch {
+          // Can't read disk (transient error / file vanished). Fall through to
+          // normal user-edit handling rather than risk relabeling a real edit
+          // as external; the fs-watcher still covers genuine external writes.
+          onDiskContent = undefined;
         }
-        return;
+
+        const isGenuineReload =
+          onDiskContent !== undefined && computeHash(onDiskContent) === newHash;
+        if (isGenuineReload) {
+          const oldHash = ec.hash;
+          const oldLength = ec.content.length;
+          if (newHash !== oldHash) {
+            const explanation = explanationTagger?.consume();
+            emitFsExternalChange({
+              path: relativePath,
+              operation: 'modify',
+              old_hash: oldHash,
+              new_hash: newHash,
+              diff_size: Math.abs(newContent.length - oldLength),
+              ...buildExternalChangeContent(newContent),
+              ...(explanation !== undefined ? { explanation } : {}),
+            });
+            ec.reset(newContent);
+          }
+          return;
+        }
+        // Not a reload (buffer diverged from disk) — fall through to normal
+        // user-edit handling below so the edit is recorded as doc.change/paste.
       }
     }
 

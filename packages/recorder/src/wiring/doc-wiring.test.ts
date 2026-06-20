@@ -223,6 +223,10 @@ function makeDefaultPasteDeps() {
     getNow: () => 0,
     // Default: readFile resolves with empty string. Tests that need specific content override this.
     readFile: vi.fn().mockResolvedValue(''),
+    // Default: readFileSync returns empty string. The reload-from-disk discriminator only
+    // treats a change as a reload when on-disk content === the new buffer; tests exercising
+    // that branch override this to return the expected on-disk content.
+    readFileSync: vi.fn(() => ''),
   };
 }
 
@@ -667,6 +671,7 @@ describe('startDocWiring', () => {
       largeInsertCounter: counter,
       getNow: () => 0,
       readFile: vi.fn().mockResolvedValue(''),
+      readFileSync: vi.fn(() => ''),
     });
 
     // typed change — counter should NOT increment
@@ -702,6 +707,7 @@ describe('startDocWiring', () => {
       largeInsertCounter: makeLargeInsertCounter(),
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(''),
+      readFileSync: vi.fn(() => ''),
     });
 
     const event = fakeChangeEvent('src/foo.py', [
@@ -841,6 +847,8 @@ describe('startDocWiring', () => {
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
       ...makeDefaultPasteDeps(),
+      // Genuine reload: the new buffer matches what's now on disk.
+      readFileSync: vi.fn(() => after),
     });
 
     // Seed expected content via doc.open
@@ -872,6 +880,75 @@ describe('startDocWiring', () => {
     const ec = registry.get('src/foo.py');
     expect(ec?.content).toBe(after);
     expect(ec?.hash).toBe(sha256Hex(after));
+  });
+
+  it('first edit on a clean buffer (reason=undefined, isDirty=false) with disk holding OLD content: emits doc.change, NOT fs.external_change', () => {
+    // Regression: VS Code delivers the content-change event BEFORE flipping
+    // document.isDirty, so a student's first edit on a freshly-opened or
+    // just-saved buffer arrives looking exactly like a reload candidate
+    // (reason === undefined, isDirty === false). But the disk still holds the
+    // unsaved OLD content, so the buffer has DIVERGED from disk → it's a real
+    // edit, not a reload. (Real-world repro: cmd+delete right after a save.)
+    setMockWindowState({ focused: true });
+    const before = 'hello\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+      // Disk still holds the pre-edit content — the buffer has diverged.
+      readFileSync: vi.fn(() => before),
+    });
+
+    openSub.handler!(fakeDoc({ path: 'src/foo.py', text: before, lineCount: 1 }));
+
+    // First edit on the still-clean buffer: insert '!' → buffer becomes 'hello!\n'.
+    const editEvent = fakeChangeEvent(
+      'src/foo.py',
+      [{ startLine: 0, startChar: 5, endLine: 0, endChar: 5, text: '!' }],
+      { isDirty: false, reason: undefined, bufferText: 'hello!\n' },
+    );
+    changeSub.handler!(editEvent);
+
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+
+    // Expected-content model tracks the edit (deltas applied), not reset to disk.
+    expect(registry.get('src/foo.py')?.content).toBe('hello!\n');
+  });
+
+  it('reload candidate where disk read throws: falls through to doc.change (does not relabel a real edit as external)', () => {
+    setMockWindowState({ focused: true });
+    const before = 'hello\n';
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+      readFileSync: vi.fn(() => {
+        throw new Error('ENOENT');
+      }),
+    });
+
+    openSub.handler!(fakeDoc({ path: 'src/foo.py', text: before, lineCount: 1 }));
+
+    const editEvent = fakeChangeEvent(
+      'src/foo.py',
+      [{ startLine: 0, startChar: 5, endLine: 0, endChar: 5, text: '!' }],
+      { isDirty: false, reason: undefined, bufferText: 'hello!\n' },
+    );
+    changeSub.handler!(editEvent);
+
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
   });
 
   it('normal typing (isDirty=true): emits doc.change, NOT fs.external_change', () => {
@@ -944,6 +1021,8 @@ describe('startDocWiring', () => {
       filesUnderReview: ['src/foo.py'],
       expectedContent: registry,
       ...makeDefaultPasteDeps(),
+      // Buffer matches disk (a touch with identical content).
+      readFileSync: vi.fn(() => content),
     });
 
     openSub.handler!(fakeDoc({ path: 'src/foo.py', text: content, lineCount: 1 }));
@@ -1002,6 +1081,7 @@ describe('startDocWiring', () => {
       largeInsertCounter: makeLargeInsertCounter(),
       getNow: () => nowVal,
       readFile: vi.fn().mockResolvedValue(''),
+      readFileSync: vi.fn(() => ''),
     });
 
     expect(handle.getLastDocChangeAt('src/foo.py')).toBe(-Infinity);
@@ -1032,6 +1112,7 @@ describe('startDocWiring', () => {
       largeInsertCounter: makeLargeInsertCounter(),
       getNow: () => nowVal,
       readFile: vi.fn().mockResolvedValue(''),
+      readFileSync: vi.fn(() => ''),
     });
 
     // Simulate an empty-delta event (contentChanges is empty).

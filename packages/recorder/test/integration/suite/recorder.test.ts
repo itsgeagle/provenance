@@ -57,13 +57,30 @@ function workspaceRoot(): string {
   return folders[0]!.uri.fsPath;
 }
 
-/** Find the first .slog file under .provenance/ in the workspace. */
+/**
+ * Find the most recently modified .slog file under .provenance/ in the workspace.
+ *
+ * The recorder writes one .slog per session, and .provenance/ is not cleared
+ * between local test runs, so several may accumulate. We must read the session
+ * THIS run just created — i.e. the newest by mtime — not whatever readdir
+ * happens to list first (which is non-deterministic and would read a stale log).
+ */
 async function findSlogFile(wsRoot: string): Promise<string | undefined> {
   const provenanceDir = path.join(wsRoot, '.provenance');
   try {
     const entries = await fs.readdir(provenanceDir);
-    const slog = entries.find((e) => e.endsWith('.slog'));
-    return slog !== undefined ? path.join(provenanceDir, slog) : undefined;
+    const slogs = entries.filter((e) => e.endsWith('.slog'));
+    if (slogs.length === 0) return undefined;
+
+    let newest: { file: string; mtimeMs: number } | undefined;
+    for (const name of slogs) {
+      const full = path.join(provenanceDir, name);
+      const { mtimeMs } = await fs.stat(full);
+      if (newest === undefined || mtimeMs > newest.mtimeMs) {
+        newest = { file: full, mtimeMs };
+      }
+    }
+    return newest?.file;
   } catch {
     return undefined;
   }

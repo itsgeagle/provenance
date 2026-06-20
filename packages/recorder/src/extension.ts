@@ -11,6 +11,7 @@
 
 import * as vscode from 'vscode';
 import * as fsPromises from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -341,6 +342,10 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   const workspaceRoot = workspaceFolder.uri.fsPath;
   const prodReadFile = (relativePath: string): Promise<string> =>
     fsPromises.readFile(path.join(workspaceRoot, relativePath), 'utf8');
+  // Sync read for the reload-from-disk discriminator (doc-wiring.ts). Only invoked on the
+  // first content change after a buffer goes clean, never on the keystroke firehose.
+  const prodReadFileSync = (relativePath: string): string =>
+    readFileSync(path.join(workspaceRoot, relativePath), 'utf8');
 
   const docWiring = startDocWiring({
     workspace: { asRelativePath: vscode.workspace.asRelativePath.bind(vscode.workspace) },
@@ -358,6 +363,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     largeInsertCounter,
     getNow: () => clock.now(),
     readFile: prodReadFile,
+    readFileSync: prodReadFileSync,
     explanationTagger,
   });
   disposables.push(docWiring);
