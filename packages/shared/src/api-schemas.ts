@@ -347,10 +347,17 @@ export const RosterUpsertSummarySchema = z.object({
 });
 export type RosterUpsertSummary = z.infer<typeof RosterUpsertSummarySchema>;
 
-/** A submission folder that could not be processed as a bundle. */
+/**
+ * A submission folder that could not be processed as a bundle.
+ *
+ * `bundle_too_large` arises only on the streaming upload / local-path ingest,
+ * where bundle sizes are discovered one at a time (the job is already running),
+ * so an oversize bundle is skipped-and-reported rather than failing the whole
+ * upload up front.
+ */
 export const GradescopeSkippedEntrySchema = z.object({
   folder_key: z.string(),
-  reason: z.enum(['no_manifest', 'no_submitters']),
+  reason: z.enum(['no_manifest', 'no_submitters', 'bundle_too_large']),
 });
 export type GradescopeSkippedEntry = z.infer<typeof GradescopeSkippedEntrySchema>;
 

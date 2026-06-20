@@ -50,8 +50,8 @@ import { stageBlob } from '../../../services/ingest/stage-blob.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
 import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
 import { recordPhase } from '../../../jobs/ingest-profile.js';
-import { parseGradescopeExport } from '../../../services/ingest/gradescope/parse-export.js';
-import { upsertRosterFromSubmitters } from '../../../services/ingest/gradescope/upsert-roster.js';
+import { streamUploadToTempFile } from '../../../services/ingest/stream-upload.js';
+import { ingestLocalPath } from '../../../services/ingest/local-path.js';
 import { projectStudent, maskFilename, protectedLabel } from '../../../services/protect.js';
 
 // ---------------------------------------------------------------------------
@@ -526,167 +526,124 @@ export function createIngestRouter(): Hono {
       const db = getDb();
       const principal = c.var.principal!;
 
-      // Content-Length pre-check (reject before buffering).
+      // Content-Length pre-check: reject obviously-oversize uploads up front.
+      // The body is streamed to a temp file (not buffered), so the ceiling is
+      // disk-bound (INGEST_MAX_UPLOAD_BYTES), not the ~2 GiB in-memory limit.
       const contentLengthHeader = c.req.header('content-length');
       if (contentLengthHeader !== undefined) {
         const contentLength = parseInt(contentLengthHeader, 10);
-        if (!isNaN(contentLength) && contentLength > cfg.INGEST_MAX_BATCH_BYTES) {
-          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
+        if (!isNaN(contentLength) && contentLength > cfg.INGEST_MAX_UPLOAD_BYTES) {
+          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_UPLOAD_BYTES).toBody(), 413);
         }
       }
 
-      // Parse multipart body — expect a single `archive` = the export ZIP.
-      let formData: Record<string, unknown>;
+      // Stream the `archive` field straight to a temp file — never buffer the
+      // whole body in memory — then hand the on-disk path to the same streaming
+      // (yauzl) ingest the local-path CLI uses. This lifts the multipart/FormData
+      // ~2 GiB ceiling so multi-GB / 10 GB+ exports ingest via this endpoint.
+      const rawBody = c.req.raw.body;
+      if (rawBody === null) {
+        return c.json(
+          Errors.validation([{ field: 'archive', issue: 'Empty request body.' }]).toBody(),
+          400,
+        );
+      }
+
+      const uploadStart = performance.now();
+      const uploaded = await streamUploadToTempFile({
+        fieldName: 'archive',
+        maxBytes: cfg.INGEST_MAX_UPLOAD_BYTES,
+        headers: c.req.raw.headers,
+        body: rawBody,
+      });
+      recordPhase('upload:stream_to_disk', performance.now() - uploadStart);
+
+      if (!uploaded.ok) {
+        if (uploaded.error === 'too_large') {
+          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_UPLOAD_BYTES).toBody(), 413);
+        }
+        const issue =
+          uploaded.error === 'missing_file'
+            ? 'Missing Gradescope export ZIP in `archive` field.'
+            : `Failed to read multipart upload: ${uploaded.detail}`;
+        return c.json(Errors.validation([{ field: 'archive', issue }]).toBody(), 400);
+      }
+
       try {
-        formData = await c.req.parseBody();
-      } catch (err) {
-        if (isUnbufferableBodyError(err)) {
-          return c.json(Errors.ingestArchiveUnbufferable().toBody(), 413);
+        const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+        const ingestStart = performance.now();
+        const result = await ingestLocalPath(
+          { db, storageClient },
+          {
+            semesterId,
+            userId: principal.user.id,
+            archivePath: uploaded.path,
+            maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
+            maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+          },
+        );
+        recordPhase('upload:ingest', performance.now() - ingestStart);
+
+        if (!result.ok) {
+          if (result.error === 'too_many_files') {
+            return c.json(
+              Errors.ingestTooManyFiles(
+                cfg.INGEST_MAX_BATCH_FILES + 1,
+                cfg.INGEST_MAX_BATCH_FILES,
+              ).toBody(),
+              400,
+            );
+          }
+          // not_a_zip | missing_metadata | invalid_metadata
+          return c.json(
+            Errors.validation([
+              {
+                field: 'archive',
+                issue: `Invalid Gradescope export (${result.error}): ${result.detail}`,
+              },
+            ]).toBody(),
+            400,
+          );
         }
-        return c.json(
-          Errors.validation([
+
+        const skippedSummary = result.skipped.map((s) => ({
+          folder_key: s.folderKey,
+          reason: s.reason,
+        }));
+
+        // No bundles to process (roster-only, or all folders skipped): the roster
+        // is upserted but there is no ingest job. Return 200, not 202.
+        if (result.jobId === null) {
+          c.set('auditDetail', {
+            roster_added: result.roster.added,
+            roster_updated: result.roster.updated,
+          });
+          return c.json(
             {
-              field: 'multipart',
-              issue: `Failed to parse multipart body: ${err instanceof Error ? err.message : String(err)}`,
+              job_id: null,
+              roster: result.roster,
+              bundles_processed: result.bundlesProcessed,
+              submissions_queued: result.submissionsQueued,
+              skipped: skippedSummary,
             },
-          ]).toBody(),
-          400,
-        );
-      }
-
-      const archive = formData['archive'];
-      if (!(archive instanceof File)) {
-        return c.json(
-          Errors.validation([
-            { field: 'archive', issue: 'Missing Gradescope export ZIP in `archive` field.' },
-          ]).toBody(),
-          400,
-        );
-      }
-      if (archive.size > cfg.INGEST_MAX_BATCH_BYTES) {
-        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
-      }
-
-      // Parse the export: roster submitters + rebuilt bundles + skipped folders.
-      const buffer = await archive.arrayBuffer();
-      const parseExportStart = performance.now();
-      const parsed = await parseGradescopeExport(buffer);
-      recordPhase('upload:parse_export', performance.now() - parseExportStart);
-      if (!parsed.ok) {
-        return c.json(
-          Errors.validation([
-            {
-              field: 'archive',
-              issue: `Invalid Gradescope export (${parsed.error}): ${parsed.detail}`,
-            },
-          ]).toBody(),
-          400,
-        );
-      }
-
-      const { rosterSubmitters, bundles, skipped } = parsed.value;
-
-      // Fan out: one staged file per submitter (co-submitters share blob bytes).
-      const toStage: Array<{ folderKey: string; sid: string; body: ArrayBuffer }> = [];
-      for (const b of bundles) {
-        if (b.bundleZip.byteLength > cfg.INGEST_MAX_BUNDLE_BYTES) {
-          return c.json(Errors.ingestFileTooLarge(cfg.INGEST_MAX_BUNDLE_BYTES).toBody(), 413);
+            200,
+          );
         }
-        for (const s of b.submitters) {
-          toStage.push({ folderKey: b.folderKey, sid: s.sid, body: b.bundleZip });
-        }
-      }
 
-      if (toStage.length > cfg.INGEST_MAX_BATCH_FILES) {
-        return c.json(
-          Errors.ingestTooManyFiles(toStage.length, cfg.INGEST_MAX_BATCH_FILES).toBody(),
-          400,
-        );
-      }
-      const totalBytes = toStage.reduce((acc, f) => acc + f.body.byteLength, 0);
-      if (totalBytes > cfg.INGEST_MAX_BATCH_BYTES) {
-        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
-      }
-
-      // Populate/upsert the roster from the metadata (add/update, never delete).
-      const roster = await upsertRosterFromSubmitters(db, semesterId, rosterSubmitters);
-
-      const skippedSummary = skipped.map((s) => ({ folder_key: s.folderKey, reason: s.reason }));
-
-      // No bundles to process (roster-only export, or all folders skipped):
-      // the roster is upserted but there is no ingest job to create.
-      if (toStage.length === 0) {
-        c.set('auditDetail', { roster_added: roster.added, roster_updated: roster.updated });
+        c.set('auditDetail', { job_id: result.jobId, file_count: result.submissionsQueued });
         return c.json(
           {
-            job_id: null,
-            roster,
-            bundles_processed: 0,
-            submissions_queued: 0,
+            job_id: result.jobId,
+            roster: result.roster,
+            bundles_processed: result.bundlesProcessed,
+            submissions_queued: result.submissionsQueued,
             skipped: skippedSummary,
           },
-          200,
+          202,
         );
+      } finally {
+        await uploaded.cleanup();
       }
-
-      // Create the ingest job and stage one bundle per submitter.
-      const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
-      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
-
-      const stageBlobsStart = performance.now();
-      try {
-        for (const f of toStage) {
-          const fileId = crypto.randomUUID();
-          const { blobSha256, sizeBytes } = await stageBlob(
-            { storageClient },
-            { jobId, ingestFileId: fileId, body: f.body },
-          );
-          await db.insert(ingest_files).values({
-            id: fileId,
-            ingest_job_id: jobId,
-            original_filename: `${f.folderKey}.zip`,
-            size_bytes: sizeBytes,
-            blob_sha256: blobSha256,
-            status: 'pending',
-            match_sid: f.sid,
-          });
-        }
-      } catch (stagingErr) {
-        const detail = stagingErr instanceof Error ? stagingErr.message : String(stagingErr);
-        await failIngestJob(db, jobId, detail);
-        throw stagingErr;
-      }
-
-      recordPhase('upload:stage_blobs', performance.now() - stageBlobsStart);
-
-      const boss = await getBoss();
-      const stagedFileIds = await db
-        .select({ id: ingest_files.id })
-        .from(ingest_files)
-        .where(eq(ingest_files.ingest_job_id, jobId));
-
-      const enqueueStart = performance.now();
-      for (const { id: ingestFileId } of stagedFileIds) {
-        await boss.send(
-          JOB_KINDS.INGEST_FILE,
-          { ingestFileId, ingestJobId: jobId },
-          { retryLimit: 3 },
-        );
-      }
-      recordPhase('upload:enqueue', performance.now() - enqueueStart);
-
-      c.set('auditDetail', { job_id: jobId, file_count: toStage.length });
-
-      return c.json(
-        {
-          job_id: jobId,
-          roster,
-          bundles_processed: bundles.length,
-          submissions_queued: toStage.length,
-          skipped: skippedSummary,
-        },
-        202,
-      );
     },
   );
 

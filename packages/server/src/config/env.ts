@@ -87,6 +87,13 @@ const rawEnvSchema = z.object({
   INGEST_MAX_BATCH_BYTES: intStr(5368709120),
   INGEST_MAX_BATCH_FILES: intStr(10000),
   /**
+   * Max bytes for a streamed Gradescope upload (POST :gradescope). Unlike
+   * INGEST_MAX_BATCH_BYTES (the in-memory cap), the streaming upload writes the
+   * body straight to a temp file, so this ceiling is disk-bound rather than
+   * heap-bound and can be much larger. Default 10 GiB.
+   */
+  INGEST_MAX_UPLOAD_BYTES: intStr(10737418240),
+  /**
    * Number of ingest_file jobs the worker processes concurrently (pg-boss
    * batchSize for the INGEST_FILE queue). Each in-flight job holds ~1 DB pool
    * connection during its transaction, so keep INGEST_CONCURRENCY comfortably

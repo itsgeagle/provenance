@@ -33,6 +33,7 @@
     "arctic": "^3.7.0",
     "argon2": "^0.31.2",
     "aws4fetch": "^1.0.20",
+    "busboy": "^1.6.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.7.11",
     "jszip": "^3.10.1",
@@ -50,6 +51,7 @@
   "devDependencies": {
     "@testcontainers/minio": "^12.0.0",
     "@testcontainers/postgresql": "^12.0.0",
+    "@types/busboy": "^1.5.4",
     "@types/node": "^22.0.0",
     "@types/yauzl": "^3.4.0",
     "drizzle-kit": "^0.31.10",
