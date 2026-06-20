@@ -248,6 +248,15 @@ describe('ingestLocalPath (disk export → roster + worker)', () => {
       }
       expect(finalStatus).toBe('succeeded');
 
+      // Confirm the full job row: staging_complete must be true (the gate was
+      // lifted), and summary.total must equal the number of staged submissions.
+      // An early finalize would under-count or settle the job before later files
+      // were staged, so these assertions are the regression guard for interleaving.
+      const [jobRow] = await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId));
+      expect(jobRow!.staging_complete).toBe(true);
+      expect(['succeeded', 'partial']).toContain(jobRow!.status);
+      expect((jobRow!.summary as { total: number }).total).toBe(3);
+
       // All three files matched.
       const fileRows = await db
         .select({ status: ingest_files.status })

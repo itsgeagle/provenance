@@ -16,10 +16,15 @@
  * the file-count cap (INGEST_MAX_BATCH_FILES) still apply.
  */
 
-import { eq } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';
 import { ingest_files } from '../../db/schema.js';
-import { enqueueIngestJob, failIngestJob } from './job-control.js';
+import {
+  enqueueIngestJob,
+  failIngestJob,
+  markStagingStarted,
+  markStagingComplete,
+  maybeEnqueueFinalize,
+} from './job-control.js';
 import { stageBlob } from './stage-blob.js';
 import { upsertRosterFromSubmitters } from './gradescope/upsert-roster.js';
 import { openLocalExport } from './gradescope/stream-export.js';
@@ -96,10 +101,19 @@ export async function ingestLocalPath(
     const roster = await upsertRosterFromSubmitters(db, semesterId, opened.rosterSubmitters);
 
     const skipped: IngestLocalPathSkipped[] = [];
-    const stagedFileIds: string[] = [];
     let bundlesProcessed = 0;
     let submissionsQueued = 0;
     let jobId: string | null = existingJobId;
+
+    const boss = await getBoss();
+
+    // A pre-created job (resumable /complete path) exists with the default
+    // staging_complete=true; flip it false before we enqueue anything so a fast
+    // worker cannot finalize mid-stream. Lazily-created jobs are flipped at
+    // creation time below.
+    if (jobId !== null) {
+      await markStagingStarted(db, jobId);
+    }
 
     try {
       for await (const sub of opened.submissions()) {
@@ -128,6 +142,7 @@ export async function ingestLocalPath(
         // Lazily create the job on the first real bundle.
         if (jobId === null) {
           jobId = (await enqueueIngestJob(db, semesterId, userId)).jobId;
+          await markStagingStarted(db, jobId);
         }
 
         bundlesProcessed++;
@@ -146,7 +161,15 @@ export async function ingestLocalPath(
             status: 'pending',
             match_sid: submitter.sid,
           });
-          stagedFileIds.push(fileId);
+          // Enqueue immediately so the worker starts on this bundle while we
+          // stream the next ones. Safe because the job's staging_complete is
+          // false until the loop finishes (see markStagingStarted above), so
+          // maybeEnqueueFinalize will not settle the job early.
+          await boss.send(
+            JOB_KINDS.INGEST_FILE,
+            { ingestFileId: fileId, ingestJobId: jobId },
+            { retryLimit: 3 },
+          );
           submissionsQueued++;
         }
       }
@@ -158,23 +181,12 @@ export async function ingestLocalPath(
       throw stagingErr;
     }
 
-    // Enqueue one ingest_file job per staged file, after all staging succeeds
-    // (so a pg-boss error never leaves files staged without queue entries).
-    if (jobId !== null && stagedFileIds.length > 0) {
-      const boss = await getBoss();
-      // Read back ids defensively (mirrors the HTTP route) so we enqueue exactly
-      // the rows that landed.
-      const rows = await db
-        .select({ id: ingest_files.id })
-        .from(ingest_files)
-        .where(eq(ingest_files.ingest_job_id, jobId));
-      for (const { id: ingestFileId } of rows) {
-        await boss.send(
-          JOB_KINDS.INGEST_FILE,
-          { ingestFileId, ingestJobId: jobId },
-          { retryLimit: 3 },
-        );
-      }
+    // Staging finished cleanly. Mark the job fully staged so finalize is now
+    // permitted, then trigger one check in case every enqueued file already
+    // drained before we got here (no worker would otherwise re-trigger it).
+    if (jobId !== null) {
+      await markStagingComplete(db, jobId);
+      await maybeEnqueueFinalize(boss, db, jobId);
     }
 
     return {
