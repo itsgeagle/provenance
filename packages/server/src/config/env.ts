@@ -86,6 +86,23 @@ const rawEnvSchema = z.object({
   INGEST_MAX_BUNDLE_BYTES: intStr(52428800),
   INGEST_MAX_BATCH_BYTES: intStr(5368709120),
   INGEST_MAX_BATCH_FILES: intStr(10000),
+  /**
+   * Number of ingest_file jobs the worker processes concurrently (pg-boss
+   * batchSize for the INGEST_FILE queue). Each in-flight job holds ~1 DB pool
+   * connection during its transaction, so keep INGEST_CONCURRENCY comfortably
+   * below DATABASE_POOL_MAX (leave headroom for pg-boss's own polling
+   * connections). Different files are independent submissions; ordering is only
+   * enforced within a submission, so concurrency is safe. Raise this together
+   * with DATABASE_POOL_MAX for the large semester import.
+   */
+  INGEST_CONCURRENCY: intStr(4),
+  /**
+   * pg-boss polling interval (ms) for the INGEST_FILE / INGEST_FINALIZE queues,
+   * converted to pollingIntervalSeconds. The default pg-boss interval is 2000ms;
+   * the lower default here cuts the fixed per-job pickup latency that dominates
+   * many-small-bundle imports.
+   */
+  INGEST_POLLING_INTERVAL_MS: intStr(500),
   RECOMPUTE_MAX_PARALLEL: intStr(4),
   BLOB_DOWNLOAD_URL_TTL_SECONDS: intStr(300),
   ROSTER_CSV_MAX_BYTES: intStr(10485760),

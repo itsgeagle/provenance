@@ -34,6 +34,7 @@
  */
 
 import { eq, and, count } from 'drizzle-orm';
+import type PgBoss from 'pg-boss';
 import { getBoss, stopBoss, JOB_KINDS } from './pg-boss.js';
 import { getLogger } from '../logging.js';
 import { getDb } from '../db/client.js';
@@ -115,8 +116,20 @@ export async function startWorker(): Promise<() => Promise<void>> {
   // are done and enqueues an ingest_finalize job if so.
   // -------------------------------------------------------------------------
 
-  await boss.work<IngestFilePayload>(JOB_KINDS.INGEST_FILE, { batchSize: 1 }, async (jobs) => {
-    const job = jobs[0]!;
+  const ingestConcurrency = Math.max(1, cfg.INGEST_CONCURRENCY);
+  const pollingIntervalSeconds = Math.max(0.1, cfg.INGEST_POLLING_INTERVAL_MS / 1000);
+  logger.info(
+    { ingestConcurrency, pollingIntervalSeconds },
+    'worker: ingest_file queue concurrency',
+  );
+
+  // Per-file pipeline body. Extracted so a batch of jobs can run concurrently
+  // (see the boss.work registration below). Each job is an INDEPENDENT
+  // submission — ordering is only ever enforced WITHIN a submission (event seq),
+  // never across files — so concurrent processing is safe. Per (student,
+  // assignment) version allocation stays correct because createSubmission takes
+  // a FOR UPDATE lock, serializing only genuine conflicts.
+  async function processIngestFile(job: PgBoss.Job<IngestFilePayload>): Promise<void> {
     const { ingestFileId, ingestJobId } = job.data;
 
     const db = getDb();
@@ -395,65 +408,63 @@ export async function startWorker(): Promise<() => Promise<void>> {
       // Lever B: build the chronological index ONCE and share it across the
       // materialize / stats / heuristics phases (each formerly rebuilt it).
       // Shortens the transaction below and cuts per-bundle allocation/GC.
-      const index = await timePhase('build_index', () =>
-        Promise.resolve(buildIndex(bundle)),
-      );
+      const index = await timePhase('build_index', () => Promise.resolve(buildIndex(bundle)));
 
       try {
         await timePhase('tx_total', () =>
-        withTransaction(db, async (tx) => {
-          try {
-            await timePhase('materialize_events', () =>
-              materializeEvents(tx, submissionResult.submissionId, bundle, index),
-            );
-          } catch (e) {
-            const cause = e instanceof Error ? e.message : String(e);
-            throw Object.assign(new Error(cause), { phase: 'materialize_events' as const });
-          }
-          try {
-            await timePhase('compute_stats', () =>
-              computeAndStoreStats(tx, submissionResult.submissionId, bundle, index),
-            );
-          } catch (e) {
-            const cause = e instanceof Error ? e.message : String(e);
-            throw Object.assign(new Error(cause), { phase: 'compute_stats' as const });
-          }
-          let validationReport;
-          try {
-            validationReport = await timePhase('run_validation', () =>
-              runAndStoreValidation(tx, submissionResult.submissionId, bundle),
-            );
-          } catch (e) {
-            const cause = e instanceof Error ? e.message : String(e);
-            throw Object.assign(new Error(cause), { phase: 'run_validation' as const });
-          }
-          try {
-            await timePhase('run_heuristics', () =>
-              runAndStoreHeuristics(
-                tx,
-                submissionResult.submissionId,
-                semesterId,
-                bundle,
-                validationReport,
-                index,
-              ),
-            );
-          } catch (e) {
-            const cause = e instanceof Error ? e.message : String(e);
-            throw Object.assign(new Error(cause), { phase: 'run_heuristics' as const });
-          }
-          await tx
-            .update(ingest_files)
-            .set({
-              status: 'matched',
-              matched_student_id: studentId,
-              matched_assignment_id: submissionResult.assignmentId,
-              submission_id: submissionResult.submissionId,
-              filename_capture: filenameCapture,
-              resolved_at: new Date(),
-            })
-            .where(eq(ingest_files.id, ingestFileId));
-        }),
+          withTransaction(db, async (tx) => {
+            try {
+              await timePhase('materialize_events', () =>
+                materializeEvents(tx, submissionResult.submissionId, bundle, index),
+              );
+            } catch (e) {
+              const cause = e instanceof Error ? e.message : String(e);
+              throw Object.assign(new Error(cause), { phase: 'materialize_events' as const });
+            }
+            try {
+              await timePhase('compute_stats', () =>
+                computeAndStoreStats(tx, submissionResult.submissionId, bundle, index),
+              );
+            } catch (e) {
+              const cause = e instanceof Error ? e.message : String(e);
+              throw Object.assign(new Error(cause), { phase: 'compute_stats' as const });
+            }
+            let validationReport;
+            try {
+              validationReport = await timePhase('run_validation', () =>
+                runAndStoreValidation(tx, submissionResult.submissionId, bundle),
+              );
+            } catch (e) {
+              const cause = e instanceof Error ? e.message : String(e);
+              throw Object.assign(new Error(cause), { phase: 'run_validation' as const });
+            }
+            try {
+              await timePhase('run_heuristics', () =>
+                runAndStoreHeuristics(
+                  tx,
+                  submissionResult.submissionId,
+                  semesterId,
+                  bundle,
+                  validationReport,
+                  index,
+                ),
+              );
+            } catch (e) {
+              const cause = e instanceof Error ? e.message : String(e);
+              throw Object.assign(new Error(cause), { phase: 'run_heuristics' as const });
+            }
+            await tx
+              .update(ingest_files)
+              .set({
+                status: 'matched',
+                matched_student_id: studentId,
+                matched_assignment_id: submissionResult.assignmentId,
+                submission_id: submissionResult.submissionId,
+                filename_capture: filenameCapture,
+                resolved_at: new Date(),
+              })
+              .where(eq(ingest_files.id, ingestFileId));
+          }),
         );
       } catch (err) {
         const cause = err instanceof Error ? err.message : String(err);
@@ -518,7 +529,18 @@ export async function startWorker(): Promise<() => Promise<void>> {
         // Best-effort.
       }
     }
-  });
+  }
+
+  await boss.work<IngestFilePayload>(
+    JOB_KINDS.INGEST_FILE,
+    { batchSize: ingestConcurrency, pollingIntervalSeconds },
+    async (jobs) => {
+      // Drain the batch concurrently. processIngestFile is self-contained and
+      // catches its own errors (settling each file's status), so one failing
+      // file never rejects the batch and stalls the queue.
+      await Promise.all(jobs.map((job) => processIngestFile(job)));
+    },
+  );
 
   // -------------------------------------------------------------------------
   // ingest_finalize handler
@@ -529,7 +551,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
   await boss.work<IngestFinalizePayload>(
     JOB_KINDS.INGEST_FINALIZE,
-    { batchSize: 1 },
+    { batchSize: 1, pollingIntervalSeconds },
     async (jobs) => {
       const job = jobs[0]!;
       const { ingestJobId } = job.data;
