@@ -145,6 +145,13 @@ the same result. The resumable protocol is also available directly on the API
 (`POST …/ingest/uploads`, `PUT …/parts/:n`, `GET …/parts`, `POST …/complete`,
 `DELETE …`); see the OpenAPI spec.
 
+**`POST …/complete` is asynchronous.** It returns `202 { job_id, … }` immediately;
+the `roster`, `bundles_processed`, `submissions_queued`, and `skipped` fields in that
+response are placeholder zeros. Assembly and staging run in a background
+`ingest_stage_upload` job — poll `GET /semesters/:semesterId/ingest/jobs/:jobId` until
+`status` is terminal (`succeeded` / `partial` / `failed`) to get the real outcome. An
+invalid export surfaces as a `failed` job rather than a synchronous `400`.
+
 ### 2. Local-path ingest (`npm run ingest:local`) — for very large exports
 
 When the export already lives on the server's disk (e.g. a multi-GB or 10 GB+
