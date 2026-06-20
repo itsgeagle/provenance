@@ -5,6 +5,17 @@
  */
 
 import { vi, describe, it, expect } from 'vitest';
+
+// Mock the logging module so tests don't require a fully-configured env singleton.
+vi.mock('../../logging.js', () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    debug: () => {},
+    error: () => {},
+  }),
+}));
+
 import { eq } from 'drizzle-orm';
 import { withTestDb } from '../../../test/helpers/db.js';
 import {
@@ -12,8 +23,11 @@ import {
   finalizeIngestJob,
   cancelIngestJob,
   failIngestJob,
+  markStagingStarted,
+  markStagingComplete,
+  maybeEnqueueFinalize,
 } from './job-control.js';
-import { users, courses, semesters, ingest_jobs } from '../../db/schema.js';
+import { users, courses, semesters, ingest_jobs, ingest_files } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -222,6 +236,106 @@ describe('failIngestJob', () => {
     await withTestDb(async (db) => {
       // Should not throw.
       await expect(failIngestJob(db, crypto.randomUUID(), 'irrelevant')).resolves.toBeUndefined();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maybeEnqueueFinalize — staging_complete gate
+// ---------------------------------------------------------------------------
+
+/** Insert a terminal (non-pending) ingest_files row so it is NOT counted as pending. */
+async function seedTerminalFile(db: DrizzleDb, jobId: string) {
+  await db.insert(ingest_files).values({
+    id: crypto.randomUUID(),
+    ingest_job_id: jobId,
+    original_filename: 'f.zip',
+    size_bytes: 1,
+    blob_sha256: 'a'.repeat(64),
+    status: 'matched',
+  });
+}
+
+/** Insert a pending ingest_files row. */
+async function seedPendingFile(db: DrizzleDb, jobId: string) {
+  await db.insert(ingest_files).values({
+    id: crypto.randomUUID(),
+    ingest_job_id: jobId,
+    original_filename: 'p.zip',
+    size_bytes: 1,
+    blob_sha256: 'b'.repeat(64),
+    status: 'pending',
+  });
+}
+
+describe('maybeEnqueueFinalize gate', () => {
+  it('does NOT enqueue finalize while staging_complete is false, even with 0 pending', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
+      await markStagingStarted(db, jobId); // staging_complete = false
+      await seedTerminalFile(db, jobId); // 0 pending
+
+      const boss = { send: vi.fn() };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await maybeEnqueueFinalize(boss as any, db, jobId);
+
+      expect(boss.send).not.toHaveBeenCalled();
+    });
+  });
+
+  it('enqueues finalize once staging_complete is true and 0 pending', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
+      await markStagingStarted(db, jobId);
+      await seedTerminalFile(db, jobId);
+      await markStagingComplete(db, jobId); // staging_complete = true
+
+      const boss = { send: vi.fn() };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await maybeEnqueueFinalize(boss as any, db, jobId);
+
+      expect(boss.send).toHaveBeenCalledTimes(1);
+      expect(boss.send).toHaveBeenCalledWith(
+        'ingest_finalize',
+        { ingestJobId: jobId },
+        { singletonKey: jobId, retryLimit: 5 },
+      );
+    });
+  });
+
+  it('does NOT enqueue finalize when files are still pending', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
+      // staging_complete defaults true; but a pending file remains.
+      await seedPendingFile(db, jobId);
+
+      const boss = { send: vi.fn() };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await maybeEnqueueFinalize(boss as any, db, jobId);
+
+      expect(boss.send).not.toHaveBeenCalled();
+    });
+  });
+
+  it('markStagingStarted then markStagingComplete flips staging_complete', async () => {
+    await withTestDb(async (db) => {
+      const user = await seedUser(db);
+      const semester = await seedSemester(db, user.id);
+      const { jobId } = await enqueueIngestJob(db, semester.id, user.id);
+
+      await markStagingStarted(db, jobId);
+      let row = (await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId)))[0]!;
+      expect(row.staging_complete).toBe(false);
+
+      await markStagingComplete(db, jobId);
+      row = (await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId)))[0]!;
+      expect(row.staging_complete).toBe(true);
     });
   });
 });
