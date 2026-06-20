@@ -1096,7 +1096,6 @@ export function createIngestRouter(): Hono {
     requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
     audit('ingest.start', 'ingest_job', (c) => (c.get('auditDetail')?.['job_id'] as string) ?? ''),
     async (c) => {
-      const cfg = getConfig();
       const db = getDb();
       const principal = c.var.principal!;
       const semesterId = c.req.param('semesterId')!;
