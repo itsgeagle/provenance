@@ -33,7 +33,7 @@
  * orchestrate the finalize dispatch.
  */
 
-import { eq, and, count } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type PgBoss from 'pg-boss';
 import { getBoss, stopBoss, JOB_KINDS } from './pg-boss.js';
 import { getLogger } from '../logging.js';
@@ -46,7 +46,9 @@ import {
   finalizeIngestJob,
   markIngestJobRunning,
   failIngestJob,
+  maybeEnqueueFinalize,
 } from '../services/ingest/job-control.js';
+import type { IngestFinalizePayload } from '../services/ingest/job-control.js';
 import {
   stageUploadIntoJob,
   type IngestStageUploadPayload,
@@ -75,10 +77,6 @@ import { createPurgeExpiredExportsHandler } from './purge-expired-exports.js';
 
 interface IngestFilePayload {
   ingestFileId: string;
-  ingestJobId: string;
-}
-
-interface IngestFinalizePayload {
   ingestJobId: string;
 }
 
@@ -713,38 +711,4 @@ export async function startWorker(): Promise<() => Promise<void>> {
   return async () => {
     await stopBoss();
   };
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * After a file transitions to a terminal status (any status other than
- * 'pending'), check whether all sibling files for the job are also done.
- *
- * If the count of pending files drops to zero, enqueue one `ingest_finalize`
- * job with `singletonKey = ingestJobId`. pg-boss deduplicates concurrent sends
- * so only one finalize runs per job, even if multiple workers trigger this
- * simultaneously.
- */
-async function maybeEnqueueFinalize(
-  boss: Awaited<ReturnType<typeof getBoss>>,
-  db: ReturnType<typeof getDb>,
-  ingestJobId: string,
-): Promise<void> {
-  const pendingCount = await db
-    .select({ cnt: count() })
-    .from(ingest_files)
-    .where(and(eq(ingest_files.ingest_job_id, ingestJobId), eq(ingest_files.status, 'pending')));
-
-  const remaining = pendingCount[0]?.cnt ?? 0;
-  if (remaining === 0) {
-    // PRD §12.3: finalize jobs retry up to 5 times.
-    await boss.send(JOB_KINDS.INGEST_FINALIZE, { ingestJobId } satisfies IngestFinalizePayload, {
-      singletonKey: ingestJobId,
-      retryLimit: 5,
-    });
-    getLogger().info({ ingestJobId }, 'ingest_finalize: enqueued');
-  }
 }
