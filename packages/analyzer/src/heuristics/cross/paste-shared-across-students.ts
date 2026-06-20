@@ -30,9 +30,12 @@
  */
 
 import { diffLines } from 'diff';
-import type { Bundle } from '../../loader/types.js';
-import type { EventIndex } from '../../index/event-index.js';
-import type { CrossFlag, CrossHeuristic, CrossHeuristicConfig } from './types.js';
+import type {
+  CrossFlag,
+  CrossHeuristic,
+  CrossHeuristicConfig,
+  CrossSubmissionFeatures,
+} from './types.js';
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -116,37 +119,22 @@ function addToGroup(paste: PasteRecord, group: PasteGroup): void {
 // Cross-heuristic implementation
 // ---------------------------------------------------------------------------
 
-function run(
-  bundles: Bundle[],
-  indices: Map<string, EventIndex>,
-  config: CrossHeuristicConfig,
-): CrossFlag[] {
+function run(features: CrossSubmissionFeatures[], config: CrossHeuristicConfig): CrossFlag[] {
   const { pasteSharedMinLength: minLength, pasteSharedFuzzyThreshold: fuzzyThreshold } = config;
 
-  // Collect all qualifying paste events across all bundles.
+  // Collect all qualifying paste events across all submissions.
   const allPastes: PasteRecord[] = [];
 
-  for (const bundle of bundles) {
-    const index = indices.get(bundle.id);
-    if (index === undefined) continue;
-
-    const pasteEvents = index.byKind.get('paste') ?? [];
-    for (const e of pasteEvents) {
-      const p = e.payload as Record<string, unknown> | null;
-      if (typeof p !== 'object' || p === null) continue;
-
-      const length = typeof p['length'] === 'number' ? (p['length'] as number) : 0;
-      if (length < minLength) continue;
-
-      const sha256 = typeof p['sha256'] === 'string' ? (p['sha256'] as string) : undefined;
-      const content = typeof p['content'] === 'string' ? (p['content'] as string) : undefined;
+  for (const f of features) {
+    for (const paste of f.pastes) {
+      if (paste.length < minLength) continue;
 
       allPastes.push({
-        bundleId: bundle.id,
-        seqKey: `${e.sessionId}:${e.seq}`,
-        sha256,
-        content,
-        length,
+        bundleId: f.bundleId,
+        seqKey: paste.seqKey,
+        sha256: paste.sha256,
+        content: paste.content,
+        length: paste.length,
       });
     }
   }

@@ -44,13 +44,43 @@ export type CrossFlag = {
 };
 
 /**
+ * A single paste event reduced to the fields the paste_shared heuristic needs.
+ * `length` is the paste size in characters; `seqKey` is `${sessionId}:${seq}`.
+ */
+export type CrossPasteFeature = {
+  seqKey: string;
+  sha256: string | undefined;
+  content: string | undefined;
+  length: number;
+};
+
+/**
+ * The compact, memory-bounded representation of one submission that the
+ * cross-heuristics consume in place of a full Bundle + EventIndex.
+ *
+ * See `features.ts` for extraction. `kindNgrams` is the editing-pattern
+ * fingerprint (a Set whose size is bounded by the event-kind alphabet, not the
+ * event count); `pastes` carry the paste-sharing inputs; `representativeSeqKeys`
+ * are the first few events used as deep-link references in editing-pattern flags.
+ */
+export type CrossSubmissionFeatures = {
+  bundleId: string;
+  sourceFilename: string;
+  pastes: CrossPasteFeature[];
+  kindNgrams: Set<string>;
+  /** Total event count (used to skip submissions with too few events to n-gram). */
+  eventCount: number;
+  representativeSeqKeys: string[];
+};
+
+/**
  * Interface for cross-bundle heuristics.
  *
  * `run` is a pure synchronous function: no async, no I/O, no side effects.
- * It receives all loaded bundles, per-bundle EventIndex map, and config.
+ * It receives the per-submission CrossSubmissionFeatures and config.
  * Returns CrossFlag[] (empty if no pattern found).
  *
- * Called by runCrossHeuristics only when bundles.length >= 2.
+ * Called by runCrossHeuristics only when features.length >= 2.
  */
 export type CrossHeuristicConfig = {
   /** paste_shared_across_students: minimum paste length (chars) to consider. */
@@ -70,9 +100,5 @@ export const DEFAULT_CROSS_HEURISTIC_CONFIG: CrossHeuristicConfig = {
 export type CrossHeuristic = {
   id: string;
   label: string;
-  run(
-    bundles: import('../../loader/types.js').Bundle[],
-    indices: Map<string, import('../../index/event-index.js').EventIndex>,
-    config: CrossHeuristicConfig,
-  ): CrossFlag[];
+  run(features: CrossSubmissionFeatures[], config: CrossHeuristicConfig): CrossFlag[];
 };

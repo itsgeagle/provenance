@@ -34,27 +34,17 @@
  * Course staff reviews the full bundles via /compare split-pane.
  */
 
-import type { Bundle } from '../../loader/types.js';
-import type { EventIndex } from '../../index/event-index.js';
-import type { CrossFlag, CrossHeuristic, CrossHeuristicConfig } from './types.js';
+import type {
+  CrossFlag,
+  CrossHeuristic,
+  CrossHeuristicConfig,
+  CrossSubmissionFeatures,
+} from './types.js';
+import { NGRAM_SIZE } from './features.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Build a set of 3-gram strings from the kind stream of a bundle's events.
- * All sessions' events are concatenated in chronological (globalIdx) order.
- */
-function buildKindNgramSet(index: EventIndex, n: number): Set<string> {
-  const kinds = index.ordered.map((e) => e.kind);
-  const ngramSet = new Set<string>();
-  for (let i = 0; i <= kinds.length - n; i++) {
-    const ngram = kinds.slice(i, i + n).join('|');
-    ngramSet.add(ngram);
-  }
-  return ngramSet;
-}
 
 /**
  * Jaccard similarity between two sets.
@@ -74,54 +64,35 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 // Cross-heuristic implementation
 // ---------------------------------------------------------------------------
 
-const NGRAM_SIZE = 3;
-const REPRESENTATIVE_EVENT_COUNT = 5;
-
-function run(
-  bundles: Bundle[],
-  indices: Map<string, EventIndex>,
-  config: CrossHeuristicConfig,
-): CrossFlag[] {
+function run(features: CrossSubmissionFeatures[], config: CrossHeuristicConfig): CrossFlag[] {
   const { editingPatternCloneThreshold: threshold } = config;
 
-  if (bundles.length < 2) return [];
+  if (features.length < 2) return [];
 
-  // Build per-bundle kind-ngram sets.
-  type BundleNgrams = { bundle: Bundle; ngramSet: Set<string>; index: EventIndex };
-  const bundleNgrams: BundleNgrams[] = [];
+  // Keep only submissions with enough events to form at least one n-gram. The
+  // n-gram set is precomputed (CrossSubmissionFeatures.kindNgrams).
+  const eligible = features.filter((f) => f.eventCount >= NGRAM_SIZE);
 
-  for (const bundle of bundles) {
-    const index = indices.get(bundle.id);
-    if (index === undefined) continue;
-    if (index.ordered.length < NGRAM_SIZE) continue; // too few events to form any 3-gram
-
-    const ngramSet = buildKindNgramSet(index, NGRAM_SIZE);
-    bundleNgrams.push({ bundle, ngramSet, index });
-  }
-
-  if (bundleNgrams.length < 2) return [];
+  if (eligible.length < 2) return [];
 
   const flags: CrossFlag[] = [];
   let flagIndex = 0;
 
-  // Pair-wise Jaccard comparison — O(N²) over bundles, fine for N ≤ 10.
-  for (let i = 0; i < bundleNgrams.length; i++) {
-    for (let j = i + 1; j < bundleNgrams.length; j++) {
-      const aEntry = bundleNgrams[i]!;
-      const bEntry = bundleNgrams[j]!;
+  // Pair-wise Jaccard comparison — O(N²) over submissions.
+  for (let i = 0; i < eligible.length; i++) {
+    for (let j = i + 1; j < eligible.length; j++) {
+      const aEntry = eligible[i]!;
+      const bEntry = eligible[j]!;
 
-      const score = jaccard(aEntry.ngramSet, bEntry.ngramSet);
+      const score = jaccard(aEntry.kindNgrams, bEntry.kindNgrams);
       if (score < threshold) continue;
 
-      const bundleIds = [aEntry.bundle.id, bEntry.bundle.id].sort();
+      const bundleIds = [aEntry.bundleId, bEntry.bundleId].sort();
 
-      // Pick representative supporting events: first N from each bundle.
-      const aEvents = aEntry.index.ordered.slice(0, REPRESENTATIVE_EVENT_COUNT);
-      const bEvents = bEntry.index.ordered.slice(0, REPRESENTATIVE_EVENT_COUNT);
-
+      // Representative supporting events: the first few seq keys of each submission.
       const eventsPerBundle: Record<string, string[]> = {
-        [aEntry.bundle.id]: aEvents.map((e) => `${e.sessionId}:${e.seq}`),
-        [bEntry.bundle.id]: bEvents.map((e) => `${e.sessionId}:${e.seq}`),
+        [aEntry.bundleId]: aEntry.representativeSeqKeys,
+        [bEntry.bundleId]: bEntry.representativeSeqKeys,
       };
 
       const id = `editing_pattern_clone-${bundleIds.join('|')}-${flagIndex++}`;
@@ -135,8 +106,8 @@ function run(
         bundleIds,
         eventsPerBundle,
         description:
-          `The editing event-kind streams of ${aEntry.bundle.sourceFilename} and ` +
-          `${bEntry.bundle.sourceFilename} share ${(score * 100).toFixed(0)}% of their ` +
+          `The editing event-kind streams of ${aEntry.sourceFilename} and ` +
+          `${bEntry.sourceFilename} share ${(score * 100).toFixed(0)}% of their ` +
           `${NGRAM_SIZE}-gram vocabulary (Jaccard similarity = ${score.toFixed(3)}, ` +
           `threshold = ${threshold}). Structurally similar workflows may indicate ` +
           `collaboration or shared external tooling.`,
@@ -144,10 +115,10 @@ function run(
           jaccardScore: score,
           ngramSize: NGRAM_SIZE,
           threshold,
-          aNgramCount: aEntry.ngramSet.size,
-          bNgramCount: bEntry.ngramSet.size,
-          bundleA: aEntry.bundle.sourceFilename,
-          bundleB: bEntry.bundle.sourceFilename,
+          aNgramCount: aEntry.kindNgrams.size,
+          bNgramCount: bEntry.kindNgrams.size,
+          bundleA: aEntry.sourceFilename,
+          bundleB: bEntry.sourceFilename,
         },
       });
     }

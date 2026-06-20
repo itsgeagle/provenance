@@ -44,6 +44,7 @@ import type { ValidationReport } from '../validation/check-types.js';
 import type { Flag } from '../heuristics/types.js';
 import type { CrossFlag } from '../heuristics/cross/types.js';
 import { runCrossHeuristics } from '../heuristics/cross/run-cross-heuristics.js';
+import { extractCrossFeatures } from '../heuristics/cross/features.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -334,8 +335,12 @@ export function BundleProvider({ children }: { children: ReactNode }) {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    const newCrossFlags = runCrossHeuristics(bundles, indicesByBundle);
-    setCrossFlags(newCrossFlags);
+    const features = [];
+    for (const bundle of bundles) {
+      const index = indicesByBundle.get(bundle.id);
+      if (index !== undefined) features.push(extractCrossFeatures(bundle, index));
+    }
+    setCrossFlags(runCrossHeuristics(features));
   }, [bundles, indicesByBundle]);
 
   // ---------------------------------------------------------------------------

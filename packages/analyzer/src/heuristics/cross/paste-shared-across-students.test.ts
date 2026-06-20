@@ -5,8 +5,14 @@
 import { describe, it, expect } from 'vitest';
 import { pasteSharedAcrossStudentsHeuristic } from './paste-shared-across-students.js';
 import { DEFAULT_CROSS_HEURISTIC_CONFIG } from './types.js';
+import { extractCrossFeatures } from './features.js';
 import type { Bundle } from '../../loader/types.js';
 import type { EventIndex, IndexedEvent } from '../../index/event-index.js';
+
+/** Convert test Bundle+EventIndex stubs into the cross-feature input. */
+function toFeatures(bundles: Bundle[], indices: Map<string, EventIndex>) {
+  return bundles.map((b) => extractCrossFeatures(b, indices.get(b.id)!));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,7 +101,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       expect(flags).toHaveLength(1);
       expect(flags[0]!.heuristic).toBe('paste_shared_across_students');
       expect(flags[0]!.severity).toBe('high');
@@ -122,8 +131,7 @@ describe('paste_shared_across_students', () => {
       ]);
 
       const flags = pasteSharedAcrossStudentsHeuristic.run(
-        [bundleA, bundleB, bundleC],
-        indices,
+        toFeatures([bundleA, bundleB, bundleC], indices),
         cfg,
       );
       expect(flags).toHaveLength(1);
@@ -152,7 +160,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       expect(flags).toHaveLength(1);
       expect(flags[0]!.confidence).toBe(0.8);
       expect(flags[0]!.detail?.['matchKind']).toBe('fuzzy_and_or_exact');
@@ -179,7 +190,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       // Two distinct groups (sha1 and sha2 are different) → 2 flags.
       expect(flags).toHaveLength(2);
     });
@@ -193,7 +207,7 @@ describe('paste_shared_across_students', () => {
       ]);
 
       const indices = new Map([[bundleA.id, indexA]]);
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(toFeatures([bundleA], indices), cfg);
       expect(flags).toHaveLength(0);
     });
 
@@ -214,7 +228,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       // Both pastes are below the 100-char minimum.
       expect(flags).toHaveLength(0);
     });
@@ -235,7 +252,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       expect(flags).toHaveLength(0);
     });
 
@@ -274,7 +294,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       expect(flags).toHaveLength(0);
     });
 
@@ -295,7 +318,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, emptyIndex],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       expect(flags).toHaveLength(0);
     });
   });
@@ -322,7 +348,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       const ids = flags.map((f) => f.id);
       // All ids must be unique.
       expect(new Set(ids).size).toBe(ids.length);
@@ -347,7 +376,10 @@ describe('paste_shared_across_students', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = pasteSharedAcrossStudentsHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = pasteSharedAcrossStudentsHeuristic.run(
+        toFeatures([bundleA, bundleB], indices),
+        cfg,
+      );
       expect(flags).toHaveLength(1);
       expect(flags[0]!.eventsPerBundle[bundleA.id]).toHaveLength(2);
       expect(flags[0]!.eventsPerBundle[bundleA.id]).toContain('sess-a:1');
