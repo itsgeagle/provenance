@@ -82,11 +82,74 @@ function submissionPathsFromManifest(manifestJson: string): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
-// buildBundleZipForFolder
+// buildBundleZipFromFiles (core)
 // ---------------------------------------------------------------------------
 
 /**
- * Rebuild a flat bundle ZIP from the entries of one submission folder.
+ * Rebuild a flat bundle ZIP from one submission folder's already-materialized
+ * files, keyed by folder-relative path (e.g. `manifest.json`,
+ * `.provenance/manifest.json`, `hw10.py`).
+ *
+ * This is the storage-agnostic core: it takes raw bytes per path rather than a
+ * JSZip handle, so both the in-memory JSZip path (`buildBundleZipForFolder`)
+ * and the streaming local-path reader (`stream-export.ts`, which extracts one
+ * folder at a time from disk) share identical selection/whitelist logic.
+ *
+ * @param files Map of folder-relative path → file bytes for ONE submission
+ *              folder. Directory entries must already be excluded.
+ * @returns `{ ok: true, data }` with the rebuilt ZIP bytes, or
+ *          `{ ok: false, reason: 'no_manifest' }` when the folder is not a bundle.
+ */
+export async function buildBundleZipFromFiles(
+  files: Map<string, Uint8Array>,
+): Promise<BuildBundleZipResult> {
+  // Collect candidate entries: bundle-root path → bytes, dropping macOS junk.
+  // `.provenance/` prefixes are stripped so the resulting paths are
+  // bundle-root-relative.
+  const candidates = new Map<string, Uint8Array>();
+  let manifestJsonBytes: Uint8Array | null = null;
+
+  for (const [rel, bytes] of files) {
+    if (rel.length === 0 || isJunkPath(rel)) continue;
+
+    const bundlePath = toBundlePath(rel);
+    // Prefer a `.provenance/`-nested entry over a flat one on collision: a
+    // stripped path wins because it is the canonical bundle location.
+    const isStripped = rel.startsWith(PROVENANCE_PREFIX);
+    if (!candidates.has(bundlePath) || isStripped) {
+      candidates.set(bundlePath, bytes);
+    }
+
+    if (bundlePath === MANIFEST_JSON && (isStripped || manifestJsonBytes === null)) {
+      manifestJsonBytes = bytes;
+    }
+  }
+
+  if (manifestJsonBytes === null) {
+    return { ok: false, reason: 'no_manifest' };
+  }
+
+  const submissionPaths = submissionPathsFromManifest(new TextDecoder().decode(manifestJsonBytes));
+
+  const out = new JSZip();
+  for (const [bundlePath, bytes] of candidates) {
+    if (!isProvenanceFile(bundlePath) && !submissionPaths.has(bundlePath)) {
+      continue; // not a recognized bundle file — drop it
+    }
+    out.file(bundlePath, bytes);
+  }
+
+  const data = await out.generateAsync({ type: 'arraybuffer' });
+  return { ok: true, data };
+}
+
+// ---------------------------------------------------------------------------
+// buildBundleZipForFolder (JSZip adapter)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rebuild a flat bundle ZIP from the entries of one submission folder of a
+ * loaded export ZIP. Thin adapter over `buildBundleZipFromFiles`.
  *
  * @param outer        The loaded export ZIP.
  * @param folderPrefix The folder's prefix within `outer`, INCLUDING the trailing
@@ -98,46 +161,13 @@ export async function buildBundleZipForFolder(
   outer: JSZip,
   folderPrefix: string,
 ): Promise<BuildBundleZipResult> {
-  // Collect candidate entries: folder-relative path → zip object, dropping
-  // directories and macOS junk. `.provenance/` prefixes are stripped so the
-  // resulting paths are bundle-root-relative.
-  type ZipObject = JSZip.JSZipObject;
-  const candidates = new Map<string, ZipObject>();
-  let manifestJsonText: string | null = null;
-
+  const files = new Map<string, Uint8Array>();
   for (const [name, obj] of Object.entries(outer.files)) {
     if (obj.dir) continue;
     if (!name.startsWith(folderPrefix)) continue;
     const rel = name.slice(folderPrefix.length);
-    if (rel.length === 0 || isJunkPath(rel)) continue;
-
-    const bundlePath = toBundlePath(rel);
-    // Prefer a `.provenance/`-nested entry over a flat one on collision: a
-    // stripped path wins because it is the canonical bundle location.
-    const isStripped = rel.startsWith(PROVENANCE_PREFIX);
-    if (!candidates.has(bundlePath) || isStripped) {
-      candidates.set(bundlePath, obj);
-    }
-
-    if (bundlePath === MANIFEST_JSON && (isStripped || !manifestJsonText)) {
-      manifestJsonText = await obj.async('string');
-    }
+    if (rel.length === 0) continue;
+    files.set(rel, await obj.async('uint8array'));
   }
-
-  if (manifestJsonText === null) {
-    return { ok: false, reason: 'no_manifest' };
-  }
-
-  const submissionPaths = submissionPathsFromManifest(manifestJsonText);
-
-  const out = new JSZip();
-  for (const [bundlePath, obj] of candidates) {
-    if (!isProvenanceFile(bundlePath) && !submissionPaths.has(bundlePath)) {
-      continue; // not a recognized bundle file — drop it
-    }
-    out.file(bundlePath, await obj.async('uint8array'));
-  }
-
-  const data = await out.generateAsync({ type: 'arraybuffer' });
-  return { ok: true, data };
+  return buildBundleZipFromFiles(files);
 }

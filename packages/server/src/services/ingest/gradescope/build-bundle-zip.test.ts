@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
 import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
 import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
-import { buildBundleZipForFolder } from './build-bundle-zip.js';
+import { buildBundleZipForFolder, buildBundleZipFromFiles } from './build-bundle-zip.js';
 
 const PROVENANCE_FILE = /^(manifest\.json|manifest\.sig|session-.*\.slog(\.meta)?)$/;
 
@@ -106,6 +106,55 @@ describe('buildBundleZipForFolder', () => {
     outer.file(`${prefix}.DS_Store`, new Uint8Array([0]));
 
     const built = await buildBundleZipForFolder(outer, prefix);
+    expect(built.ok).toBe(false);
+    if (built.ok) return;
+    expect(built.reason).toBe('no_manifest');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildBundleZipFromFiles (the map-based core the streaming reader uses)
+// ---------------------------------------------------------------------------
+
+/** Flatten an inner bundle ZIP into a folder-relative files map. */
+async function bundleToFolderFiles(
+  flat: ArrayBuffer,
+  layout: 'nested' | 'flat',
+): Promise<Map<string, Uint8Array>> {
+  const inner = await JSZip.loadAsync(flat);
+  const files = new Map<string, Uint8Array>();
+  for (const [name, obj] of Object.entries(inner.files)) {
+    if (obj.dir) continue;
+    const bytes = await obj.async('uint8array');
+    const rel =
+      PROVENANCE_FILE.test(name) && layout === 'nested' ? `.provenance/${name}` : name;
+    files.set(rel, bytes);
+  }
+  return files;
+}
+
+describe('buildBundleZipFromFiles', () => {
+  it('rebuilds a loadable flat bundle from a folder-relative files map (nested)', async () => {
+    const flat = await builtBundleWithSubmissionFile();
+    const files = await bundleToFolderFiles(flat, 'nested');
+    // Junk in the map must be dropped, not included.
+    files.set('.DS_Store', new Uint8Array([0]));
+
+    const built = await buildBundleZipFromFiles(files);
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+
+    const loaded = await loadBundle(built.data, 'submission_42.zip');
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value.submissionFiles.get('hw10.sql')?.hashOk).toBe(true);
+  });
+
+  it('returns no_manifest when the map has no manifest.json', async () => {
+    const files = new Map<string, Uint8Array>([
+      ['hw10.sql', new TextEncoder().encode('SELECT 1;\n')],
+    ]);
+    const built = await buildBundleZipFromFiles(files);
     expect(built.ok).toBe(false);
     if (built.ok) return;
     expect(built.reason).toBe('no_manifest');
