@@ -115,6 +115,64 @@ The example export ZIP is committed, so you can also upload it manually via the 
 `POST /ingest:gradescope` against any semester you own — handy for stress-testing the
 ingestion flow by hand.
 
+## Ingesting submissions
+
+Both ingest paths feed the **same** pipeline — roster upsert → match → parse →
+heuristics → cross-flags, run by the pg-boss worker — and produce identical results.
+They differ only in how the export ZIP reaches the server.
+
+### 1. HTTP upload (the analyzer UI and the API)
+
+The primary path. Course staff upload a Gradescope "Download Submissions" export from
+the analyzer's Ingest page, or via the API:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  -F "archive=@export.zip;type=application/zip" \
+  "$BASE_URL/semesters/$SEMESTER_ID/ingest:gradescope"
+```
+
+The request body is buffered in memory while it is parsed, so a **single upload is
+bounded by what one request can hold** — in practice about **2 GiB**, the point at
+which Node's multipart/FormData stack can no longer materialize the body as one
+contiguous buffer. The configured ceiling is `INGEST_MAX_BATCH_BYTES` (default 5 GiB),
+but uploads that exceed the in-memory limit fail fast with **`413` `INGEST_BATCH_TOO_LARGE`**
+(`reason: request_body_unbufferable`) rather than a confusing error. For exports larger
+than that, use local-path ingest below.
+
+### 2. Local-path ingest (`npm run ingest:local`) — for very large exports
+
+When the export already lives on the server's disk (e.g. a multi-GB or 10 GB+
+Gradescope export), ingest it directly from the filesystem — no upload, no in-memory
+size limit:
+
+```bash
+npm run ingest:local --workspace=packages/server -- \
+  --path ./export.zip --semester <semester-id> --user staff@berkeley.edu
+```
+
+It reads the ZIP with a **streaming random-access reader** (`yauzl`): the central
+directory is read up front (filenames only), then each submission folder is extracted,
+rebuilt into a sealed bundle, staged, and released one at a time. **Peak memory is a
+single submission bundle** (tens of MB) regardless of the total archive size, so it
+scales to arbitrarily large exports. Because it is bounded per-bundle, it deliberately
+does **not** apply the `INGEST_MAX_BATCH_BYTES` total cap (the per-bundle
+`INGEST_MAX_BUNDLE_BYTES` and the `INGEST_MAX_BATCH_FILES` count cap still apply).
+
+Arguments:
+
+| Flag         | Required | Description                                                |
+| ------------ | -------- | ---------------------------------------------------------- |
+| `--path`     | yes      | Path to the Gradescope export ZIP on the server's disk.    |
+| `--semester` | yes      | Target semester id (must already exist).                   |
+| `--user`     | yes      | Email of an existing user, recorded as the job's uploader. |
+
+Like the HTTP path it upserts the roster from the export metadata (no pre-existing
+roster required) and enqueues one `ingest_file` job per submitter. **A worker must be
+running** (`npm run dev` in `--mode=all`, or a separate `--mode=worker` process) to
+process the queued submissions. It prints a summary (job id, roster added/updated,
+bundles processed, submissions queued, skipped folders by reason).
+
 ## Cron jobs (Phase 25)
 
 Three scheduled jobs are registered in pg-boss on worker startup:
@@ -198,16 +256,69 @@ isolated with no shared state.
 
 ## Scripts
 
-| Script                | Description                                |
-| --------------------- | ------------------------------------------ |
-| `npm run dev`         | Dev server with file-watching via tsx      |
-| `npm run build`       | Bundle to `dist/index.js` via esbuild      |
-| `npm run start`       | Run the production bundle                  |
-| `npm run test`        | Run unit + integration tests (vitest)      |
-| `npm run typecheck`   | Type-check without emit                    |
-| `npm run lint`        | ESLint                                     |
-| `npm run db:migrate`  | Apply pending migrations to DATABASE_URL   |
-| `npm run db:generate` | Generate new migration from schema changes |
+| Script                   | Description                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `npm run dev`            | Dev server with file-watching via tsx (`--mode=all` by default)                                  |
+| `npm run build`          | Bundle to `dist/index.js` via esbuild                                                            |
+| `npm run start`          | Run the production bundle                                                                        |
+| `npm run test`           | Run unit + integration tests (vitest)                                                            |
+| `npm run test:perf`      | Run the perf suite (`test/perf`) with `ANALYZE_PERF=1`                                           |
+| `npm run typecheck`      | Type-check without emit                                                                          |
+| `npm run lint`           | ESLint                                                                                           |
+| `npm run db:migrate`     | Apply pending migrations to DATABASE_URL                                                         |
+| `npm run db:generate`    | Generate new migration from schema changes                                                       |
+| `npm run seed`           | Populate a local `seed-demo` semester via the real ingest pipeline (above)                       |
+| `npm run ingest:local`   | Ingest a large Gradescope export from disk (see [Ingesting submissions](#ingesting-submissions)) |
+| `npm run gen:fixture`    | Generate a large signed test-fixture export (see below)                                          |
+| `npm run profile:ingest` | Profile the ingest pipeline phase-by-phase (see below)                                           |
+| `npm run profile:large`  | Profile ingest of a single very large bundle (see below)                                         |
+
+## Development & profiling tooling
+
+These scripts under `scripts/` are dev/test tooling, not shipped server code. They drive
+the server's own modules directly.
+
+### `gen:fixture` — large export generator
+
+Generates a faithful Gradescope export of N students, each with one fully signed,
+hash-chained `.provenance` bundle of M events, using the real `@provenance/log-core`
+crypto core (so every bundle passes validation and matches the analyzer's extension-hash
+allowlist). Defaults to the "700 large bundles" scenario (700 students × 50,000 events).
+
+```bash
+npm run gen:fixture --workspace=packages/server
+npm run gen:fixture --workspace=packages/server -- --students 700 --events 50000 --shard 200
+```
+
+It is memory-safe by construction: each bundle is built, written to a staging directory,
+and released before the next, and shards are packaged with the streaming system `zip`
+(never a whole-export JSZip in memory). `--shard N` splits the output into separate zips
+of ≤N students; `--shard 0` forces a single zip. To **ingest** a single large fixture,
+generate it with `--shard 0` and load it via [`npm run ingest:local`](#ingesting-submissions)
+(local-path ingest streams it from disk; a multi-GB single upload would otherwise exceed
+the in-memory upload limit). The fixture's sids are `200001..200000+N` and its assignment
+is `hw10` — the target semester's roster and assignment must match (or use the Gradescope
+path, which upserts the roster from the export metadata automatically).
+
+### `profile:ingest` / `profile:large` — pipeline profiling
+
+Both drive the real route + worker in-process and print a per-phase timing table (parse,
+match, heuristics, stats, validation, crypto, DB, S3). They need the same backing services
+as `npm run dev` (Postgres + MinIO up, migrations applied) and set `INGEST_PROFILE=1`
+inline. Use them to check the cost model after changing any pipeline stage.
+
+- `profile:ingest` runs the committed ~700-bundle example export against a fresh,
+  deterministically-wiped `perf-test` semester, with wall-clock segmentation (upload /
+  worker drain / cross-flags).
+- `profile:large` profiles **one** very large bundle (default 50,000 events; pass a custom
+  count positionally) to see how per-bundle cost scales with event count and which phase
+  dominates.
+
+```bash
+npm run profile:ingest --workspace=packages/server
+npm run profile:large --workspace=packages/server            # 50k events
+npm run profile:large --workspace=packages/server -- 100000  # custom event count
+```
 
 ## Environment variables
 

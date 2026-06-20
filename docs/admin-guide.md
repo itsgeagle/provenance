@@ -243,6 +243,36 @@ curl -s -X POST https://provenance.example.edu/api/v1/courses/<courseId>/semeste
 
 Invite staff members to the semester via `POST /semesters/<semesterId>/members/invite`.
 
+### 5.1 Ingesting submissions
+
+Once a semester exists, staff ingest a Gradescope "Download Submissions" export. The roster
+is upserted from the export's `submission_metadata.yml` (no separate roster upload needed),
+and every student bundle is processed through the pipeline (match → parse → heuristics →
+cross-flags) by the worker. Both ingest paths produce identical results:
+
+- **HTTP upload** — the analyzer's Ingest page, or `POST /semesters/<id>/ingest:gradescope`.
+  The body is buffered in memory while parsed, so a single upload is bounded by what one
+  request can hold — about **2 GiB** in practice (the configured cap is
+  `INGEST_MAX_BATCH_BYTES`, default 5 GiB). Uploads past the in-memory limit are rejected
+  with `413 INGEST_BATCH_TOO_LARGE`.
+
+- **Local-path ingest** — for very large exports (multi-GB / 10 GB+) staged on the server's
+  disk, ingest directly from the filesystem with no upload and no in-memory size limit:
+
+  ```bash
+  npm run ingest:local --workspace=packages/server -- \
+    --path /srv/exports/export.zip --semester <semester-id> --user staff@school.edu
+  ```
+
+  It reads the archive with a streaming random-access reader, so peak memory is a single
+  submission bundle regardless of total size. A **worker must be running** to process the
+  queued submissions. Full details, including arguments and behavior, are in
+  [`packages/server/README.md` → Ingesting submissions](../packages/server/README.md#ingesting-submissions).
+
+Whichever path is used, monitor progress via `GET /semesters/<id>/ingest/jobs/<jobId>` or
+the analyzer's Ingest job view; unmatched submissions land in the unmatched tray for manual
+resolution.
+
 ---
 
 ## 6. Retention policy
