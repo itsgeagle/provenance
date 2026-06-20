@@ -84,6 +84,13 @@ export async function stageUploadIntoJob(
   // When no per-file jobs were enqueued (roster-only export, or every bundle
   // skipped), nothing will ever trigger maybeEnqueueFinalize — so settle the
   // job here. finalizeIngestJob on a 0-file job yields status 'succeeded'.
+  //
+  // Mutually exclusive with the finalize ingestLocalPath triggers itself: when
+  // submissionsQueued > 0 it calls markStagingComplete + maybeEnqueueFinalize,
+  // so we only direct-send here for the 0-file case. This direct send bypasses
+  // the staging_complete gate, which is safe because finalizeIngestJob does not
+  // consult staging_complete (only maybeEnqueueFinalize does). If that ever
+  // changes, this path must markStagingComplete first or it will hang.
   if (result.submissionsQueued === 0) {
     await boss.send(
       JOB_KINDS.INGEST_FINALIZE,
