@@ -132,13 +132,18 @@ curl -H "Authorization: Bearer $TOKEN" \
   "$BASE_URL/semesters/$SEMESTER_ID/ingest:gradescope"
 ```
 
-The request body is buffered in memory while it is parsed, so a **single upload is
-bounded by what one request can hold** — in practice about **2 GiB**, the point at
-which Node's multipart/FormData stack can no longer materialize the body as one
-contiguous buffer. The configured ceiling is `INGEST_MAX_BATCH_BYTES` (default 5 GiB),
-but uploads that exceed the in-memory limit fail fast with **`413` `INGEST_BATCH_TOO_LARGE`**
-(`reason: request_body_unbufferable`) rather than a confusing error. For exports larger
-than that, use local-path ingest below.
+The upload is **streamed straight to a temp file** on the server (not buffered in
+memory) and then read with the same streaming reader as local-path ingest, so it is
+bounded by disk — `INGEST_MAX_UPLOAD_BYTES` (default 10 GiB) — not by heap. Multi-GB
+exports go through this single endpoint with no special handling.
+
+For very large exports the analyzer uploads **resumably**: files at or above 1 GiB are
+split into parts backed by an S3 multipart upload, so an interrupted transfer (dropped
+connection, page reload) resumes by re-sending only the parts the server is missing
+rather than restarting from zero. Smaller exports use a single request. Both produce
+the same result. The resumable protocol is also available directly on the API
+(`POST …/ingest/uploads`, `PUT …/parts/:n`, `GET …/parts`, `POST …/complete`,
+`DELETE …`); see the OpenAPI spec.
 
 ### 2. Local-path ingest (`npm run ingest:local`) — for very large exports
 

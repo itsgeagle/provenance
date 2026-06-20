@@ -251,10 +251,9 @@ and every student bundle is processed through the pipeline (match → parse → 
 cross-flags) by the worker. Both ingest paths produce identical results:
 
 - **HTTP upload** — the analyzer's Ingest page, or `POST /semesters/<id>/ingest:gradescope`.
-  The body is buffered in memory while parsed, so a single upload is bounded by what one
-  request can hold — about **2 GiB** in practice (the configured cap is
-  `INGEST_MAX_BATCH_BYTES`, default 5 GiB). Uploads past the in-memory limit are rejected
-  with `413 INGEST_BATCH_TOO_LARGE`.
+  The upload is streamed to disk (not buffered in memory), bounded by
+  `INGEST_MAX_UPLOAD_BYTES` (default 10 GiB). The analyzer uploads large exports (≥ 1 GiB)
+  **resumably** so an interrupted transfer continues instead of restarting.
 
 - **Local-path ingest** — for very large exports (multi-GB / 10 GB+) staged on the server's
   disk, ingest directly from the filesystem with no upload and no in-memory size limit:

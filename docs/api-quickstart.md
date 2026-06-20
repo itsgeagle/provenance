@@ -281,12 +281,13 @@ curl -s -X POST \
 # Poll the job with: GET /semesters/$SEMESTER_ID/ingest/jobs/$JOB_ID
 ```
 
-**Upload size.** The request body is buffered in memory while it is parsed, so a single
-upload is bounded by what one request can hold — about **2 GiB** in practice. Larger
-uploads are rejected with `413 INGEST_BATCH_TOO_LARGE` (`reason: request_body_unbufferable`).
-For exports above that (multi-GB or 10 GB+), ingest the file **from the server's disk**
-instead of uploading it, with the `npm run ingest:local` CLI — it streams the archive with
-bounded memory. See
+**Large exports.** The single-request upload above is streamed to disk server-side, so it
+handles multi-GB exports (bounded by `INGEST_MAX_UPLOAD_BYTES`, default 10 GiB). For
+resilience on large transfers there is also a **resumable** protocol — `POST
+…/ingest/uploads` → `PUT …/parts/{n}?s3_upload_id=…` → `POST …/complete` — that resumes an
+interrupted upload via `GET …/parts` (the analyzer uses it automatically for files ≥ 1 GiB).
+And when the export already lives on the server's disk, skip uploading entirely with the
+`npm run ingest:local` CLI. See
 [`packages/server/README.md` → Ingesting submissions](../packages/server/README.md#ingesting-submissions).
 
 ## API reference

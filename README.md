@@ -96,12 +96,12 @@ submission per student through the pipeline (roster upsert → match → heurist
 cross-flags). There are two ways in, both producing identical results:
 
 - **HTTP upload** — the analyzer's Ingest page, or `POST /semesters/:id/ingest:gradescope`.
-  The primary path for normal exports. The request body is buffered in memory, so a single
-  upload is bounded by what one request can hold (~2 GiB in practice); larger uploads are
-  rejected with a clear `413`.
+  The primary path. The upload is streamed to disk (not buffered in memory), so it handles
+  multi-GB exports; the analyzer uploads files ≥ 1 GiB **resumably** (chunked) so an
+  interrupted transfer continues instead of restarting.
 - **Local-path CLI** — `npm run ingest:local` reads an export **directly from the server's
-  disk** via a streaming reader, with memory bounded to a single submission bundle. This is
-  the path for very large exports (10 GB+), and is instant locally since nothing is uploaded.
+  disk** via a streaming reader, with memory bounded to a single submission bundle. Best
+  when a very large export (10 GB+) already lives on the server — instant, no upload.
 
 See [`packages/server/README.md`](packages/server/README.md#ingesting-submissions) for the
 full ingest guide, plus the dev tooling for generating large test fixtures (`gen:fixture`)
