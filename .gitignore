@@ -13,3 +13,6 @@ test-workspace/.provenance/
 .env
 .claude/
 .superpowers/
+
+# Generated large test fixtures (multi-GB, never committed)
+packages/server/scripts/fixtures/
