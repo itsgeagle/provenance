@@ -2,7 +2,7 @@ import { vi, describe, it, expect } from 'vitest';
 import { eq, count, asc } from 'drizzle-orm';
 import { withTestDb } from '../../../test/helpers/db.js';
 import { seedSubmission } from '../../../test/helpers/seed-submission.js';
-import { materializeEvents, EVENTS_INSERT_CHUNK_SIZE } from './materialize-events.js';
+import { materializeEvents } from './materialize-events.js';
 import { events, submissions } from '../../db/schema.js';
 import type { Bundle, ParsedSession } from '@provenance/analyzer/src/loader/types.js';
 
@@ -95,9 +95,9 @@ describe('materializeEvents', () => {
     });
   });
 
-  it('chunk boundary: CHUNK_SIZE+1 events → 2 chunks, ordering preserved', async () => {
+  it('large batch (>5000 events): single set-based insert, ordering preserved', async () => {
     await withTestDb(async (db) => {
-      const n = EVENTS_INSERT_CHUNK_SIZE + 1;
+      const n = 5001;
       const submissionId = await seedSubmission(db);
       const bundle = makeSyntheticBundle(n);
       await materializeEvents(db, submissionId, bundle);
@@ -113,7 +113,33 @@ describe('materializeEvents', () => {
         .from(events)
         .where(eq(events.submission_id, submissionId))
         .orderBy(asc(events.seq));
-      expect(rows[EVENTS_INSERT_CHUNK_SIZE]!.seq).toBe(EVENTS_INSERT_CHUNK_SIZE);
+      expect(rows[5000]!.seq).toBe(5000);
+    });
+  });
+
+  it('jsonb payload round-trips through json_to_recordset (quotes, backslashes, newlines, unicode)', async () => {
+    await withTestDb(async (db) => {
+      const submissionId = await seedSubmission(db);
+      // A payload whose values exercise every escaping hazard the bulk-insert
+      // path must survive: embedded double-quotes, backslashes, newlines/tabs,
+      // a literal backslash-n sequence, and non-ASCII / emoji.
+      const nastyPayload = {
+        path: 'hw1.py',
+        text: 'line1\nline2\ttabbed "quoted" \\backslash\\ literal-\\n café ☃ 🚀',
+        nested: { 'weird,key': 'a,b,"c"', arr: ['x\n', 'y\\z'] },
+        unicode: 'éü中文',
+      };
+      const bundle = makeSyntheticBundle(1);
+      bundle.sessions[0]!.events[0]!.data = nastyPayload as unknown as never;
+
+      await materializeEvents(db, submissionId, bundle);
+
+      const rows = await db
+        .select({ payload: events.payload })
+        .from(events)
+        .where(eq(events.submission_id, submissionId));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.payload).toEqual(nastyPayload);
     });
   });
 
