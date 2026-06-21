@@ -12,23 +12,23 @@
  * Design choice (see A31 in `.notes/analyzer-progress.md`):
  *   v1's `reconstructFile` and this function are kept as **separate
  *   implementations**, not unified via a parameterized splice helper. The
- *   provenance variant needs to track a parallel `number[]` alongside the
- *   content string; threading that through a shared splice would force every
- *   caller (including v1's) through the same shape. Instead we re-implement
+ *   provenance variant needs to track a parallel per-character attribution
+ *   alongside the content; threading that through a shared splice would force
+ *   every caller (including v1's) through the same shape. Instead we re-implement
  *   the same algorithm here and add a property-based test that runs both
  *   functions on synthetic streams and asserts byte-identical `content` +
  *   identical `hashBySaveSeq`. The two paths thus stay in lockstep via tests
  *   rather than via code sharing.
  *
- * Performance: a full reconstruction is O(n) in the number of events for the
- * common append/local-edit stream (worst case O(n·lines) when edits land mid-
- * document and shift following line starts). The earlier implementation called
- * `content.split('\n')` on every position lookup — O(content length) per call,
- * twice per delta — which made reconstruction O(n²) and dominated ingest on
- * realistic bundles (see `.notes/ingest-perf-investigation.md`). We now keep an
- * incrementally-maintained `lineStarts` index so position→offset is O(1), and
- * mutate the `provenance` array in place rather than rebuilding it per delta.
- * The `provenance` array is frozen into a `Uint32Array` at the return boundary.
+ * Performance: content is stored as a line-cell array (each cell is one line
+ * including its trailing '\n'), with a parallel per-cell provenance array so
+ * `provCells[k].length === cells[k].length`. An intra-line edit then rewrites a
+ * single cell — O(line length), with no array shift — instead of rebuilding the
+ * whole content string and the whole provenance array (O(content) per edit,
+ * which made interior-edit reconstruction O(L²); see `docs/ingest-complexity.md`
+ * "Known worst case"). The flat `provenance` Uint32Array is materialized only at
+ * the return boundary. v1's `reconstruct-file.ts` mirrors this model (kept in
+ * lockstep via `reconstruct-line-index.fuzz.test.ts`).
  */
 
 import { diffLines } from 'diff';
@@ -96,121 +96,115 @@ export type FileReplayState = {
 };
 
 // ---------------------------------------------------------------------------
-// Incremental line-index model (perf: O(1) position→offset)
+// Line-cell content model (perf: O(line) intra-line edits, no lineStarts)
 // ---------------------------------------------------------------------------
 //
-// `lineStarts[k]` is the flat offset where line `k` begins. `lineStarts[0]` is
-// always 0 and `lineStarts.length === (number of '\n' in content) + 1`. We
-// maintain it incrementally across edits (never re-scanning the whole content)
-// so converting a (line, character) position to a flat offset is O(1). This is
-// the lever-1 fix for the O(n²) reconstruction: the old `positionToOffset`
-// called `content.split('\n')` on every lookup.
+// Content is `cells: string[]` — split AFTER each '\n', so each cell carries its
+// own trailing newline (the last cell may lack one). `content === cells.join('')`
+// and the number of cells equals the line count, so a (line, character) position
+// maps directly to (cell index, char-in-cell). `provCells` is the parallel
+// per-character attribution: `provCells[k].length === cells[k].length`, which
+// keeps the `content.length === provenance.length` invariant with no separate
+// newline bookkeeping. See `reconstruct-file.ts` for the long-form rationale.
 
-/** Build the line-start index for a content string from scratch (O(content)). */
-function computeLineStarts(content: string): number[] {
-  const starts = [0];
+/** Split `content` into cells AFTER each '\n', carrying parallel provenance. */
+function splitCellsWithProv(
+  content: string,
+  prov: number[],
+): { cells: string[]; provCells: number[][] } {
+  const cells: string[] = [];
+  const provCells: number[][] = [];
+  let start = 0;
   for (let i = 0; i < content.length; i++) {
-    if (content.charCodeAt(i) === 10 /* '\n' */) starts.push(i + 1);
+    if (content.charCodeAt(i) === 10 /* '\n' */) {
+      cells.push(content.slice(start, i + 1));
+      provCells.push(prov.slice(start, i + 1));
+      start = i + 1;
+    }
   }
-  return starts;
+  cells.push(content.slice(start)); // final remainder (may be '')
+  provCells.push(prov.slice(start));
+  return { cells, provCells };
 }
 
-/** First index `i` in the ascending array `arr` with `arr[i] > value`. */
-function firstIndexAbove(arr: number[], value: number): number {
-  let lo = 0;
-  let hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (arr[mid]! > value) hi = mid;
-    else lo = mid + 1;
+/** Flatten `provCells` into the flat `Uint32Array` the return type exposes. */
+function joinProvenance(provCells: number[][]): Uint32Array {
+  let total = 0;
+  for (const pc of provCells) total += pc.length;
+  const out = new Uint32Array(total);
+  let off = 0;
+  for (const pc of provCells) {
+    out.set(pc, off);
+    off += pc.length;
   }
-  return lo;
+  return out;
 }
+
+/** Flatten `provCells` to a plain `number[]` (used by the external-change diff). */
+function flattenProv(provCells: number[][]): number[] {
+  const out: number[] = [];
+  for (const pc of provCells) for (const v of pc) out.push(v);
+  return out;
+}
+
+/** Running content + parallel per-char provenance threaded through one replay. */
+type ReplayBuf = { cells: string[]; provCells: number[][] };
+
+/** Clamped (cell index, char-in-cell) for a (line, character) position. */
+type CellPos = { cell: number; char: number };
 
 /**
- * Update `lineStarts` in place to reflect a splice that removed content
- * `[start, end)` and inserted `inserted` at offset `start`. Mirrors the byte
- * edit applied to the content string without scanning it.
- *
- * Line starts in `(start, end]` correspond to '\n's removed from `[start, end)`
- * and are dropped; entries strictly past the edit shift by the length delta;
- * newlines inside `inserted` add fresh entries.
+ * Resolve a (line, character) position to a (cell, char-in-cell) pair, with the
+ * exact clamping the old flat-offset `positionToOffset` used: line < 0 → start
+ * of content; line ≥ line-count → end of content; otherwise character is clamped
+ * to the visible line length (excluding the trailing '\n').
  */
-function updateLineStarts(
-  lineStarts: number[],
-  start: number,
-  end: number,
-  inserted: string,
-): void {
-  const lenDiff = inserted.length - (end - start);
-  const lo = firstIndexAbove(lineStarts, start);
-  const hi = firstIndexAbove(lineStarts, end);
-  if (lenDiff !== 0) {
-    for (let i = hi; i < lineStarts.length; i++) lineStarts[i] = lineStarts[i]! + lenDiff;
+function clampPos(cells: string[], line: number, character: number): CellPos {
+  if (line < 0) return { cell: 0, char: 0 };
+  if (line >= cells.length) {
+    const last = cells.length - 1;
+    return { cell: last, char: cells[last]!.length };
   }
-  const newStarts: number[] = [];
-  for (let i = 0; i < inserted.length; i++) {
-    if (inserted.charCodeAt(i) === 10) newStarts.push(start + i + 1);
-  }
-  lineStarts.splice(lo, hi - lo, ...newStarts);
+  const cell = cells[line]!;
+  const endsNL = cell.length > 0 && cell.charCodeAt(cell.length - 1) === 10;
+  const visibleLen = endsNL ? cell.length - 1 : cell.length;
+  return { cell: line, char: Math.min(character, visibleLen) };
 }
 
 /**
- * Convert a line/character position to a flat string offset against a
- * maintained `lineStarts` index. Clamps character to the line length and the
- * result to the content length — byte-identical to the old `split('\n')`-based
- * `positionToOffset`, but O(1).
- */
-function offsetAt(content: string, lineStarts: number[], line: number, character: number): number {
-  if (line < 0) return 0;
-  if (line >= lineStarts.length) return content.length;
-  const lineStart = lineStarts[line]!;
-  const lineEnd = line + 1 < lineStarts.length ? lineStarts[line + 1]! - 1 : content.length;
-  const offset = lineStart + Math.min(character, lineEnd - lineStart);
-  return Math.min(offset, content.length);
-}
-
-// ---------------------------------------------------------------------------
-// Mutable replay buffer (content + per-char provenance + line index)
-// ---------------------------------------------------------------------------
-
-/**
- * The running state threaded through one reconstruction. `prov` is kept as a
- * `number[]` and mutated in place (frozen to a `Uint32Array` at the very end);
- * `lineStarts` is maintained incrementally. Invariant:
- * `content.length === prov.length`.
- */
-type ReplayBuf = {
-  content: string;
-  prov: number[];
-  lineStarts: number[];
-};
-
-/**
- * Splice `[start, end)` → `replacement` in `buf`, attributing every inserted
- * character to `globalIdx`. Mutates `content`, `prov`, and `lineStarts` in
- * place. This is the in-place analogue of `spliceWithProvenance` (which stays
- * pure for its unit tests).
+ * Splice `[start, end)` (in (cell, char) space) → `replacement` in `buf`,
+ * attributing every inserted character to `globalIdx`. Mutates `cells` and
+ * `provCells` in place, preserving `provCells[k].length === cells[k].length`.
  */
 function spliceBuf(
   buf: ReplayBuf,
-  start: number,
-  end: number,
+  start: CellPos,
+  end: CellPos,
   replacement: string,
   globalIdx: number,
 ): void {
-  buf.content = buf.content.slice(0, start) + replacement + buf.content.slice(end);
-  const del = end - start;
-  if (replacement.length === 0) {
-    if (del > 0) buf.prov.splice(start, del);
-  } else if (del === 0 && start === buf.prov.length) {
-    // Append fast-path — avoids materialising + spreading a fill array.
-    for (let i = 0; i < replacement.length; i++) buf.prov.push(globalIdx);
-  } else {
-    const fill = new Array<number>(replacement.length).fill(globalIdx);
-    buf.prov.splice(start, del, ...fill);
+  const isTail = end.cell === buf.cells.length - 1;
+  const combinedStr =
+    buf.cells[start.cell]!.slice(0, start.char) +
+    replacement +
+    buf.cells[end.cell]!.slice(end.char);
+  // Build the parallel provenance for the merged fragment: prefix attribution,
+  // then `globalIdx` for each inserted char, then suffix attribution.
+  const combinedProv = buf.provCells[start.cell]!.slice(0, start.char);
+  for (let i = 0; i < replacement.length; i++) combinedProv.push(globalIdx);
+  const suffixProv = buf.provCells[end.cell]!;
+  for (let i = end.char; i < suffixProv.length; i++) combinedProv.push(suffixProv[i]!);
+
+  const split = splitCellsWithProv(combinedStr, combinedProv);
+  // Drop the spurious trailing '' cell when the splice did not reach the tail
+  // (the real continuation is the untouched cell after `end.cell`).
+  if (!isTail && split.cells.length > 1 && split.cells[split.cells.length - 1] === '') {
+    split.cells.pop();
+    split.provCells.pop();
   }
-  updateLineStarts(buf.lineStarts, start, end, replacement);
+  const removeCount = end.cell - start.cell + 1;
+  buf.cells.splice(start.cell, removeCount, ...split.cells);
+  buf.provCells.splice(start.cell, removeCount, ...split.provCells);
 }
 
 /**
@@ -269,8 +263,8 @@ function applyDocChangeBuf(buf: ReplayBuf, payload: unknown, globalIdx: number):
 
   let applied = false;
   for (const delta of deltas as DocChangeDelta[]) {
-    const start = offsetAt(buf.content, buf.lineStarts, delta.range.start.line, delta.range.start.character);
-    const end = offsetAt(buf.content, buf.lineStarts, delta.range.end.line, delta.range.end.character);
+    const start = clampPos(buf.cells, delta.range.start.line, delta.range.start.character);
+    const end = clampPos(buf.cells, delta.range.end.line, delta.range.end.character);
     spliceBuf(buf, start, end, delta.text, globalIdx);
     applied = true;
   }
@@ -292,8 +286,8 @@ function applyPasteBuf(buf: ReplayBuf, payload: unknown, globalIdx: number): boo
   const range = rangeRaw as Range;
   const text = p['content'] as string;
 
-  const start = offsetAt(buf.content, buf.lineStarts, range.start.line, range.start.character);
-  const end = offsetAt(buf.content, buf.lineStarts, range.end.line, range.end.character);
+  const start = clampPos(buf.cells, range.start.line, range.start.character);
+  const end = clampPos(buf.cells, range.end.line, range.end.character);
   spliceBuf(buf, start, end, text, globalIdx);
   return true;
 }
@@ -301,6 +295,14 @@ function applyPasteBuf(buf: ReplayBuf, payload: unknown, globalIdx: number): boo
 // ---------------------------------------------------------------------------
 // reconstructFileWithProvenance
 // ---------------------------------------------------------------------------
+
+/**
+ * Per-`EventIndex` memo of full-stream (no `upToGlobalIdx`) reconstructions,
+ * shared across consumers of one index (paste-is-solution, idle-then-complete's
+ * final state) so the full-stream replay happens once per file. Keyed weakly on
+ * the index; never holds cut-point results (bounded memory for replay seeking).
+ */
+const finalReplayCache = new WeakMap<EventIndex, Map<string, FileReplayState>>();
 
 /**
  * Reconstruct the content of `filePath` and the per-character provenance
@@ -323,15 +325,24 @@ function applyPasteBuf(buf: ReplayBuf, payload: unknown, globalIdx: number): boo
  *    `kindByGlobalIdx[globalIdx] = 'external_change'` as a sentinel.
  *  - `doc.save` — record sha256 in hashBySaveSeq.
  *
- * Provenance is built as a `number[]` for cheap dynamic growth and frozen
- * into a `Uint32Array` only at the return boundary.
+ * Provenance is tracked per-cell as `number[]` for cheap dynamic growth and
+ * flattened into a `Uint32Array` only at the return boundary.
  */
 export function reconstructFileWithProvenance(
   index: EventIndex,
   filePath: string,
   upToGlobalIdx?: number,
 ): FileReplayState {
-  const buf: ReplayBuf = { content: '', prov: [], lineStarts: [0] };
+  // Memoize full-stream reconstructions per index (shared by paste-is-solution
+  // and idle-then-complete's final state). Cut-point reconstructions are
+  // detector-specific and uncached, keeping memory bounded for replay seeking.
+  // All callers treat the result as read-only.
+  if (upToGlobalIdx === undefined) {
+    const cached = finalReplayCache.get(index)?.get(filePath);
+    if (cached !== undefined) return cached;
+  }
+
+  const buf: ReplayBuf = { cells: [''], provCells: [[]] };
   const kindByGlobalIdx = new Map<number, ProvenanceKind>();
   const hashBySaveSeq = new Map<string, string>();
 
@@ -355,9 +366,10 @@ export function reconstructFileWithProvenance(
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
           const initialText = p['content'];
-          buf.content = initialText;
-          buf.prov = Array.from({ length: initialText.length }, () => e.globalIdx);
-          buf.lineStarts = computeLineStarts(initialText);
+          const seedProv = new Array<number>(initialText.length).fill(e.globalIdx);
+          const seeded = splitCellsWithProv(initialText, seedProv);
+          buf.cells = seeded.cells;
+          buf.provCells = seeded.provCells;
           // Clear all stale entries from before this re-seed. Subsequent
           // reconstruction will repopulate kindByGlobalIdx with only the events
           // that actually contribute to the current file state.
@@ -402,9 +414,8 @@ export function reconstructFileWithProvenance(
           // Large paste (> 4 KB, no inline content) — clear both. We do NOT
           // attribute the cleared state to the paste event in
           // kindByGlobalIdx because there are no characters to attribute.
-          buf.content = '';
-          buf.prov = [];
-          buf.lineStarts = [0];
+          buf.cells = [''];
+          buf.provCells = [[]];
         }
         break;
       }
@@ -432,9 +443,8 @@ export function reconstructFileWithProvenance(
         kindByGlobalIdx.set(e.globalIdx, 'external_change');
 
         if (operation === 'delete' || newContent === null) {
-          buf.content = '';
-          buf.prov = [];
-          buf.lineStarts = [0];
+          buf.cells = [''];
+          buf.provCells = [[]];
           break;
         }
 
@@ -444,7 +454,9 @@ export function reconstructFileWithProvenance(
         // (For 'create' the prior state is typically '', so diffLines
         // yields a single added hunk → whole file attributed to the
         // event, which is the right semantic.)
-        const hunks = diffLines(buf.content, newContent);
+        const oldContent = buf.cells.join('');
+        const oldProv = flattenProv(buf.provCells);
+        const hunks = diffLines(oldContent, newContent);
         const newProv: number[] = [];
         let oldOffset = 0;
         for (const hunk of hunks) {
@@ -457,19 +469,19 @@ export function reconstructFileWithProvenance(
             for (let i = 0; i < len; i++) newProv.push(e.globalIdx);
           } else {
             // Unchanged characters — copy provenance verbatim. Defensive
-            // bounds guard: if `prov` is shorter than expected (shouldn't
+            // bounds guard: if `oldProv` is shorter than expected (shouldn't
             // happen given the invariant content.length === prov.length, but
             // cheap to handle), fall back to the event's globalIdx for any
             // tail positions.
             for (let i = 0; i < len; i++) {
-              newProv.push(buf.prov[oldOffset + i] ?? e.globalIdx);
+              newProv.push(oldProv[oldOffset + i] ?? e.globalIdx);
             }
             oldOffset += len;
           }
         }
-        buf.content = newContent;
-        buf.prov = newProv;
-        buf.lineStarts = computeLineStarts(newContent);
+        const seeded = splitCellsWithProv(newContent, newProv);
+        buf.cells = seeded.cells;
+        buf.provCells = seeded.provCells;
         break;
       }
 
@@ -486,10 +498,19 @@ export function reconstructFileWithProvenance(
     }
   }
 
-  return {
-    content: buf.content,
-    provenance: Uint32Array.from(buf.prov),
+  const result: FileReplayState = {
+    content: buf.cells.join(''),
+    provenance: joinProvenance(buf.provCells),
     kindByGlobalIdx,
     hashBySaveSeq,
   };
+  if (upToGlobalIdx === undefined) {
+    let perIndex = finalReplayCache.get(index);
+    if (perIndex === undefined) {
+      perIndex = new Map();
+      finalReplayCache.set(index, perIndex);
+    }
+    perIndex.set(filePath, result);
+  }
+  return result;
 }

@@ -18,9 +18,14 @@ worth doing. It is a companion to the profiling notes captured during the June
 - The single dominant cost is **hash-chain verification** (validation Check 3):
   ~44% of CPU. It is cryptographically irreducible, runs exactly once per
   bundle, and has **no redundant double-hashing** anywhere else in the pipeline.
-- **There is no remaining algorithmic win.** The pipeline is at its floor. The
+- **For append-dominated streams there is no remaining algorithmic win.** The
   lever for fleet-scale imports (hundreds–thousands of bundles) is throughput
   (`INGEST_CONCURRENCY`), not per-bundle work.
+- **Interior-edit reconstruction was O(L²)** (template-fill assignments, hidden
+  by the append-only bench) — **fixed 2026-06-21** via a line-cell content model
+  in both reconstructors + per-index reconstruction sharing. Realistic
+  `methodfill` workload (original → now): reconstruction stages 2.1–5.0× faster
+  (widening with size), whole CPU pipeline 1.2–1.6×. See "Interior edits" below.
 
 ## Notation
 
@@ -194,12 +199,12 @@ Levers considered and their verdicts:
     saturates all cores via `INGEST_CONCURRENCY`). High complexity (thread pool,
     event serialization) for a narrow benefit. **Not worth it** unless one-bundle
     latency becomes a UX problem.
-- **Share one reconstruction per file (the old "Lever 2") — not worth it.**
-  Earlier profiling flagged reconstruction running ~8–10× per submission. Now
-  that each reconstruction is O(n), the measured cost is marginal (Check 7 =
-  8.3ms, Check 8 = 0.4ms, stats = 14ms at 50k). Collapsing them into one shared
-  pass would save tens of ms at 50k at the cost of threading a reconstruction
-  cache through the analyzer's pure-function API. **Recommend dropping it.**
+- **Share one reconstruction per file (the old "Lever 2") — DONE (2026-06-21).**
+  Full-stream reconstructions are memoized per `EventIndex` (a `WeakMap` in each
+  reconstructor), shared across consumers of the same index with no
+  pure-function-API change (the cache keys on the index identity, not a threaded
+  param). A cheap ~10–15% on the reconstruction stages on top of the line-cell
+  fix — see "Interior edits" below.
 - **`buildIndex` sort O(n log n) → k-way merge O(n log S) — marginal.**
   buildIndex is only ~5% of CPU; not worth the complexity.
 - **Throughput for fleet-scale imports — already handled.** `INGEST_CONCURRENCY`
@@ -207,13 +212,68 @@ Levers considered and their verdicts:
   (700-bundle drain: 348s @ c=1 → 87s @ c=4 → 44s @ c=8). Raise it together with
   `DATABASE_POOL_MAX` (each in-flight job holds ~1 pool connection).
 
-### Known worst case (not a regression)
+### Interior edits: the O(L²) reconstruction (fixed 2026-06-21)
 
-Reconstruction is O(n) for append / local-edit streams — the real recorder
-pattern, and what the bench measures. A pathological stream of **mid-document**
-edits to one very large file is still O(L²) (each string splice copies O(L)).
-This is inherent to a materialized-string reconstruction and not worth fixing
-speculatively; real sessions are append-dominated.
+The linear result above was measured on an **append-only** edit stream (the
+bench typed every line at end-of-file — the pattern V8 keeps cheap via
+cons-strings). For an assignment style where students fill in method bodies
+inside template code, most `doc.change` events instead land in the **interior**
+of the file. The original materialized-string content model
+(`content.slice(0,start) + text + content.slice(end)` plus an O(lines)
+`lineStarts` shift) copied O(L) per interior edit ⇒ O(L²) per reconstruction —
+and reconstruction runs ~10× per submission file (`stats` ×1, validation ×2,
+and ~7 heuristic detectors), so the cost was ~10 × O(L²), with `runHeuristics`
+the largest victim.
+
+**Fix:** both reconstructors (`reconstruct-file.ts`,
+`reconstruct-file-provenance.ts`) now store content as a **line-cell array** —
+each cell is one line including its trailing `\n`, with a parallel per-cell
+provenance array (`provCells[k].length === cells[k].length`). A position maps
+directly to (cell, char), so there is no `lineStarts` index, and an **intra-line
+edit rewrites a single cell — O(line length), with no array shift**. Verified
+byte-identical (content + per-char provenance + every prefix cut) against the
+independent old-`split('\n')` oracle in `reconstruct-line-index.fuzz.test.ts`
+(1000 random streams) plus the full analyzer suite (1188 tests).
+
+A **second lever** layers on top: full-stream reconstructions are now memoized
+per `EventIndex` (a `WeakMap` in each reconstructor), so the full replay runs
+once per file and is shared across consumers of the same index — `computeStats`
+↔ `low-typing-high-output` (plain) and `paste-is-solution` ↔
+`idle-then-complete` (provenance). Cut-point (`upToGlobalIdx`) reconstructions
+are detector-specific and uncached (bounds replay-UI memory). This is the old
+"Lever 2", now worth doing as a cheap follow-on.
+
+Measured with the realistic `BENCH_EDIT=methodfill` mode (short keystroke-sized
+bursts, ~12% newline, localized interior cursor — the template-fill pattern),
+**original → now (line-cell + sharing)** on the same stream, faithful cold
+measurement (fresh index per rep):
+
+```
+events  fileKB   stats        heur          recon          CPU sum
+10,003   14.4    8.4 → 5.4    21.7 → 8.9   30 → 14 (2.1×)  105.6 → 88.9 (1.19×)
+25,003   32.7   21.8 → 9.4    75.0 → 22.1  97 → 32 (3.1×)  275.1 →211.8 (1.30×)
+50,003   63.7   62.1 →16.7   260.0 → 47.1 322 → 64 (5.0×)  726.0 →452.0 (1.61×)
+```
+
+The reconstruction-heavy stages (stats+heur) are **2.1–5.0× faster, widening
+with file size** (the super-linear term is gone); the whole CPU pipeline is
+**1.2–1.6×** — the rest is `valid`, dominated by the irreducible O(bytes)
+chain-hash (Check 3), plus parse. The line-cell model is the bulk of the win;
+sharing adds ~10–15% on the reconstruction stages. `append` is unchanged
+(marginally faster).
+
+**Caveat — the line-cell model's weak case is pure line-insertion.** An edit
+that adds/removes whole lines shifts the cell array O(lines). A stream that is
+*dominated* by interior whole-line insertion (`BENCH_EDIT=mid`/`scatter`)
+therefore regresses vs the old string model (e.g. `mid` @25k/408 KB: 3029 →
+7306 ms). This is not the real recorder pattern — `doc.change` events are
+overwhelmingly intra-line keystrokes, and `methodfill` (12% newlines) already
+nets a win — and the quadratic constant is over the *line* count, so at
+realistic file sizes (≤ ~50 KB / ~1k lines) even this pattern is a few ms. If
+real bundles ever prove line-insertion-heavy at large file sizes, the next step
+is a **gap buffer over the cell array** (O(1) amortized for localized
+insertion), which would also make `mid` linear; `scatter` (random) stays the
+hard case for any non-tree structure.
 
 ## Running the benchmark
 
@@ -226,6 +286,10 @@ npm run bench:stages --workspace=packages/server -- 10000 50000 100000
 
 # With the per-validation-check breakdown:
 BENCH_CHECKS=1 npm run bench:stages --workspace=packages/server -- 50000
+
+# Edit-position model (default `append`): `mid`/`scatter` place each typed line
+# in the file interior to model template-fill workloads — see "Known worst case".
+BENCH_EDIT=mid npm run bench:stages --workspace=packages/server -- 5000 10000 25000
 ```
 
 No infrastructure required — it generates bundles in-process and times the pure

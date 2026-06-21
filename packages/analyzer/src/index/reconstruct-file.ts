@@ -143,81 +143,85 @@ export function applyPaste(
 }
 
 // ---------------------------------------------------------------------------
-// Incremental line-index model (perf)
+// Line-cell content model (perf)
 // ---------------------------------------------------------------------------
 //
 // `reconstructFile` replays a file's whole event stream. The exported
-// `applyDocChange` / `applyPaste` helpers above keep a pure `(content,
-// payload)` signature for their unit tests, but they re-split the content on
-// every position lookup — O(content) per call, which makes a full
-// reconstruction O(n²) in the number of events. The hot loop below instead
-// threads a small mutable buffer that maintains `lineStarts` incrementally,
-// so each position→offset lookup is O(1). See `.notes/ingest-perf-
-// investigation.md` and the matching model in `reconstruct-file-provenance.ts`
-// (kept in lockstep via the parity tests).
+// `applyDocChange` / `applyPaste` helpers above keep a pure `(content, payload)`
+// signature for their unit tests, but they re-split + rebuild the whole content
+// string on every edit — O(content) per edit, which makes a full reconstruction
+// O(L²) when edits land in the file interior (append-only streams stay cheap via
+// V8 cons-strings, but template-fill assignments edit the interior). See
+// `docs/ingest-complexity.md` "Known worst case".
+//
+// The hot loop below stores content as `cells: string[]` — the content split
+// AFTER each '\n', so each cell carries its own trailing newline (the last cell
+// may lack one). `content === cells.join('')`, and the number of cells equals
+// the line count, so a (line, character) position maps directly to (cell index,
+// char-in-cell) with no `lineStarts` array to maintain. A single-line in-place
+// edit then touches one cell string — O(line length), with no array shift
+// (splice replaces one cell with one). Only line-count-changing edits shift the
+// cells array, and that moves pointers, not characters. The provenance variant
+// in `reconstruct-file-provenance.ts` mirrors this model (kept in lockstep via
+// `reconstruct-line-index.fuzz.test.ts`).
 
-/** Build the line-start index for a content string from scratch (O(content)). */
-function computeLineStarts(content: string): number[] {
-  const starts = [0];
+/** Split content into cells AFTER each '\n'. Always returns ≥1 cell. */
+function splitCells(content: string): string[] {
+  const cells: string[] = [];
+  let start = 0;
   for (let i = 0; i < content.length; i++) {
-    if (content.charCodeAt(i) === 10 /* '\n' */) starts.push(i + 1);
+    if (content.charCodeAt(i) === 10 /* '\n' */) {
+      cells.push(content.slice(start, i + 1));
+      start = i + 1;
+    }
   }
-  return starts;
+  cells.push(content.slice(start)); // final remainder (may be '' if content ended in '\n')
+  return cells;
 }
 
-/** First index `i` in the ascending array `arr` with `arr[i] > value`. */
-function firstIndexAbove(arr: number[], value: number): number {
-  let lo = 0;
-  let hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (arr[mid]! > value) hi = mid;
-    else lo = mid + 1;
+/** Running content as a line-cell array threaded through one reconstruction. */
+type ContentBuf = { cells: string[] };
+
+/** Clamped (cell index, char-in-cell) for a (line, character) position. */
+type CellPos = { cell: number; char: number };
+
+/**
+ * Resolve a (line, character) position to a (cell, char-in-cell) pair, with the
+ * exact clamping the old flat-offset `positionToOffset` used: line < 0 → start
+ * of content; line ≥ line-count → end of content; otherwise character is clamped
+ * to the visible line length (excluding the trailing '\n').
+ */
+function clampPos(cells: string[], line: number, character: number): CellPos {
+  if (line < 0) return { cell: 0, char: 0 };
+  if (line >= cells.length) {
+    const last = cells.length - 1;
+    return { cell: last, char: cells[last]!.length };
   }
-  return lo;
+  const cell = cells[line]!;
+  const endsNL = cell.length > 0 && cell.charCodeAt(cell.length - 1) === 10;
+  const visibleLen = endsNL ? cell.length - 1 : cell.length;
+  return { cell: line, char: Math.min(character, visibleLen) };
 }
 
 /**
- * Update `lineStarts` in place to reflect a splice that removed `[start, end)`
- * and inserted `inserted` at `start`. Mirrors the byte edit without scanning
- * the content.
+ * Splice `[start, end)` (in (cell, char) space) → `replacement` in `buf`,
+ * maintaining the cell array. Mirrors the flat-string `slice + concat` exactly:
+ * the merged prefix + replacement + suffix is re-split into cells, replacing the
+ * spanned cells in place.
  */
-function updateLineStarts(
-  lineStarts: number[],
-  start: number,
-  end: number,
-  inserted: string,
-): void {
-  const lenDiff = inserted.length - (end - start);
-  const lo = firstIndexAbove(lineStarts, start);
-  const hi = firstIndexAbove(lineStarts, end);
-  if (lenDiff !== 0) {
-    for (let i = hi; i < lineStarts.length; i++) lineStarts[i] = lineStarts[i]! + lenDiff;
+function spliceCells(buf: ContentBuf, start: CellPos, end: CellPos, replacement: string): void {
+  const isTail = end.cell === buf.cells.length - 1;
+  const prefix = buf.cells[start.cell]!.slice(0, start.char);
+  const suffix = buf.cells[end.cell]!.slice(end.char);
+  const newCells = splitCells(prefix + replacement + suffix);
+  // splitCells always emits a trailing remainder cell. When the spliced region
+  // does NOT reach the document tail and the merged text ends in '\n', that
+  // remainder is spurious — the real continuation is the untouched cell after
+  // `end.cell`. Drop it. (A truly empty merge implies isTail, so this is safe.)
+  if (!isTail && newCells.length > 1 && newCells[newCells.length - 1] === '') {
+    newCells.pop();
   }
-  const newStarts: number[] = [];
-  for (let i = 0; i < inserted.length; i++) {
-    if (inserted.charCodeAt(i) === 10) newStarts.push(start + i + 1);
-  }
-  lineStarts.splice(lo, hi - lo, ...newStarts);
-}
-
-/** O(1) line/character → flat offset against a maintained `lineStarts` index. */
-function offsetAt(content: string, lineStarts: number[], line: number, character: number): number {
-  if (line < 0) return 0;
-  if (line >= lineStarts.length) return content.length;
-  const lineStart = lineStarts[line]!;
-  const lineEnd = line + 1 < lineStarts.length ? lineStarts[line + 1]! - 1 : content.length;
-  const offset = lineStart + Math.min(character, lineEnd - lineStart);
-  return Math.min(offset, content.length);
-}
-
-/** Running content + line index threaded through one reconstruction. */
-type ContentBuf = { content: string; lineStarts: number[] };
-
-/** Splice `[start, end)` → `replacement` in `buf`, maintaining the line index. */
-function spliceContent(buf: ContentBuf, start: number, end: number, replacement: string): void {
-  buf.content = buf.content.slice(0, start) + replacement + buf.content.slice(end);
-  updateLineStarts(buf.lineStarts, start, end, replacement);
+  buf.cells.splice(start.cell, end.cell - start.cell + 1, ...newCells);
 }
 
 /** Apply a doc.change payload's deltas to `buf` (in-place analogue of applyDocChange). */
@@ -227,9 +231,9 @@ function applyDocChangeBuf(buf: ContentBuf, payload: unknown): void {
   const deltas = p['deltas'];
   if (!Array.isArray(deltas)) return;
   for (const delta of deltas as DocChangeDelta[]) {
-    const start = offsetAt(buf.content, buf.lineStarts, delta.range.start.line, delta.range.start.character);
-    const end = offsetAt(buf.content, buf.lineStarts, delta.range.end.line, delta.range.end.character);
-    spliceContent(buf, start, end, delta.text);
+    const start = clampPos(buf.cells, delta.range.start.line, delta.range.start.character);
+    const end = clampPos(buf.cells, delta.range.end.line, delta.range.end.character);
+    spliceCells(buf, start, end, delta.text);
   }
 }
 
@@ -245,15 +249,23 @@ function applyPasteBuf(buf: ContentBuf, payload: unknown): boolean {
   if (typeof rangeRaw !== 'object' || rangeRaw === null) return false;
   const range = rangeRaw as Range;
   const text = p['content'] as string;
-  const start = offsetAt(buf.content, buf.lineStarts, range.start.line, range.start.character);
-  const end = offsetAt(buf.content, buf.lineStarts, range.end.line, range.end.character);
-  spliceContent(buf, start, end, text);
+  const start = clampPos(buf.cells, range.start.line, range.start.character);
+  const end = clampPos(buf.cells, range.end.line, range.end.character);
+  spliceCells(buf, start, end, text);
   return true;
 }
 
 // ---------------------------------------------------------------------------
 // reconstructFile
 // ---------------------------------------------------------------------------
+
+/**
+ * Per-`EventIndex` memo of full-stream (no `upToGlobalIdx`) reconstructions,
+ * shared across all consumers of one index (stats, heuristics) so the
+ * full-stream replay happens once per file. Keyed weakly on the index so it is
+ * released when the index is; never holds cut-point results (bounded memory).
+ */
+const finalReconstructionCache = new WeakMap<EventIndex, Map<string, ReconstructResult>>();
 
 /**
  * Reconstruct the content of `filePath` by replaying its events from the
@@ -286,7 +298,18 @@ export function reconstructFile(
   filePath: string,
   upToGlobalIdx?: number,
 ): ReconstructResult {
-  const buf: ContentBuf = { content: '', lineStarts: [0] };
+  // Full-stream reconstructions are requested by several consumers of the same
+  // index (computeStats + low-typing-high-output). Memoize them per index so the
+  // replay runs once. Cut-point (`upToGlobalIdx`) reconstructions are
+  // detector-specific and rarely repeat, so they are not cached — that keeps
+  // memory bounded when the replay UI seeks across many positions. All callers
+  // treat the result as read-only.
+  if (upToGlobalIdx === undefined) {
+    const cached = finalReconstructionCache.get(index)?.get(filePath);
+    if (cached !== undefined) return cached;
+  }
+
+  const buf: ContentBuf = { cells: [''] };
   const hashBySaveSeq = new Map<string, string>();
   let tainted = false;
   const taintReasons: TaintEntry[] = [];
@@ -307,8 +330,7 @@ export function reconstructFile(
         // recover initial content and reconstruction starts from ''.
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
-          buf.content = p['content'];
-          buf.lineStarts = computeLineStarts(buf.content);
+          buf.cells = splitCells(p['content']);
         }
         break;
       }
@@ -330,8 +352,7 @@ export function reconstructFile(
             // Large paste (> 4 KB, no inline content) — taint.
             tainted = true;
             taintReasons.push({ globalIdx: e.globalIdx, reason: 'large_paste' });
-            buf.content = '';
-            buf.lineStarts = [0];
+            buf.cells = [''];
           }
         }
         break;
@@ -354,11 +375,9 @@ export function reconstructFile(
         taintReasons.push({ globalIdx: e.globalIdx, reason: 'fs_external_change' });
         if (operation === 'delete' || newContent === null) {
           tainted = true;
-          buf.content = '';
-          buf.lineStarts = [0];
+          buf.cells = [''];
         } else {
-          buf.content = newContent;
-          buf.lineStarts = computeLineStarts(newContent);
+          buf.cells = splitCells(newContent);
         }
         break;
       }
@@ -377,5 +396,19 @@ export function reconstructFile(
     }
   }
 
-  return { content: buf.content, hashBySaveSeq, tainted, taintReasons };
+  const result: ReconstructResult = {
+    content: buf.cells.join(''),
+    hashBySaveSeq,
+    tainted,
+    taintReasons,
+  };
+  if (upToGlobalIdx === undefined) {
+    let perIndex = finalReconstructionCache.get(index);
+    if (perIndex === undefined) {
+      perIndex = new Map();
+      finalReconstructionCache.set(index, perIndex);
+    }
+    perIndex.set(filePath, result);
+  }
+  return result;
 }

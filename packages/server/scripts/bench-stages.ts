@@ -18,6 +18,24 @@
  *
  *   npm run bench:stages --workspace=packages/server
  *   npm run bench:stages --workspace=packages/server -- 1000 5000 10000 50000 100000
+ *
+ * Edit-position model (BENCH_EDIT, default `append`): controls WHERE each typed
+ * doc.change lands in the file. The default appends at end-of-file — the pattern
+ * V8 keeps cheap, and the one the linear-cost claim was measured on. `mid`
+ * inserts a whole line at the document midpoint and `scatter` at a uniformly
+ * random interior offset — both stress pure *line-insertion*. `methodfill` is
+ * the realistic template-fill workload: short keystroke-sized bursts (~12%
+ * newline) at a localized interior cursor that advances and occasionally jumps,
+ * i.e. mostly *intra-line* typing inside method bodies. The line-cell
+ * reconstruction model (see `docs/ingest-complexity.md` "Known worst case") makes
+ * intra-line edits O(line); mid/scatter instead exercise the cell-array shift, so
+ * use `methodfill` to gauge the real ingest win and mid/scatter for the line-
+ * insertion bound. append/mid/scatter keep event count + final file size equal
+ * across modes; methodfill produces smaller (more realistic) files per event.
+ *
+ *   BENCH_EDIT=methodfill npm run bench:stages --workspace=packages/server -- 10000 25000 50000
+ *   BENCH_EDIT=mid        npm run bench:stages --workspace=packages/server -- 10000 50000 100000
+ *   BENCH_EDIT=scatter    npm run bench:stages --workspace=packages/server -- 10000 50000 100000
  */
 
 import JSZip from 'jszip';
@@ -59,6 +77,34 @@ const VSCODE_VERSION = '1.94.2';
 const CHECKPOINT_INTERVAL = 100;
 const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
 
+// Where each typed line lands in the file. See header comment.
+//  append   — each doc.change appends a full line at EOF (V8-cheap baseline).
+//  mid      — each doc.change inserts a full line at the document midpoint.
+//  scatter  — full line at a uniformly random interior offset.
+//  methodfill — realistic "fill in the method bodies": short keystroke-sized
+//    bursts (mostly intra-line, ~12% newline) at a localized interior cursor
+//    that advances as you type and occasionally jumps to another region. This
+//    is the pattern the line-cell reconstruction model is built for; mid/scatter
+//    instead stress whole-line insertion (cells-array shift).
+type EditMode = 'append' | 'mid' | 'scatter' | 'methodfill';
+const EDIT_MODE: EditMode = (() => {
+  const v = process.env['BENCH_EDIT'];
+  return v === 'mid' || v === 'scatter' || v === 'methodfill' ? v : 'append';
+})();
+
+/** Mutable cursor state for `methodfill` (reset per generated bundle). */
+type FillState = { cursor: number };
+
+/** A short, keystroke-sized code-ish token; ~12% of the time a bare newline. */
+function methodfillToken(rng: () => number): string {
+  if (rng() < 0.12) return '\n';
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz    ()_=.[]0123';
+  const len = 1 + Math.floor(rng() * 6);
+  let s = '';
+  for (let i = 0; i < len; i++) s += alphabet[Math.floor(rng() * alphabet.length)];
+  return s;
+}
+
 function log(msg: string): void {
   process.stdout.write(`${msg}\n`);
 }
@@ -92,6 +138,64 @@ function rangeAt(end: Pos): Range {
   return { start: p, end: { ...p } };
 }
 
+/** Flat string offset → {line, character}. O(offset); only used by the generator. */
+function offsetToPos(content: string, offset: number): Pos {
+  let line = 0;
+  let lineStart = 0;
+  for (let i = 0; i < offset; i++) {
+    if (content.charCodeAt(i) === 10) {
+      line++;
+      lineStart = i + 1;
+    }
+  }
+  return { line, character: offset - lineStart };
+}
+
+/**
+ * Insert `text` into `content` at the offset dictated by EDIT_MODE, returning
+ * the new content and the pure-insertion range (start === end) that a faithful
+ * recorder would have emitted. `append` matches the original generator exactly.
+ */
+function insertByMode(
+  content: string,
+  text: string,
+  rng: () => number,
+): { content: string; range: Range } {
+  let offset: number;
+  if (EDIT_MODE === 'append') offset = content.length;
+  else if (EDIT_MODE === 'mid') offset = content.length >> 1;
+  else offset = Math.floor(rng() * (content.length + 1));
+  const pos = offsetToPos(content, offset);
+  return {
+    content: content.slice(0, offset) + text + content.slice(offset),
+    range: { start: pos, end: { ...pos } },
+  };
+}
+
+/**
+ * Insert `text` at the methodfill cursor: a localized interior position that
+ * advances past each insertion and jumps to a new region ~4% of the time.
+ * Models typing within one method body, occasionally switching methods.
+ */
+function insertAtCursor(
+  content: string,
+  text: string,
+  fill: FillState,
+  rng: () => number,
+): { content: string; range: Range } {
+  if (fill.cursor < 0 || rng() < 0.04) {
+    // Jump to a new interior region (biased away from the file edges).
+    fill.cursor = Math.floor((0.2 + rng() * 0.6) * content.length);
+  }
+  const offset = Math.min(Math.max(fill.cursor, 0), content.length);
+  const pos = offsetToPos(content, offset);
+  fill.cursor = offset + text.length; // advance past what we just typed
+  return {
+    content: content.slice(0, offset) + text + content.slice(offset),
+    range: { start: pos, end: { ...pos } },
+  };
+}
+
 type EventSpec = { kind: string; data: Record<string, unknown> };
 const MIX: ReadonlyArray<{ kind: string; w: number }> = [
   { kind: 'doc.change', w: 40 },
@@ -105,7 +209,10 @@ const MIX: ReadonlyArray<{ kind: string; w: number }> = [
 const MIX_W = MIX.reduce((n, k) => n + k.w, 0);
 
 /** Faithful single-session bundle file set (mirrors gen-large-fixture's core). */
-async function buildBundleFiles(eventCount: number, courseSig: string): Promise<Record<string, string>> {
+async function buildBundleFiles(
+  eventCount: number,
+  courseSig: string,
+): Promise<Record<string, string>> {
   const rng = mulberry32(0xc0ffee);
   const keypair = await generateSessionKeypair();
   const sessionId = '0e33e8dd-584e-4f24-8262-b948264f0001';
@@ -114,6 +221,7 @@ async function buildBundleFiles(eventCount: number, courseSig: string): Promise<
 
   let content = `# ${ASSIGNMENT} — CS 61A\nfrom operator import add, mul\n\n\ndef solve(data):\n    pass\n`;
   const end = initEnd(content);
+  const fill: FillState = { cursor: -1 };
   let typed = 0;
 
   const startData = {
@@ -136,8 +244,18 @@ async function buildBundleFiles(eventCount: number, courseSig: string): Promise<
   const lines: string[] = [];
   const checkpoints: Checkpoint[] = [];
 
-  const append = async (seq: number, kind: string, data: Record<string, unknown>): Promise<void> => {
-    const envelope = { seq, t, wall: new Date(baseMs + t).toISOString(), kind, data } as unknown as Envelope;
+  const append = async (
+    seq: number,
+    kind: string,
+    data: Record<string, unknown>,
+  ): Promise<void> => {
+    const envelope = {
+      seq,
+      t,
+      wall: new Date(baseMs + t).toISOString(),
+      kind,
+      data,
+    } as unknown as Envelope;
     const entry = chainEntry(prevHash, envelope);
     lines.push(serializeEntry(entry).trimEnd());
     prevHash = entry.hash;
@@ -160,7 +278,10 @@ async function buildBundleFiles(eventCount: number, courseSig: string): Promise<
       case 'doc.close':
         return { kind, data: { path: path0 } };
       default:
-        return { kind: 'terminal.open', data: { terminal_id: 't1', shell: 'bash', shell_integration: true } };
+        return {
+          kind: 'terminal.open',
+          data: { terminal_id: 't1', shell: 'bash', shell_integration: true },
+        };
     }
   };
 
@@ -184,12 +305,21 @@ async function buildBundleFiles(eventCount: number, courseSig: string): Promise<
     if (i === pasteAt1 || i === pasteAt2) {
       const blob =
         `# pasted helper block ${i}\n` +
-        Array.from({ length: 20 }, (_, j) => `    val_${i}_${j} = lookup(${j}) + offset(${i})`).join('\n') +
+        Array.from(
+          { length: 20 },
+          (_, j) => `    val_${i}_${j} = lookup(${j}) + offset(${i})`,
+        ).join('\n') +
         '\n';
-      const range = rangeAt(end);
-      content += blob;
-      advanceEnd(end, blob);
-      await append(seq++, 'paste', { path: path0, range, length: blob.length, sha256: sha256Hex(blob), content: blob });
+      const ins = insertByMode(content, blob, rng);
+      content = ins.content;
+      if (EDIT_MODE === 'append') advanceEnd(end, blob);
+      await append(seq++, 'paste', {
+        path: path0,
+        range: ins.range,
+        length: blob.length,
+        sha256: sha256Hex(blob),
+        content: blob,
+      });
       continue;
     }
     let r = rng() * MIX_W;
@@ -202,12 +332,22 @@ async function buildBundleFiles(eventCount: number, courseSig: string): Promise<
       r -= k.w;
     }
     if (kind === 'doc.change') {
-      const range = rangeAt(end);
-      const line = `    step_${typed} = transform(data[${typed % 50}], ${typed})\n`;
-      content += line;
-      advanceEnd(end, line);
+      const text =
+        EDIT_MODE === 'methodfill'
+          ? methodfillToken(rng)
+          : `    step_${typed} = transform(data[${typed % 50}], ${typed})\n`;
+      const ins =
+        EDIT_MODE === 'methodfill'
+          ? insertAtCursor(content, text, fill, rng)
+          : insertByMode(content, text, rng);
+      content = ins.content;
+      if (EDIT_MODE === 'append') advanceEnd(end, text);
       typed++;
-      await append(seq++, 'doc.change', { path: path0, deltas: [{ range, text: line }], source: 'typed' });
+      await append(seq++, 'doc.change', {
+        path: path0,
+        deltas: [{ range: ins.range, text }],
+        source: 'typed',
+      });
     } else {
       const ev = cosmetic(kind);
       await append(seq++, ev.kind, ev.data);
@@ -234,7 +374,12 @@ async function buildBundleFiles(eventCount: number, courseSig: string): Promise<
     semester: SEMESTER_STR,
     extension_hash: EXTENSION_HASH,
     sessions: [
-      { session_id: sessionId, prev_session_id: null, slog_sha256: sha256Hex(slogText), meta_sha256: sha256Hex(metaJson) },
+      {
+        session_id: sessionId,
+        prev_session_id: null,
+        slog_sha256: sha256Hex(slogText),
+        meta_sha256: sha256Hex(metaJson),
+      },
     ],
     submission_files: [{ path: path0, status: 'present', sha256: sha256Hex(content) }],
   };
@@ -249,10 +394,17 @@ async function buildBundleFiles(eventCount: number, courseSig: string): Promise<
   };
 }
 
-async function buildZip(eventCount: number): Promise<{ bytes: ArrayBuffer; slogBytes: number }> {
+async function buildZip(
+  eventCount: number,
+): Promise<{ bytes: ArrayBuffer; slogBytes: number; fileBytes: number }> {
   const courseKeypair = await generateSessionKeypair();
   const courseSig = await signManifest(
-    { assignment_id: ASSIGNMENT, semester: SEMESTER_STR, issued_at: '2026-01-01T00:00:00.000Z', files_under_review: [`${ASSIGNMENT}.py`] },
+    {
+      assignment_id: ASSIGNMENT,
+      semester: SEMESTER_STR,
+      issued_at: '2026-01-01T00:00:00.000Z',
+      files_under_review: [`${ASSIGNMENT}.py`],
+    },
     courseKeypair.privateKey,
   );
   const files = await buildBundleFiles(eventCount, courseSig);
@@ -260,7 +412,13 @@ async function buildZip(eventCount: number): Promise<{ bytes: ArrayBuffer; slogB
   for (const [name, contents] of Object.entries(files)) zip.file(name, contents);
   const bytes = await zip.generateAsync({ type: 'arraybuffer' });
   const slogKey = Object.keys(files).find((k) => k.endsWith('.slog'))!;
-  return { bytes, slogBytes: files[slogKey]!.length };
+  return { bytes, slogBytes: files[slogKey]!.length, fileBytes: files[`${ASSIGNMENT}.py`]!.length };
+}
+
+/** Median of a sample array (ms). */
+function median(samples: number[]): number {
+  const s = [...samples].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)]!;
 }
 
 /** Median of repeated timings of `fn` (ms). Returns [medianMs, result]. */
@@ -272,8 +430,7 @@ async function timeIt<T>(reps: number, fn: () => T | Promise<T>): Promise<[numbe
     last = await fn();
     samples.push(performance.now() - t0);
   }
-  samples.sort((a, b) => a - b);
-  return [samples[Math.floor(samples.length / 2)]!, last];
+  return [median(samples), last];
 }
 
 function pad(s: string, n: number): string {
@@ -284,17 +441,32 @@ function padL(s: string, n: number): string {
 }
 
 async function main(): Promise<void> {
-  const argSizes = process.argv.slice(2).map(Number).filter((n) => Number.isFinite(n) && n >= 100);
+  const argSizes = process.argv
+    .slice(2)
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n >= 100);
   const sizes = argSizes.length > 0 ? argSizes : [1000, 2000, 5000, 10000, 25000, 50000, 100000];
   const reps = 3;
 
-  log(`bench-stages — median of ${reps} reps per stage, no DB/S3. Node ${process.version}\n`);
+  log(`bench-stages — median of ${reps} reps per stage, no DB/S3. Node ${process.version}`);
+  log(`edit mode: ${EDIT_MODE} (BENCH_EDIT=append|mid|scatter|methodfill)`);
+  log(`(stats+heur use a fresh index per rep → cold per-bundle reconstruction cache)\n`);
 
-  type Row = { n: number; events: number; slogMB: number; parse: number; index: number; stats: number; validation: number; heuristics: number };
+  type Row = {
+    n: number;
+    events: number;
+    slogMB: number;
+    fileKB: number;
+    parse: number;
+    index: number;
+    stats: number;
+    validation: number;
+    heuristics: number;
+  };
   const rows: Row[] = [];
 
   for (const n of sizes) {
-    const { bytes, slogBytes } = await buildZip(n);
+    const { bytes, slogBytes, fileBytes } = await buildZip(n);
 
     // parse: loadBundle from the zip bytes (fresh copy each rep — loadBundle may consume).
     const [parseMs, parsed] = await timeIt(reps, async () => {
@@ -306,9 +478,28 @@ async function main(): Promise<void> {
     const realEvents = parsed.sessions.reduce((acc, s) => acc + s.events.length, 0);
 
     const [indexMs, index] = await timeIt(reps, () => buildIndex(parsed));
-    const [statsMs] = await timeIt(reps, () => computeStats(index));
     const [valMs, report] = await timeIt(reps, () => runValidation(parsed));
-    const [heurMs] = await timeIt(reps, () => runHeuristics(index, parsed, report));
+
+    // stats + heuristics: a fresh index per rep so the per-bundle reconstruction
+    // cache (keyed on the EventIndex; in real ingest it lives for exactly one
+    // bundle) starts COLD each rep — otherwise reps 2+ would measure warm-cache
+    // hits and wildly under-report. Within a rep, stats and heuristics share the
+    // same fresh index, so the cross-stage reconstruction sharing (computeStats'
+    // full-stream result reused by the low-typing heuristic; paste-is-solution's
+    // reused by idle-then-complete) is measured exactly as one cold ingest pass.
+    const statsSamples: number[] = [];
+    const heurSamples: number[] = [];
+    for (let i = 0; i < reps; i++) {
+      const idx = buildIndex(parsed);
+      let t0 = performance.now();
+      computeStats(idx);
+      statsSamples.push(performance.now() - t0);
+      t0 = performance.now();
+      runHeuristics(idx, parsed, report);
+      heurSamples.push(performance.now() - t0);
+    }
+    const statsMs = median(statsSamples);
+    const heurMs = median(heurSamples);
 
     // Optional per-check breakdown of the dominant validation stage.
     if (process.env['BENCH_CHECKS'] === '1') {
@@ -334,6 +525,7 @@ async function main(): Promise<void> {
       n,
       events: realEvents,
       slogMB: slogBytes / 1024 / 1024,
+      fileKB: fileBytes / 1024,
       parse: parseMs,
       index: indexMs,
       stats: statsMs,
@@ -345,13 +537,30 @@ async function main(): Promise<void> {
 
   // ---- Absolute table ----
   log('\nAbsolute median ms per stage:\n');
-  const head = ['events', 'slogMB', 'parse', 'buildIdx', 'stats', 'valid', 'heur', 'CPU sum'];
-  log(pad(head[0]!, 9) + head.slice(1).map((h) => padL(h, 10)).join(''));
+  const head = [
+    'events',
+    'slogMB',
+    'fileKB',
+    'parse',
+    'buildIdx',
+    'stats',
+    'valid',
+    'heur',
+    'CPU sum',
+  ];
+  log(
+    pad(head[0]!, 9) +
+      head
+        .slice(1)
+        .map((h) => padL(h, 10))
+        .join(''),
+  );
   for (const r of rows) {
     const sum = r.parse + r.index + r.stats + r.validation + r.heuristics;
     log(
       pad(r.events.toLocaleString(), 9) +
         padL(r.slogMB.toFixed(1), 10) +
+        padL(r.fileKB.toFixed(1), 10) +
         padL(r.parse.toFixed(1), 10) +
         padL(r.index.toFixed(1), 10) +
         padL(r.stats.toFixed(1), 10) +
@@ -363,7 +572,10 @@ async function main(): Promise<void> {
 
   // ---- Normalized (ms per 10k events) — flat ⇒ linear, rising ⇒ super-linear ----
   log('\nNormalized ms per 10k events (flat = linear, rising = super-linear):\n');
-  log(pad('events', 9) + ['parse', 'buildIdx', 'stats', 'valid', 'heur', 'CPU sum'].map((h) => padL(h, 10)).join(''));
+  log(
+    pad('events', 9) +
+      ['parse', 'buildIdx', 'stats', 'valid', 'heur', 'CPU sum'].map((h) => padL(h, 10)).join(''),
+  );
   for (const r of rows) {
     const f = 10000 / r.events;
     const sum = r.parse + r.index + r.stats + r.validation + r.heuristics;
@@ -381,6 +593,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`bench-stages failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+  process.stderr.write(
+    `bench-stages failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+  );
   process.exit(1);
 });
