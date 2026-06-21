@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="260" viewBox="0 0 720 260" font-family="-apple-system, 'Segoe UI', Roboto, sans-serif">
+  <rect width="720" height="260" rx="8" fill="#1e1e1e"/>
+  <!-- palette -->
+  <rect x="160" y="20" width="400" height="220" rx="6" fill="#252526" stroke="#454545" stroke-width="1"/>
+  <!-- input -->
+  <rect x="176" y="34" width="368" height="32" rx="4" fill="#3c3c3c" stroke="#0e70c0" stroke-width="1.5"/>
+  <text x="188" y="55" fill="#ffffff" font-size="14">&gt;Provenance: Prepare</text>
+  <!-- selected result -->
+  <rect x="172" y="76" width="376" height="34" rx="4" fill="#04395e"/>
+  <text x="188" y="98" fill="#ffffff" font-size="13.5">Provenance: Prepare Submission Bundle</text>
+  <!-- other rows (dimmed) -->
+  <text x="188" y="134" fill="#888888" font-size="13.5">Preferences: Open Settings</text>
+  <text x="188" y="166" fill="#888888" font-size="13.5">Format Document</text>
+  <text x="188" y="198" fill="#888888" font-size="13.5">Reload Window</text>
+  <text x="188" y="228" fill="#666666" font-size="11.5">Type to search commands — press Enter to run</text>
+</svg>

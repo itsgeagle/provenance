@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="300" viewBox="0 0 720 300" font-family="-apple-system, 'Segoe UI', Roboto, sans-serif">
+  <rect width="720" height="300" rx="8" fill="#1e1e1e"/>
+  <!-- Activity bar -->
+  <rect x="0" y="0" width="48" height="300" fill="#333333"/>
+  <rect x="0" y="96" width="2" height="48" fill="#ffffff"/>
+  <!-- Extensions icon (active) -->
+  <g transform="translate(14,110)" fill="#ffffff">
+    <rect x="0" y="0" width="8" height="8" rx="1"/>
+    <rect x="12" y="0" width="8" height="8" rx="1"/>
+    <rect x="0" y="12" width="8" height="8" rx="1"/>
+    <rect x="12" y="12" width="8" height="8" rx="1" fill="#0e70c0"/>
+  </g>
+  <!-- Sidebar -->
+  <rect x="48" y="0" width="672" height="300" fill="#252526"/>
+  <text x="68" y="34" fill="#bbbbbb" font-size="11" letter-spacing="1">EXTENSIONS: MARKETPLACE</text>
+  <!-- Search box -->
+  <rect x="68" y="48" width="624" height="32" rx="4" fill="#3c3c3c" stroke="#0e70c0" stroke-width="1.5"/>
+  <text x="80" y="69" fill="#ffffff" font-size="14">Provenance Recorder</text>
+  <!-- Result card -->
+  <rect x="68" y="100" width="624" height="160" rx="6" fill="#2d2d2d" stroke="#0e70c0" stroke-width="1.5"/>
+  <rect x="84" y="116" width="56" height="56" rx="8" fill="#0e639c"/>
+  <text x="112" y="151" fill="#ffffff" font-size="26" font-weight="700" text-anchor="middle">P</text>
+  <text x="156" y="132" fill="#ffffff" font-size="16" font-weight="600">Provenance Recorder</text>
+  <text x="156" y="154" fill="#bbbbbb" font-size="12.5">Academic integrity telemetry for course assignments.</text>
+  <text x="156" y="176" fill="#888888" font-size="12">Aaryan Mehta  ·  itsgeagle</text>
+  <!-- Install button -->
+  <rect x="588" y="216" width="88" height="30" rx="4" fill="#0e639c"/>
+  <text x="632" y="236" fill="#ffffff" font-size="13" font-weight="600" text-anchor="middle">Install</text>
+  <text x="84" y="236" fill="#7bb86f" font-size="12">✓ Verified publisher</text>
+</svg>
