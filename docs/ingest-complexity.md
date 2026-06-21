@@ -84,13 +84,20 @@ entire O(F) front half off the request, so user-perceived latency there is O(1).
 
 ### Is the enqueue worth optimizing?
 
-- **Multipart `POST /ingest` (the non-interleaved path) is the one clean win.**
-  It already stages all files first and *then* sends in a separate loop, so the
-  F `boss.send` calls could be collapsed into a single batched `boss.insert([…])`
-  (one multi-row INSERT) and the F `ingest_files` inserts into one bulk insert —
-  with no loss of interleaving (there is none to lose). Turns ~2F round-trips
-  into ~2. Low-risk, modest benefit. **Not yet done** — it's a behavioral change,
-  so flagged here rather than applied.
+- **Multipart `POST /ingest` (the non-interleaved path) — DONE.**
+  It already stages all files first and *then* enqueues, so the F `boss.send`
+  calls collapsed into a single `boss.insert([…])` (pg-boss binds the whole job
+  array as one JSON param — no bind-param ceiling, no chunking) and the F
+  `ingest_files` inserts into a chunked bulk insert (`INGEST_FILE_INSERT_CHUNK`
+  = 1000 rows/statement, to stay under Postgres's 65535-param ceiling since
+  `INGEST_MAX_BATCH_FILES` is admin-raisable). Turns ~2F + 1 DB/queue round-trips
+  into ~⌈F/1000⌉ + 1, with no loss of interleaving (there was none). As a bonus
+  it tightened the failure semantics: rows are written only after all staging
+  succeeds (a mid-staging failure now leaves zero `ingest_files` rows, not a
+  partial set), and the `getBoss()`/enqueue step is now inside the compensation
+  `try` so an enqueue failure marks the job `failed` instead of orphaning it as
+  `queued`. The S3 PUTs (the dominant front-half cost) are unchanged, so the
+  wall-clock win is modest. See `chunk.ts` and the handler in `ingest.ts`.
 - **Interleaved paths (`:gradescope`, resumable) should keep per-file sends.**
   Sending each job as its bundle finishes staging lets the worker start while the
   rest of a large export is still streaming. With ~1s of processing per bundle,

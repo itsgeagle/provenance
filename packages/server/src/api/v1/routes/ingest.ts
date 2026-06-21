@@ -47,6 +47,7 @@ import {
   failIngestJob,
 } from '../../../services/ingest/job-control.js';
 import { stageBlob } from '../../../services/ingest/stage-blob.js';
+import { chunk } from '../../../services/ingest/chunk.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
 import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
 import { recordPhase } from '../../../jobs/ingest-profile.js';
@@ -163,6 +164,13 @@ interface FileToStage {
  * Matches on the V8/undici allocation-failure messages rather than the error
  * type alone, since the stack can surface these as RangeError or a plain Error.
  */
+/**
+ * Max ingest_files rows per bulk `INSERT ... VALUES` statement. Each row binds
+ * ~6 params, so this stays well under Postgres's 65535 bind-param ceiling even
+ * if an admin raises INGEST_MAX_BATCH_FILES above the single-statement limit.
+ */
+const INGEST_FILE_INSERT_CHUNK = 1000;
+
 export function isUnbufferableBodyError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const m = err.message;
@@ -441,32 +449,37 @@ export function createIngestRouter(): Hono {
       const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
 
       // -----------------------------------------------------------------------
-      // Stage each file and create ingest_files rows.
+      // Stage each file, then bulk-insert the ingest_files rows and bulk-enqueue
+      // the per-file jobs.
       //
-      // Critical 1: if staging fails mid-batch, mark the job 'failed' before
-      // re-throwing so the row is never left permanently in 'queued'.
-      // Any blobs already staged to MinIO on prior iterations become orphans;
-      // the retention sweep (Phase 9c) will clean them up.
+      // Staging (the S3 PUT) is inherently per-file, but the row inserts and the
+      // job enqueues are batched: a chunked `INSERT ... VALUES` for the rows and
+      // a single `boss.insert` for the jobs, instead of one round-trip per file.
+      // This path stages everything BEFORE enqueueing anything (the worker can't
+      // start until the enqueue at the end regardless), so batching costs no
+      // interleaving — unlike the Gradescope/local-path stream, which sends per
+      // file on purpose so the worker starts mid-stream.
+      //
+      // Compensation: the whole block (staging, bulk insert, getBoss, bulk
+      // enqueue) is wrapped so ANY failure marks the job 'failed' rather than
+      // leaving it permanently 'queued'. Because rows are written only after all
+      // staging succeeds, a mid-staging failure leaves zero ingest_files rows
+      // (and orphan staging blobs the retention sweep reclaims) — not a partial
+      // set. This also closes a prior gap where a getBoss()/enqueue failure after
+      // staging left the job orphaned as 'queued'.
       // -----------------------------------------------------------------------
       const storageClient = createStorageClient(storageConfigFromEnv(cfg));
 
       try {
+        const fileRows: (typeof ingest_files.$inferInsert)[] = [];
         for (const file of filesToStage) {
-          // Pre-allocate a UUID for the ingest_files row so we can build the
-          // staging key before the DB insert.
+          // Pre-allocate a UUID so we can build the staging key before the insert.
           const fileId = crypto.randomUUID();
-
           const { blobSha256, sizeBytes } = await stageBlob(
             { storageClient },
-            {
-              jobId,
-              ingestFileId: fileId,
-              body: file.body,
-            },
+            { jobId, ingestFileId: fileId, body: file.body },
           );
-
-          // Insert the ingest_files row with status='pending'.
-          await db.insert(ingest_files).values({
+          fileRows.push({
             id: fileId,
             ingest_job_id: jobId,
             original_filename: file.filename,
@@ -475,32 +488,29 @@ export function createIngestRouter(): Hono {
             status: 'pending',
           });
         }
+
+        // Bulk-insert rows in chunks (see INGEST_FILE_INSERT_CHUNK for why).
+        for (const rows of chunk(fileRows, INGEST_FILE_INSERT_CHUNK)) {
+          await db.insert(ingest_files).values(rows);
+        }
+
+        // Enqueue all jobs in one call. pg-boss `insert` binds the whole job
+        // array as a single JSON parameter, so it does NOT hit the bind-param
+        // ceiling and needs no chunking. PRD §12.3: ingest_file retries up to 3
+        // times on transient failure.
+        const boss = await getBoss();
+        await boss.insert(
+          fileRows.map((r) => ({
+            name: JOB_KINDS.INGEST_FILE,
+            data: { ingestFileId: r.id, ingestJobId: jobId },
+            retryLimit: 3,
+          })),
+        );
       } catch (stagingErr) {
         // Compensation: mark the job failed so it is not permanently 'queued'.
         const detail = stagingErr instanceof Error ? stagingErr.message : String(stagingErr);
         await failIngestJob(db, jobId, detail);
         throw stagingErr;
-      }
-
-      // -----------------------------------------------------------------------
-      // Enqueue one ingest_file job per staged file.
-      //
-      // We get the boss after all staging succeeds so any pg-boss connection
-      // error doesn't leave files staged without queue entries.
-      // -----------------------------------------------------------------------
-      const boss = await getBoss();
-      const stagedFileIds = await db
-        .select({ id: ingest_files.id })
-        .from(ingest_files)
-        .where(eq(ingest_files.ingest_job_id, jobId));
-
-      for (const { id: ingestFileId } of stagedFileIds) {
-        // PRD §12.3: ingest_file retries up to 3 times on transient failure.
-        await boss.send(
-          JOB_KINDS.INGEST_FILE,
-          { ingestFileId, ingestJobId: jobId },
-          { retryLimit: 3 },
-        );
       }
 
       // Set auditDetail so the audit middleware can log job_id as target_id.
