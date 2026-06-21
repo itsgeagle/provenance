@@ -139,10 +139,10 @@ function renderOverviewWithApiProvider(submissionId: string = SUBMISSION_ID) {
   const qc = makeQueryClient();
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/sp25/sub/${submissionId}`]}>
+      <MemoryRouter initialEntries={[`/s/cs61a/sp25/sub/${submissionId}`]}>
         <Routes>
           <Route
-            path="/s/:semesterSlug/sub/:submissionId"
+            path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
             element={
               <ApiSubmissionDataProviderContext submissionId={submissionId}>
                 <Overview />

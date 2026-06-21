@@ -172,10 +172,10 @@ function renderReplay(provider: SubmissionDataProvider) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/s/fa26/sub/test-sub-id']}>
+      <MemoryRouter initialEntries={['/s/cs61a/fa26/sub/test-sub-id']}>
         <Routes>
           <Route
-            path="/s/:semesterSlug/sub/:submissionId"
+            path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
             element={
               <SubmissionDataContext.Provider value={provider}>
                 <Replay />

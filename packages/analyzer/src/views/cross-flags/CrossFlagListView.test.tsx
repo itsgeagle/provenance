@@ -17,7 +17,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import { CrossFlagListView } from './CrossFlagListView.js';
-import { DEFAULT_SEMESTER_ID, DEFAULT_SEMESTER_SLUG } from '../../test/msw-handlers.js';
+import {
+  DEFAULT_COURSE_SLUG,
+  DEFAULT_SEMESTER_ID,
+  DEFAULT_SEMESTER_SLUG,
+} from '../../test/msw-handlers.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -95,11 +99,13 @@ function renderListView() {
   });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/cross-flags`]}>
+      <MemoryRouter
+        initialEntries={[`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/cross-flags`]}
+      >
         <Routes>
-          <Route path="/s/:semesterSlug/cross-flags" element={<CrossFlagListView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/cross-flags" element={<CrossFlagListView />} />
           <Route
-            path="/s/:semesterSlug/cross-flags/:crossFlagId"
+            path="/s/:courseSlug/:semesterSlug/cross-flags/:crossFlagId"
             element={<div data-testid="detail-page" />}
           />
         </Routes>

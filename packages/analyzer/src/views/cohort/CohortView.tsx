@@ -1,5 +1,5 @@
 /**
- * CohortView — top-level cohort page at /s/:semesterSlug.
+ * CohortView — top-level cohort page at /s/:courseSlug/:semesterSlug.
  *
  * Layout:
  * - Filter rail (left, ~280px)
@@ -18,11 +18,11 @@
  * - Cursor from server response stored in component state (not URL)
  * - Filters + sort from URL
  *
- * Route: /s/:semesterSlug (and /s/:semesterSlug/*)
+ * Route: /s/:courseSlug/:semesterSlug (and /s/:courseSlug/:semesterSlug/*)
  */
 
 import { useState, useCallback } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useCohortFilters } from './use-cohort-filters.js';
 import {
   useCohortSubmissions,
@@ -38,7 +38,7 @@ import { StudentRollupTable } from './StudentRollupTable.js';
 import { FilterRail } from './FilterRail.js';
 import { SavedViews } from './SavedViews.js';
 import { ExportCurrentView } from './ExportCurrentView.js';
-import { useSemesters } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import type { SubmissionRow, StudentRollupRow } from '@provenance/shared/api-schemas';
 import type { CohortSort, StudentSort } from '../../api/queries.js';
 import type { SavedView } from './SavedViews.js';
@@ -58,13 +58,10 @@ type Tab = 'submissions' | 'students';
 // ---------------------------------------------------------------------------
 
 export function CohortView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Determine semesterId from memberships (via useSemesters)
-  const { data: semesters, isLoading: semestersLoading } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  // Resolve semesterId from the (courseSlug, semesterSlug) URL pair.
+  const { semesterId, semesterSlug, isLoading: semestersLoading } = useActiveSemester();
 
   // Tab
   const tabParam = searchParams.get('tab');

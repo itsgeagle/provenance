@@ -16,7 +16,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import { CrossFlagDetailView } from './CrossFlagDetailView.js';
-import { DEFAULT_SEMESTER_SLUG } from '../../test/msw-handlers.js';
+import { DEFAULT_COURSE_SLUG, DEFAULT_SEMESTER_SLUG } from '../../test/msw-handlers.js';
 
 const CROSS_FLAG_ID = 'cf000000-0000-0000-0000-000000000001';
 
@@ -65,13 +65,20 @@ function renderDetailView() {
   });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/cross-flags/${CROSS_FLAG_ID}`]}>
+      <MemoryRouter
+        initialEntries={[
+          `/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/cross-flags/${CROSS_FLAG_ID}`,
+        ]}
+      >
         <Routes>
           <Route
-            path="/s/:semesterSlug/cross-flags/:crossFlagId"
+            path="/s/:courseSlug/:semesterSlug/cross-flags/:crossFlagId"
             element={<CrossFlagDetailView />}
           />
-          <Route path="/s/:semesterSlug/cross-flags" element={<div data-testid="list-page" />} />
+          <Route
+            path="/s/:courseSlug/:semesterSlug/cross-flags"
+            element={<div data-testid="list-page" />}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

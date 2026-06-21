@@ -14,6 +14,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import {
+  DEFAULT_COURSE_SLUG,
   DEFAULT_SEMESTER_ID,
   DEFAULT_SEMESTER_SLUG,
   membersHandler,
@@ -24,9 +25,9 @@ function renderMembersView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/members`]}>
+      <MemoryRouter initialEntries={[`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/members`]}>
         <Routes>
-          <Route path="/s/:semesterSlug/members" element={<MembersView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/members" element={<MembersView />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

@@ -16,9 +16,9 @@ const SUBMISSION_ID = 'ssss0000-0000-0000-0000-000000000001';
 
 function renderExportPanel() {
   return render(
-    <MemoryRouter initialEntries={[`/s/sp25/sub/${SUBMISSION_ID}?tab=export`]}>
+    <MemoryRouter initialEntries={[`/s/cs61a/sp25/sub/${SUBMISSION_ID}?tab=export`]}>
       <Routes>
-        <Route path="/s/:semesterSlug/sub/:submissionId" element={<ExportPanel />} />
+        <Route path="/s/:courseSlug/:semesterSlug/sub/:submissionId" element={<ExportPanel />} />
       </Routes>
     </MemoryRouter>,
   );

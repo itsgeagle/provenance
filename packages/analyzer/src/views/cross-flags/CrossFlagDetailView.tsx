@@ -1,7 +1,7 @@
 /**
  * CrossFlagDetailView — single cross-flag detail page.
  *
- * Phase 24. Route: /s/:semesterSlug/cross-flags/:crossFlagId
+ * Phase 24. Route: /s/:courseSlug/:semesterSlug/cross-flags/:crossFlagId
  *
  * Shows:
  * - Heuristic ID, severity, confidence, detail jsonb.
@@ -14,6 +14,7 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useCrossFlagDetail } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import type { CrossFlagParticipant } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
@@ -72,11 +73,9 @@ function ParticipantCard({ participant }: { participant: CrossFlagParticipant })
 // ---------------------------------------------------------------------------
 
 export function CrossFlagDetailView() {
-  const { crossFlagId = '', semesterSlug = '' } = useParams<{
-    crossFlagId: string;
-    semesterSlug: string;
-  }>();
+  const { crossFlagId = '' } = useParams<{ crossFlagId: string }>();
   const navigate = useNavigate();
+  const { basePath } = useActiveSemester();
 
   const { data, isLoading, isError } = useCrossFlagDetail(crossFlagId);
 
@@ -96,7 +95,7 @@ export function CrossFlagDetailView() {
       <div className="p-8 text-center text-red-600" data-testid="cross-flag-detail-error">
         Failed to load cross-flag detail.
         <button
-          onClick={() => void navigate(`/s/${semesterSlug}/cross-flags`)}
+          onClick={() => void navigate(`${basePath}/cross-flags`)}
           className="ml-2 text-blue-600 underline"
         >
           Back to list
@@ -111,7 +110,7 @@ export function CrossFlagDetailView() {
     <div className="p-6 max-w-5xl mx-auto" data-testid="cross-flag-detail-view">
       {/* Back link */}
       <button
-        onClick={() => void navigate(`/s/${semesterSlug}/cross-flags`)}
+        onClick={() => void navigate(`${basePath}/cross-flags`)}
         className="text-xs text-blue-600 hover:underline mb-4 block"
         data-testid="back-to-list"
       >

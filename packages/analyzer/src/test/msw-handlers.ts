@@ -147,6 +147,7 @@ export function meWithMembershipsHandler(memberships: Membership[]) {
 
 export const DEFAULT_SEMESTER_ID = defaultMembership.semester_id;
 export const DEFAULT_SEMESTER_SLUG = defaultMembership.semester_slug;
+export const DEFAULT_COURSE_SLUG = defaultMembership.course_slug;
 
 export function makeSubmissionRow(overrides: Partial<SubmissionRow> = {}): SubmissionRow {
   const base: SubmissionRow = {

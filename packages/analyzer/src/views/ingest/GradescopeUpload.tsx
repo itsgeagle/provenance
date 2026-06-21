@@ -15,11 +15,12 @@ import type { GradescopeIngestResponse } from '@provenance/shared/api-schemas';
 import { ApiError } from '../../api/client.js';
 
 interface GradescopeUploadProps {
-  semesterSlug: string;
+  /** Course-qualified base path, e.g. `/s/cs61a/sp25`, used for post-ingest navigation. */
+  basePath: string;
   semesterId: string;
 }
 
-export function GradescopeUpload({ semesterSlug, semesterId }: GradescopeUploadProps) {
+export function GradescopeUpload({ basePath, semesterId }: GradescopeUploadProps) {
   const navigate = useNavigate();
   const { mutate: startGradescope, isPending } = useStartGradescopeIngest(semesterId);
 
@@ -69,7 +70,7 @@ export function GradescopeUpload({ semesterSlug, semesterId }: GradescopeUploadP
         onSuccess: (data) => {
           setUploadProgress(null);
           if (data.job_id !== null) {
-            void navigate(`/s/${semesterSlug}/ingest/jobs/${data.job_id}`);
+            void navigate(`${basePath}/ingest/jobs/${data.job_id}`);
           } else {
             // Roster-only export (no bundles) — show the summary in place.
             setResult(data);

@@ -16,7 +16,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import { TuningView } from './TuningView.js';
-import { DEFAULT_SEMESTER_ID, DEFAULT_SEMESTER_SLUG } from '../../test/msw-handlers.js';
+import {
+  DEFAULT_COURSE_SLUG,
+  DEFAULT_SEMESTER_ID,
+  DEFAULT_SEMESTER_SLUG,
+} from '../../test/msw-handlers.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -143,7 +147,9 @@ function setupHandlers() {
 // Render helper
 // ---------------------------------------------------------------------------
 
-function renderTuningView(initialPath = `/s/${DEFAULT_SEMESTER_SLUG}/tuning`) {
+function renderTuningView(
+  initialPath = `/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/tuning`,
+) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, retryDelay: 0 } },
   });
@@ -151,7 +157,7 @@ function renderTuningView(initialPath = `/s/${DEFAULT_SEMESTER_SLUG}/tuning`) {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route path="/s/:semesterSlug/tuning" element={<TuningView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/tuning" element={<TuningView />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

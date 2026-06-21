@@ -1,7 +1,7 @@
 /**
  * UnmatchedView — lists unmatched files with attach and discard actions.
  *
- * Route: /s/:semesterSlug/unmatched
+ * Route: /s/:courseSlug/:semesterSlug/unmatched
  *
  * - Lists unmatched ingest_files.
  * - "Attach" button opens modal with searchable student + assignment comboboxes.
@@ -12,10 +12,9 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import {
-  useSemesters,
   useUnmatchedFiles,
   useAttachUnmatched,
   useDiscardUnmatched,
@@ -316,11 +315,7 @@ function AttachProgressOverlay() {
 // ---------------------------------------------------------------------------
 
 export function UnmatchedView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
-
-  const { data: semesters } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  const { semesterId } = useActiveSemester();
 
   const { data, isLoading, error } = useUnmatchedFiles(semesterId);
   const { mutate: discard } = useDiscardUnmatched(semesterId);

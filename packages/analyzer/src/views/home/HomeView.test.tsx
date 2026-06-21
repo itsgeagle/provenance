@@ -52,7 +52,7 @@ describe('HomeView', () => {
     });
 
     const link = screen.getByTestId('semester-link-sp25');
-    expect(link).toHaveAttribute('href', '/s/sp25');
+    expect(link).toHaveAttribute('href', '/s/cs61a/sp25');
   });
 
   it('shows the "ask an admin" message when user has no semesters', async () => {

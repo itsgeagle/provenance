@@ -2,7 +2,7 @@
  * HomeView — lists accessible semesters for the authenticated user.
  *
  * Data: derives semesters from GET /me memberships (useSemesters()).
- * Each item links to /s/:semesterSlug (Phase 21's cohort view).
+ * Each item links to /s/:courseSlug/:semesterSlug (Phase 21's cohort view).
  * Clicking a link will 404/placeholder until Phase 21 is implemented.
  *
  * Empty state: "Ask an admin to invite you." message when memberships is [].
@@ -53,7 +53,7 @@ export function HomeView() {
           <li key={s.semester_id} className="flex items-center justify-between px-4 py-3">
             <div>
               <Link
-                to={`/s/${s.semester_slug}`}
+                to={`/s/${s.course_slug}/${s.semester_slug}`}
                 className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
                 data-testid={`semester-link-${s.semester_slug}`}
               >

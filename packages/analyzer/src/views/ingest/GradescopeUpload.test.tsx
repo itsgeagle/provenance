@@ -12,7 +12,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
-import { DEFAULT_SEMESTER_ID, DEFAULT_SEMESTER_SLUG } from '../../test/msw-handlers.js';
+import {
+  DEFAULT_SEMESTER_ID,
+  DEFAULT_SEMESTER_SLUG,
+  DEFAULT_COURSE_SLUG,
+} from '../../test/msw-handlers.js';
 import { GradescopeUpload } from './GradescopeUpload.js';
 
 const GS_ROUTE = new RegExp(`/semesters/${DEFAULT_SEMESTER_ID}/ingest:gradescope$`);
@@ -21,18 +25,21 @@ function renderUpload() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/ingest`]}>
+      <MemoryRouter initialEntries={[`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/ingest`]}>
         <Routes>
           <Route
-            path="/s/:semesterSlug/ingest"
+            path="/s/:courseSlug/:semesterSlug/ingest"
             element={
               <GradescopeUpload
-                semesterSlug={DEFAULT_SEMESTER_SLUG}
+                basePath={`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}`}
                 semesterId={DEFAULT_SEMESTER_ID}
               />
             }
           />
-          <Route path="/s/:semesterSlug/ingest/jobs/:jobId" element={<div>job page</div>} />
+          <Route
+            path="/s/:courseSlug/:semesterSlug/ingest/jobs/:jobId"
+            element={<div>job page</div>}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

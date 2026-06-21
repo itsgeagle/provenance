@@ -1,27 +1,25 @@
 /**
  * IngestStartView — multi-file drop zone + upload progress.
  *
- * Route: /s/:semesterSlug/ingest
+ * Route: /s/:courseSlug/:semesterSlug/ingest
  *
  * - Drag-and-drop or click to select .zip files.
  * - Validates all selected files are .zip.
  * - POSTs via XMLHttpRequest (so we get upload progress).
- * - On 202, navigates to /s/:semesterSlug/ingest/jobs/:jobId.
+ * - On 202, navigates to /s/:courseSlug/:semesterSlug/ingest/jobs/:jobId.
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useSemesters, useStartIngest } from '../../api/queries.js';
+import { useNavigate } from 'react-router-dom';
+import { useStartIngest } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import { ApiError } from '../../api/client.js';
 import { GradescopeUpload } from './GradescopeUpload.js';
 
 export function IngestStartView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
   const navigate = useNavigate();
 
-  const { data: semesters } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  const { semesterId, basePath } = useActiveSemester();
 
   const { mutate: startIngest, isPending } = useStartIngest(semesterId);
 
@@ -83,7 +81,7 @@ export function IngestStartView() {
       },
       {
         onSuccess: (data) => {
-          void navigate(`/s/${semesterSlug}/ingest/jobs/${data.job_id}`);
+          void navigate(`${basePath}/ingest/jobs/${data.job_id}`);
         },
         onError: (err) => {
           setUploadProgress(null);
@@ -112,7 +110,7 @@ export function IngestStartView() {
           Upload the ZIP from Gradescope’s “Download Submissions” — the roster and every student
           bundle are processed in one step.
         </p>
-        <GradescopeUpload semesterSlug={semesterSlug} semesterId={semesterId} />
+        <GradescopeUpload basePath={basePath} semesterId={semesterId} />
       </section>
 
       {/* Secondary path: direct bundle .zip upload (requires an existing roster). */}

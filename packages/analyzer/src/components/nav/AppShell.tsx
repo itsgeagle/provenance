@@ -8,8 +8,9 @@
  */
 
 import type { ReactNode } from 'react';
-import { Link, NavLink, useNavigate, useParams } from 'react-router-dom';
-import { useMe, useLogout, useSemesters } from '../../api/queries.js';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { useMe, useLogout } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import { SemesterSwitcher } from './SemesterSwitcher.js';
 import { ViewAsBanner } from './ViewAsBanner.js';
 import { ProtectedModeBanner } from './ProtectedModeBanner.js';
@@ -20,19 +21,16 @@ interface AppShellProps {
 }
 
 // ---------------------------------------------------------------------------
-// Admin nav links — visible only to admins on /s/:semesterSlug/* routes
+// Admin nav links — visible only to admins on /s/:courseSlug/:semesterSlug/* routes
 // ---------------------------------------------------------------------------
 
 function SemesterAdminNav() {
-  const { semesterSlug } = useParams<{ semesterSlug?: string }>();
-  const { data: semesters } = useSemesters();
+  const { semesterSlug, membership, basePath } = useActiveSemester();
 
   if (!semesterSlug) return null;
-
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
   if (membership?.role !== 'admin') return null;
 
-  const base = `/s/${semesterSlug}`;
+  const base = basePath;
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `text-xs px-2 py-1 rounded transition-colors ${
       isActive
@@ -108,7 +106,7 @@ export function AppShell({ children }: AppShellProps) {
         {/* Semester switcher (renders nothing if <= 1 semester) */}
         <SemesterSwitcher />
 
-        {/* Admin nav links (only on /s/:semesterSlug routes for admins) */}
+        {/* Admin nav links (only on /s/:courseSlug/:semesterSlug routes for admins) */}
         <SemesterAdminNav />
 
         {/* Spacer */}

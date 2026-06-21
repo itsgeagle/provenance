@@ -18,9 +18,10 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { StudentRollupRow } from '@provenance/shared/api-schemas';
 import type { StudentSort } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 
 // ---------------------------------------------------------------------------
 // Severity badge (local copy to keep import-free)
@@ -82,7 +83,7 @@ export function StudentRollupTable({
   isLoadingMore,
 }: StudentRollupTableProps) {
   const navigate = useNavigate();
-  const { semesterSlug } = useParams<{ semesterSlug: string }>();
+  const { basePath } = useActiveSemester();
 
   // Infinite-scroll sentinel — same pattern as CohortTable. The sentinel
   // div lives INSIDE parentRef's scroll container and the observer roots
@@ -154,13 +155,13 @@ export function StudentRollupTable({
         header: 'Worst Submission',
         cell: (info) => {
           const ws = info.getValue();
-          if (!ws || !semesterSlug) return <span className="text-xs text-gray-400">—</span>;
+          if (!ws || !basePath) return <span className="text-xs text-gray-400">—</span>;
           return (
             <button
               className="text-xs text-indigo-600 hover:underline"
               onClick={(e) => {
                 e.stopPropagation();
-                void navigate(`/s/${semesterSlug}/sub/${ws.id}`);
+                void navigate(`${basePath}/sub/${ws.id}`);
               }}
               data-testid={`worst-submission-${ws.id}`}
             >
@@ -175,7 +176,7 @@ export function StudentRollupTable({
         cell: (info) => <span className="text-xs text-gray-500">{info.getValue()}</span>,
       }),
     ],
-    [navigate, semesterSlug],
+    [navigate, basePath],
   );
 
   const table = useReactTable({

@@ -6,7 +6,7 @@
  *   /                  → redirect to /home
  *   /login             → LoginView (no auth required)
  *   /home              → RequireAuth + AppShell + HomeView
- *   /s/:semesterSlug/* → cohort + drill-in views (Phases 21–24)
+ *   /s/:courseSlug/:semesterSlug/* → cohort + drill-in views (Phases 21–24)
  *
  * Standalone /local subtree (v2 "drop a zip" UX — no auth required, §15):
  *   /local/load                  → LoadView
@@ -174,10 +174,10 @@ export function App() {
           }
         />
 
-        {/* /s/:semesterSlug — cohort + admin views (Phases 21–24)          */}
+        {/* /s/:courseSlug/:semesterSlug — cohort + admin views (Phases 21–24) */}
         {/* All wrapped in RequireAuth + AppShell.                           */}
         <Route
-          path="/s/:semesterSlug"
+          path="/s/:courseSlug/:semesterSlug"
           element={
             <RequireAuth>
               <AppShell>
@@ -187,7 +187,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/ingest"
+          path="/s/:courseSlug/:semesterSlug/ingest"
           element={
             <RequireAuth>
               <AppShell>
@@ -197,7 +197,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/ingest/jobs/:jobId"
+          path="/s/:courseSlug/:semesterSlug/ingest/jobs/:jobId"
           element={
             <RequireAuth>
               <AppShell>
@@ -207,7 +207,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/unmatched"
+          path="/s/:courseSlug/:semesterSlug/unmatched"
           element={
             <RequireAuth>
               <AppShell>
@@ -217,7 +217,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/roster"
+          path="/s/:courseSlug/:semesterSlug/roster"
           element={
             <RequireAuth>
               <AppShell>
@@ -227,7 +227,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/members"
+          path="/s/:courseSlug/:semesterSlug/members"
           element={
             <RequireAuth>
               <AppShell>
@@ -237,7 +237,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/assignments"
+          path="/s/:courseSlug/:semesterSlug/assignments"
           element={
             <RequireAuth>
               <AppShell>
@@ -247,7 +247,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/settings"
+          path="/s/:courseSlug/:semesterSlug/settings"
           element={
             <RequireAuth>
               <AppShell>
@@ -257,7 +257,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/sub/:submissionId"
+          path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
           element={
             <RequireAuth>
               <AppShell>
@@ -267,7 +267,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/tuning"
+          path="/s/:courseSlug/:semesterSlug/tuning"
           element={
             <RequireAuth>
               <AppShell>
@@ -277,7 +277,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/cross-flags"
+          path="/s/:courseSlug/:semesterSlug/cross-flags"
           element={
             <RequireAuth>
               <AppShell>
@@ -287,7 +287,7 @@ export function App() {
           }
         />
         <Route
-          path="/s/:semesterSlug/cross-flags/:crossFlagId"
+          path="/s/:courseSlug/:semesterSlug/cross-flags/:crossFlagId"
           element={
             <RequireAuth>
               <AppShell>

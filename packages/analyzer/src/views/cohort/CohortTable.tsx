@@ -27,10 +27,11 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import type { SubmissionRow } from '@provenance/shared/api-schemas';
 import type { CohortSort } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 
 // ---------------------------------------------------------------------------
 // Severity helpers
@@ -129,7 +130,7 @@ export function CohortTable({
   isLoadingMore,
 }: CohortTableProps) {
   const navigate = useNavigate();
-  const { semesterSlug } = useParams<{ semesterSlug: string }>();
+  const { basePath } = useActiveSemester();
 
   // Infinite-scroll sentinel: lives INSIDE the scrollable table container
   // (see parentRef below) so it's only visible to the IntersectionObserver
@@ -297,8 +298,8 @@ export function CohortTable({
   }
 
   function handleRowClick(submissionId: string) {
-    if (!semesterSlug) return;
-    void navigate(`/s/${semesterSlug}/sub/${submissionId}`);
+    if (!basePath) return;
+    void navigate(`${basePath}/sub/${submissionId}`);
   }
 
   return (

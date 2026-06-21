@@ -1,7 +1,7 @@
 /**
  * MembersView — list members, invite form, role change, remove.
  *
- * Route: /s/:semesterSlug/members
+ * Route: /s/:courseSlug/:semesterSlug/members
  *
  * - Lists active members (display_name + email + role).
  * - Lists pending invitations.
@@ -12,9 +12,8 @@
  */
 
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import {
-  useSemesters,
   useMembers,
   useInviteMember,
   useUpdateMemberRole,
@@ -55,11 +54,7 @@ function isValidEmail(email: string): boolean {
 // ---------------------------------------------------------------------------
 
 export function MembersView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
-
-  const { data: semesters } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  const { semesterId } = useActiveSemester();
 
   const { data, isLoading, error } = useMembers(semesterId);
   const { mutate: invite, isPending: isInviting } = useInviteMember(semesterId);

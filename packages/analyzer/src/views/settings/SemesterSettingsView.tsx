@@ -1,7 +1,7 @@
 /**
  * SemesterSettingsView — display name, filename convention with live regex tester.
  *
- * Route: /s/:semesterSlug/settings
+ * Route: /s/:courseSlug/:semesterSlug/settings
  *
  * - Form: display_name, filename_convention (regex), retention days.
  * - Live regex tester: user types sample filename, shows match result + groups.
@@ -10,8 +10,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { useSemesters, useSemester, useUpdateSemester } from '../../api/queries.js';
+import { useSemester, useUpdateSemester } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import { ApiError } from '../../api/client.js';
 
 // ---------------------------------------------------------------------------
@@ -90,11 +90,7 @@ function RegexTester({ pattern }: RegexTesterProps) {
 // ---------------------------------------------------------------------------
 
 export function SemesterSettingsView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
-
-  const { data: semesters } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  const { semesterId } = useActiveSemester();
 
   const { data: semesterData, isLoading } = useSemester(semesterId);
   const { mutate: updateSemester, isPending, isSuccess, error } = useUpdateSemester(semesterId);

@@ -65,7 +65,7 @@ function setupMinimalHandlers() {
 // Render helper
 // ---------------------------------------------------------------------------
 
-function renderShell(initialPath = `/s/sp25/sub/${SUBMISSION_ID}`) {
+function renderShell(initialPath = `/s/cs61a/sp25/sub/${SUBMISSION_ID}`) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, retryDelay: 0 } },
   });
@@ -73,7 +73,10 @@ function renderShell(initialPath = `/s/sp25/sub/${SUBMISSION_ID}`) {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route path="/s/:semesterSlug/sub/:submissionId" element={<SubmissionShell />} />
+          <Route
+            path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
+            element={<SubmissionShell />}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -180,7 +183,7 @@ describe('SubmissionShell — tab navigation', () => {
 
   it('?tab=timeline URL param activates timeline tab', async () => {
     setupMinimalHandlers();
-    renderShell(`/s/sp25/sub/${SUBMISSION_ID}?tab=timeline`);
+    renderShell(`/s/cs61a/sp25/sub/${SUBMISSION_ID}?tab=timeline`);
 
     // Timeline tab is active from the start
     await waitFor(

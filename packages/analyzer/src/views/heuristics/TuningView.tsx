@@ -1,7 +1,7 @@
 /**
  * TuningView — heuristic weight + enable/disable tuning with dry-run preview.
  *
- * Phase 24. Route: /s/:semesterSlug/tuning
+ * Phase 24. Route: /s/:courseSlug/:semesterSlug/tuning
  *
  * Layout:
  * - Left pane: scrollable heuristic list. Each row: name, enabled toggle, weight slider (0.0–2.0).
@@ -16,14 +16,10 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Label } from 'recharts';
-import {
-  useActiveConfig,
-  useCommitConfig,
-  useDryRunConfig,
-  useSemesters,
-} from '../../api/queries.js';
+import { useActiveConfig, useCommitConfig, useDryRunConfig } from '../../api/queries.js';
 import type { HeuristicConfigBody } from '@provenance/shared/api-schemas';
 import { RecomputeProgress } from './RecomputeProgress.js';
 
@@ -73,12 +69,8 @@ function configFromActive(active: { config: HeuristicConfigBody }): HeuristicCon
 // ---------------------------------------------------------------------------
 
 export function TuningView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
+  const { semesterId, semesterSlug } = useActiveSemester();
   const [searchParams, setSearchParams] = useSearchParams();
-
-  const { data: semesters } = useSemesters();
-  const semester = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = semester?.semester_id ?? '';
 
   const { data: activeConfig, isLoading: configLoading } = useActiveConfig(semesterId);
 

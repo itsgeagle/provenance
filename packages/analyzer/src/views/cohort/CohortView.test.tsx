@@ -21,6 +21,7 @@ import {
   assignmentsHandler,
   makeSubmissionRow,
   makeStudentRollupRow,
+  DEFAULT_COURSE_SLUG,
   DEFAULT_SEMESTER_ID,
   DEFAULT_SEMESTER_SLUG,
 } from '../../test/msw-handlers.js';
@@ -41,13 +42,13 @@ function makeQueryClient() {
   });
 }
 
-function renderCohortView(initialPath = `/s/${DEFAULT_SEMESTER_SLUG}`) {
+function renderCohortView(initialPath = `/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}`) {
   const qc = makeQueryClient();
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route path="/s/:semesterSlug/*" element={<CohortView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/*" element={<CohortView />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -189,7 +190,7 @@ describe('CohortView', () => {
       assignmentsHandler(),
     );
 
-    renderCohortView(`/s/${DEFAULT_SEMESTER_SLUG}?score_min=5`);
+    renderCohortView(`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}?score_min=5`);
 
     await waitFor(() => {
       expect(screen.getByTestId('cohort-view')).toBeInTheDocument();
@@ -439,7 +440,7 @@ describe('CohortView access states', () => {
     // Default /me handler returns membership for slug "sp25" only. Navigating to
     // a slug you have no membership for must resolve to a clear no-access state
     // once /me has loaded — not hang forever on "Loading semester…".
-    renderCohortView('/s/ghost-semester');
+    renderCohortView('/s/cs61a/ghost-semester');
 
     await waitFor(() => expect(screen.getByTestId('cohort-no-access')).toBeInTheDocument(), {
       timeout: 3000,

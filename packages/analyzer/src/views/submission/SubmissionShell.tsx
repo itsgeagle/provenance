@@ -1,7 +1,7 @@
 /**
  * SubmissionShell — tab shell for the per-submission drill-in view.
  *
- * Phase 23. Route: /s/:semesterSlug/sub/:submissionId
+ * Phase 23. Route: /s/:courseSlug/:semesterSlug/sub/:submissionId
  *
  * Tabs:
  * - Overview  (shipped Phase 23) — summary card + validation + flags + files

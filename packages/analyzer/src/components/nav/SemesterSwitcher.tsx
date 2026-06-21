@@ -1,20 +1,25 @@
 /**
- * SemesterSwitcher — dropdown listing user's accessible semesters.
+ * SemesterSwitcher — dropdown listing the user's accessible semesters.
  *
- * The currently active semester is determined by the :semesterSlug URL param
- * (from /s/:semesterSlug routes). Selecting a different semester navigates to
- * the same sub-path within that semester.
+ * The active semester is determined by the (:courseSlug, :semesterSlug) URL
+ * pair (from /s/:courseSlug/:semesterSlug routes). Selecting a different
+ * semester navigates to the same sub-path within that semester.
  *
- * If the user has only one semester, no switcher is rendered (nothing to switch).
- * If the user has no semesters, no switcher is rendered.
+ * Options are keyed and valued by `semester_id` (not slug) so two semesters
+ * that share a slug across different courses remain distinct, unambiguous
+ * choices. Navigation rebuilds the course-qualified base path from the
+ * selected membership rather than string-replacing the slug in the URL.
+ *
+ * If the user has one or zero semesters, no switcher is rendered.
  */
 
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useSemesters } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 
 export function SemesterSwitcher() {
   const { data: semesters } = useSemesters();
-  const { semesterSlug } = useParams<{ semesterSlug?: string }>();
+  const { membership: active, basePath } = useActiveSemester();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -23,29 +28,31 @@ export function SemesterSwitcher() {
   }
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const newSlug = e.target.value;
-    if (!newSlug || newSlug === semesterSlug) return;
+    const newId = e.target.value;
+    if (!newId || newId === active?.semester_id) return;
 
-    // Replace the current semesterSlug segment in the path with newSlug.
-    // e.g. /s/sp25/students → /s/fa24/students
-    if (semesterSlug && location.pathname.includes(semesterSlug)) {
-      const newPath = location.pathname.replace(semesterSlug, newSlug);
-      void navigate(newPath + location.search);
-    } else {
-      void navigate(`/s/${newSlug}`);
-    }
+    const target = semesters?.find((s) => s.semester_id === newId);
+    if (!target) return;
+
+    const newBase = `/s/${target.course_slug}/${target.semester_slug}`;
+    // Preserve the current sub-path (e.g. /roster) when switching semesters.
+    const subPath =
+      basePath && location.pathname.startsWith(basePath)
+        ? location.pathname.slice(basePath.length)
+        : '';
+    void navigate(newBase + subPath + location.search);
   }
 
   return (
     <select
-      value={semesterSlug ?? ''}
+      value={active?.semester_id ?? ''}
       onChange={handleChange}
       aria-label="Switch semester"
       className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       data-testid="semester-switcher"
     >
       {semesters.map((s) => (
-        <option key={s.semester_id} value={s.semester_slug}>
+        <option key={s.semester_id} value={s.semester_id}>
           {s.course_slug} — {s.semester_slug}
         </option>
       ))}

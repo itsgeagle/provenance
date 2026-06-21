@@ -13,6 +13,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import {
+  DEFAULT_COURSE_SLUG,
   DEFAULT_SEMESTER_ID,
   DEFAULT_SEMESTER_SLUG,
   DEFAULT_JOB_ID,
@@ -23,9 +24,9 @@ function renderStartView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/ingest`]}>
+      <MemoryRouter initialEntries={[`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/ingest`]}>
         <Routes>
-          <Route path="/s/:semesterSlug/ingest" element={<IngestStartView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/ingest" element={<IngestStartView />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

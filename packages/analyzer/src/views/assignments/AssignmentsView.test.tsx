@@ -11,7 +11,11 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { mswServer } from '../../test-setup.js';
-import { DEFAULT_SEMESTER_SLUG, assignmentsHandler } from '../../test/msw-handlers.js';
+import {
+  DEFAULT_COURSE_SLUG,
+  DEFAULT_SEMESTER_SLUG,
+  assignmentsHandler,
+} from '../../test/msw-handlers.js';
 import { AssignmentsView } from './AssignmentsView.js';
 import { http, HttpResponse } from 'msw';
 import { DEFAULT_SEMESTER_ID } from '../../test/msw-handlers.js';
@@ -20,9 +24,11 @@ function renderAssignmentsView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/assignments`]}>
+      <MemoryRouter
+        initialEntries={[`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/assignments`]}
+      >
         <Routes>
-          <Route path="/s/:semesterSlug/assignments" element={<AssignmentsView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/assignments" element={<AssignmentsView />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

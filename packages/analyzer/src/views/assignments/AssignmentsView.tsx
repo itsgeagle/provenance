@@ -1,15 +1,15 @@
 /**
  * AssignmentsView — lists assignments with inline label editing.
  *
- * Route: /s/:semesterSlug/assignments
+ * Route: /s/:courseSlug/:semesterSlug/assignments
  *
  * - Lists assignments with label, assignment_id_str, submission count.
  * - Click label → inline edit field → PATCH /assignments/:id (V46).
  */
 
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { useSemesters, useAssignments, useUpdateAssignment } from '../../api/queries.js';
+import { useAssignments, useUpdateAssignment } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import { ApiError } from '../../api/client.js';
 import type { AssignmentSummary } from '@provenance/shared/api-schemas';
 
@@ -72,11 +72,7 @@ function EditRow({ assignment, semesterId, onDone }: EditRowProps) {
 }
 
 export function AssignmentsView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
-
-  const { data: semesters } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  const { semesterId } = useActiveSemester();
 
   const { data, isLoading, error } = useAssignments(semesterId);
   const [editingId, setEditingId] = useState<string | null>(null);

@@ -14,6 +14,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import {
+  DEFAULT_COURSE_SLUG,
   DEFAULT_SEMESTER_ID,
   DEFAULT_SEMESTER_SLUG,
   rosterHandler,
@@ -24,9 +25,9 @@ function renderRosterView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/roster`]}>
+      <MemoryRouter initialEntries={[`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/roster`]}>
         <Routes>
-          <Route path="/s/:semesterSlug/roster" element={<RosterView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/roster" element={<RosterView />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

@@ -1,7 +1,7 @@
 /**
  * RosterView — lists roster entries, CSV upload with diff preview modal.
  *
- * Route: /s/:semesterSlug/roster
+ * Route: /s/:courseSlug/:semesterSlug/roster
  *
  * - Lists current roster entries (sid + display_name + email).
  * - "Upload CSV" button → modal with file picker → POST /roster:upload → show diff.
@@ -9,8 +9,8 @@
  */
 
 import { useState, useRef } from 'react';
-import { useParams } from 'react-router-dom';
-import { useSemesters, useRoster, useRosterUpload, useRosterCommit } from '../../api/queries.js';
+import { useRoster, useRosterUpload, useRosterCommit } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import type { RosterDiff } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
@@ -198,11 +198,7 @@ function UploadModal({ semesterId, onClose, onCommitted }: UploadModalProps) {
 // ---------------------------------------------------------------------------
 
 export function RosterView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
-
-  const { data: semesters } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  const { semesterId } = useActiveSemester();
 
   const { data, isLoading, error } = useRoster(semesterId);
   const [showUpload, setShowUpload] = useState(false);

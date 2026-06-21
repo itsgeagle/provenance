@@ -1,7 +1,7 @@
 /**
  * IngestJobView — job detail with per-file table, status counts, cancel.
  *
- * Route: /s/:semesterSlug/ingest/jobs/:jobId
+ * Route: /s/:courseSlug/:semesterSlug/ingest/jobs/:jobId
  *
  * - Polls GET /ingest/jobs/:jobId every 3s while not terminal.
  * - Shows status counts (matched, unmatched, duplicate, failed, superseded).
@@ -10,7 +10,8 @@
  */
 
 import { useParams, Link } from 'react-router-dom';
-import { useSemesters, useIngestJob, useCancelIngest } from '../../api/queries.js';
+import { useIngestJob, useCancelIngest } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 
 const STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
@@ -41,14 +42,9 @@ const FILE_STATUS_COLORS: Record<string, string> = {
 };
 
 export function IngestJobView() {
-  const { semesterSlug = '', jobId = '' } = useParams<{
-    semesterSlug: string;
-    jobId: string;
-  }>();
+  const { jobId = '' } = useParams<{ jobId: string }>();
 
-  const { data: semesters } = useSemesters();
-  const membership = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = membership?.semester_id ?? '';
+  const { semesterId, basePath } = useActiveSemester();
 
   const { data: job, isLoading, error } = useIngestJob(jobId, semesterId);
   const { mutate: cancelJob, isPending: isCancelling } = useCancelIngest(semesterId);
@@ -84,7 +80,7 @@ export function IngestJobView() {
     <div className="mx-auto max-w-4xl px-4 py-8">
       {/* Breadcrumb */}
       <div className="mb-4 text-xs text-gray-500">
-        <Link to={`/s/${semesterSlug}/ingest`} className="hover:underline">
+        <Link to={`${basePath}/ingest`} className="hover:underline">
           Ingest
         </Link>
         {' / '}

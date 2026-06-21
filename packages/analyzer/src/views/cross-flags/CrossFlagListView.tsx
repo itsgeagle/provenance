@@ -1,17 +1,18 @@
 /**
  * CrossFlagListView — list of cross-submission flags for a semester.
  *
- * Phase 24. Route: /s/:semesterSlug/cross-flags
+ * Phase 24. Route: /s/:courseSlug/:semesterSlug/cross-flags
  *
  * Features:
  * - Filters: heuristic_id, severity_min, submission_id.
  * - Cursor pagination via load-more button.
- * - Click row → navigate to /s/:semesterSlug/cross-flags/:id
+ * - Click row → navigate to /s/:courseSlug/:semesterSlug/cross-flags/:id
  */
 
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useCrossFlagList, useSemesters } from '../../api/queries.js';
+import { useNavigate } from 'react-router-dom';
+import { useCrossFlagList } from '../../api/queries.js';
+import { useActiveSemester } from '../../api/use-active-semester.js';
 import type { CrossFlagDetailItem } from '@provenance/shared/api-schemas';
 import type { CrossFlagFilters } from '../../api/queries.js';
 
@@ -40,12 +41,9 @@ function SeverityBadge({ severity }: { severity: string }) {
 // ---------------------------------------------------------------------------
 
 export function CrossFlagListView() {
-  const { semesterSlug = '' } = useParams<{ semesterSlug: string }>();
   const navigate = useNavigate();
 
-  const { data: semesters } = useSemesters();
-  const semester = semesters?.find((s) => s.semester_slug === semesterSlug);
-  const semesterId = semester?.semester_id ?? '';
+  const { semesterId, basePath } = useActiveSemester();
 
   // Filters
   const [heuristicId, setHeuristicId] = useState('');
@@ -85,7 +83,7 @@ export function CrossFlagListView() {
   }
 
   function handleRowClick(crossFlagId: string) {
-    void navigate(`/s/${semesterSlug}/cross-flags/${crossFlagId}`);
+    void navigate(`${basePath}/cross-flags/${crossFlagId}`);
   }
 
   return (

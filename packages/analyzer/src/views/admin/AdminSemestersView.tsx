@@ -4,7 +4,7 @@
  * Lists semesters in a course, lets a superadmin create new semesters
  * (term + year + slug + display name + filename convention) and links into
  * the existing per-semester admin pages (settings, members, etc.) which
- * already exist at /s/:slug/...
+ * already exist at /s/:courseSlug/:semesterSlug/...
  */
 
 import { useState } from 'react';
@@ -270,7 +270,7 @@ export function AdminSemestersView() {
                           </button>
                         ) : (
                           <Link
-                            to={`/s/${s.slug}/settings`}
+                            to={`/s/${course?.slug ?? ''}/${s.slug}/settings`}
                             className="text-xs text-indigo-700 hover:underline"
                           >
                             Open settings →

@@ -14,6 +14,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { http, HttpResponse } from 'msw';
 import { mswServer } from '../../test-setup.js';
 import {
+  DEFAULT_COURSE_SLUG,
   DEFAULT_SEMESTER_ID,
   DEFAULT_SEMESTER_SLUG,
   semesterDetailHandler,
@@ -24,9 +25,11 @@ function renderSettingsView() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[`/s/${DEFAULT_SEMESTER_SLUG}/settings`]}>
+      <MemoryRouter
+        initialEntries={[`/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/settings`]}
+      >
         <Routes>
-          <Route path="/s/:semesterSlug/settings" element={<SemesterSettingsView />} />
+          <Route path="/s/:courseSlug/:semesterSlug/settings" element={<SemesterSettingsView />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
