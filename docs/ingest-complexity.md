@@ -23,9 +23,15 @@ worth doing. It is a companion to the profiling notes captured during the June
   (`INGEST_CONCURRENCY`), not per-bundle work.
 - **Interior-edit reconstruction was O(L²)** (template-fill assignments, hidden
   by the append-only bench) — **fixed 2026-06-21** via a line-cell content model
-  in both reconstructors + per-index reconstruction sharing. Realistic
-  `methodfill` workload (original → now): reconstruction stages 2.1–5.0× faster
-  (widening with size), whole CPU pipeline 1.2–1.6×. See "Interior edits" below.
+  in both reconstructors + per-index reconstruction sharing. On the corpus-derived
+  `methodfill` workload (original → now): reconstruction stages **1.3–4.4× faster**
+  across 10k→100k events (widening with size), whole CPU pipeline **1.0–1.5×**
+  (**1.27× at 50k**). See "Interior edits" below.
+- **A 700-bundle × 50k-event import** (the headline fleet-scale scenario) is
+  predicted to drop from **~7.0 min → ~5.8 min serial** (~1.22× end-to-end), or
+  **~54s → ~44s at `INGEST_CONCURRENCY=8`**. The win is per-bundle CPU; it
+  compresses toward 1× as concurrency rises and fixed DB/S3 I/O dominates. See
+  "Fleet-scale" below.
 
 ## Notation
 
@@ -49,7 +55,7 @@ worth doing. It is a companion to the profiling notes captured during the June
 | 5 | Create submission | `create-submission.ts` | **O(versions)** + `FOR UPDATE` + S3 copy O(bytes) | A few indexed queries. Negligible. |
 | — | Build index (shared, built once) | `build-index.ts` | **O(n log n)** | Flatten + chronological sort + single-pass maps. ~5% of CPU. |
 | 6 | Materialize events | `materialize-events.ts` | **O(n log n)** DB, O(n) app, **1 round-trip** | Single `json_to_recordset` INSERT; cost is heap insert + index maintenance (irreducible DB floor). Not CPU-bound. |
-| 7 | Compute stats | `stats.ts`, `reconstruct-file*.ts` | **O(n)** (was O(n²)) | Reconstruction uses an incremental `lineStarts` index (O(1) offset). ~3% of CPU. |
+| 7 | Compute stats | `stats.ts`, `reconstruct-file*.ts` | **O(n)** (was O(n²)) | Reconstruction uses a line-cell content model — O(line) per intra-line edit, no whole-file copy (see "Interior edits"). ~3% of CPU. |
 | 8 | Run validation | `run-validation.ts` | **O(n + bytes)** | 8 checks. **Dominant stage (~44%)**, but linear. Dominated entirely by Check 3 — see below. |
 | 12 | Run heuristics | `run-per-submission.ts` | **O(n)** | ~19 detectors over the shared index. ~25% of CPU. |
 | — | Finalize | `job-control.ts` | **O(F)** | Aggregate sibling file statuses. Negligible. |
@@ -243,37 +249,111 @@ once per file and is shared across consumers of the same index — `computeStats
 are detector-specific and uncached (bounds replay-UI memory). This is the old
 "Lever 2", now worth doing as a cheap follow-on.
 
-Measured with the realistic `BENCH_EDIT=methodfill` mode (short keystroke-sized
-bursts, ~12% newline, localized interior cursor — the template-fill pattern),
-**original → now (line-cell + sharing)** on the same stream, faithful cold
-measurement (fresh index per rep):
+Measured with `BENCH_EDIT=methodfill`, **original → now (line-cell + sharing)**
+on the same stream, faithful cold measurement (fresh index per rep). The
+`methodfill` model was since refined to a **corpus-derived single-keystroke
+generator** — one `doc.change` per character (~3.5% Enter, with the character
+mix and auto-indent measured from a real CS 61A homework/lab/project corpus,
+~28 content chars/line), replacing the earlier coarse model (multi-char bursts,
+~12% newline). The same generator now backs `gen-large-fixture.ts`. The refined
+model types ~1 char/event, so it produces **smaller, more realistic files** per
+event (25 KB at 50k vs 64 KB under the old model) — which lowers the absolute
+reconstruction cost and so reports **smaller, more honest speedups** than the
+earlier coarse table did:
 
 ```
-events  fileKB   stats        heur          recon          CPU sum
-10,003   14.4    8.4 → 5.4    21.7 → 8.9   30 → 14 (2.1×)  105.6 → 88.9 (1.19×)
-25,003   32.7   21.8 → 9.4    75.0 → 22.1  97 → 32 (3.1×)  275.1 →211.8 (1.30×)
-50,003   63.7   62.1 →16.7   260.0 → 47.1 322 → 64 (5.0×)  726.0 →452.0 (1.61×)
+events  fileKB   stats          heur            recon (stats+heur)     CPU sum
+10,003   6.2     4.5 →  4.1     12.7 →  8.8     17.2 →  12.9 (1.3×)     95.8 →  96.0 (1.00×)
+25,003  13.2    16.0 → 10.3     37.9 → 17.8     53.9 →  28.1 (1.9×)    228.1 → 198.9 (1.15×)
+50,003  25.0    38.4 → 15.9    119.8 → 34.6    158.2 →  50.5 (3.1×)    513.0 → 404.5 (1.27×)
+100,003 48.7   114.0 → 44.0    420.0 → 78.3    534.0 → 122.3 (4.4×)   1312.2 → 891.1 (1.47×)
 ```
 
-The reconstruction-heavy stages (stats+heur) are **2.1–5.0× faster, widening
-with file size** (the super-linear term is gone); the whole CPU pipeline is
-**1.2–1.6×** — the rest is `valid`, dominated by the irreducible O(bytes)
-chain-hash (Check 3), plus parse. The line-cell model is the bulk of the win;
-sharing adds ~10–15% on the reconstruction stages. `append` is unchanged
-(marginally faster).
+`stats`/`heur` per-event cost is flat after the fix (e.g. `heur` 8.8→7.1→6.9→7.8
+ms/10k) and rising before it (12.7→15.2→24.0→42.0 ms/10k) — the super-linear term
+is gone. The reconstruction-heavy stages (stats+heur) are **1.3–4.4× faster,
+widening with file size**; the whole CPU pipeline is **1.0–1.5×** (1.27× at 50k)
+— the rest is `valid`, dominated by the irreducible O(bytes) chain-hash (Check 3),
+plus parse, both untouched by this change (their before/after deltas are run
+noise). The line-cell model is the bulk of the win; sharing adds ~10–15% on the
+reconstruction stages. `append` is unchanged (marginally faster).
 
 **Caveat — the line-cell model's weak case is pure line-insertion.** An edit
 that adds/removes whole lines shifts the cell array O(lines). A stream that is
 *dominated* by interior whole-line insertion (`BENCH_EDIT=mid`/`scatter`)
 therefore regresses vs the old string model (e.g. `mid` @25k/408 KB: 3029 →
 7306 ms). This is not the real recorder pattern — `doc.change` events are
-overwhelmingly intra-line keystrokes, and `methodfill` (12% newlines) already
+overwhelmingly intra-line keystrokes, and `methodfill` (~3.5% newlines) already
 nets a win — and the quadratic constant is over the *line* count, so at
 realistic file sizes (≤ ~50 KB / ~1k lines) even this pattern is a few ms. If
 real bundles ever prove line-insertion-heavy at large file sizes, the next step
 is a **gap buffer over the cell array** (O(1) amortized for localized
 insertion), which would also make `mid` linear; `scatter` (random) stays the
 hard case for any non-tree structure.
+
+## Fleet-scale: the 700 × 50k import
+
+> **⚠️ Superseded by a real run (2026-06-20) — the CPU-only prediction below was
+> ~24× optimistic.** A full-stack ingest of an actual 700 × 50k export took
+> **~17.8 min at c=8**, not the ~44 s predicted here, because this section is
+> built on `bench:stages` (which has **no database**) and the per-bundle cost is
+> dominated by `materialize_events` — inserting 50k event rows/bundle (35 M
+> total). The reconstruction stages are <2% of real ingest. The CPU-only
+> analysis below is still correct *as a CPU analysis*; it just isn't the
+> end-to-end story. See [`ingest-700x50k-run.md`](./ingest-700x50k-run.md) for
+> the measured numbers.
+
+The headline scenario is a single Gradescope export of **700 students, each a
+~50k-event bundle** (`gen-large-fixture.ts` defaults; ~17 MB/bundle, ~12 GB
+total). What does the reconstruction fix buy at that scale, and how long does the
+whole import take?
+
+**Per-bundle, at 50k events** (from the table above, realistic `methodfill`):
+
+| stage group | before all opts | after | saving |
+|---|---|---|---|
+| reconstruction stages (stats+heur) | 158 ms | 51 ms | **3.1×** |
+| whole CPU pipeline (bench, no DB/S3) | 513 ms | 404 ms | **1.27×** (−109 ms) |
+
+The 109 ms/bundle saving is *entirely* the stats+heur reconstruction delta; the
+other ~400 ms (parse + chain-hash validation) is reconstruction-independent and
+unchanged.
+
+**Pure analysis CPU for 700 bundles:** 700 × 513 ms = **359 s → 700 × 404 ms =
+283 s** (~76 s saved).
+
+**End-to-end wall-clock.** Worker wall time adds ~90 ms/bundle of DB materialize
++ S3 ops + staging share on top of CPU (the measured `c=1` drain of ~348 s ÷ 700
+≈ 497 ms/bundle vs 404 ms CPU), and `INGEST_CONCURRENCY` parallelizes the drain
+near-linearly with cores. The 109 ms CPU saving is fixed (it does not
+parallelize away), so the ratio holds across concurrency:
+
+| `INGEST_CONCURRENCY` | before all opts | after (predicted) |
+|---|---|---|
+| 1 (serial) | ~7.1 min (424 s) | **~5.8 min (348 s)** |
+| 4 | ~106 s | **~87 s** |
+| 8 | ~53 s | **~44 s** |
+
+So **expect ~1.2× faster end-to-end** for the 700 × 50k import (slightly below
+the 1.27× CPU figure, because the fixed DB/S3 overhead is unchanged), saving
+~1.3 min serial or ~9 s at `c=8`.
+
+**Two things move this number:**
+
+- **Bigger bundles widen it.** The win is super-linear in the *old* cost, so it
+  grows with event count: 1.0× (10k) → 1.15× (25k) → 1.27× (50k) → 1.47× (100k)
+  on CPU. A 700 × 100k import would see ~1.4× end-to-end.
+- **Saturated I/O shrinks it.** The speedup is a CPU saving; once
+  `INGEST_CONCURRENCY` is high enough (or the object store slow enough) that
+  S3/DB throughput is the ceiling, both before and after converge on that ceiling
+  and the ratio fades toward 1×. The lever there is storage/DB throughput, not
+  this fix.
+
+**One-time costs not in the above:** unzipping the ~12 GB outer export and the
+front-half staging (700 × 17 MB of S3 PUTs, O(bytes), overlapped with processing
+on the interleaved/resumable paths). Also raise `INGEST_MAX_BATCH_BYTES` (default
+5 GB) for a ~12 GB batch. Measure the I/O-inclusive path with `profile:large`,
+not `bench:stages`.
 
 ## Running the benchmark
 
