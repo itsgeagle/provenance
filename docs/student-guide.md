@@ -30,7 +30,7 @@ Install it from inside VS Code:
 3. In the search box, type **`Provenance Recorder`**.
 4. On the result published by **Aaryan Mehta (itsgeagle)**, click **Install**.
 
-![Searching for "Provenance Recorder" in the VS Code Extensions panel](images/install-search.svg)
+![Searching for "Provenance Recorder" in the VS Code Extensions panel](images/install-search.png)
 
 > **Tip — one-line install:** Press **`⌘P`** / **`Ctrl+P`** to open Quick Open, paste `ext install itsgeagle.provenance-recorder`, and press **Enter**.
 
@@ -54,7 +54,7 @@ The folder must contain the `.provenance-manifest` file. When VS Code detects it
 
 Look at the **status bar** along the bottom of the VS Code window. You should see:
 
-![The status bar shows "Provenance: recording"](images/status-bar.svg)
+![The status bar shows "Provenance: recording"](images/status-bar.png)
 
 **If you see `Provenance: recording`, you're set.** That indicator is the only visible change — there are no popups, no toolbars, and no slowdown. Write, save, run, and debug your code exactly as you normally would. IntelliSense, the integrated terminal, your keybindings, and your theme are all untouched.
 
@@ -82,7 +82,7 @@ When you've finished the assignment:
 1. Open the command palette: **`⇧⌘P`** (macOS) / **`Ctrl+Shift+P`** (Windows/Linux).
 2. Type **`Prepare Submission Bundle`** and select **Provenance: Prepare Submission Bundle**.
 
-![Running "Provenance: Prepare Submission Bundle" from the command palette](images/command-palette.svg)
+![Running "Provenance: Prepare Submission Bundle" from the command palette](images/command-palette.png)
 
 3. A sealed **`.zip`** file is saved next to your assignment folder. VS Code shows you where.
 
