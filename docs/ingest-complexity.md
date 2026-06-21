@@ -50,6 +50,59 @@ worth doing. It is a companion to the profiling notes captured during the June
 | — | Finalize | `job-control.ts` | **O(F)** | Aggregate sibling file statuses. Negligible. |
 | 14 | Cross-flags (semester) | `run-cross.ts`, `extract-cross-features-from-db.ts` | **O(Σ nₛ log nₛ) + O(S²·G) + O(P²)** | The only super-linear stage — in **S**, not n. See below. |
 
+## The enqueue / "front half" (before any worker runs)
+
+Everything above is per-bundle worker cost. Before the worker runs, the request
+path must stage blobs, write `ingest_files` rows, and enqueue per-file jobs.
+This phase is **O(F)** in the number of submission files, with **three
+sequential round-trips per file** and no bulk batching:
+
+1. `stageBlob` — one S3/MinIO `PUT` of the bundle ZIP. **O(bundle bytes)** and
+   the dominant per-file cost.
+2. `INSERT` one `ingest_files` row (one DB round-trip).
+3. `boss.send(INGEST_FILE, …)` — one pg-boss enqueue = one `INSERT` into
+   `pgboss.job` (one DB round-trip).
+
+So the literal "queue up the jobs" cost is **F sequential `boss.send` calls**
+(F single-row inserts into `pgboss.job`) — linear in F, latency-bound, and
+cheap relative to staging (the S3 PUTs) and processing (~1s CPU/bundle).
+Empirically the whole front half ran ~5s for a 700-small-bundle export
+(~7ms/file, dominated by S3 + DB round-trip latency, not CPU). This phase is
+I/O-bound and needs Postgres + MinIO to measure, so it is **not** covered by
+`bench:stages`; use `profile:ingest` for it.
+
+Where the O(F) work sits relative to the HTTP response differs by entry path:
+
+| Entry path | Code | Enqueue location | Request latency |
+|---|---|---|---|
+| Multipart `POST /ingest` | `ingest.ts` ~L455 | Inline: stage all files, then a second loop of F `boss.send` | **O(F)** in-request |
+| `POST /ingest:gradescope` (sync) | `local-path.ts` | Inline, **interleaved**: per file stage + insert + send, worker starts mid-stream | **O(F)** in-request |
+| Resumable `POST …/complete` (large files) | `ingest.ts` ~L1123 | **Background**: request does 1 job-row insert + 1 `boss.send` (`ingest_stage_upload`), returns 202; the O(F) staging+enqueue runs in that job | **O(1)** in-request |
+
+The resumable path — the one used for multi-GB exports — already moves the
+entire O(F) front half off the request, so user-perceived latency there is O(1).
+
+### Is the enqueue worth optimizing?
+
+- **Multipart `POST /ingest` (the non-interleaved path) is the one clean win.**
+  It already stages all files first and *then* sends in a separate loop, so the
+  F `boss.send` calls could be collapsed into a single batched `boss.insert([…])`
+  (one multi-row INSERT) and the F `ingest_files` inserts into one bulk insert —
+  with no loss of interleaving (there is none to lose). Turns ~2F round-trips
+  into ~2. Low-risk, modest benefit. **Not yet done** — it's a behavioral change,
+  so flagged here rather than applied.
+- **Interleaved paths (`:gradescope`, resumable) should keep per-file sends.**
+  Sending each job as its bundle finishes staging lets the worker start while the
+  rest of a large export is still streaming. With ~1s of processing per bundle,
+  early worker start is worth far more than saving a few ms of enqueue
+  round-trips. Batching here would trade that away.
+- **The dominant front-half cost is the S3 PUTs (`stageBlob`), not the enqueue.**
+  These are sequential and O(total bytes). Bounded-concurrency PUTs could speed a
+  large export, but that competes with worker concurrency for resources and
+  complicates the deliberate memory-bounded streaming on the large-file path.
+  Not worth it without evidence the front half is the bottleneck (it isn't —
+  per-bundle processing dominates).
+
 ## Empirical evidence
 
 Measured with `packages/server/scripts/bench-stages.ts` (median of 3 reps, no
