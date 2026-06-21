@@ -330,6 +330,232 @@ export const ingestPaths = {
   },
 
   // =========================================================================
+  // Resumable (chunked) upload — for very large exports over HTTP
+  // =========================================================================
+  '/semesters/{semesterId}/ingest/uploads': {
+    post: {
+      tags: ['Ingest'],
+      summary: 'Begin a resumable Gradescope upload (semester admin)',
+      description:
+        'Initiate a chunked, resumable upload for a large Gradescope export. Returns a handle; the client uploads parts 1..total_parts of chunk_size bytes (the last may be smaller), then calls complete. Backed by an S3 multipart upload so an interrupted transfer resumes via the parts endpoint.',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['filename', 'total_bytes'],
+              properties: {
+                filename: { type: 'string' },
+                total_bytes: { type: 'integer' },
+                chunk_size: { type: 'integer' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '201': {
+          description: 'Upload created',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateUploadResponse' },
+            },
+          },
+        },
+        '400': { description: 'VALIDATION' },
+        '413': { description: 'INGEST_BATCH_TOO_LARGE (total_bytes over the limit)' },
+      },
+    },
+  },
+  '/semesters/{semesterId}/ingest/uploads/{uploadId}/parts/{partNumber}': {
+    put: {
+      tags: ['Ingest'],
+      summary: 'Upload one part of a resumable upload (semester admin)',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'uploadId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'partNumber',
+          in: 'path',
+          required: true,
+          schema: { type: 'integer', minimum: 1 },
+        },
+        {
+          name: 's3_upload_id',
+          in: 'query',
+          required: true,
+          schema: { type: 'string' },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/octet-stream': {
+            schema: { type: 'string', format: 'binary' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description: 'Part stored',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/UploadPartResponse' },
+            },
+          },
+        },
+        '400': { description: 'VALIDATION' },
+        '413': { description: 'Part too large' },
+      },
+    },
+  },
+  '/semesters/{semesterId}/ingest/uploads/{uploadId}/parts': {
+    get: {
+      tags: ['Ingest'],
+      summary: 'List received parts of a resumable upload (for resume)',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'uploadId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 's3_upload_id',
+          in: 'query',
+          required: true,
+          schema: { type: 'string' },
+        },
+      ],
+      responses: {
+        '200': {
+          description: 'Part numbers already received',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/UploadStatusResponse' },
+            },
+          },
+        },
+        '400': { description: 'VALIDATION' },
+        '404': { description: 'NOT_FOUND (unknown or aborted upload)' },
+      },
+    },
+  },
+  '/semesters/{semesterId}/ingest/uploads/{uploadId}/complete': {
+    post: {
+      tags: ['Ingest'],
+      summary: 'Complete a resumable upload and ingest it (semester admin)',
+      description:
+        'Finalize the multipart upload, assemble the export, and run it through the ingest pipeline. Returns the same body as the single-shot Gradescope upload.',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'uploadId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['s3_upload_id'],
+              properties: { s3_upload_id: { type: 'string' } },
+            },
+          },
+        },
+      },
+      responses: {
+        '202': {
+          description: 'Job accepted; one submission staged per submitter',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/GradescopeIngestResponse' },
+            },
+          },
+        },
+        '200': {
+          description: 'Roster upserted; no processable bundles (job_id null)',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/GradescopeIngestResponse' },
+            },
+          },
+        },
+        '400': { description: 'VALIDATION (no parts, or invalid export)' },
+      },
+    },
+  },
+  '/semesters/{semesterId}/ingest/uploads/{uploadId}': {
+    delete: {
+      tags: ['Ingest'],
+      summary: 'Abort a resumable upload (semester admin)',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 'uploadId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+        {
+          name: 's3_upload_id',
+          in: 'query',
+          required: true,
+          schema: { type: 'string' },
+        },
+      ],
+      responses: {
+        '204': { description: 'Upload aborted (idempotent)' },
+        '400': { description: 'VALIDATION' },
+      },
+    },
+  },
+
+  // =========================================================================
   // Unmatched §8.7
   // =========================================================================
   '/semesters/{semesterId}/unmatched': {

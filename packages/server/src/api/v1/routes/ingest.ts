@@ -47,11 +47,21 @@ import {
   failIngestJob,
 } from '../../../services/ingest/job-control.js';
 import { stageBlob } from '../../../services/ingest/stage-blob.js';
+import { chunk } from '../../../services/ingest/chunk.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
 import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
 import { recordPhase } from '../../../jobs/ingest-profile.js';
-import { parseGradescopeExport } from '../../../services/ingest/gradescope/parse-export.js';
-import { upsertRosterFromSubmitters } from '../../../services/ingest/gradescope/upsert-roster.js';
+import { streamUploadToTempFile } from '../../../services/ingest/stream-upload.js';
+import { ingestLocalPath } from '../../../services/ingest/local-path.js';
+import {
+  createResumableUpload,
+  putResumablePart,
+  listResumablePartNumbers,
+  abortResumableUpload,
+  resolveChunkBytes,
+} from '../../../services/ingest/resumable-upload.js';
+import type { IngestStageUploadPayload } from '../../../services/ingest/stage-upload-job.js';
+import { CreateUploadRequestSchema } from '@provenance/shared/api-schemas';
 import { projectStudent, maskFilename, protectedLabel } from '../../../services/protect.js';
 
 // ---------------------------------------------------------------------------
@@ -139,6 +149,38 @@ async function tryExpandZipBundle(
 interface FileToStage {
   filename: string;
   body: ArrayBuffer;
+}
+
+/**
+ * Detect the "body too large to buffer in memory" failure mode.
+ *
+ * `c.req.parseBody()` defers to Node's FormData/undici multipart parser, which
+ * concatenates the entire request body into a single contiguous buffer before
+ * parsing. On 64-bit V8 that allocation trips a ~2 GiB-class ceiling (well
+ * below INGEST_MAX_BATCH_BYTES), throwing a RangeError. Without this detection
+ * the route's catch reports a misleading 400 "Request validation failed"; with
+ * it we can return an actionable 413 pointing at local-path ingest.
+ *
+ * Matches on the V8/undici allocation-failure messages rather than the error
+ * type alone, since the stack can surface these as RangeError or a plain Error.
+ */
+/**
+ * Max ingest_files rows per bulk `INSERT ... VALUES` statement. Each row binds
+ * ~6 params, so this stays well under Postgres's 65535 bind-param ceiling even
+ * if an admin raises INGEST_MAX_BATCH_FILES above the single-statement limit.
+ */
+const INGEST_FILE_INSERT_CHUNK = 1000;
+
+export function isUnbufferableBodyError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const m = err.message;
+  return (
+    m.includes('Array buffer allocation failed') ||
+    m.includes('Invalid typed array length') ||
+    m.includes('Cannot create a string longer than') ||
+    m.includes('Invalid string length') ||
+    m.includes('out of memory')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -302,10 +344,16 @@ export function createIngestRouter(): Hono {
       let formData: Record<string, unknown>;
       try {
         formData = await c.req.parseBody({ all: true });
-      } catch {
+      } catch (err) {
+        if (isUnbufferableBodyError(err)) {
+          return c.json(Errors.ingestArchiveUnbufferable().toBody(), 413);
+        }
         return c.json(
           Errors.validation([
-            { field: 'multipart', issue: 'Failed to parse multipart body' },
+            {
+              field: 'multipart',
+              issue: `Failed to parse multipart body: ${err instanceof Error ? err.message : String(err)}`,
+            },
           ]).toBody(),
           400,
         );
@@ -401,32 +449,37 @@ export function createIngestRouter(): Hono {
       const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
 
       // -----------------------------------------------------------------------
-      // Stage each file and create ingest_files rows.
+      // Stage each file, then bulk-insert the ingest_files rows and bulk-enqueue
+      // the per-file jobs.
       //
-      // Critical 1: if staging fails mid-batch, mark the job 'failed' before
-      // re-throwing so the row is never left permanently in 'queued'.
-      // Any blobs already staged to MinIO on prior iterations become orphans;
-      // the retention sweep (Phase 9c) will clean them up.
+      // Staging (the S3 PUT) is inherently per-file, but the row inserts and the
+      // job enqueues are batched: a chunked `INSERT ... VALUES` for the rows and
+      // a single `boss.insert` for the jobs, instead of one round-trip per file.
+      // This path stages everything BEFORE enqueueing anything (the worker can't
+      // start until the enqueue at the end regardless), so batching costs no
+      // interleaving — unlike the Gradescope/local-path stream, which sends per
+      // file on purpose so the worker starts mid-stream.
+      //
+      // Compensation: the whole block (staging, bulk insert, getBoss, bulk
+      // enqueue) is wrapped so ANY failure marks the job 'failed' rather than
+      // leaving it permanently 'queued'. Because rows are written only after all
+      // staging succeeds, a mid-staging failure leaves zero ingest_files rows
+      // (and orphan staging blobs the retention sweep reclaims) — not a partial
+      // set. This also closes a prior gap where a getBoss()/enqueue failure after
+      // staging left the job orphaned as 'queued'.
       // -----------------------------------------------------------------------
       const storageClient = createStorageClient(storageConfigFromEnv(cfg));
 
       try {
+        const fileRows: (typeof ingest_files.$inferInsert)[] = [];
         for (const file of filesToStage) {
-          // Pre-allocate a UUID for the ingest_files row so we can build the
-          // staging key before the DB insert.
+          // Pre-allocate a UUID so we can build the staging key before the insert.
           const fileId = crypto.randomUUID();
-
           const { blobSha256, sizeBytes } = await stageBlob(
             { storageClient },
-            {
-              jobId,
-              ingestFileId: fileId,
-              body: file.body,
-            },
+            { jobId, ingestFileId: fileId, body: file.body },
           );
-
-          // Insert the ingest_files row with status='pending'.
-          await db.insert(ingest_files).values({
+          fileRows.push({
             id: fileId,
             ingest_job_id: jobId,
             original_filename: file.filename,
@@ -435,32 +488,29 @@ export function createIngestRouter(): Hono {
             status: 'pending',
           });
         }
+
+        // Bulk-insert rows in chunks (see INGEST_FILE_INSERT_CHUNK for why).
+        for (const rows of chunk(fileRows, INGEST_FILE_INSERT_CHUNK)) {
+          await db.insert(ingest_files).values(rows);
+        }
+
+        // Enqueue all jobs in one call. pg-boss `insert` binds the whole job
+        // array as a single JSON parameter, so it does NOT hit the bind-param
+        // ceiling and needs no chunking. PRD §12.3: ingest_file retries up to 3
+        // times on transient failure.
+        const boss = await getBoss();
+        await boss.insert(
+          fileRows.map((r) => ({
+            name: JOB_KINDS.INGEST_FILE,
+            data: { ingestFileId: r.id, ingestJobId: jobId },
+            retryLimit: 3,
+          })),
+        );
       } catch (stagingErr) {
         // Compensation: mark the job failed so it is not permanently 'queued'.
         const detail = stagingErr instanceof Error ? stagingErr.message : String(stagingErr);
         await failIngestJob(db, jobId, detail);
         throw stagingErr;
-      }
-
-      // -----------------------------------------------------------------------
-      // Enqueue one ingest_file job per staged file.
-      //
-      // We get the boss after all staging succeeds so any pg-boss connection
-      // error doesn't leave files staged without queue entries.
-      // -----------------------------------------------------------------------
-      const boss = await getBoss();
-      const stagedFileIds = await db
-        .select({ id: ingest_files.id })
-        .from(ingest_files)
-        .where(eq(ingest_files.ingest_job_id, jobId));
-
-      for (const { id: ingestFileId } of stagedFileIds) {
-        // PRD §12.3: ingest_file retries up to 3 times on transient failure.
-        await boss.send(
-          JOB_KINDS.INGEST_FILE,
-          { ingestFileId, ingestJobId: jobId },
-          { retryLimit: 3 },
-        );
       }
 
       // Set auditDetail so the audit middleware can log job_id as target_id.
@@ -495,161 +545,124 @@ export function createIngestRouter(): Hono {
       const db = getDb();
       const principal = c.var.principal!;
 
-      // Content-Length pre-check (reject before buffering).
+      // Content-Length pre-check: reject obviously-oversize uploads up front.
+      // The body is streamed to a temp file (not buffered), so the ceiling is
+      // disk-bound (INGEST_MAX_UPLOAD_BYTES), not the ~2 GiB in-memory limit.
       const contentLengthHeader = c.req.header('content-length');
       if (contentLengthHeader !== undefined) {
         const contentLength = parseInt(contentLengthHeader, 10);
-        if (!isNaN(contentLength) && contentLength > cfg.INGEST_MAX_BATCH_BYTES) {
-          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
+        if (!isNaN(contentLength) && contentLength > cfg.INGEST_MAX_UPLOAD_BYTES) {
+          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_UPLOAD_BYTES).toBody(), 413);
         }
       }
 
-      // Parse multipart body — expect a single `archive` = the export ZIP.
-      let formData: Record<string, unknown>;
+      // Stream the `archive` field straight to a temp file — never buffer the
+      // whole body in memory — then hand the on-disk path to the same streaming
+      // (yauzl) ingest the local-path CLI uses. This lifts the multipart/FormData
+      // ~2 GiB ceiling so multi-GB / 10 GB+ exports ingest via this endpoint.
+      const rawBody = c.req.raw.body;
+      if (rawBody === null) {
+        return c.json(
+          Errors.validation([{ field: 'archive', issue: 'Empty request body.' }]).toBody(),
+          400,
+        );
+      }
+
+      const uploadStart = performance.now();
+      const uploaded = await streamUploadToTempFile({
+        fieldName: 'archive',
+        maxBytes: cfg.INGEST_MAX_UPLOAD_BYTES,
+        headers: c.req.raw.headers,
+        body: rawBody,
+      });
+      recordPhase('upload:stream_to_disk', performance.now() - uploadStart);
+
+      if (!uploaded.ok) {
+        if (uploaded.error === 'too_large') {
+          return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_UPLOAD_BYTES).toBody(), 413);
+        }
+        const issue =
+          uploaded.error === 'missing_file'
+            ? 'Missing Gradescope export ZIP in `archive` field.'
+            : `Failed to read multipart upload: ${uploaded.detail}`;
+        return c.json(Errors.validation([{ field: 'archive', issue }]).toBody(), 400);
+      }
+
       try {
-        formData = await c.req.parseBody();
-      } catch {
-        return c.json(
-          Errors.validation([
-            { field: 'multipart', issue: 'Failed to parse multipart body' },
-          ]).toBody(),
-          400,
+        const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+        const ingestStart = performance.now();
+        const result = await ingestLocalPath(
+          { db, storageClient },
+          {
+            semesterId,
+            userId: principal.user.id,
+            archivePath: uploaded.path,
+            maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
+            maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+          },
         );
-      }
+        recordPhase('upload:ingest', performance.now() - ingestStart);
 
-      const archive = formData['archive'];
-      if (!(archive instanceof File)) {
-        return c.json(
-          Errors.validation([
-            { field: 'archive', issue: 'Missing Gradescope export ZIP in `archive` field.' },
-          ]).toBody(),
-          400,
-        );
-      }
-      if (archive.size > cfg.INGEST_MAX_BATCH_BYTES) {
-        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
-      }
+        if (!result.ok) {
+          if (result.error === 'too_many_files') {
+            return c.json(
+              Errors.ingestTooManyFiles(
+                cfg.INGEST_MAX_BATCH_FILES + 1,
+                cfg.INGEST_MAX_BATCH_FILES,
+              ).toBody(),
+              400,
+            );
+          }
+          // not_a_zip | missing_metadata | invalid_metadata
+          return c.json(
+            Errors.validation([
+              {
+                field: 'archive',
+                issue: `Invalid Gradescope export (${result.error}): ${result.detail}`,
+              },
+            ]).toBody(),
+            400,
+          );
+        }
 
-      // Parse the export: roster submitters + rebuilt bundles + skipped folders.
-      const buffer = await archive.arrayBuffer();
-      const parseExportStart = performance.now();
-      const parsed = await parseGradescopeExport(buffer);
-      recordPhase('upload:parse_export', performance.now() - parseExportStart);
-      if (!parsed.ok) {
-        return c.json(
-          Errors.validation([
+        const skippedSummary = result.skipped.map((s) => ({
+          folder_key: s.folderKey,
+          reason: s.reason,
+        }));
+
+        // No bundles to process (roster-only, or all folders skipped): the roster
+        // is upserted but there is no ingest job. Return 200, not 202.
+        if (result.jobId === null) {
+          c.set('auditDetail', {
+            roster_added: result.roster.added,
+            roster_updated: result.roster.updated,
+          });
+          return c.json(
             {
-              field: 'archive',
-              issue: `Invalid Gradescope export (${parsed.error}): ${parsed.detail}`,
+              job_id: null,
+              roster: result.roster,
+              bundles_processed: result.bundlesProcessed,
+              submissions_queued: result.submissionsQueued,
+              skipped: skippedSummary,
             },
-          ]).toBody(),
-          400,
-        );
-      }
-
-      const { rosterSubmitters, bundles, skipped } = parsed.value;
-
-      // Fan out: one staged file per submitter (co-submitters share blob bytes).
-      const toStage: Array<{ folderKey: string; sid: string; body: ArrayBuffer }> = [];
-      for (const b of bundles) {
-        if (b.bundleZip.byteLength > cfg.INGEST_MAX_BUNDLE_BYTES) {
-          return c.json(Errors.ingestFileTooLarge(cfg.INGEST_MAX_BUNDLE_BYTES).toBody(), 413);
+            200,
+          );
         }
-        for (const s of b.submitters) {
-          toStage.push({ folderKey: b.folderKey, sid: s.sid, body: b.bundleZip });
-        }
-      }
 
-      if (toStage.length > cfg.INGEST_MAX_BATCH_FILES) {
-        return c.json(
-          Errors.ingestTooManyFiles(toStage.length, cfg.INGEST_MAX_BATCH_FILES).toBody(),
-          400,
-        );
-      }
-      const totalBytes = toStage.reduce((acc, f) => acc + f.body.byteLength, 0);
-      if (totalBytes > cfg.INGEST_MAX_BATCH_BYTES) {
-        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_BATCH_BYTES).toBody(), 413);
-      }
-
-      // Populate/upsert the roster from the metadata (add/update, never delete).
-      const roster = await upsertRosterFromSubmitters(db, semesterId, rosterSubmitters);
-
-      const skippedSummary = skipped.map((s) => ({ folder_key: s.folderKey, reason: s.reason }));
-
-      // No bundles to process (roster-only export, or all folders skipped):
-      // the roster is upserted but there is no ingest job to create.
-      if (toStage.length === 0) {
-        c.set('auditDetail', { roster_added: roster.added, roster_updated: roster.updated });
+        c.set('auditDetail', { job_id: result.jobId, file_count: result.submissionsQueued });
         return c.json(
           {
-            job_id: null,
-            roster,
-            bundles_processed: 0,
-            submissions_queued: 0,
+            job_id: result.jobId,
+            roster: result.roster,
+            bundles_processed: result.bundlesProcessed,
+            submissions_queued: result.submissionsQueued,
             skipped: skippedSummary,
           },
-          200,
+          202,
         );
+      } finally {
+        await uploaded.cleanup();
       }
-
-      // Create the ingest job and stage one bundle per submitter.
-      const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
-      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
-
-      const stageBlobsStart = performance.now();
-      try {
-        for (const f of toStage) {
-          const fileId = crypto.randomUUID();
-          const { blobSha256, sizeBytes } = await stageBlob(
-            { storageClient },
-            { jobId, ingestFileId: fileId, body: f.body },
-          );
-          await db.insert(ingest_files).values({
-            id: fileId,
-            ingest_job_id: jobId,
-            original_filename: `${f.folderKey}.zip`,
-            size_bytes: sizeBytes,
-            blob_sha256: blobSha256,
-            status: 'pending',
-            match_sid: f.sid,
-          });
-        }
-      } catch (stagingErr) {
-        const detail = stagingErr instanceof Error ? stagingErr.message : String(stagingErr);
-        await failIngestJob(db, jobId, detail);
-        throw stagingErr;
-      }
-
-      recordPhase('upload:stage_blobs', performance.now() - stageBlobsStart);
-
-      const boss = await getBoss();
-      const stagedFileIds = await db
-        .select({ id: ingest_files.id })
-        .from(ingest_files)
-        .where(eq(ingest_files.ingest_job_id, jobId));
-
-      const enqueueStart = performance.now();
-      for (const { id: ingestFileId } of stagedFileIds) {
-        await boss.send(
-          JOB_KINDS.INGEST_FILE,
-          { ingestFileId, ingestJobId: jobId },
-          { retryLimit: 3 },
-        );
-      }
-      recordPhase('upload:enqueue', performance.now() - enqueueStart);
-
-      c.set('auditDetail', { job_id: jobId, file_count: toStage.length });
-
-      return c.json(
-        {
-          job_id: jobId,
-          roster,
-          bundles_processed: bundles.length,
-          submissions_queued: toStage.length,
-          skipped: skippedSummary,
-        },
-        202,
-      );
     },
   );
 
@@ -940,6 +953,239 @@ export function createIngestRouter(): Hono {
         },
         202,
       );
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Resumable (chunked) upload — for very large exports over HTTP.
+  //
+  // Backed by an S3/MinIO multipart upload so an interrupted transfer resumes by
+  // re-sending only missing parts (durable across processes/restarts). The
+  // (semesterId, uploadId) pair derives the storage key; the S3 upload id
+  // returned at create is the capability secret echoed on every request.
+  // -------------------------------------------------------------------------
+
+  // POST /semesters/:semesterId/ingest/uploads — begin a resumable upload.
+  router.post(
+    '/semesters/:semesterId/ingest/uploads',
+    rateLimit('write.ingest'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json(Errors.validation([{ error: 'Invalid JSON' }]).toBody(), 400);
+      }
+      const parsed = CreateUploadRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json(Errors.validation(parsed.error.issues).toBody(), 400);
+      }
+      if (parsed.data.total_bytes > cfg.INGEST_MAX_UPLOAD_BYTES) {
+        return c.json(Errors.ingestBatchTooLarge(cfg.INGEST_MAX_UPLOAD_BYTES).toBody(), 413);
+      }
+
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = crypto.randomUUID();
+      const chunkBytes = resolveChunkBytes(parsed.data.chunk_size);
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      const { s3UploadId, totalParts } = await createResumableUpload(
+        { storageClient },
+        { semesterId, uploadId, totalBytes: parsed.data.total_bytes, chunkBytes },
+      );
+
+      return c.json(
+        {
+          upload_id: uploadId,
+          s3_upload_id: s3UploadId,
+          chunk_size: chunkBytes,
+          total_parts: totalParts,
+        },
+        201,
+      );
+    },
+  );
+
+  // PUT /semesters/:semesterId/ingest/uploads/:uploadId/parts/:partNumber
+  router.put(
+    '/semesters/:semesterId/ingest/uploads/:uploadId/parts/:partNumber',
+    rateLimit('write.ingest_part'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+      const partNumber = parseInt(c.req.param('partNumber')!, 10);
+      const s3UploadId = c.req.query('s3_upload_id');
+
+      if (s3UploadId === undefined || s3UploadId === '') {
+        return c.json(
+          Errors.validation([
+            { field: 's3_upload_id', issue: 'Missing s3_upload_id query param.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      if (isNaN(partNumber) || partNumber < 1) {
+        return c.json(
+          Errors.validation([
+            { field: 'partNumber', issue: 'partNumber must be a positive integer.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      // Bound per-part memory: the part is buffered to compute its SigV4 hash.
+      const clHeader = c.req.header('content-length');
+      if (clHeader !== undefined) {
+        const cl = parseInt(clHeader, 10);
+        if (!isNaN(cl) && cl > 512 * 1024 * 1024 + 4096) {
+          return c.json(Errors.ingestBatchTooLarge(512 * 1024 * 1024).toBody(), 413);
+        }
+      }
+
+      const partBody = await c.req.arrayBuffer();
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      try {
+        await putResumablePart(
+          { storageClient },
+          { semesterId, uploadId, s3UploadId, partNumber, body: partBody },
+        );
+      } catch (err) {
+        return c.json(
+          Errors.validation([
+            {
+              field: 'part',
+              issue: `Failed to store part: ${err instanceof Error ? err.message : String(err)}`,
+            },
+          ]).toBody(),
+          400,
+        );
+      }
+
+      return c.json({ part_number: partNumber, received: true }, 200);
+    },
+  );
+
+  // GET /semesters/:semesterId/ingest/uploads/:uploadId/parts — resume status.
+  router.get(
+    '/semesters/:semesterId/ingest/uploads/:uploadId/parts',
+    rateLimit('write.ingest_part'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+      const s3UploadId = c.req.query('s3_upload_id');
+      if (s3UploadId === undefined || s3UploadId === '') {
+        return c.json(
+          Errors.validation([
+            { field: 's3_upload_id', issue: 'Missing s3_upload_id query param.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      try {
+        const received = await listResumablePartNumbers(
+          { storageClient },
+          { semesterId, uploadId, s3UploadId },
+        );
+        return c.json({ received_parts: received }, 200);
+      } catch {
+        // An unknown/aborted upload id has no parts to list.
+        return c.json(Errors.notFound().toBody(), 404);
+      }
+    },
+  );
+
+  // POST /semesters/:semesterId/ingest/uploads/:uploadId/complete — finalize + ingest.
+  router.post(
+    '/semesters/:semesterId/ingest/uploads/:uploadId/complete',
+    rateLimit('write.ingest'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    audit('ingest.start', 'ingest_job', (c) => (c.get('auditDetail')?.['job_id'] as string) ?? ''),
+    async (c) => {
+      const db = getDb();
+      const principal = c.var.principal!;
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json(Errors.validation([{ error: 'Invalid JSON' }]).toBody(), 400);
+      }
+      const s3UploadId = (body as { s3_upload_id?: unknown })?.s3_upload_id;
+      if (typeof s3UploadId !== 'string' || s3UploadId === '') {
+        return c.json(
+          Errors.validation([{ field: 's3_upload_id', issue: 'Missing s3_upload_id.' }]).toBody(),
+          400,
+        );
+      }
+
+      // Create the ingest job row up front so the client gets a job_id to poll
+      // immediately, then hand the heavy assemble→download→stage work to a
+      // background `ingest_stage_upload` job. This keeps the request fast: a
+      // multi-GB export no longer blocks /complete for minutes (which left the
+      // UI stuck at "Uploading… 100%").
+      const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
+
+      const boss = await getBoss();
+      await boss.send(
+        JOB_KINDS.INGEST_STAGE_UPLOAD,
+        {
+          ingestJobId: jobId,
+          semesterId,
+          userId: principal.user.id,
+          uploadId,
+          s3UploadId,
+        } satisfies IngestStageUploadPayload,
+        // Not retryable: S3 multipart completion is non-idempotent. On failure
+        // the worker marks the job failed so the UI surfaces it.
+        { singletonKey: jobId, retryLimit: 0 },
+      );
+
+      c.set('auditDetail', { job_id: jobId });
+
+      // The roster/counts/skipped are reported via GET /ingest/jobs/:jobId as the
+      // background job runs; the immediate response carries placeholders so the
+      // wire shape (and the analyzer's GradescopeIngestResponse parse) is stable.
+      return c.json(
+        {
+          job_id: jobId,
+          roster: { added: 0, updated: 0 },
+          bundles_processed: 0,
+          submissions_queued: 0,
+          skipped: [],
+        },
+        202,
+      );
+    },
+  );
+
+  // DELETE /semesters/:semesterId/ingest/uploads/:uploadId — abort.
+  router.delete(
+    '/semesters/:semesterId/ingest/uploads/:uploadId',
+    rateLimit('write.misc'),
+    requireAuth({ action: 'write', target: (c) => ({ semesterId: c.req.param('semesterId')! }) }),
+    async (c) => {
+      const cfg = getConfig();
+      const semesterId = c.req.param('semesterId')!;
+      const uploadId = c.req.param('uploadId')!;
+      const s3UploadId = c.req.query('s3_upload_id');
+      if (s3UploadId === undefined || s3UploadId === '') {
+        return c.json(
+          Errors.validation([
+            { field: 's3_upload_id', issue: 'Missing s3_upload_id query param.' },
+          ]).toBody(),
+          400,
+        );
+      }
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      await abortResumableUpload({ storageClient }, { semesterId, uploadId, s3UploadId });
+      return c.body(null, 204);
     },
   );
 

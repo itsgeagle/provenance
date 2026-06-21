@@ -89,6 +89,24 @@ in the analyzer, add your Google email to `AUTH_SUPERADMIN_EMAILS` in
 (`packages/server/scripts/seed/example-gradescope-export.zip`) for manual upload too.
 Details and the `--regenerate` flag are in [`packages/server/README.md`](packages/server/README.md).
 
+### Ingesting submissions
+
+Course staff ingest a Gradescope "Download Submissions" export, which fans out into one
+submission per student through the pipeline (roster upsert → match → heuristics →
+cross-flags). There are two ways in, both producing identical results:
+
+- **HTTP upload** — the analyzer's Ingest page, or `POST /semesters/:id/ingest:gradescope`.
+  The primary path. The upload is streamed to disk (not buffered in memory), so it handles
+  multi-GB exports; the analyzer uploads files ≥ 1 GiB **resumably** (chunked) so an
+  interrupted transfer continues instead of restarting.
+- **Local-path CLI** — `npm run ingest:local` reads an export **directly from the server's
+  disk** via a streaming reader, with memory bounded to a single submission bundle. Best
+  when a very large export (10 GB+) already lives on the server — instant, no upload.
+
+See [`packages/server/README.md`](packages/server/README.md#ingesting-submissions) for the
+full ingest guide, plus the dev tooling for generating large test fixtures (`gen:fixture`)
+and profiling the pipeline (`profile:ingest`, `profile:large`).
+
 ### Run the analyzer frontend
 
 ```sh

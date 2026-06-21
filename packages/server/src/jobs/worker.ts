@@ -33,7 +33,7 @@
  * orchestrate the finalize dispatch.
  */
 
-import { eq, and, count } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import type PgBoss from 'pg-boss';
 import { getBoss, stopBoss, JOB_KINDS } from './pg-boss.js';
 import { getLogger } from '../logging.js';
@@ -46,7 +46,13 @@ import {
   finalizeIngestJob,
   markIngestJobRunning,
   failIngestJob,
+  maybeEnqueueFinalize,
 } from '../services/ingest/job-control.js';
+import type { IngestFinalizePayload } from '../services/ingest/job-control.js';
+import {
+  stageUploadIntoJob,
+  type IngestStageUploadPayload,
+} from '../services/ingest/stage-upload-job.js';
 import { recordIngestJobTerminal } from '../api/middleware/metrics.js';
 import { timePhase, recordPhase, dumpProfile } from './ingest-profile.js';
 import { dedupFile } from '../services/ingest/dedup.js';
@@ -74,10 +80,6 @@ interface IngestFilePayload {
   ingestJobId: string;
 }
 
-interface IngestFinalizePayload {
-  ingestJobId: string;
-}
-
 // ---------------------------------------------------------------------------
 // startWorker
 // ---------------------------------------------------------------------------
@@ -102,6 +104,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
   // -------------------------------------------------------------------------
   await boss.createQueue(JOB_KINDS.INGEST_FILE);
   await boss.createQueue(JOB_KINDS.INGEST_FINALIZE);
+  await boss.createQueue(JOB_KINDS.INGEST_STAGE_UPLOAD);
   await boss.createQueue(JOB_KINDS.RETENTION_SWEEP);
   await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_SESSIONS);
   await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_EXPORTS);
@@ -613,6 +616,45 @@ export async function startWorker(): Promise<() => Promise<void>> {
     },
   );
 
+  // -------------------------------------------------------------------------
+  // ingest_stage_upload handler
+  //
+  // Assembles a completed resumable (chunked) upload and stages its bundles
+  // into the pre-created ingest job, off the HTTP request path. Enqueued with
+  // retryLimit: 0 by the route (S3 multipart completion is non-idempotent), so
+  // on any failure we mark the job failed here rather than letting it hang.
+  // -------------------------------------------------------------------------
+  await boss.work<IngestStageUploadPayload>(
+    JOB_KINDS.INGEST_STAGE_UPLOAD,
+    { batchSize: 1, pollingIntervalSeconds },
+    async (jobs) => {
+      const job = jobs[0]!;
+      const db = getDb();
+      const cfg = getConfig();
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      const stageBoss = await getBoss();
+
+      logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: started');
+      try {
+        await stageUploadIntoJob(
+          { db, storageClient, boss: stageBoss },
+          {
+            ...job.data,
+            maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
+            maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+          },
+        );
+        logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: completed');
+      } catch (err) {
+        const cause = err instanceof Error ? err.message : String(err);
+        logger.error({ ingestJobId: job.data.ingestJobId, err }, 'ingest_stage_upload: failed');
+        await failIngestJob(db, job.data.ingestJobId, `stage_upload error: ${cause}`).catch(() => {
+          // Best-effort — do not re-throw (retryLimit is 0; nothing to retry).
+        });
+      }
+    },
+  );
+
   // Register recompute handlers (Phase 13b).
   await registerRecomputeHandlers(boss);
 
@@ -669,38 +711,4 @@ export async function startWorker(): Promise<() => Promise<void>> {
   return async () => {
     await stopBoss();
   };
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * After a file transitions to a terminal status (any status other than
- * 'pending'), check whether all sibling files for the job are also done.
- *
- * If the count of pending files drops to zero, enqueue one `ingest_finalize`
- * job with `singletonKey = ingestJobId`. pg-boss deduplicates concurrent sends
- * so only one finalize runs per job, even if multiple workers trigger this
- * simultaneously.
- */
-async function maybeEnqueueFinalize(
-  boss: Awaited<ReturnType<typeof getBoss>>,
-  db: ReturnType<typeof getDb>,
-  ingestJobId: string,
-): Promise<void> {
-  const pendingCount = await db
-    .select({ cnt: count() })
-    .from(ingest_files)
-    .where(and(eq(ingest_files.ingest_job_id, ingestJobId), eq(ingest_files.status, 'pending')));
-
-  const remaining = pendingCount[0]?.cnt ?? 0;
-  if (remaining === 0) {
-    // PRD §12.3: finalize jobs retry up to 5 times.
-    await boss.send(JOB_KINDS.INGEST_FINALIZE, { ingestJobId } satisfies IngestFinalizePayload, {
-      singletonKey: ingestJobId,
-      retryLimit: 5,
-    });
-    getLogger().info({ ingestJobId }, 'ingest_finalize: enqueued');
-  }
 }

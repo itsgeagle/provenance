@@ -22,6 +22,7 @@ import { withTestMinio } from '../../../../test/helpers/minio.js';
 vi.mock('../../../jobs/pg-boss.js', () => ({
   getBoss: vi.fn().mockResolvedValue({
     send: vi.fn().mockResolvedValue(null),
+    insert: vi.fn().mockResolvedValue(null),
     work: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
   }),
@@ -852,7 +853,7 @@ describe('POST /semesters/:semesterId/ingest/jobs/:jobId/cancel', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /semesters/:semesterId/ingest — staging failure compensation (Critical 1)', () => {
-  it('marks job failed (not orphaned as queued) when stageBlob throws on second file', async () => {
+  it('marks job failed (not orphaned as queued) and writes no rows when stageBlob throws on second file', async () => {
     await withTestDb(async (db) => {
       await withTestMinio(async ({ client, bucketName }) => {
         _testDb = db;
@@ -902,13 +903,14 @@ describe('POST /semesters/:semesterId/ingest — staging failure compensation (C
           expect(jobs).toHaveLength(1);
           expect(jobs[0]!.status).toBe('failed');
 
-          // The first file's ingest_files row should exist (it was inserted before failure).
+          // No ingest_files rows: rows are bulk-inserted only after ALL staging
+          // succeeds, so a mid-staging failure leaves zero rows (the file-1 blob
+          // staged to MinIO is an orphan the retention sweep reclaims).
           const files = await db
             .select()
             .from(ingest_files)
             .where(eq(ingest_files.ingest_job_id, jobs[0]!.id));
-          expect(files).toHaveLength(1);
-          expect(files[0]!.status).toBe('pending');
+          expect(files).toHaveLength(0);
         } finally {
           _testDb = null;
         }

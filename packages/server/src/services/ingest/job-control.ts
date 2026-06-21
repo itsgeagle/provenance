@@ -17,7 +17,10 @@
 
 import type { DrizzleDb } from '../../db/client.js';
 import { ingest_jobs, ingest_files } from '../../db/schema.js';
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, and, ne, count } from 'drizzle-orm';
+import type PgBoss from 'pg-boss';
+import { JOB_KINDS } from '../../jobs/pg-boss.js';
+import { getLogger } from '../../logging.js';
 import { Errors } from '../../api/v1/errors.js';
 
 // ---------------------------------------------------------------------------
@@ -289,4 +292,74 @@ export async function cancelIngestJob(
     );
 
   return { cancelled: true, previous_status: currentStatus };
+}
+
+// ---------------------------------------------------------------------------
+// Staging-completion flags + gated finalize trigger
+// ---------------------------------------------------------------------------
+
+/** pg-boss payload for an `ingest_finalize` job. */
+export interface IngestFinalizePayload {
+  ingestJobId: string;
+}
+
+/**
+ * Marks a job as still staging (`staging_complete=false`). Called by the
+ * streaming local-path stager before it enqueues any per-file jobs, so a worker
+ * that drains the queue during a staging lull cannot finalize the job early.
+ */
+export async function markStagingStarted(db: DrizzleDb, jobId: string): Promise<void> {
+  await db.update(ingest_jobs).set({ staging_complete: false }).where(eq(ingest_jobs.id, jobId));
+}
+
+/**
+ * Marks a job as fully staged (`staging_complete=true`). Called by the stager
+ * once its loop completes; after this, maybeEnqueueFinalize is allowed to settle
+ * the job.
+ */
+export async function markStagingComplete(db: DrizzleDb, jobId: string): Promise<void> {
+  await db.update(ingest_jobs).set({ staging_complete: true }).where(eq(ingest_jobs.id, jobId));
+}
+
+/**
+ * After a file transitions to a terminal status, settle the job if (a) staging
+ * is complete and (b) no files remain pending. Enqueues one `ingest_finalize`
+ * job with `singletonKey = ingestJobId` so pg-boss deduplicates concurrent
+ * sends and only one finalize runs per job.
+ *
+ * The `staging_complete` gate is what makes interleaved staging safe: while the
+ * streaming stager is still adding rows, a momentarily-empty pending count must
+ * NOT finalize the job.
+ *
+ * Signature is (boss, db, jobId) to match the worker's existing call sites.
+ */
+export async function maybeEnqueueFinalize(
+  boss: PgBoss,
+  db: DrizzleDb,
+  ingestJobId: string,
+): Promise<void> {
+  const jobRows = await db
+    .select({ stagingComplete: ingest_jobs.staging_complete })
+    .from(ingest_jobs)
+    .where(eq(ingest_jobs.id, ingestJobId));
+  const job = jobRows[0];
+  if (!job || !job.stagingComplete) {
+    // Job gone, or staging still in flight — don't finalize yet.
+    return;
+  }
+
+  const pendingCount = await db
+    .select({ cnt: count() })
+    .from(ingest_files)
+    .where(and(eq(ingest_files.ingest_job_id, ingestJobId), eq(ingest_files.status, 'pending')));
+
+  const remaining = pendingCount[0]?.cnt ?? 0;
+  if (remaining === 0) {
+    // PRD §12.3: finalize jobs retry up to 5 times.
+    await boss.send(JOB_KINDS.INGEST_FINALIZE, { ingestJobId } satisfies IngestFinalizePayload, {
+      singletonKey: ingestJobId,
+      retryLimit: 5,
+    });
+    getLogger().info({ ingestJobId }, 'ingest_finalize: enqueued');
+  }
 }

@@ -25,10 +25,17 @@
  * singletonKey=semesterId, this ensures at most one cross-job runs per semester
  * at any time. See V32 for the rationale.
  *
+ * ## Memory: compact features, not full bundles
+ *
+ * Cross-heuristics consume CrossSubmissionFeatures (paste records + a bounded
+ * kind-stream n-gram fingerprint), extracted by streaming each submission from
+ * the DB (extract-cross-features-from-db.ts). This avoids holding full Bundles +
+ * EventIndices for the whole semester in memory at once, which OOM'd the worker.
+ *
  * ## Bundle ID mapping (V32)
  *
- * reconstructBundleFromDb returns a bundle with a fresh crypto.randomUUID() as
- * bundle.id (the original bundle id is not stored server-side). We maintain a
+ * Each submission is tagged with a fresh crypto.randomUUID() bundleId (the
+ * original bundle id is not stored server-side). We maintain a
  * Map<bundleId, submissionId> from the iteration so the CrossFlag.bundleIds can
  * be translated back to submission UUIDs for the cross_flag_participants rows.
  *
@@ -36,18 +43,19 @@
  *
  * CrossFlag.eventsPerBundle[bundleId] is a string[] of `${sessionId}:${seq}`
  * keys (same format as per-submission Flag.supportingSeqs). These are translated
- * to int[] of globalIdx values via index.bySeq — same pattern as Phase 12.
+ * to int[] of globalIdx values via a per-bundle seqKey→globalIdx map built during
+ * feature extraction (covering exactly the referenceable events) — same globalIdx
+ * values buildIndex would assign (chronological (wall, sessionId, seq) order).
  */
 
 import { eq, isNull, and } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { runCrossHeuristics } from '@provenance/analyzer/src/heuristics/cross/run-cross-heuristics.js';
-import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
-import type { EventIndex } from '@provenance/analyzer/src/index/event-index.js';
+import type { CrossSubmissionFeatures } from '@provenance/analyzer/src/heuristics/cross/types.js';
 import { cross_flags, cross_flag_participants, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';
-import { reconstructBundleFromDb } from './reconstruct-bundle.js';
+import { extractCrossFeaturesFromDb } from './extract-cross-features-from-db.js';
 import { getActiveConfig } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -116,26 +124,38 @@ export async function runAndStoreCrossHeuristics(
   }
 
   // -------------------------------------------------------------------------
-  // Step 3: Reconstruct bundle + index from DB for each submission.
+  // Step 3: Extract compact cross-features from DB for each submission.
+  //
+  // We stream each submission's events and reduce them to CrossSubmissionFeatures
+  // (paste records + a bounded kind-stream fingerprint) rather than holding full
+  // Bundles + EventIndices for the whole semester in memory at once — the latter
+  // OOM'd the worker on large cohorts (see extract-cross-features-from-db.ts).
   //
   // Maintain a Map<bundleId, submissionId> so we can translate CrossFlag.bundleIds
-  // (which use the reconstructed bundle.id) back to submission UUIDs.
+  // (which use the synthetic bundleId) back to submission UUIDs, and a
+  // Map<bundleId, Map<seqKey, globalIdx>> for the supporting-seq translation that
+  // formerly used each bundle's EventIndex.bySeq.
   // -------------------------------------------------------------------------
-  const bundles: Bundle[] = [];
-  const indices = new Map<string, EventIndex>();
+  const features: CrossSubmissionFeatures[] = [];
   const bundleIdToSubmissionId = new Map<string, string>();
+  const globalIdxBySeqKeyByBundle = new Map<string, Map<string, number>>();
 
   for (const subRow of submissionRows) {
-    const { bundle, index } = await reconstructBundleFromDb(db, subRow.id);
-    bundles.push(bundle);
-    indices.set(bundle.id, index);
-    bundleIdToSubmissionId.set(bundle.id, subRow.id);
+    const bundleId = crypto.randomUUID();
+    const { features: f, globalIdxBySeqKey } = await extractCrossFeaturesFromDb(
+      db,
+      subRow.id,
+      bundleId,
+    );
+    features.push(f);
+    bundleIdToSubmissionId.set(bundleId, subRow.id);
+    globalIdxBySeqKeyByBundle.set(bundleId, globalIdxBySeqKey);
   }
 
   // -------------------------------------------------------------------------
   // Step 4: Run cross-heuristics.
   // -------------------------------------------------------------------------
-  const crossFlags = runCrossHeuristics(bundles, indices, undefined);
+  const crossFlags = runCrossHeuristics(features, undefined);
 
   // -------------------------------------------------------------------------
   // Step 5: Translate CrossFlag[] → DB rows.
@@ -175,16 +195,17 @@ export async function runAndStoreCrossHeuristics(
         continue;
       }
 
-      // Translate seqKeys to globalIdx values via the bundle's EventIndex.
-      const index = indices.get(bundleId);
+      // Translate seqKeys to globalIdx values via the per-bundle seqKey→globalIdx
+      // map built during feature extraction (covers pastes + representatives).
+      const globalIdxBySeqKey = globalIdxBySeqKeyByBundle.get(bundleId);
       const seqKeys = cf.eventsPerBundle[bundleId] ?? [];
       const globalIdxs: number[] = [];
 
-      if (index) {
+      if (globalIdxBySeqKey) {
         for (const seqKey of seqKeys) {
-          const ev = index.bySeq.get(seqKey);
-          if (ev !== undefined) {
-            globalIdxs.push(ev.globalIdx);
+          const globalIdx = globalIdxBySeqKey.get(seqKey);
+          if (globalIdx !== undefined) {
+            globalIdxs.push(globalIdx);
           }
         }
       }

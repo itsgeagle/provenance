@@ -42,6 +42,7 @@ import {
   cross_flags,
 } from '../src/db/schema.js';
 import { createStorageClient, storageConfigFromEnv } from '../src/services/storage/client.js';
+import { ingestLocalPath } from '../src/services/ingest/local-path.js';
 import { startWorker } from '../src/jobs/worker.js';
 import { createV1App } from '../src/api/v1/index.js';
 import { dumpProfile, getProfileSnapshot } from '../src/jobs/ingest-profile.js';
@@ -50,6 +51,19 @@ import type { DrizzleDb } from '../src/db/client.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXPORT_ZIP_PATH = path.join(__dirname, 'seed', 'example-gradescope-export.zip');
+
+// Optional overrides for a large-fixture run: `--path <zip>` ingests an
+// arbitrary export from disk via the local disk-path (bounded memory, no ~2 GiB
+// HTTP/FormData ceiling) instead of the committed example export over the HTTP
+// route. `--path` implies `--local`.
+const CLI_ARGV = process.argv.slice(2);
+function cliVal(flag: string): string | undefined {
+  const i = CLI_ARGV.indexOf(flag);
+  return i >= 0 ? CLI_ARGV[i + 1] : undefined;
+}
+const CUSTOM_ZIP_PATH = cliVal('--path');
+const USE_LOCAL_PATH = CUSTOM_ZIP_PATH !== undefined || CLI_ARGV.includes('--local');
+const ZIP_PATH = CUSTOM_ZIP_PATH ?? EXPORT_ZIP_PATH;
 
 const INGEST_TIMEOUT_MS = 1_200_000; // 20 min
 const CROSS_FLAGS_TIMEOUT_MS = 300_000; // 5 min
@@ -220,8 +234,12 @@ async function main(): Promise<void> {
   const cfg = getConfig();
   const db = getDb();
 
-  if (!existsSync(EXPORT_ZIP_PATH)) {
-    throw new Error(`export ZIP missing at ${EXPORT_ZIP_PATH} — run \`npm run seed -- --regenerate\` first.`);
+  if (!existsSync(ZIP_PATH)) {
+    throw new Error(
+      USE_LOCAL_PATH
+        ? `export ZIP missing at ${ZIP_PATH}`
+        : `export ZIP missing at ${ZIP_PATH} — run \`npm run seed -- --regenerate\` first.`,
+    );
   }
 
   await ensureBucket();
@@ -230,9 +248,7 @@ async function main(): Promise<void> {
   log(`semester ${PERF.slug} → ${semesterId}; wiping prior data…`);
   await wipeSemester(db, semesterId);
 
-  const exportBytes = new Uint8Array(readFileSync(EXPORT_ZIP_PATH));
-  log(`loaded export (${(exportBytes.byteLength / 1024 / 1024).toFixed(1)} MB)`);
-
+  log(`mode: ${USE_LOCAL_PATH ? 'local disk-path' : 'HTTP :gradescope route'}; INGEST_CONCURRENCY=${cfg.INGEST_CONCURRENCY}, DATABASE_POOL_MAX=${cfg.DATABASE_POOL_MAX}`);
   log('starting in-process worker…');
   const stopWorker = await startWorker();
 
@@ -241,40 +257,79 @@ async function main(): Promise<void> {
   let crossFlagCount = 0;
 
   try {
-    const app = createV1App();
-    const formData = new FormData();
-    formData.append(
-      'archive',
-      new Blob([exportBytes.buffer as ArrayBuffer], { type: 'application/zip' }),
-      'assignment_seed_export.zip',
-    );
+    let jobId: string;
 
-    log('POST /ingest:gradescope (this blocks while all bundles are staged) …');
-    const tUpload = Date.now();
-    const res = await app.fetch(
-      new Request(`http://localhost/semesters/${semesterId}/ingest:gradescope`, {
-        method: 'POST',
-        headers: { Cookie: `${cfg.SESSION_COOKIE_NAME}=${SESSION_ID}` },
-        body: formData,
-      }),
-    );
-    wall.upload = Date.now() - tUpload;
+    if (USE_LOCAL_PATH) {
+      // Disk-path ingest: streams the (possibly multi-GB) export from disk and
+      // stages + enqueues per bundle while the worker drains concurrently. The
+      // "upload" segment here is the stage+enqueue pass; the worker is already
+      // processing during it, so `drain` below is just the tail after staging.
+      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+      log(`staging from disk: ${ZIP_PATH} (interleaved stage+enqueue) …`);
+      const tUpload = Date.now();
+      const res = await ingestLocalPath(
+        { db, storageClient },
+        {
+          semesterId,
+          userId: adminId,
+          archivePath: ZIP_PATH,
+          maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
+          maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+        },
+      );
+      wall.upload = Date.now() - tUpload;
+      if (!res.ok) {
+        throw new Error(`local ingest failed (${res.error}): ${res.detail}`);
+      }
+      if (res.jobId === null) {
+        throw new Error('local ingest staged no bundles (roster-only export?)');
+      }
+      jobId = res.jobId;
+      log(
+        `staged in ${fmt(wall.upload)}: ${res.bundlesProcessed} bundles, ` +
+          `${res.submissionsQueued} submissions queued, ` +
+          `roster +${res.roster.added}/${res.roster.updated}` +
+          (res.skipped.length > 0 ? `, ${res.skipped.length} skipped` : ''),
+      );
+    } else {
+      const exportBytes = new Uint8Array(readFileSync(ZIP_PATH));
+      log(`loaded export (${(exportBytes.byteLength / 1024 / 1024).toFixed(1)} MB)`);
+      const app = createV1App();
+      const formData = new FormData();
+      formData.append(
+        'archive',
+        new Blob([exportBytes.buffer as ArrayBuffer], { type: 'application/zip' }),
+        'assignment_seed_export.zip',
+      );
 
-    if (res.status !== 202) {
-      throw new Error(`ingest returned HTTP ${res.status}: ${await res.text()}`);
+      log('POST /ingest:gradescope (this blocks while all bundles are staged) …');
+      const tUpload = Date.now();
+      const res = await app.fetch(
+        new Request(`http://localhost/semesters/${semesterId}/ingest:gradescope`, {
+          method: 'POST',
+          headers: { Cookie: `${cfg.SESSION_COOKIE_NAME}=${SESSION_ID}` },
+          body: formData,
+        }),
+      );
+      wall.upload = Date.now() - tUpload;
+
+      if (res.status !== 202) {
+        throw new Error(`ingest returned HTTP ${res.status}: ${await res.text()}`);
+      }
+      const body = (await res.json()) as {
+        job_id: string;
+        submissions_queued: number;
+        bundles_processed: number;
+      };
+      log(
+        `accepted in ${fmt(wall.upload)}: ${body.bundles_processed} bundles, ` +
+          `${body.submissions_queued} submissions queued`,
+      );
+      jobId = body.job_id;
     }
-    const body = (await res.json()) as {
-      job_id: string;
-      submissions_queued: number;
-      bundles_processed: number;
-    };
-    log(
-      `accepted in ${fmt(wall.upload)}: ${body.bundles_processed} bundles, ` +
-        `${body.submissions_queued} submissions queued`,
-    );
 
     const tDrain = Date.now();
-    finalStatus = await pollJobTerminal(db, body.job_id, INGEST_TIMEOUT_MS);
+    finalStatus = await pollJobTerminal(db, jobId, INGEST_TIMEOUT_MS);
     wall.drain = Date.now() - tDrain;
     log(`ingest ${finalStatus} — worker drain ${fmt(wall.drain)}`);
 
@@ -304,15 +359,17 @@ async function main(): Promise<void> {
   const totalWall = wall.upload + wall.drain + wall.crossFlags;
   log('');
   log('════════════════ WALL-CLOCK ════════════════');
-  log(`upload request (parse+stage+enqueue) : ${fmt(wall.upload).padStart(8)}  ${pct(wall.upload, totalWall)}`);
-  log(`worker drain (700 bundles, serial)   : ${fmt(wall.drain).padStart(8)}  ${pct(wall.drain, totalWall)}`);
+  const stageLabel = USE_LOCAL_PATH ? 'stage+enqueue (interleaved w/ drain)' : 'upload request (parse+stage+enqueue)';
+  log(`${stageLabel.padEnd(36)} : ${fmt(wall.upload).padStart(8)}  ${pct(wall.upload, totalWall)}`);
+  log(`worker drain tail (after staging)    : ${fmt(wall.drain).padStart(8)}  ${pct(wall.drain, totalWall)}`);
   log(`cross-flags recompute (whole cohort) : ${fmt(wall.crossFlags).padStart(8)}  ${pct(wall.crossFlags, totalWall)}`);
-  log(`TOTAL                                : ${fmt(totalWall).padStart(8)}`);
-  if (wall.drain > 0 && submissionCount > 0) {
+  log(`TOTAL (end-to-end)                   : ${fmt(totalWall).padStart(8)}`);
+  if (totalWall > 0 && submissionCount > 0) {
     log('');
-    log(`throughput: ${submissionCount} submissions / ${(wall.drain / 1000).toFixed(1)}s ` +
-        `= ${(submissionCount / (wall.drain / 1000)).toFixed(1)} bundles/s ` +
-        `(${(wall.drain / submissionCount).toFixed(1)}ms/bundle, single worker)`);
+    const procWall = wall.upload + wall.drain; // staging+drain overlap → true processing window
+    log(`throughput: ${submissionCount} submissions / ${(procWall / 1000).toFixed(1)}s ` +
+        `= ${(submissionCount / (procWall / 1000)).toFixed(1)} bundles/s ` +
+        `(${(procWall / submissionCount).toFixed(1)}ms/bundle wall, INGEST_CONCURRENCY=${cfg.INGEST_CONCURRENCY})`);
   }
   log('');
 

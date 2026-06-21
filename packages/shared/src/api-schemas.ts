@@ -347,10 +347,17 @@ export const RosterUpsertSummarySchema = z.object({
 });
 export type RosterUpsertSummary = z.infer<typeof RosterUpsertSummarySchema>;
 
-/** A submission folder that could not be processed as a bundle. */
+/**
+ * A submission folder that could not be processed as a bundle.
+ *
+ * `bundle_too_large` arises only on the streaming upload / local-path ingest,
+ * where bundle sizes are discovered one at a time (the job is already running),
+ * so an oversize bundle is skipped-and-reported rather than failing the whole
+ * upload up front.
+ */
 export const GradescopeSkippedEntrySchema = z.object({
   folder_key: z.string(),
-  reason: z.enum(['no_manifest', 'no_submitters']),
+  reason: z.enum(['no_manifest', 'no_submitters', 'bundle_too_large']),
 });
 export type GradescopeSkippedEntry = z.infer<typeof GradescopeSkippedEntrySchema>;
 
@@ -367,6 +374,49 @@ export const GradescopeIngestResponseSchema = z.object({
   skipped: z.array(GradescopeSkippedEntrySchema),
 });
 export type GradescopeIngestResponse = z.infer<typeof GradescopeIngestResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Resumable (chunked) Gradescope upload
+// (POST   /semesters/:id/ingest/uploads            — create)
+// (PUT    /semesters/:id/ingest/uploads/:uid/parts/:n?s3_upload_id=… — upload part)
+// (GET    /semesters/:id/ingest/uploads/:uid/parts?s3_upload_id=…    — resume status)
+// (POST   /semesters/:id/ingest/uploads/:uid/complete — complete + ingest)
+// (DELETE /semesters/:id/ingest/uploads/:uid?s3_upload_id=…          — abort)
+// ---------------------------------------------------------------------------
+
+/** Begin a resumable upload. `chunk_size` is a hint; the server may clamp it. */
+export const CreateUploadRequestSchema = z.object({
+  filename: z.string().min(1),
+  total_bytes: z.number().int().positive(),
+  chunk_size: z.number().int().positive().optional(),
+});
+export type CreateUploadRequest = z.infer<typeof CreateUploadRequestSchema>;
+
+/**
+ * Created-upload handle. The client uploads parts 1..total_parts of
+ * `chunk_size` bytes each (the last part may be smaller), echoing `s3_upload_id`
+ * on every subsequent request.
+ */
+export const CreateUploadResponseSchema = z.object({
+  upload_id: z.string().uuid(),
+  s3_upload_id: z.string(),
+  chunk_size: z.number().int().positive(),
+  total_parts: z.number().int().positive(),
+});
+export type CreateUploadResponse = z.infer<typeof CreateUploadResponseSchema>;
+
+/** Part numbers (1-based) already received — used to resume after an interruption. */
+export const UploadStatusResponseSchema = z.object({
+  received_parts: z.array(z.number().int().positive()),
+});
+export type UploadStatusResponse = z.infer<typeof UploadStatusResponseSchema>;
+
+/** Acknowledgement for a single uploaded part. */
+export const UploadPartResponseSchema = z.object({
+  part_number: z.number().int().positive(),
+  received: z.literal(true),
+});
+export type UploadPartResponse = z.infer<typeof UploadPartResponseSchema>;
 
 export const IngestJobListResponseSchema = z.object({
   items: z.array(IngestJobListItemSchema),

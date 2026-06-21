@@ -125,6 +125,42 @@ Point the frontend's `VITE_API_BASE_URL` build-time variable at your API origin:
 VITE_API_BASE_URL=https://provenance.example.edu/api/v1 npm run build --workspace=packages/analyzer
 ```
 
+### 2.6 Scaling the ingest worker
+
+Per-bundle ingest cost is ~1s of CPU and is at its algorithmic floor (see
+`docs/ingest-complexity.md`), so the lever for large imports — a whole
+semester of bundles at once — is **throughput**, not per-bundle speed. Three
+settings govern it, and they must move together:
+
+- **`INGEST_CONCURRENCY`** (default `4`) — how many `ingest_file` jobs one
+  worker process drains at once. Set it roughly to the worker's core count;
+  each concurrent job is ~1s of CPU, so it scales near-linearly with cores. A
+  700-bundle drain measured **348s at concurrency 1 → 87s at 4 → 44s at 8**.
+- **`DATABASE_POOL_MAX`** (default `10`) — per-process Postgres connection cap.
+  Each in-flight ingest job holds ~1 connection for its transaction, and
+  pg-boss needs its own connections to poll and complete jobs. **Keep
+  `INGEST_CONCURRENCY` comfortably below `DATABASE_POOL_MAX`** (e.g. 8 with 16),
+  or jobs starve waiting on connections. Confirm Postgres `max_connections`
+  covers the pool across every server/worker process you run.
+- **Cores and RAM** are the hardware ceilings. CPU saturates around
+  **concurrency 6–8 on a single Postgres instance** (large-bundle throughput is
+  DB-write-bound, so returns diminish once Postgres saturates on writes). RAM is
+  the other bound: each concurrent job holds a full decompressed bundle working
+  set in heap, so safe concurrency is roughly
+  `min(cores, DATABASE_POOL_MAX − headroom, RAM ÷ peak-bundle-footprint)`.
+
+For more throughput beyond one instance, run multiple `--mode=worker`
+processes (§3.2 of the v3 PRD) against the same database; pg-boss distributes
+jobs across them. Each process gets its own `DATABASE_POOL_MAX`, so size
+Postgres `max_connections` for the total.
+
+Example large-import worker config:
+
+```bash
+INGEST_CONCURRENCY=8 DATABASE_POOL_MAX=16 \
+  node packages/server/dist/index.js --mode=worker
+```
+
 ---
 
 ## 3. Google OAuth setup
@@ -242,6 +278,35 @@ curl -s -X POST https://provenance.example.edu/api/v1/courses/<courseId>/semeste
 ```
 
 Invite staff members to the semester via `POST /semesters/<semesterId>/members/invite`.
+
+### 5.1 Ingesting submissions
+
+Once a semester exists, staff ingest a Gradescope "Download Submissions" export. The roster
+is upserted from the export's `submission_metadata.yml` (no separate roster upload needed),
+and every student bundle is processed through the pipeline (match → parse → heuristics →
+cross-flags) by the worker. Both ingest paths produce identical results:
+
+- **HTTP upload** — the analyzer's Ingest page, or `POST /semesters/<id>/ingest:gradescope`.
+  The upload is streamed to disk (not buffered in memory), bounded by
+  `INGEST_MAX_UPLOAD_BYTES` (default 10 GiB). The analyzer uploads large exports (≥ 1 GiB)
+  **resumably** so an interrupted transfer continues instead of restarting.
+
+- **Local-path ingest** — for very large exports (multi-GB / 10 GB+) staged on the server's
+  disk, ingest directly from the filesystem with no upload and no in-memory size limit:
+
+  ```bash
+  npm run ingest:local --workspace=packages/server -- \
+    --path /srv/exports/export.zip --semester <semester-id> --user staff@school.edu
+  ```
+
+  It reads the archive with a streaming random-access reader, so peak memory is a single
+  submission bundle regardless of total size. A **worker must be running** to process the
+  queued submissions. Full details, including arguments and behavior, are in
+  [`packages/server/README.md` → Ingesting submissions](../packages/server/README.md#ingesting-submissions).
+
+Whichever path is used, monitor progress via `GET /semesters/<id>/ingest/jobs/<jobId>` or
+the analyzer's Ingest job view; unmatched submissions land in the unmatched tray for manual
+resolution.
 
 ---
 
@@ -460,6 +525,8 @@ Document the time taken and any issues found. Update this runbook if needed.
 | Variable                           | Required   | Default                                             | Description                                                               |
 | ---------------------------------- | ---------- | --------------------------------------------------- | ------------------------------------------------------------------------- |
 | `DATABASE_URL`                     | Yes        | —                                                   | PostgreSQL connection string                                              |
+| `DATABASE_POOL_MAX`                | No         | `10`                                                | Per-process Postgres connection cap. Must exceed `INGEST_CONCURRENCY` (§2.6) |
+| `INGEST_CONCURRENCY`               | No         | `4`                                                 | Concurrent `ingest_file` jobs per worker. See §2.6 (Scaling the ingest worker) |
 | `PORT`                             | No         | `3000`                                              | HTTP port                                                                 |
 | `NODE_ENV`                         | No         | `development`                                       | `development` or `production`                                             |
 | `GOOGLE_OAUTH_CLIENT_ID`           | Yes        | —                                                   | Google OAuth 2.0 client ID                                                |

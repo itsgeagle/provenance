@@ -11,10 +11,19 @@
  * entries, signed manifest, exact final doc.save reconstruction) so every bundle
  * passes validation. The extension hash matches the analyzer allowlist.
  *
+ * Typing model: a realistic "fill in the method bodies" workload — one
+ * doc.change per keystroke (single character; ~3.5% Enter) at a localized
+ * interior cursor that advances and occasionally jumps, instead of one full line
+ * appended at EOF. The newline rate, character mix and auto-indent are derived
+ * from a real CS 61A homework/lab/project corpus, and mirror bench-stages.ts's
+ * `methodfill` mode. The document is held as a line-cell array with a native
+ * {line,character} cursor so each keystroke stays O(line) — preserving
+ * O(text)-per-event generation cost at fixture scale.
+ *
  *   npm run gen:fixture --workspace=packages/server
  *   npm run gen:fixture --workspace=packages/server -- --students 700 --events 50000 --out /tmp/fix.zip
  *
- * Memory-safe by construction: each ~E-event bundle (~16 MB at 50k) is built,
+ * Memory-safe by construction: each ~E-event bundle (~17 MB at 50k) is built,
  * written to a staging directory on disk, and released before the next — so peak
  * heap is one bundle, not all N. The staging tree is then packaged with the
  * streaming system `zip` (no in-memory JSZip of the whole ~11 GB), and removed.
@@ -94,30 +103,75 @@ function mulberry32(seed: number): () => number {
 
 type Pos = { line: number; character: number };
 
-/** Initial end position of `content` (one split, only at startup). */
-function initEnd(content: string): Pos {
-  const lines = content.split('\n');
-  return { line: lines.length - 1, character: lines[lines.length - 1]!.length };
+/** A zero-width range at position `p`. */
+function rangeAt(p: Pos): Range {
+  const at = { line: p.line, character: p.character };
+  return { start: at, end: { ...at } };
 }
 
-/** Advance an end position by appended `text` — O(text), not O(content). The
- *  generator only ever appends, so the end position is tracked incrementally
- *  instead of re-splitting the whole (growing) file on every event (which is the
- *  O(n²) trap that made naive generation ~15s/bundle). */
-function advanceEnd(end: Pos, text: string): void {
-  const nl = text.lastIndexOf('\n');
-  if (nl === -1) {
-    end.character += text.length;
-  } else {
-    for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) end.line++;
-    end.character = text.length - nl - 1;
-  }
+// --- methodfill keystroke model (corpus-derived; mirrors bench-stages.ts) -----
+// Realistic "fill in the method bodies" typing: one doc.change per keystroke
+// (single character; ~3.5% Enter) at a localized interior cursor that advances
+// and occasionally jumps, instead of one full line appended at EOF. The newline
+// rate, character mix and auto-indent are derived from a real CS 61A
+// homework/lab/project corpus (~2k student-written code lines, ~28 content chars
+// per line). Backed by a line-cell array + a native {line,character} cursor so
+// each keystroke stays O(line), preserving the generator's O(text)-per-event
+// cost at fixture scale (no whole-file splice, no offset→position rescan).
+
+// Enter probability per keystroke: ~1/(28+1) for ~28 content chars per line.
+const FILL_NEWLINE_PROB = 0.035;
+
+// Frequency-weighted content alphabet from the corpus (space ~10%, then
+// English-ish letters plus the punctuation Python leans on). Sampled uniformly,
+// so repeats encode weight.
+const FILL_ALPHABET =
+  '          ' + // space ×10
+  'eeeeeeeeee' + // e ×10
+  'tttttt' +
+  'rrrrrr' +
+  'ssssss' + // t/r/s ×6
+  'nnnnn' +
+  'aaaaa' +
+  'iiiii' + // n/a/i ×5
+  'llll' + // l ×4
+  'ooo' +
+  'fff' +
+  '___' + // o/f/_ ×3
+  'dd' +
+  'cc' +
+  '((' +
+  '))' +
+  'uu' +
+  'pp' +
+  'mm' +
+  '::' +
+  '==' + // ×2
+  ',.hb[]01gywx*+'; // ×1
+
+/**
+ * Auto-indent target (in spaces) after Enter. CS 61A indentation clusters at
+ * multiples of 4 (0:15% 4:38% 8:31% 12:13% 16:3%, mean ~6): a short random walk
+ * in 4-space steps around the current level, biased to stay put.
+ */
+function nextIndent(cur: number, rng: () => number): number {
+  const r = rng();
+  let next: number;
+  if (r < 0.45)
+    next = cur; // continue at the same depth
+  else if (r < 0.72)
+    next = cur + 4; // open a block (line ended in `:`)
+  else if (r < 0.95)
+    next = cur - 4; // close a block
+  else next = 0; // back to top level
+  return Math.min(16, Math.max(0, next));
 }
 
-/** A zero-width range at the current end position. */
-function rangeAt(end: Pos): Range {
-  const p = { line: end.line, character: end.character };
-  return { start: p, end: { ...p } };
+/** Leading-space count of `s`. */
+function leadingSpaces(s: string): number {
+  let i = 0;
+  while (i < s.length && s.charCodeAt(i) === 32) i++;
+  return i;
 }
 
 type EventSpec = { kind: string; data: Record<string, unknown> };
@@ -158,8 +212,13 @@ async function buildBundleFiles(
   const machineId = sha256Hex(`large-machine:${student.sid}`);
   const path0 = `${ASSIGNMENT}.py`;
 
-  let content = `# ${ASSIGNMENT} — CS 61A\nfrom operator import add, mul\n\n\ndef solve(data):\n    pass\n`;
-  const end = initEnd(content);
+  const initialContent = `# ${ASSIGNMENT} — CS 61A\nfrom operator import add, mul\n\n\ndef solve(data):\n    pass\n`;
+  // Document as a line-cell array (trailing '' = the empty final line); the live
+  // file is `cells.join('\n')`, reconstructed once at doc.save. The cursor and
+  // its current indent advance with each keystroke and jump ~4% of the time.
+  const cells = initialContent.split('\n');
+  const cursor: Pos = { line: -1, character: 0 };
+  let curIndent = 0;
   let typed = 0;
 
   const startData = {
@@ -205,8 +264,12 @@ async function buildBundleFiles(
 
   const cosmetic = (kind: string): EventSpec => {
     switch (kind) {
-      case 'selection.change':
-        return { kind, data: { path: path0, range: rangeAt(end), was_selection: rng() < 0.4 } };
+      case 'selection.change': {
+        // The caret tracks the typing cursor (each keystroke moves it); clamp to
+        // the document start before the first edit.
+        const at = cursor.line < 0 ? { line: 0, character: 0 } : cursor;
+        return { kind, data: { path: path0, range: rangeAt(at), was_selection: rng() < 0.4 } };
+      }
       case 'session.heartbeat':
         return { kind, data: { focused: true, active_file: path0, idle_since_ms: 0 } };
       case 'focus.change':
@@ -230,11 +293,24 @@ async function buildBundleFiles(
   const openT = t;
   await append(seq++, 'doc.open', {
     path: path0,
-    sha256: sha256Hex(content),
-    line_count: content.split('\n').length,
-    content,
+    sha256: sha256Hex(initialContent),
+    line_count: cells.length,
+    content: initialContent,
     truncated: false,
   });
+
+  // Place the cursor for the next edit: the first edit (and ~4% of edits) jumps
+  // to a fresh interior region and adopts that line's indentation.
+  const placeCursor = (): void => {
+    if (cursor.line < 0 || rng() < 0.04) {
+      cursor.line = Math.max(
+        0,
+        Math.min(cells.length - 1, Math.floor((0.2 + rng() * 0.6) * cells.length)),
+      );
+      cursor.character = cells[cursor.line]!.length;
+      curIndent = leadingSpaces(cells[cursor.line]!);
+    }
+  };
 
   const pasteAt1 = Math.floor(eventCount * 0.3);
   const pasteAt2 = Math.floor(eventCount * 0.7);
@@ -249,9 +325,21 @@ async function buildBundleFiles(
           (_, j) => `    val_${i}_${j} = lookup(${j}) + offset(${i})`,
         ).join('\n') +
         '\n';
-      const range = rangeAt(end);
-      content += blob;
-      advanceEnd(end, blob);
+      placeCursor();
+      const range = rangeAt(cursor);
+      // Splice the multi-line blob into the cell array at the cursor. `parts` ends
+      // in '' because `blob` ends in '\n'; the merged tail becomes that trailing
+      // cell + the old line's suffix, so the cursor lands at the start of the
+      // continuation line.
+      const parts = blob.split('\n');
+      const lineStr = cells[cursor.line]!;
+      const left = lineStr.slice(0, cursor.character);
+      const right = lineStr.slice(cursor.character);
+      const newLines = [left + parts[0]!, ...parts.slice(1, -1), parts[parts.length - 1]! + right];
+      cells.splice(cursor.line, 1, ...newLines);
+      cursor.line += parts.length - 1;
+      cursor.character = parts[parts.length - 1]!.length;
+      curIndent = leadingSpaces(cells[cursor.line]!);
       await append(seq++, 'paste', {
         path: path0,
         range,
@@ -272,14 +360,31 @@ async function buildBundleFiles(
       r -= k.w;
     }
     if (kind === 'doc.change') {
-      const range = rangeAt(end);
-      const line = `    step_${typed} = transform(data[${typed % 50}], ${typed})\n`;
-      content += line;
-      advanceEnd(end, line);
+      placeCursor();
+      const range = rangeAt(cursor);
+      let text: string;
+      const lineStr = cells[cursor.line]!;
+      if (rng() < FILL_NEWLINE_PROB) {
+        // Enter: split the line and auto-indent the remainder onto a new cell.
+        curIndent = nextIndent(curIndent, rng);
+        const indent = ' '.repeat(curIndent);
+        cells[cursor.line] = lineStr.slice(0, cursor.character);
+        cells.splice(cursor.line + 1, 0, indent + lineStr.slice(cursor.character));
+        cursor.line += 1;
+        cursor.character = curIndent;
+        text = '\n' + indent;
+      } else {
+        // A single content keystroke inserted in place.
+        const c = FILL_ALPHABET[Math.floor(rng() * FILL_ALPHABET.length)]!;
+        cells[cursor.line] =
+          lineStr.slice(0, cursor.character) + c + lineStr.slice(cursor.character);
+        cursor.character += 1;
+        text = c;
+      }
       typed++;
       await append(seq++, 'doc.change', {
         path: path0,
-        deltas: [{ range, text: line }],
+        deltas: [{ range, text }],
         source: 'typed',
       });
     } else {
@@ -287,6 +392,9 @@ async function buildBundleFiles(
       await append(seq++, ev.kind, ev.data);
     }
   }
+
+  // Reconstruct the final file once from the cell array (O(content), not per-edit).
+  const content = cells.join('\n');
 
   t = Math.max(t, openT + 35_000);
   await append(seq++, 'doc.save', { path: path0, sha256: sha256Hex(content) });

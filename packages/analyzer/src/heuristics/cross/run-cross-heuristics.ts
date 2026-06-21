@@ -13,9 +13,12 @@
  * When bundles.length < 2, returns [] immediately (no cross-bundle work possible).
  */
 
-import type { Bundle } from '../../loader/types.js';
-import type { EventIndex } from '../../index/event-index.js';
-import type { CrossFlag, CrossHeuristic, CrossHeuristicConfig } from './types.js';
+import type {
+  CrossFlag,
+  CrossHeuristic,
+  CrossHeuristicConfig,
+  CrossSubmissionFeatures,
+} from './types.js';
 import { DEFAULT_CROSS_HEURISTIC_CONFIG } from './types.js';
 import { pasteSharedAcrossStudentsHeuristic } from './paste-shared-across-students.js';
 import { editingPatternCloneHeuristic } from './editing-pattern-clone.js';
@@ -51,16 +54,14 @@ function severityRank(flag: CrossFlag): number {
 /**
  * Run all cross-bundle heuristics and return a sorted CrossFlag list.
  *
- * @param bundles        - All loaded bundles (must be >= 2 to produce any flags).
- * @param indices        - Map from Bundle.id to EventIndex (same shape as BundleContext).
+ * @param features       - Per-submission cross features (must be >= 2 to produce any flags).
  * @param configOverride - Optional partial config override.
  */
 export function runCrossHeuristics(
-  bundles: Bundle[],
-  indices: Map<string, EventIndex>,
+  features: CrossSubmissionFeatures[],
   configOverride?: Partial<CrossHeuristicConfig>,
 ): CrossFlag[] {
-  if (bundles.length < 2) return [];
+  if (features.length < 2) return [];
 
   const config: CrossHeuristicConfig = {
     ...DEFAULT_CROSS_HEURISTIC_CONFIG,
@@ -70,7 +71,7 @@ export function runCrossHeuristics(
   const allFlags: CrossFlag[] = [];
 
   for (const heuristic of CROSS_HEURISTIC_REGISTRY) {
-    const flags = heuristic.run(bundles, indices, config);
+    const flags = heuristic.run(features, config);
     // Use a for-of append rather than `allFlags.push(...flags)` — spread-into-push
     // passes every element as a separate argument, which overflows the call stack
     // when a single heuristic returns tens of thousands of candidate flags

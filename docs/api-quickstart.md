@@ -281,6 +281,24 @@ curl -s -X POST \
 # Poll the job with: GET /semesters/$SEMESTER_ID/ingest/jobs/$JOB_ID
 ```
 
+**Large exports.** The single-request upload above is streamed to disk server-side, so it
+handles multi-GB exports (bounded by `INGEST_MAX_UPLOAD_BYTES`, default 10 GiB). For
+resilience on large transfers there is also a **resumable** protocol — `POST
+…/ingest/uploads` → `PUT …/parts/{n}?s3_upload_id=…` → `POST …/complete` — that resumes an
+interrupted upload via `GET …/parts` (the analyzer uses it automatically for files ≥ 1 GiB).
+And when the export already lives on the server's disk, skip uploading entirely with the
+`npm run ingest:local` CLI. See
+[`packages/server/README.md` → Ingesting submissions](../packages/server/README.md#ingesting-submissions).
+
+**Resumable `/complete` is asynchronous.** `POST …/uploads/:uploadId/complete` returns
+`202` immediately with a `job_id` and placeholder zeros for `roster`,
+`bundles_processed`, `submissions_queued`, and `skipped`; it does **not** block while the
+export is assembled and staged. Assembly and staging run in a background
+`ingest_stage_upload` job. Poll `GET /semesters/:semesterId/ingest/jobs/:jobId` until
+`status` is terminal (`succeeded` / `partial` / `failed`) to get the real outcome — the
+same job-status endpoint used by every other ingest path. An invalid export surfaces as a
+`failed` job rather than a synchronous `400`.
+
 ## API reference
 
 Full documentation at: `https://provenance.example.edu/api/v1/docs`

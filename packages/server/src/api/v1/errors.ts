@@ -386,6 +386,25 @@ export const Errors = {
     );
   },
 
+  /**
+   * The multipart request body was too large to materialize as a single
+   * in-memory buffer. Node's FormData/undici stack concatenates the whole body
+   * into one contiguous buffer before parsing and trips a ~2 GiB-class
+   * allocation ceiling — well below INGEST_MAX_BATCH_BYTES. This is distinct
+   * from a genuinely malformed body (400) and from the configured size cap.
+   * Reuses INGEST_BATCH_TOO_LARGE (413) so the error catalog is unchanged.
+   */
+  ingestArchiveUnbufferable(): ApiError {
+    return new ApiError(
+      'INGEST_BATCH_TOO_LARGE',
+      413,
+      'The uploaded archive is too large to buffer in a single request. ' +
+        'Use local-path ingest (the server reads the archive directly from disk) ' +
+        'or split the export into smaller archives.',
+      { reason: 'request_body_unbufferable' },
+    );
+  },
+
   ingestFileTooLarge(maxBytes: number): ApiError {
     return new ApiError(
       'INGEST_FILE_TOO_LARGE',

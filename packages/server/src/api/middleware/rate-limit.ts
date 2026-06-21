@@ -42,6 +42,7 @@ export type RouteClass =
   | 'read.detail'
   | 'write.config'
   | 'write.ingest'
+  | 'write.ingest_part'
   | 'write.misc'
   | 'blob.download';
 
@@ -67,6 +68,9 @@ const BUCKET_CONFIGS: Record<RouteClass, BucketConfig> = {
   'read.detail': { bucketSize: 1200, refillCount: 1200, windowMs: 60 * 1000 },
   'write.config': { bucketSize: 60, refillCount: 60, windowMs: 60 * 1000 },
   'write.ingest': { bucketSize: 30, refillCount: 30, windowMs: 5 * 60 * 1000 },
+  // Chunk uploads of a resumable ingest: a single multi-GB upload is hundreds of
+  // PUTs, so this bucket is deliberately generous (unlike the rare write.ingest).
+  'write.ingest_part': { bucketSize: 3000, refillCount: 3000, windowMs: 60 * 1000 },
   'write.misc': { bucketSize: 120, refillCount: 120, windowMs: 60 * 1000 },
   'blob.download': { bucketSize: 30, refillCount: 30, windowMs: 60 * 1000 },
 };

@@ -33,3 +33,13 @@ export function exportKey(artifactId: string, format: 'md' | 'pdf'): string {
 export function ingestStagingKey(jobId: string, fileId: string): string {
   return `ingest-staging/${jobId}/${fileId}`;
 }
+
+/**
+ * Key for a transient resumable-upload object (the assembled multipart upload of
+ * a chunked Gradescope export). Deleted after the upload is ingested or aborted.
+ * Derivable from (semesterId, uploadId) so chunk/complete/abort requests can
+ * reconstruct it without server-side session state.
+ */
+export function resumableUploadKey(semesterId: string, uploadId: string): string {
+  return `ingest-uploads/${semesterId}/${uploadId}.zip`;
+}

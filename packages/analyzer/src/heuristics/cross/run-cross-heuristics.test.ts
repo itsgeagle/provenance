@@ -4,9 +4,15 @@
 
 import { describe, it, expect } from 'vitest';
 import { runCrossHeuristics } from './run-cross-heuristics.js';
+import { extractCrossFeatures } from './features.js';
 import type { Bundle } from '../../loader/types.js';
 import type { EventIndex, IndexedEvent } from '../../index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
+
+/** Convert test Bundle+EventIndex stubs into the cross-feature input. */
+function toFeatures(bundles: Bundle[], indices: Map<string, EventIndex>) {
+  return bundles.map((b) => extractCrossFeatures(b, indices.get(b.id)!));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,12 +79,12 @@ describe('runCrossHeuristics', () => {
     const bundleA = makeBundle('bundle-a');
     const indices = new Map([[bundleA.id, makeEmptyIndex()]]);
 
-    const flags = runCrossHeuristics([bundleA], indices);
+    const flags = runCrossHeuristics(toFeatures([bundleA], indices));
     expect(flags).toHaveLength(0);
   });
 
   it('returns [] when 0 bundles', () => {
-    const flags = runCrossHeuristics([], new Map());
+    const flags = runCrossHeuristics([]);
     expect(flags).toHaveLength(0);
   });
 
@@ -95,7 +101,7 @@ describe('runCrossHeuristics', () => {
       [bundleB.id, indexB],
     ]);
 
-    const flags = runCrossHeuristics([bundleA, bundleB], indices);
+    const flags = runCrossHeuristics(toFeatures([bundleA, bundleB], indices));
     const pasteSharedFlags = flags.filter((f) => f.heuristic === 'paste_shared_across_students');
     expect(pasteSharedFlags.length).toBeGreaterThan(0);
   });
@@ -159,7 +165,7 @@ describe('runCrossHeuristics', () => {
       [bundleB.id, indexB],
     ]);
 
-    const flags = runCrossHeuristics([bundleA, bundleB], indices);
+    const flags = runCrossHeuristics(toFeatures([bundleA, bundleB], indices));
 
     // First flag should have higher or equal severity to subsequent flags.
     for (let i = 1; i < flags.length; i++) {
@@ -214,14 +220,14 @@ describe('runCrossHeuristics', () => {
     ]);
 
     // Default config: no flag (80 < 100 minimum).
-    const flagsDefault = runCrossHeuristics([bundleA, bundleB], indices);
+    const flagsDefault = runCrossHeuristics(toFeatures([bundleA, bundleB], indices));
     const pasteDefaultFlags = flagsDefault.filter(
       (f) => f.heuristic === 'paste_shared_across_students',
     );
     expect(pasteDefaultFlags).toHaveLength(0);
 
     // Lowered minimum: flag fires.
-    const flagsOverride = runCrossHeuristics([bundleA, bundleB], indices, {
+    const flagsOverride = runCrossHeuristics(toFeatures([bundleA, bundleB], indices), {
       pasteSharedMinLength: 50,
     });
     const pasteOverrideFlags = flagsOverride.filter(

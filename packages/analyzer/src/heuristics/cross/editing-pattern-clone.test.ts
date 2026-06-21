@@ -5,9 +5,15 @@
 import { describe, it, expect } from 'vitest';
 import { editingPatternCloneHeuristic } from './editing-pattern-clone.js';
 import { DEFAULT_CROSS_HEURISTIC_CONFIG } from './types.js';
+import { extractCrossFeatures } from './features.js';
 import type { Bundle } from '../../loader/types.js';
 import type { EventIndex, IndexedEvent } from '../../index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
+
+/** Convert test Bundle+EventIndex stubs into the cross-feature input. */
+function toFeatures(bundles: Bundle[], indices: Map<string, EventIndex>) {
+  return bundles.map((b) => extractCrossFeatures(b, indices.get(b.id)!));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -84,7 +90,7 @@ describe('editing_pattern_clone', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA, bundleB], indices), cfg);
       expect(flags).toHaveLength(1);
       expect(flags[0]!.heuristic).toBe('editing_pattern_clone');
       expect(flags[0]!.severity).toBe('medium');
@@ -128,7 +134,7 @@ describe('editing_pattern_clone', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA, bundleB], indices), cfg);
       // Both streams share many 3-grams; expect at least 1 flag.
       expect(flags).toHaveLength(1);
       const score = flags[0]!.detail?.['jaccardScore'] as number;
@@ -158,7 +164,10 @@ describe('editing_pattern_clone', () => {
         [bundleC.id, makeIdx()],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB, bundleC], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(
+        toFeatures([bundleA, bundleB, bundleC], indices),
+        cfg,
+      );
       // Pairs: A-B, A-C, B-C → 3 flags.
       expect(flags).toHaveLength(3);
     });
@@ -170,7 +179,7 @@ describe('editing_pattern_clone', () => {
       const indexA = makeIndexWithKinds(['session.start', 'doc.change', 'doc.save'] as EventKind[]);
       const indices = new Map([[bundleA.id, indexA]]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA], indices), cfg);
       expect(flags).toHaveLength(0);
     });
 
@@ -197,7 +206,7 @@ describe('editing_pattern_clone', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA, bundleB], indices), cfg);
       expect(flags).toHaveLength(0);
     });
 
@@ -221,7 +230,7 @@ describe('editing_pattern_clone', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA, bundleB], indices), cfg);
       expect(flags).toHaveLength(0);
     });
 
@@ -238,7 +247,7 @@ describe('editing_pattern_clone', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA, bundleB], indices), cfg);
       expect(flags).toHaveLength(0);
     });
   });
@@ -264,7 +273,7 @@ describe('editing_pattern_clone', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA, bundleB], indices), cfg);
       expect(flags).toHaveLength(1);
 
       const detail = flags[0]!.detail!;
@@ -296,7 +305,7 @@ describe('editing_pattern_clone', () => {
         [bundleB.id, indexB],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(toFeatures([bundleA, bundleB], indices), cfg);
       expect(flags).toHaveLength(1);
 
       const epb = flags[0]!.eventsPerBundle;
@@ -328,7 +337,10 @@ describe('editing_pattern_clone', () => {
         [bundleC.id, makeIdx()],
       ]);
 
-      const flags = editingPatternCloneHeuristic.run([bundleA, bundleB, bundleC], indices, cfg);
+      const flags = editingPatternCloneHeuristic.run(
+        toFeatures([bundleA, bundleB, bundleC], indices),
+        cfg,
+      );
 
       const ids = flags.map((f) => f.id);
       expect(new Set(ids).size).toBe(ids.length);

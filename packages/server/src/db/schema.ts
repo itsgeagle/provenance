@@ -386,6 +386,12 @@ export const ingest_jobs = pgTable(
     summary: jsonb('summary')
       .notNull()
       .default(sql`'{}'`),
+    // True once all ingest_files rows for this job have been staged (no more
+    // will be added). The streaming local-path stager sets this false while it
+    // streams and true when done; maybeEnqueueFinalize will not finalize a job
+    // until it is true. Atomic-staging callers (HTTP /ingest, :gradescope)
+    // create all rows before any worker runs, so they keep the default true.
+    staging_complete: boolean('staging_complete').notNull().default(true),
     created_at: timestamp('created_at', { withTimezone: true })
       .notNull()
       .default(sql`now()`),

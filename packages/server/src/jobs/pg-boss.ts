@@ -14,6 +14,7 @@
  * Job kinds (PRD §12.2):
  *   ingest_file           — per ingest_files row; runs §9.3 phases
  *   ingest_finalize       — last ingest_file completes; aggregates job status
+ *   ingest_stage_upload   — assemble a completed resumable upload + stage its bundles
  *   recompute_submission  — per-submission heuristic recompute
  *   recompute_finalize    — last recompute_submission completes
  *   recompute_cross_flags — semester-scoped cross-heuristic sweep
@@ -45,6 +46,7 @@ import { getLogger } from '../logging.js';
 export const JOB_KINDS = {
   INGEST_FILE: 'ingest_file',
   INGEST_FINALIZE: 'ingest_finalize',
+  INGEST_STAGE_UPLOAD: 'ingest_stage_upload',
   RECOMPUTE_SEMESTER: 'recompute_semester',
   RECOMPUTE_SUBMISSION: 'recompute_submission',
   RECOMPUTE_FINALIZE: 'recompute_finalize',
