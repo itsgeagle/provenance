@@ -24,9 +24,12 @@
  * V8 keeps cheap, and the one the linear-cost claim was measured on. `mid`
  * inserts a whole line at the document midpoint and `scatter` at a uniformly
  * random interior offset — both stress pure *line-insertion*. `methodfill` is
- * the realistic template-fill workload: short keystroke-sized bursts (~12%
- * newline) at a localized interior cursor that advances and occasionally jumps,
- * i.e. mostly *intra-line* typing inside method bodies. The line-cell
+ * the realistic template-fill workload: one doc.change per *keystroke* (single
+ * character), ~3.5% of which are Enter, at a localized interior cursor that
+ * advances and occasionally jumps — i.e. mostly *intra-line* typing inside
+ * method bodies. The character mix, ~3.5% newline rate (≈28 content chars per
+ * line) and the auto-indent applied on Enter are all derived from a real CS 61A
+ * homework/lab/project corpus (~2k student-written code lines). The line-cell
  * reconstruction model (see `docs/ingest-complexity.md` "Known worst case") makes
  * intra-line edits O(line); mid/scatter instead exercise the cell-array shift, so
  * use `methodfill` to gauge the real ingest win and mid/scatter for the line-
@@ -81,28 +84,91 @@ const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
 //  append   — each doc.change appends a full line at EOF (V8-cheap baseline).
 //  mid      — each doc.change inserts a full line at the document midpoint.
 //  scatter  — full line at a uniformly random interior offset.
-//  methodfill — realistic "fill in the method bodies": short keystroke-sized
-//    bursts (mostly intra-line, ~12% newline) at a localized interior cursor
-//    that advances as you type and occasionally jumps to another region. This
-//    is the pattern the line-cell reconstruction model is built for; mid/scatter
-//    instead stress whole-line insertion (cells-array shift).
+//  methodfill — realistic "fill in the method bodies": one doc.change per
+//    keystroke (single char, ~3.5% Enter; corpus-derived char/indent mix) at a
+//    localized interior cursor that advances as you type and occasionally jumps
+//    to another region. This is the pattern the line-cell reconstruction model
+//    is built for; mid/scatter instead stress whole-line insertion (cells-array
+//    shift).
 type EditMode = 'append' | 'mid' | 'scatter' | 'methodfill';
 const EDIT_MODE: EditMode = (() => {
   const v = process.env['BENCH_EDIT'];
   return v === 'mid' || v === 'scatter' || v === 'methodfill' ? v : 'append';
 })();
 
-/** Mutable cursor state for `methodfill` (reset per generated bundle). */
-type FillState = { cursor: number };
+/** Mutable typing state for `methodfill` (reset per generated bundle). */
+type FillState = { cursor: number; indent: number };
 
-/** A short, keystroke-sized code-ish token; ~12% of the time a bare newline. */
-function methodfillToken(rng: () => number): string {
-  if (rng() < 0.12) return '\n';
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz    ()_=.[]0123';
-  const len = 1 + Math.floor(rng() * 6);
-  let s = '';
-  for (let i = 0; i < len; i++) s += alphabet[Math.floor(rng() * alphabet.length)];
-  return s;
+// Probability a keystroke is Enter rather than a content character. The CS 61A
+// corpus averages ~28 content chars per code line (indentation excluded, since
+// the editor auto-applies it on Enter), so newline rate ≈ 1/(28+1) ≈ 0.035.
+const FILL_NEWLINE_PROB = 0.035;
+
+// Content-character distribution, frequency-weighted from the same corpus
+// (space ~10%, then English-ish letter frequencies plus the punctuation Python
+// code leans on: `_ ( ) : = , .`). Sampled uniformly, so repeats encode weight.
+const FILL_ALPHABET =
+  '          ' + // space ×10
+  'eeeeeeeeee' + // e ×10
+  'tttttt' +
+  'rrrrrr' +
+  'ssssss' + // t/r/s ×6
+  'nnnnn' +
+  'aaaaa' +
+  'iiiii' + // n/a/i ×5
+  'llll' + // l ×4
+  'ooo' +
+  'fff' +
+  '___' + // o/f/_ ×3
+  'dd' +
+  'cc' +
+  '((' +
+  '))' +
+  'uu' +
+  'pp' +
+  'mm' +
+  '::' +
+  '==' + // ×2
+  ',.hb[]01gywx*+'; // ×1
+
+/**
+ * Auto-indent target (in spaces) after pressing Enter. CS 61A indentation
+ * clusters at multiples of 4 (0:15% 4:38% 8:31% 12:13% 16:3%, mean ~6). Model a
+ * short random walk in 4-space steps around the current level, biased to stay,
+ * with an occasional reset to the top level (new def / blank line).
+ */
+function nextIndent(cur: number, rng: () => number): number {
+  const r = rng();
+  let next: number;
+  if (r < 0.45)
+    next = cur; // continue at the same depth
+  else if (r < 0.72)
+    next = cur + 4; // open a block (line ended in `:`)
+  else if (r < 0.95)
+    next = cur - 4; // close a block
+  else next = 0; // back to top level
+  return Math.min(16, Math.max(0, next));
+}
+
+/** Indentation (leading spaces) of the line containing `offset`. */
+function indentAt(content: string, offset: number): number {
+  const lineStart = content.lastIndexOf('\n', offset - 1) + 1;
+  let i = lineStart;
+  while (i < content.length && content.charCodeAt(i) === 32) i++;
+  return i - lineStart;
+}
+
+/**
+ * One keystroke's worth of inserted text. ~3.5% of the time it's Enter, which
+ * the editor expands to a newline plus the auto-indent for the next line;
+ * otherwise it's a single content character.
+ */
+function methodfillToken(rng: () => number, fill: FillState): string {
+  if (rng() < FILL_NEWLINE_PROB) {
+    fill.indent = nextIndent(fill.indent, rng);
+    return '\n' + ' '.repeat(fill.indent);
+  }
+  return FILL_ALPHABET[Math.floor(rng() * FILL_ALPHABET.length)]!;
 }
 
 function log(msg: string): void {
@@ -184,8 +250,10 @@ function insertAtCursor(
   rng: () => number,
 ): { content: string; range: Range } {
   if (fill.cursor < 0 || rng() < 0.04) {
-    // Jump to a new interior region (biased away from the file edges).
+    // Jump to a new interior region (biased away from the file edges) and adopt
+    // that line's indentation so subsequent auto-indents stay consistent.
     fill.cursor = Math.floor((0.2 + rng() * 0.6) * content.length);
+    fill.indent = indentAt(content, fill.cursor);
   }
   const offset = Math.min(Math.max(fill.cursor, 0), content.length);
   const pos = offsetToPos(content, offset);
@@ -221,7 +289,7 @@ async function buildBundleFiles(
 
   let content = `# ${ASSIGNMENT} — CS 61A\nfrom operator import add, mul\n\n\ndef solve(data):\n    pass\n`;
   const end = initEnd(content);
-  const fill: FillState = { cursor: -1 };
+  const fill: FillState = { cursor: -1, indent: 0 };
   let typed = 0;
 
   const startData = {
@@ -334,7 +402,7 @@ async function buildBundleFiles(
     if (kind === 'doc.change') {
       const text =
         EDIT_MODE === 'methodfill'
-          ? methodfillToken(rng)
+          ? methodfillToken(rng, fill)
           : `    step_${typed} = transform(data[${typed % 50}], ${typed})\n`;
       const ins =
         EDIT_MODE === 'methodfill'
@@ -342,6 +410,14 @@ async function buildBundleFiles(
           : insertByMode(content, text, rng);
       content = ins.content;
       if (EDIT_MODE === 'append') advanceEnd(end, text);
+      else if (EDIT_MODE === 'methodfill') {
+        // Cursor moved with the keystroke; track it so the interleaved
+        // selection.change events report the real caret (each keystroke also
+        // fires a selection.change in VS Code).
+        const p = offsetToPos(content, fill.cursor);
+        end.line = p.line;
+        end.character = p.character;
+      }
       typed++;
       await append(seq++, 'doc.change', {
         path: path0,
