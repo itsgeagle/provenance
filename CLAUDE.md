@@ -4,13 +4,14 @@ Project conventions and standing instructions for Claude Code working in this re
 
 ## What this is
 
-Provenance: an academic-integrity telemetry and analysis system. Five workspaces in one repo, all currently shipped:
+Provenance: an academic-integrity telemetry and analysis system. Six workspaces in one repo, all currently shipped:
 
 - `packages/log-core/` — pure-TS log format: event types, JCS canonicalization, hash chain, validator, ndjson serialization, bundle + manifest shapes, ed25519 manifest verification. Used by every other package.
 - `packages/recorder/` — VS Code extension (**v1.1**) that records a tamper-evident `.provenance` log while a student works. All PRD §4 event types, three-signal paste detection, external-change detection, per-session signing keypair, signed checkpoints, chain recovery, bundle seal, disk-full degraded mode.
 - `packages/shared/` — Zod schemas shared between `server` and `analyzer` so API contracts stay in sync.
-- `packages/analyzer/` — React/Vite SPA (**v3**). Google OAuth login, semester switcher, cohort list, per-submission drill-in (overview / timeline / replay / validation), 24-slider heuristics tuning UI, cross-flags view, export panel. Also a standalone `/local` route that runs entirely in-browser (drop a `.zip`, no server).
-- `packages/server/` — Node + Hono API server (**v3**). Postgres + Drizzle ORM, Google OAuth + sessions + API tokens, ZIP ingest pipeline (parse → match → heuristics → cross-flags), pg-boss job queue, OpenAPI 3.1 + Redoc, Prometheus metrics, retention sweep + session purge cron jobs. Object storage is S3-compatible (MinIO for dev).
+- `packages/analysis-core/` — pure-TS analysis engine shared by `analyzer` and `server`: bundle loader (unzip + parse), the 8 validation checks, the EventIndex + file reconstruction, per-submission + cross-submission heuristics. Isomorphic (runs in browser and Node); depends only on `log-core` + a few libs (`jszip`, `diff`, `@noble/ed25519`). This is where the code that used to live inside the analyzer and be imported by the server now lives.
+- `packages/analyzer/` — React/Vite SPA (**v3**). Google OAuth login, semester switcher, cohort list, per-submission drill-in (overview / timeline / replay / validation), 24-slider heuristics tuning UI, cross-flags view, export panel. Also a standalone `/local` route that runs entirely in-browser (drop a `.zip`, no server). UI on top of `analysis-core`.
+- `packages/server/` — Node + Hono API server (**v3**). Postgres + Drizzle ORM, Google OAuth + sessions + API tokens, ZIP ingest pipeline (parse → match → heuristics → cross-flags), pg-boss job queue, OpenAPI 3.1 + Redoc, Prometheus metrics, retention sweep + session purge cron jobs. Object storage is S3-compatible (MinIO for dev). **Events are not persisted in Postgres** and **stored bundles are provenance-only** (student source stripped after ingest); read paths re-parse the stored bundle blob on demand (see below).
 
 The product specs live in `docs/`. The recorder spec is `docs/prd.md`; the analyzer/server spec is `docs/analyzer-v3-prd.md`. Section references like "§4.2" mean the recorder PRD unless the surrounding text says otherwise. **Read the relevant PRD section before implementing anything.** If a PRD and this file disagree, this file wins for code conventions; the PRD wins for product behavior.
 
@@ -28,10 +29,13 @@ The product specs live in `docs/`. The recorder spec is `docs/prd.md`; the analy
 - `log-core` has **zero** runtime dependencies on VS Code, Node-only APIs, or the DOM. Pure TypeScript that runs in any JS environment. An ESLint `no-restricted-imports` rule on `packages/log-core/**/*.ts` rejects `vscode`, `node:*`, `fs`, `path`, `worker_threads`, and `crypto` imports. Non-negotiable — both the browser analyzer and the Node server/recorder consume it.
 - `recorder` depends on `log-core`, `vscode`, and a small fixed set of approved libraries: `@noble/ed25519`, `@noble/hashes`, `@noble/ciphers`, `canonicalize`, `jszip`. Nothing else without approval. The packaged VSIX is ESM (requires VS Code ≥ 1.94).
 - `shared` depends only on `zod`. It's the type-safe API contract between server and analyzer — both import the same schemas.
-- `analyzer` depends on `log-core`, `shared`, and its UI stack (React, Vite, TanStack Query, etc.). It does **not** depend on `recorder` or `server` source.
-- `server` depends on `log-core`, `shared`, and its runtime stack (Hono, Drizzle, pg-boss, AWS S3 SDK, etc.). It does **not** depend on `recorder` or `analyzer` source.
+- `analysis-core` must stay **isomorphic** (browser + Node). An ESLint `no-restricted-imports` rule rejects `vscode`, `node:*`, `fs`, `path`, `worker_threads`, and `crypto`. It depends only on `log-core` and its analysis libs (`jszip`, `diff`, `@noble/ed25519`). No React, no DOM, no Vite specifics. It builds to `dist/` with an `exports` map (`.` barrel + `./*.js` deep paths); consumers import via the package name, never by reaching into `src/`.
+- `analyzer` depends on `log-core`, `shared`, `analysis-core`, and its UI stack (React, Vite, TanStack Query, etc.). It does **not** depend on `recorder` or `server` source.
+- `server` depends on `log-core`, `shared`, `analysis-core`, and its runtime stack (Hono, Drizzle, pg-boss, AWS S3 SDK, etc.). It does **not** depend on `recorder` or `analyzer` source. (The server previously imported analyzer source directly — that is fixed; the shared analysis code lives in `analysis-core`.)
 - The log file format (recorder PRD §5) is the contract between recorder and analyzer. Pinned with test vectors in `packages/log-core/src/hash-chain.test.ts`. Changes require a version bump and explicit approval. Do not change the format to make an implementation easier.
 - The HTTP API shape (`packages/shared/src/api-schemas.ts`) is the contract between server and analyzer. Treat schema changes the same way: explicit, versioned, with both ends updated in one diff.
+- **Events are not stored in Postgres.** The `.slog` logs inside the stored bundle blob are the source of the event stream. Server read paths (events API, replay/reconstruction, per-submission recompute, cross-flags, submission summary/stats, Source tab) re-parse the bundle on demand via `loadSubmissionIndex` (LRU-cached), which returns `{ bundle, index }`. Do not reintroduce an `events` table without explicit approval.
+- **Stored bundles are provenance-only.** Ingest strips student source files after all in-memory computation (stats, validation incl. check 8, heuristics) and stores only the signed manifest + `.slog`/`.slog.meta` logs. **Never modify `manifest.json` / `manifest.sig`** — they're signed, and the stored bundle must stay signature/chain verifiable. Validation runs once at ingest; check 8 (`submitted_code_match`) is not re-runnable against a stripped bundle and is never re-run. The Source tab reconstructs file content from events and trusts the signed manifest sha for verdicts.
 - Events are append-only. There is no `update` or `delete` operation on a log. Anywhere.
 - The hash chain (PRD §5.2) is the foundation of integrity. Any code path that produces log entries goes through the same chaining function. There is exactly one such function and it lives in `log-core`.
 
@@ -64,10 +68,10 @@ The product specs live in `docs/`. The recorder spec is `docs/prd.md`; the analy
 - **External-change detection (recorder PRD §4.5).** The expected-content model is the source of truth; the on-disk hash is what we compare against. Easy to get the direction wrong.
 - **Atomic writes.** Write-temp-then-rename. Never partial-write the live log file.
 - **Clock handling.** Use a monotonic clock for `t` (relative to session start). Use wall clock for `wall`. Don't conflate.
-- **Server ingest ordering.** The pipeline is parse → match → heuristics → cross-flags. Stages are ordered and idempotent. A retry must produce the same flags and stats; tests assert this.
+- **Server ingest ordering.** The pipeline is parse → match → heuristics → cross-flags. Stages are ordered and idempotent. A retry must produce the same flags and stats; tests assert this. Stats/validation/heuristics run on the in-memory parsed bundle (not the DB); there is no event-materialization stage. Source-file stripping happens at the blob-store step in `create-submission.ts`, after the in-memory bundle (with source) has been used for check 8.
 - **Retention sweep.** Deletes blobs only; DB rows are kept forever for audit. Don't add a "purge rows" path without explicit approval — see `docs/admin-guide.md` §6.
 - **OAuth `hd` claim.** Authentication only succeeds when the Google ID token's `hd` matches `AUTH_ALLOWED_HOSTED_DOMAINS`. Do not loosen this; it's the only thing keeping randos off the analyzer.
-- **Extension hash allowlist.** The analyzer validates each submission's recorder build hash against `packages/analyzer/src/heuristics/config/known-good-extension-hashes.json`. When the recorder ships a new VSIX, that list must be updated via `npm run update-hashes` (see README "Course staff: key & manifest workflow").
+- **Extension hash allowlist.** The analyzer validates each submission's recorder build hash against `packages/analysis-core/src/heuristics/config/known-good-extension-hashes.json`. When the recorder ships a new VSIX, that list must be updated via `npm run update-hashes` (see README "Course staff: key & manifest workflow").
 
 ## Things we are explicitly not doing
 
@@ -133,7 +137,8 @@ provenance/
 │   ├── log-core/        # event types, hash chain, format (pure TS)
 │   ├── recorder/        # VS Code extension (v1.1)
 │   ├── shared/          # Zod API schemas shared by server + analyzer
-│   ├── analyzer/        # React/Vite SPA (v3)
+│   ├── analysis-core/   # shared analysis engine: loader, validation, index, heuristics (pure TS)
+│   ├── analyzer/        # React/Vite SPA (v3), UI on top of analysis-core
 │   └── server/          # Node + Hono API server (v3)
 ├── tools/               # dev scripts: course-keypair generation, manifest signing
 ├── scripts/             # repo-level scripts (e.g. update-extension-hash-allowlist.mjs)

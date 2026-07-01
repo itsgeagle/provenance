@@ -312,20 +312,33 @@ resolution.
 
 ## 6. Retention policy
 
+> **Storage model.** Two deliberate cost decisions shape what is stored:
+> - **Events are not stored in Postgres.** All analysis runs at ingest; only the
+>   derived results (`flags`, `per_file_stats`, `validation_results`, `cross_flags`)
+>   are persisted. Replay, recompute, cross-flags, the events/timeline API and the
+>   Source tab re-parse the stored bundle blob on demand.
+> - **Stored bundles are provenance-only.** Ingest strips the student's source
+>   files before storing; the blob keeps only the signed manifest + `.slog` logs.
+>   It remains fully signature- and hash-chain-verifiable. Consequently, downloading
+>   a submission bundle (`include_blobs`) yields no student source — a privacy win.
+>   Until the bundle is swept, its event stream is fully recoverable from the logs.
+
 ### 6.1 How blob_retention_days works
 
 Each semester has a `blob_retention_days` column (default: **540 days**, minimum: 30).
-This controls how long raw submission ZIP blobs are kept in object storage after the
-semester is archived.
+This controls how long the (provenance-only) submission bundle blobs are kept in
+object storage after the semester is archived.
 
 The lifecycle:
 
 1. Semester is archived: `PATCH /semesters/<id>` with `{"archived_at": "<date>"}`.
 2. A daily cron job (the **retention sweep**, runs at 2:00 UTC) checks all semesters.
 3. For each archived semester where `now() >= archived_at + blob_retention_days`,
-   the sweep deletes the blob from object storage.
-4. **DB rows are never deleted.** The `submissions`, `events`, `flags`, and
-   `per_file_stats` rows persist indefinitely for audit and re-analysis.
+   the sweep deletes the blob from object storage. Once the blob is gone the event
+   stream can no longer be re-parsed (replay/recompute become unavailable), but all
+   derived rows remain.
+4. **DB rows are never deleted.** The `submissions`, `flags`, `per_file_stats`,
+   `validation_results`, and `cross_flags` rows persist indefinitely for audit.
 
 ### 6.2 Configuring retention
 

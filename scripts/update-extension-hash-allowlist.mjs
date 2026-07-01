@@ -2,7 +2,7 @@
 /**
  * Update the analyzer's known-good extension-hash allowlist.
  *
- *   packages/analyzer/src/heuristics/config/known-good-extension-hashes.json
+ *   packages/analysis-core/src/heuristics/config/known-good-extension-hashes.json
  *
  * The allowlist is consulted by the `extension_hash_mismatch` heuristic. Any
  * bundle whose `manifest.extension_hash` is NOT in the list gets flagged.
@@ -58,7 +58,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
 const ALLOWLIST_PATH = resolve(
   REPO_ROOT,
-  'packages/analyzer/src/heuristics/config/known-good-extension-hashes.json',
+  'packages/analysis-core/src/heuristics/config/known-good-extension-hashes.json',
 );
 const RECORDER_DIST = resolve(REPO_ROOT, 'packages/recorder/dist');
 const PLACEHOLDER_PREFIX = 'PLACEHOLDER_EXTENSION_HASH';
