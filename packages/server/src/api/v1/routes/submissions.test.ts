@@ -14,10 +14,14 @@
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { withTestDb } from '../../../../test/helpers/db.js';
+import { withTestMinio } from '../../../../test/helpers/minio.js';
+import { putSubmissionBundle } from '../../../../test/helpers/seed-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
 import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
 import { createV1App } from '../index.js';
+import { _resetBundleIndexCacheForTest } from '../../../services/bundle/load-index.js';
 import {
   users,
   sessions,
@@ -56,13 +60,14 @@ vi.mock('../../../db/client.js', async (importOriginal) => {
 beforeEach(() => {
   _resetConfigForTest();
   _resetLoggerForTest();
+  _resetBundleIndexCacheForTest();
 });
 
 // ---------------------------------------------------------------------------
 // Seed helpers
 // ---------------------------------------------------------------------------
 
-function makeTestEnv() {
+function makeTestEnv(extra?: Record<string, string>) {
   return {
     NODE_ENV: 'test',
     PUBLIC_BASE_URL: 'http://localhost:3000',
@@ -81,6 +86,7 @@ function makeTestEnv() {
     INGEST_MAX_BUNDLE_BYTES: '52428800',
     INGEST_MAX_BATCH_BYTES: '5368709120',
     INGEST_MAX_BATCH_FILES: '10000',
+    ...extra,
   };
 }
 
@@ -217,27 +223,36 @@ async function seedSubmission(
 
 describe('GET /submissions/:id', () => {
   it('returns full summary for a seeded submission', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(
+          parseEnv(
+            makeTestEnv({ OBJECT_STORAGE_ENDPOINT: endpoint, OBJECT_STORAGE_BUCKET: bucketName }),
+          ),
+        );
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id, 'admin');
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id, 'admin');
 
-      const student = await seedStudent(db, semester.id);
-      const assignment = await seedAssignment(db, semester.id, 'HW1');
-      const job = await seedIngestJob(db, semester.id, user.id);
-      const sub = await seedSubmission(db, {
-        semesterId: semester.id,
-        assignmentId: assignment.id,
-        studentId: student.id,
-        ingestJobId: job.id,
-        scoreTotal: 5.0,
-        scoreSeverity: 'medium',
-        validationStatus: 'warn',
-      });
+        const student = await seedStudent(db, semester.id);
+        const assignment = await seedAssignment(db, semester.id, 'HW1');
+        const job = await seedIngestJob(db, semester.id, user.id);
+        const sub = await seedSubmission(db, {
+          semesterId: semester.id,
+          assignmentId: assignment.id,
+          studentId: student.id,
+          ingestJobId: job.id,
+          scoreTotal: 5.0,
+          scoreSeverity: 'medium',
+          validationStatus: 'warn',
+        });
+
+        // The summary derives session_ids from the stored bundle.
+        const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 2 }] });
+        await putSubmissionBundle(db, client, sub.id, new Uint8Array(zipBuffer));
 
       // Seed a flag
       await db.insert(flags).values({
@@ -320,6 +335,7 @@ describe('GET /submissions/:id', () => {
       expect(body['validation_overall_detail'] as string).toContain('chain_integrity=fail');
       const asgn = body['assignment'] as Record<string, unknown>;
       expect(asgn['label']).toBe('HW1');
+      });
     });
   });
 
@@ -512,23 +528,32 @@ describe('GET /submissions/:id/flags', () => {
 
 describe('GET /submissions/:id/stats', () => {
   it('returns per_file and aggregate stats', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(
+          parseEnv(
+            makeTestEnv({ OBJECT_STORAGE_ENDPOINT: endpoint, OBJECT_STORAGE_BUCKET: bucketName }),
+          ),
+        );
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id, 'admin');
-      const student = await seedStudent(db, semester.id);
-      const assignment = await seedAssignment(db, semester.id);
-      const job = await seedIngestJob(db, semester.id, user.id);
-      const sub = await seedSubmission(db, {
-        semesterId: semester.id,
-        assignmentId: assignment.id,
-        studentId: student.id,
-        ingestJobId: job.id,
-      });
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id, 'admin');
+        const student = await seedStudent(db, semester.id);
+        const assignment = await seedAssignment(db, semester.id);
+        const job = await seedIngestJob(db, semester.id, user.id);
+        const sub = await seedSubmission(db, {
+          semesterId: semester.id,
+          assignmentId: assignment.id,
+          studentId: student.id,
+          ingestJobId: job.id,
+        });
+
+        // The stats aggregate derives event/session totals from the stored bundle.
+        const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 2 }] });
+        await putSubmissionBundle(db, client, sub.id, new Uint8Array(zipBuffer));
 
       await db.insert(per_file_stats).values([
         {
@@ -572,6 +597,7 @@ describe('GET /submissions/:id/stats', () => {
       expect(body.aggregate.chars_pasted).toBe(50);
       expect(body.aggregate.files).toBe(2);
       expect(body.aggregate.saves).toBe(8);
+      });
     });
   });
 

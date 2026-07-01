@@ -109,10 +109,14 @@ describe('extractSubmittedFiles', () => {
 // ---------------------------------------------------------------------------
 
 describe('extractSubmittedFileContent', () => {
-  it('returns UTF-8 content for a present file', async () => {
+  // Content is reconstructed from the event stream (source bytes are no longer
+  // stored), so the bundle carries doc events that rebuild the file. The file is
+  // still listed in the manifest's submission_files (status/path drive the
+  // present/missing/null branches).
+  it('returns reconstructed content for a present file', async () => {
     const content = 'print(1)\n';
     const { zipBuffer } = await buildTestBundle({
-      sessions: [{}],
+      sessions: [{ events: [{ kind: 'doc.open', data: { path: 'hw03.py', content } }] }],
       submissionFiles: [{ path: 'hw03.py', status: 'present', content }],
     });
 
@@ -153,7 +157,7 @@ describe('extractSubmittedFileContent', () => {
     const content = 'def q1(): pass\n';
     const nestedPath = 'lab02/q1.py';
     const { zipBuffer } = await buildTestBundle({
-      sessions: [{}],
+      sessions: [{ events: [{ kind: 'doc.open', data: { path: nestedPath, content } }] }],
       submissionFiles: [{ path: nestedPath, status: 'present', content }],
     });
 
