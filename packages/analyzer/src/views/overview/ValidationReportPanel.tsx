@@ -12,7 +12,10 @@ import { CheckCircle2, XCircle, Circle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { cn } from '@/lib/utils.js';
-import type { ValidationReport, ValidationCheck } from '@provenance/analysis-core/validation/check-types.js';
+import type {
+  ValidationReport,
+  ValidationCheck,
+} from '@provenance/analysis-core/validation/check-types.js';
 
 interface ValidationReportPanelProps {
   report: ValidationReport;

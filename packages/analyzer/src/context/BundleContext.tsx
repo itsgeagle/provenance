@@ -37,7 +37,11 @@ import { loadBundle, parseBundles } from '@provenance/analysis-core/loader/parse
 import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
 import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
 import { runHeuristics } from '@provenance/analysis-core/heuristics/run-heuristics.js';
-import type { Bundle, LoaderError, SessionParseError } from '@provenance/analysis-core/loader/types.js';
+import type {
+  Bundle,
+  LoaderError,
+  SessionParseError,
+} from '@provenance/analysis-core/loader/types.js';
 import type { BlobLoadError } from '@provenance/analysis-core/loader/parse-bundle.js';
 import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
 import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';

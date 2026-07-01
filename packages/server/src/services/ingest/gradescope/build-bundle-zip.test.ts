@@ -126,8 +126,7 @@ async function bundleToFolderFiles(
   for (const [name, obj] of Object.entries(inner.files)) {
     if (obj.dir) continue;
     const bytes = await obj.async('uint8array');
-    const rel =
-      PROVENANCE_FILE.test(name) && layout === 'nested' ? `.provenance/${name}` : name;
+    const rel = PROVENANCE_FILE.test(name) && layout === 'nested' ? `.provenance/${name}` : name;
     files.set(rel, bytes);
   }
   return files;

@@ -13,7 +13,10 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { z } from 'zod';
 import { EventRowSchema, type EventRow } from '@provenance/shared/api-schemas';
 import { apiFetch } from '../api/client.js';
-import { buildIndexFromEventRows, type ServerEventRow } from '@provenance/analysis-core/index/build-index.js';
+import {
+  buildIndexFromEventRows,
+  type ServerEventRow,
+} from '@provenance/analysis-core/index/build-index.js';
 import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
 
 const PageSchema = z.object({

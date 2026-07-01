@@ -9,7 +9,10 @@
  */
 
 import { linesWithProvenance } from '@provenance/analysis-core/index/provenance-utils.js';
-import type { FileReplayState, ProvenanceKind } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type {
+  FileReplayState,
+  ProvenanceKind,
+} from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
