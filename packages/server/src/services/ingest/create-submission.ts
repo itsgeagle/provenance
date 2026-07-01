@@ -86,8 +86,7 @@ export async function createSubmission(
     semesterId,
     assignmentIdStr,
     studentId,
-    // blobSha256 (original full staging bundle) is intentionally not used: the
-    // stored blob is source-stripped, so its sha256 is computed post-strip below.
+    blobSha256,
     stagingKey,
     originalFilename,
     ingestJobId,
@@ -220,10 +219,8 @@ export async function createSubmission(
       );
     }
 
-    let storedSha256: string;
     try {
-      const putResult = await putBlob(storageClient, finalBlobKey, strippedBytes);
-      storedSha256 = putResult.sha256;
+      await putBlob(storageClient, finalBlobKey, strippedBytes);
     } catch (err) {
       throw Errors.internal(
         undefined,
@@ -240,9 +237,11 @@ export async function createSubmission(
       assignment_id: assignmentId,
       student_id: studentId,
       blob_object_key: finalBlobKey,
-      // sha256 of the STORED (source-stripped) blob — describes the object at
-      // finalBlobKey, not the original full staging bundle.
-      blob_sha256: storedSha256,
+      // sha256 of the ORIGINAL (full, pre-strip) bundle. This is the dedup key
+      // (dedup.ts matches on semester_id + blob_sha256) and the stable identity
+      // of what the student submitted — NOT the sha of the stored (stripped)
+      // object at finalBlobKey. loadSubmissionIndex only uses it as a cache key.
+      blob_sha256: blobSha256,
       recorder_version: recorderVersion,
       format_version: formatVersion,
       source_filename: originalFilename,

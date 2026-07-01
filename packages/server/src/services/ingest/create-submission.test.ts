@@ -4,11 +4,13 @@
  * Uses withTestDb (Postgres) + withTestMinio (blob storage).
  */
 
-import { vi, describe, it, expect } from 'vitest';
+import { vi, describe, it, expect, beforeAll } from 'vitest';
 import { eq, and, asc } from 'drizzle-orm';
 import { withTestDb } from '../../../test/helpers/db.js';
 import { withTestMinio } from '../../../test/helpers/minio.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { createSubmission } from './create-submission.js';
+import { stripBundleSourceFiles } from './strip-bundle.js';
 import { putBlob, getBlob } from '../storage/blobs.js';
 import { ingestStagingKey, bundleKey } from '../storage/keys.js';
 import {
@@ -24,6 +26,15 @@ import type { DrizzleDb } from '../../db/client.js';
 import type { StorageClient } from '../storage/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
+
+// createSubmission strips source files from the staging bundle before storing,
+// so the staging blob must be a real bundle ZIP (in production it has already
+// passed parse-bundle-phase by the time createSubmission runs). Built once.
+let bundleBytes: Uint8Array;
+beforeAll(async () => {
+  const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 3 }] });
+  bundleBytes = new Uint8Array(zipBuffer);
+});
 
 // ---------------------------------------------------------------------------
 // Seed helpers
@@ -115,7 +126,7 @@ describe('createSubmission', () => {
         const job = await seedIngestJob(db, semester.id, user.id);
 
         const fileId = crypto.randomUUID();
-        const content = new TextEncoder().encode('test bundle content');
+        const content = bundleBytes;
         const stagingKey = await stageTestBlob(client, job.id, fileId, content);
 
         const result = await createSubmission(
@@ -155,7 +166,7 @@ describe('createSubmission', () => {
 
         // First upload.
         const fileId1 = crypto.randomUUID();
-        const content1 = new TextEncoder().encode('version 1');
+        const content1 = bundleBytes;
         const stagingKey1 = await stageTestBlob(client, job.id, fileId1, content1);
 
         const result1 = await createSubmission(
@@ -174,7 +185,7 @@ describe('createSubmission', () => {
 
         // Second upload (re-upload).
         const fileId2 = crypto.randomUUID();
-        const content2 = new TextEncoder().encode('version 2');
+        const content2 = bundleBytes;
         const stagingKey2 = await stageTestBlob(client, job.id, fileId2, content2);
 
         const result2 = await createSubmission(
@@ -208,7 +219,7 @@ describe('createSubmission', () => {
           client,
           job.id,
           fileId1,
-          new TextEncoder().encode('v1'),
+          bundleBytes,
         );
         const result1 = await createSubmission(
           { db, storageClient: client },
@@ -228,7 +239,7 @@ describe('createSubmission', () => {
           client,
           job.id,
           fileId2,
-          new TextEncoder().encode('v2'),
+          bundleBytes,
         );
         const result2 = await createSubmission(
           { db, storageClient: client },
@@ -262,7 +273,7 @@ describe('createSubmission', () => {
         const job = await seedIngestJob(db, semester.id, user.id);
 
         const fileId = crypto.randomUUID();
-        const content = new TextEncoder().encode('bundle bytes for move test');
+        const content = bundleBytes;
         const stagingKey = await stageTestBlob(client, job.id, fileId, content);
 
         const result = await createSubmission(
@@ -278,11 +289,12 @@ describe('createSubmission', () => {
           },
         );
 
-        // Final blob should be readable.
+        // Final blob should be readable and equal the source-stripped bundle
+        // (createSubmission strips student source before storing).
         const finalKey = bundleKey(semester.id, result.submissionId);
         const finalStream = await getBlob(client, finalKey);
         const finalBytes = await collectStream(finalStream);
-        expect(finalBytes).toEqual(content);
+        expect(finalBytes).toEqual(await stripBundleSourceFiles(content));
 
         // Staging key should no longer be readable.
         await expect(getBlob(client, stagingKey)).rejects.toThrow();
@@ -304,7 +316,7 @@ describe('createSubmission', () => {
           client,
           job.id,
           fileId1,
-          new TextEncoder().encode('s1'),
+          bundleBytes,
         );
         const result1 = await createSubmission(
           { db, storageClient: client },
@@ -324,7 +336,7 @@ describe('createSubmission', () => {
           client,
           job.id,
           fileId2,
-          new TextEncoder().encode('s2'),
+          bundleBytes,
         );
         const result2 = await createSubmission(
           { db, storageClient: client },
@@ -378,7 +390,7 @@ describe('createSubmission', () => {
           client,
           job.id,
           fileId,
-          new TextEncoder().encode('v'),
+          bundleBytes,
         );
 
         const result = await createSubmission(
@@ -430,7 +442,7 @@ describe('createSubmission', () => {
           client,
           job.id,
           fileId0,
-          new TextEncoder().encode('v0'),
+          bundleBytes,
         );
         await createSubmission(
           { db, storageClient: client },
@@ -453,7 +465,7 @@ describe('createSubmission', () => {
               client,
               job.id,
               fid,
-              new TextEncoder().encode(`concurrent-${String(n)}`),
+              bundleBytes,
             );
             return createSubmission(
               { db, storageClient: client },
