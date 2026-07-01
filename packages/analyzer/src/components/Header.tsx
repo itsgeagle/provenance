@@ -28,7 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu.js';
-import type { BlobLoadError } from '../loader/parse-bundle.js';
+import type { BlobLoadError } from '@provenance/analysis-core/loader/parse-bundle.js';
 
 // ---------------------------------------------------------------------------
 // PartialLoadErrorBanner — shown in header when some files failed to load.

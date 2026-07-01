@@ -28,7 +28,7 @@ import { Progress } from '@/components/ui/progress.js';
 import { Button } from '@/components/ui/button.js';
 import { SeverityChip } from './SeverityChip.js';
 import { useBundle } from '../../context/BundleContext.js';
-import type { Flag } from '../../heuristics/types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Supporting event list

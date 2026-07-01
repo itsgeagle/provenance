@@ -21,8 +21,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { runsFromProvenance, hoverContentFor } from './replay-decoration-utils.js';
-import type { FileReplayState } from '../../index/reconstruct-file-provenance.js';
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { FileReplayState } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers

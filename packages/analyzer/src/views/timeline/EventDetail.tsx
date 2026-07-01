@@ -14,7 +14,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area.js';
 import { Button } from '@/components/ui/button.js';
 import { Separator } from '@/components/ui/separator.js';
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Props

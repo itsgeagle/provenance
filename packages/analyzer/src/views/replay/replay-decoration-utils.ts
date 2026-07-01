@@ -8,9 +8,9 @@
  * PRD ref: §7.2 (color-coded gutter, hover line attribution).
  */
 
-import { linesWithProvenance } from '../../index/provenance-utils.js';
-import type { FileReplayState, ProvenanceKind } from '../../index/reconstruct-file-provenance.js';
-import type { IndexedEvent } from '../../index/event-index.js';
+import { linesWithProvenance } from '@provenance/analysis-core/index/provenance-utils.js';
+import type { FileReplayState, ProvenanceKind } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Run computation

@@ -21,10 +21,10 @@
 import { useEffect } from 'react';
 import type { editor as MonacoEditorNS, IDisposable } from 'monaco-editor';
 import type * as Monaco from 'monaco-editor';
-import { linesWithProvenance } from '../../index/provenance-utils.js';
+import { linesWithProvenance } from '@provenance/analysis-core/index/provenance-utils.js';
 import { hoverContentFor } from './replay-decoration-utils.js';
-import type { FileReplayState } from '../../index/reconstruct-file-provenance.js';
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { FileReplayState } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Props

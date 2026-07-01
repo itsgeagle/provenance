@@ -9,10 +9,10 @@
 
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
-import { computeStats } from '../../index/stats.js';
+import { computeStats } from '@provenance/analysis-core/index/stats.js';
 import { formatDuration } from '../../lib/format.js';
-import type { EventIndex } from '../../index/event-index.js';
-import type { Bundle } from '../../loader/types.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
 
 interface SummaryStatsPanelProps {
   index: EventIndex;

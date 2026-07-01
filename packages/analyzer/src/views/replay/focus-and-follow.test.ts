@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { currentFocusAwaySpan, currentEditedFile } from './focus-and-follow.js';
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
 
 let _g = 0;

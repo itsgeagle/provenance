@@ -20,7 +20,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { App } from './App.js';
-import { buildTestBundle } from '../test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { mswServer } from './test-setup.js';
 import { meUnauthorizedHandler } from './test/msw-handlers.js';
 

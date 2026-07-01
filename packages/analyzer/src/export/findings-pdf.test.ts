@@ -13,10 +13,10 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { GeneratePdfInput } from './findings-pdf.js';
-import type { Bundle } from '../loader/types.js';
-import type { EventIndex, IndexedEvent } from '../index/event-index.js';
-import type { ValidationReport } from '../validation/check-types.js';
-import type { Flag } from '../heuristics/types.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 import type { HashedEnvelope } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@
 
 import { useMemo } from 'react';
 import type { EventKind } from '@provenance/log-core';
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Filter type

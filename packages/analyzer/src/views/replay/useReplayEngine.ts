@@ -28,8 +28,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createEngine } from './engine-core.js';
 import type { EngineHandle, ReplayState } from './engine-core.js';
-import type { FileReplayState } from '../../index/reconstruct-file-provenance.js';
-import type { EventIndex } from '../../index/event-index.js';
+import type { FileReplayState } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
 
 // Re-export for convenience.
 export type { ReplayState } from './engine-core.js';

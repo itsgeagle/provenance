@@ -19,8 +19,8 @@ import {
   captureElement,
 } from './screenshot.js';
 import type { DecorationRun } from '../views/replay/replay-decoration-utils.js';
-import type { EventIndex } from '../index/event-index.js';
-import type { IndexedEvent } from '../index/event-index.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers

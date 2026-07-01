@@ -17,6 +17,7 @@
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
     "@monaco-editor/react": "^4.7.0",
+    "@provenance/analysis-core": "*",
     "@provenance/log-core": "*",
     "@provenance/shared": "*",
     "@radix-ui/react-dialog": "^1.1.15",

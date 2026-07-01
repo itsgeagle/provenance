@@ -22,8 +22,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBundle } from '../../context/BundleContext.js';
-import type { Bundle } from '../../loader/types.js';
-import type { CrossFlag } from '../../heuristics/cross/types.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { CrossFlag } from '@provenance/analysis-core/heuristics/cross/types.js';
 
 // ---------------------------------------------------------------------------
 // Severity chip colours (same mapping as SeverityChip in overview)

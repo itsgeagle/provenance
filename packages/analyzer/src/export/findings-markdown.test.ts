@@ -8,10 +8,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { renderFindings, filenameFor } from './findings-markdown.js';
-import type { Bundle } from '../loader/types.js';
-import type { ValidationReport } from '../validation/check-types.js';
-import type { Flag } from '../heuristics/types.js';
-import type { CrossFlag } from '../heuristics/cross/types.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
+import type { CrossFlag } from '@provenance/analysis-core/heuristics/cross/types.js';
 import type { HashedEnvelope } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------

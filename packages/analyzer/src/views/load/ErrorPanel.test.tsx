@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { ErrorPanel } from './ErrorPanel.js';
-import type { LoaderError, SessionParseError } from '../../loader/types.js';
+import type { LoaderError, SessionParseError } from '@provenance/analysis-core/loader/types.js';
 
 type AnyError = LoaderError | SessionParseError;
 

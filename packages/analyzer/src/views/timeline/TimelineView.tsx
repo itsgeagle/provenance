@@ -12,7 +12,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useBundle } from '../../context/BundleContext.js';
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
 import { DEFAULT_FILTERS, useFilteredEvents, type TimelineFilters } from './useFilteredEvents.js';
 import { FilterBar } from './FilterBar.js';

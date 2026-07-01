@@ -19,9 +19,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { jsPDF as JsPDF } from 'jspdf';
 import { renderPdf, sanitizeForPdf, pdfFilenameFor } from './pdf-renderer.js';
 import type { PdfRenderInput, FlagScreenshot } from './pdf-renderer.js';
-import type { Bundle } from '../loader/types.js';
-import type { ValidationReport } from '../validation/check-types.js';
-import type { Flag } from '../heuristics/types.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 import type { HashedEnvelope } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------

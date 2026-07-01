@@ -18,7 +18,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import { useFullEventIndex } from '../../data/useFullEventIndex.js';
 import { ReplayInner } from '../replay/ReplayView.js';
-import type { Flag } from '../../heuristics/types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 import type { FlagRow } from '@provenance/shared/api-schemas';
 
 /**

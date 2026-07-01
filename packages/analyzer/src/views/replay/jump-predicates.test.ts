@@ -24,8 +24,8 @@ import {
   countRemainingFlags,
   countRemainingFileSwitches,
 } from './jump-predicates.js';
-import type { IndexedEvent } from '../../index/event-index.js';
-import type { Flag } from '../../heuristics/types.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

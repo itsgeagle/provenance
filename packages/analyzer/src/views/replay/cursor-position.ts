@@ -9,7 +9,7 @@
  * Both are pure (no React, no Monaco). Recorder PRD §4.2 (selection.change).
  */
 
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { SelectionChangePayload, Range } from '@provenance/log-core';
 
 /** The student's cursor/selection at a point in replay. */

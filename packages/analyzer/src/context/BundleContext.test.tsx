@@ -11,7 +11,7 @@ import { MemoryRouter } from 'react-router-dom';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { BundleProvider, useBundle } from './BundleContext.js';
-import { buildTestBundle } from '../../test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 
 // Wire SHA-512 override (same as build-test-bundle.ts) so ed25519 works in jsdom.
 ed.hashes.sha512 = sha512;

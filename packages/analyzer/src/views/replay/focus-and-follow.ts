@@ -12,7 +12,7 @@
  * Recorder PRD §4.4 (focus.change), §4.2 (doc events).
  */
 
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { FocusChangePayload } from '@provenance/log-core';
 
 /** File-bearing event kinds that indicate where the student is working. */

@@ -25,11 +25,11 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { loadBundle } from '../../src/loader/parse-bundle.js';
-import { buildIndex } from '../../src/index/build-index.js';
-import type { BuiltBundle } from '../helpers/build-test-bundle.js';
-import { buildTestBundle } from '../helpers/build-test-bundle.js';
-import type { EventSpec } from '../helpers/build-test-bundle.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import type { BuiltBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+import type { EventSpec } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 
 const SESSION_COUNT = 5;
 const EVENTS_PER_SESSION = 20_000; // 5 × 20k = 100k events total

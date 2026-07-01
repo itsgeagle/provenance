@@ -23,9 +23,9 @@ import { sha512 } from '@noble/hashes/sha2.js';
 import { BundleProvider, useBundle } from '../../context/BundleContext.js';
 import type { BundleContextValue } from '../../context/BundleContext.js';
 import { CompareView } from './CompareView.js';
-import { buildTestBundle } from '../../../test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import type { ReactNode } from 'react';
-import type { CrossFlag } from '../../heuristics/cross/types.js';
+import type { CrossFlag } from '@provenance/analysis-core/heuristics/cross/types.js';
 
 // Wire SHA-512 override so ed25519 works in jsdom.
 ed.hashes.sha512 = sha512;
@@ -264,7 +264,7 @@ function makeStubContext(crossFlags: CrossFlag[]): BundleContextValue {
         sessions: [],
         sourceFilename: 'student-a.zip',
         loadedAt: new Date().toISOString(),
-      } as unknown as import('../../loader/types.js').Bundle,
+      } as unknown as import('@provenance/analysis-core/loader/types.js').Bundle,
       {
         id: 'bundle-b',
         manifest: { assignment_id: 'hw1', semester: 'sp26' },
@@ -272,7 +272,7 @@ function makeStubContext(crossFlags: CrossFlag[]): BundleContextValue {
         sessions: [],
         sourceFilename: 'student-b.zip',
         loadedAt: new Date().toISOString(),
-      } as unknown as import('../../loader/types.js').Bundle,
+      } as unknown as import('@provenance/analysis-core/loader/types.js').Bundle,
     ],
     selectedBundleId: 'bundle-a',
     selectBundle: vi.fn(),
@@ -563,7 +563,7 @@ describe('CompareView — selectedIds auto-sync', () => {
       sessions: [],
       sourceFilename: 'student-c.zip',
       loadedAt: new Date().toISOString(),
-    } as unknown as import('../../loader/types.js').Bundle;
+    } as unknown as import('@provenance/analysis-core/loader/types.js').Bundle;
 
     const updatedContext: BundleContextValue = {
       ...makeStubContext([]),

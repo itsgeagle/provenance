@@ -9,7 +9,7 @@
  * A <details> expandable section shows the raw error detail for debugging.
  */
 
-import type { LoaderError, SessionParseError } from '../../loader/types.js';
+import type { LoaderError, SessionParseError } from '@provenance/analysis-core/loader/types.js';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card.js';
 
 // ---------------------------------------------------------------------------

@@ -18,9 +18,9 @@
  */
 
 import { jsPDF } from 'jspdf';
-import type { Bundle } from '../loader/types.js';
-import type { ValidationReport } from '../validation/check-types.js';
-import type { Flag, Severity } from '../heuristics/types.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag, Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Page geometry constants (US Letter, pt units)

@@ -9,7 +9,7 @@
  */
 
 import { cn } from '@/lib/utils';
-import type { Severity } from '@/heuristics/types';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 const SEVERITY_CLASSES: Record<Severity, string> = {
   info: 'bg-gray-100 text-gray-700 border-gray-200',

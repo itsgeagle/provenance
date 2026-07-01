@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.j
 import { Progress } from '@/components/ui/progress.js';
 import { HeuristicDetailDrawer } from './HeuristicDetailDrawer.js';
 import { SeverityChip } from './SeverityChip.js';
-import type { Flag } from '../../heuristics/types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 
 interface FlagDashboardPanelProps {
   flags: Flag[];

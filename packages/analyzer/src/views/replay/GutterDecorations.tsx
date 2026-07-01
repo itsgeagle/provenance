@@ -20,7 +20,7 @@
 import { useEffect, useRef } from 'react';
 import type { editor as MonacoEditorNS } from 'monaco-editor';
 import { runsFromProvenance } from './replay-decoration-utils.js';
-import type { FileReplayState } from '../../index/reconstruct-file-provenance.js';
+import type { FileReplayState } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 
 // ---------------------------------------------------------------------------
 // CSS class map

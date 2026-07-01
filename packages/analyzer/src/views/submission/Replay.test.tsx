@@ -22,8 +22,8 @@ import type {
   SubmittedFileContentResult,
 } from '../../data/SubmissionDataProvider.js';
 import type { SubmissionSummary, FlagRow, EventRow } from '@provenance/shared/api-schemas';
-import type { EventIndex } from '../../index/event-index.js';
-import { buildIndexFromEventRows, type ServerEventRow } from '../../index/build-index.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import { buildIndexFromEventRows, type ServerEventRow } from '@provenance/analysis-core/index/build-index.js';
 import { Replay } from './Replay.js';
 
 // ---------------------------------------------------------------------------

@@ -26,14 +26,14 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
-import { loadBundle } from '../../src/loader/parse-bundle.js';
-import { buildIndex } from '../../src/index/build-index.js';
-import { runValidation } from '../../src/validation/run-validation.js';
-import { runHeuristics } from '../../src/heuristics/run-heuristics.js';
-import type { Bundle } from '../../src/loader/types.js';
-import type { EventIndex } from '../../src/index/event-index.js';
-import type { ValidationReport } from '../../src/validation/check-types.js';
-import type { Flag } from '../../src/heuristics/types.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import { runHeuristics } from '@provenance/analysis-core/heuristics/run-heuristics.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Fixture path — stable location relative to this file.

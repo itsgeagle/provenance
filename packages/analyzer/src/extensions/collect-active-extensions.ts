@@ -11,7 +11,7 @@
  * EventRow path and the v2 IndexedEvent path.
  */
 
-import { detectAiExtension } from './detect-ai-extension.js';
+import { detectAiExtension } from '@provenance/analysis-core/extensions/detect-ai-extension.js';
 
 export type ActiveExtension = {
   id: string;

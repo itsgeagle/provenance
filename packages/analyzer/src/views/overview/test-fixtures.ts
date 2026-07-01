@@ -6,10 +6,10 @@
  * give the UI components something to render.
  */
 
-import type { ValidationReport, ValidationCheck } from '../../validation/check-types.js';
-import type { Flag } from '../../heuristics/types.js';
-import type { EventIndex } from '../../index/event-index.js';
-import type { Bundle } from '../../loader/types.js';
+import type { ValidationReport, ValidationCheck } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
 
 // ---------------------------------------------------------------------------
 // Validation report fixture

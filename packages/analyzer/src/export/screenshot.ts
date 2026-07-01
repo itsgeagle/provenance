@@ -43,8 +43,8 @@
  * the DOM-touching outer function is tested via a mock of html2canvas.
  */
 
-import type { EventIndex } from '../index/event-index.js';
-import { reconstructFileWithProvenance } from '../index/reconstruct-file-provenance.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import { reconstructFileWithProvenance } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 import { runsFromProvenance } from '../views/replay/replay-decoration-utils.js';
 
 // ---------------------------------------------------------------------------

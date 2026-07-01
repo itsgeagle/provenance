@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createEngine } from './engine-core.js';
-import type { EventIndex, IndexedEvent } from '../../index/event-index.js';
+import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------

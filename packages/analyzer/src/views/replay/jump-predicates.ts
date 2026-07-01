@@ -13,8 +13,8 @@
  * PRD ref: §7.2 (jump-to: next paste/external/flag/file-switch).
  */
 
-import type { IndexedEvent } from '../../index/event-index.js';
-import type { Flag } from '../../heuristics/types.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // findNextPaste

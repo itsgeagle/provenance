@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ReplayView } from './ReplayView.js';
-import type { EventIndex, IndexedEvent } from '../../index/event-index.js';
+import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
 import type { BundleContextValue } from '../../context/BundleContext.js';
 

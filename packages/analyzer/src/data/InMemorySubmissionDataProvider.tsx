@@ -27,11 +27,11 @@ import type { ReactNode } from 'react';
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useBundle } from '../context/BundleContext.js';
-import { computeStats } from '../index/stats.js';
-import { reconstructFile } from '../index/reconstruct-file.js';
-import { reconstructFileWithProvenance } from '../index/reconstruct-file-provenance.js';
+import { computeStats } from '@provenance/analysis-core/index/stats.js';
+import { reconstructFile } from '@provenance/analysis-core/index/reconstruct-file.js';
+import { reconstructFileWithProvenance } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 import { SubmissionDataContext } from './SubmissionDataProvider.js';
-import { submittedFileVerdicts } from '../validation/verify-submitted-code.js';
+import { submittedFileVerdicts } from '@provenance/analysis-core/validation/verify-submitted-code.js';
 import type {
   SubmissionDataProvider,
   SubmissionStats,
@@ -45,10 +45,10 @@ import type {
 } from './SubmissionDataProvider.js';
 import type { FlagRow, EventRow, SubmissionSummary } from '@provenance/shared/api-schemas';
 import type { UseQueryResult } from '@tanstack/react-query';
-import type { EventIndex, IndexedEvent } from '../index/event-index.js';
-import type { Bundle } from '../loader/types.js';
-import type { Flag } from '../heuristics/types.js';
-import type { ValidationReport } from '../validation/check-types.js';
+import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
 
 // ---------------------------------------------------------------------------
 // Translation helpers

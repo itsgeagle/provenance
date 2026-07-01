@@ -33,18 +33,18 @@ import React, {
   useState,
   type ReactNode,
 } from 'react';
-import { loadBundle, parseBundles } from '../loader/parse-bundle.js';
-import { buildIndex } from '../index/build-index.js';
-import { runValidation } from '../validation/run-validation.js';
-import { runHeuristics } from '../heuristics/run-heuristics.js';
-import type { Bundle, LoaderError, SessionParseError } from '../loader/types.js';
-import type { BlobLoadError } from '../loader/parse-bundle.js';
-import type { EventIndex } from '../index/event-index.js';
-import type { ValidationReport } from '../validation/check-types.js';
-import type { Flag } from '../heuristics/types.js';
-import type { CrossFlag } from '../heuristics/cross/types.js';
-import { runCrossHeuristics } from '../heuristics/cross/run-cross-heuristics.js';
-import { extractCrossFeatures } from '../heuristics/cross/features.js';
+import { loadBundle, parseBundles } from '@provenance/analysis-core/loader/parse-bundle.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import { runHeuristics } from '@provenance/analysis-core/heuristics/run-heuristics.js';
+import type { Bundle, LoaderError, SessionParseError } from '@provenance/analysis-core/loader/types.js';
+import type { BlobLoadError } from '@provenance/analysis-core/loader/parse-bundle.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
+import type { CrossFlag } from '@provenance/analysis-core/heuristics/cross/types.js';
+import { runCrossHeuristics } from '@provenance/analysis-core/heuristics/cross/run-cross-heuristics.js';
+import { extractCrossFeatures } from '@provenance/analysis-core/heuristics/cross/features.js';
 
 // ---------------------------------------------------------------------------
 // Types

@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { currentSelection, toMonacoRange } from './cursor-position.js';
-import type { IndexedEvent } from '../../index/event-index.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind, Range } from '@provenance/log-core';
 
 let _g = 0;

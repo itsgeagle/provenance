@@ -15,7 +15,7 @@ import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { BundleProvider, useBundle } from '../context/BundleContext.js';
 import { Header } from './Header.js';
-import { buildTestBundle } from '../../test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 
 // Wire SHA-512 override.
 ed.hashes.sha512 = sha512;

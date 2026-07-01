@@ -41,15 +41,15 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { loadBundle } from '../../src/loader/parse-bundle.js';
-import { buildIndex } from '../../src/index/build-index.js';
-import { runValidation } from '../../src/validation/run-validation.js';
-import { runHeuristics } from '../../src/heuristics/run-heuristics.js';
-import type { Bundle } from '../../src/loader/types.js';
-import type { EventIndex } from '../../src/index/event-index.js';
-import type { ValidationReport } from '../../src/validation/check-types.js';
-import { buildTestBundle } from '../helpers/build-test-bundle.js';
-import type { EventSpec } from '../helpers/build-test-bundle.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import { runHeuristics } from '@provenance/analysis-core/heuristics/run-heuristics.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+import type { EventSpec } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 
 const SESSION_COUNT = 5;
 const EVENTS_PER_SESSION = 20_000;

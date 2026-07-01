@@ -21,10 +21,10 @@
  */
 
 import type { jsPDF } from 'jspdf';
-import type { Bundle } from '../loader/types.js';
-import type { EventIndex } from '../index/event-index.js';
-import type { ValidationReport } from '../validation/check-types.js';
-import type { Flag } from '../heuristics/types.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 import { renderPdf, pdfFilenameFor } from './pdf-renderer.js';
 import type { FlagScreenshot, PdfRenderInput } from './pdf-renderer.js';
 import { screenshotReplayAt } from './screenshot.js';

@@ -47,9 +47,9 @@
  * PRD ref: §7.2 (replay view core).
  */
 
-import { reconstructFileWithProvenance } from '../../index/reconstruct-file-provenance.js';
-import type { FileReplayState } from '../../index/reconstruct-file-provenance.js';
-import type { EventIndex, IndexedEvent } from '../../index/event-index.js';
+import { reconstructFileWithProvenance } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { FileReplayState } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Constants
