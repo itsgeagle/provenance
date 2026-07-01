@@ -1,0 +1,35 @@
+{
+  "name": "@provenance/analysis-core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*.js": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
+    "@provenance/log-core": "*",
+    "diff": "^9.0.0",
+    "jszip": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.2",
+    "jsdom": "^25.0.1"
+  }
+}
