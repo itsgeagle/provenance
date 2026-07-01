@@ -120,6 +120,13 @@
       "when": 1781988154390,
       "tag": "0018_staging_complete",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1782950400000,
+      "tag": "0019_drop_events",
+      "breakpoints": true
     }
   ]
 }

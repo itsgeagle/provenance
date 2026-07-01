@@ -38,6 +38,7 @@ import { submissions, roster_entries, assignments } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { recomputeSubmission } from './recompute-submission.js';
+import { getStorageClient } from '../storage/default-client.js';
 import { projectStudent } from '../protect.js';
 import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
@@ -121,6 +122,9 @@ export async function computeDryRunDiff(
   candidateVersion: number,
   protectedMode: boolean = false,
 ): Promise<DryRunDiff> {
+  // Storage client for reading the stored bundle blobs (recompute reads them).
+  const storage = getStorageClient();
+
   // -------------------------------------------------------------------------
   // Step 1: Enumerate non-superseded submissions in the semester.
   // Join roster_entries (student) and assignments for top_movers payload.
@@ -186,6 +190,7 @@ export async function computeDryRunDiff(
   for (const sub of filteredSubmissions) {
     const { score_total: new_score, score_max_severity: new_tier } = await recomputeSubmission(
       db,
+      storage,
       sub.id,
       semesterId,
       candidateConfig,

@@ -55,7 +55,9 @@ import type { CrossSubmissionFeatures } from '@provenance/analysis-core/heuristi
 import { cross_flags, cross_flag_participants, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';
-import { extractCrossFeaturesFromDb } from './extract-cross-features-from-db.js';
+import type { StorageClient } from '../storage/client.js';
+import { loadSubmissionIndex } from '../bundle/load-index.js';
+import { extractCrossFeaturesFromIndex } from './extract-cross-features.js';
 import { getActiveConfig } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,7 @@ export type RunCrossResult = {
  */
 export async function runAndStoreCrossHeuristics(
   db: DrizzleDb,
+  storage: StorageClient,
   semesterId: string,
 ): Promise<RunCrossResult> {
   // -------------------------------------------------------------------------
@@ -142,8 +145,9 @@ export async function runAndStoreCrossHeuristics(
 
   for (const subRow of submissionRows) {
     const bundleId = crypto.randomUUID();
-    const { features: f, globalIdxBySeqKey } = await extractCrossFeaturesFromDb(
-      db,
+    const { index } = await loadSubmissionIndex(db, storage, subRow.id);
+    const { features: f, globalIdxBySeqKey } = extractCrossFeaturesFromIndex(
+      index,
       subRow.id,
       bundleId,
     );

@@ -50,6 +50,7 @@ import {
 } from '../services/scoring/recompute-submission.js';
 import { enqueueCrossFlagsJob } from './recompute-cross-flags.js';
 import { recordRecomputeJobTerminal } from '../api/middleware/metrics.js';
+import { getStorageClient } from '../services/storage/default-client.js';
 
 // ---------------------------------------------------------------------------
 // Payload types
@@ -270,8 +271,9 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- jsonb cast
         const config = (hcRowsArr[0]?.config as any) ?? DEFAULT_SERVER_CONFIG;
 
-        // Run the per-submission recompute.
-        await recomputeSubmission(db, submissionId, semesterId, config, configVersion);
+        // Run the per-submission recompute. Reads the stored bundle blob.
+        const storage = getStorageClient();
+        await recomputeSubmission(db, storage, submissionId, semesterId, config, configVersion);
 
         logger.info({ recomputeJobId, submissionId }, 'recompute_submission: succeeded');
       } catch (err) {

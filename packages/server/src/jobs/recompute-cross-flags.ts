@@ -30,6 +30,7 @@ import { getDb } from '../db/client.js';
 import { getLogger } from '../logging.js';
 import { JOB_KINDS } from './pg-boss.js';
 import { runAndStoreCrossHeuristics } from '../services/heuristics/run-cross.js';
+import { getStorageClient } from '../services/storage/default-client.js';
 
 // ---------------------------------------------------------------------------
 // Payload type
@@ -95,7 +96,8 @@ export async function registerCrossFlagsHandler(boss: PgBoss): Promise<void> {
       try {
         // Advisory lock is acquired inside runAndStoreCrossHeuristics as
         // pg_advisory_xact_lock (transaction-scoped). No explicit lock/unlock here.
-        const result = await runAndStoreCrossHeuristics(db, semesterId);
+        const storage = getStorageClient();
+        const result = await runAndStoreCrossHeuristics(db, storage, semesterId);
 
         logger.info(
           {

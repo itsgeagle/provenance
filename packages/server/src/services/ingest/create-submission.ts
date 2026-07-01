@@ -27,6 +27,7 @@ import { assignments, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { putBlob, deleteBlob, getBlob } from '../storage/blobs.js';
 import { bundleKey } from '../storage/keys.js';
+import { stripBundleSourceFiles } from './strip-bundle.js';
 import type { StorageClient } from '../storage/client.js';
 import { Errors } from '../../api/v1/errors.js';
 
@@ -85,7 +86,8 @@ export async function createSubmission(
     semesterId,
     assignmentIdStr,
     studentId,
-    blobSha256,
+    // blobSha256 (original full staging bundle) is intentionally not used: the
+    // stored blob is source-stripped, so its sha256 is computed post-strip below.
     stagingKey,
     originalFilename,
     ingestJobId,
@@ -202,8 +204,26 @@ export async function createSubmission(
       offset += chunk.byteLength;
     }
 
+    // Strip the student's source files before storing — the final blob is
+    // provenance-only (manifest + signature + .slog logs). All source-dependent
+    // computation (validation check 8 in particular) has already run against the
+    // in-memory full bundle in earlier phases; the stored blob is only ever
+    // re-parsed for its event stream. The signed manifest is copied verbatim, so
+    // the stored bundle stays signature/chain verifiable.
+    let strippedBytes: Uint8Array;
     try {
-      await putBlob(storageClient, finalBlobKey, combined);
+      strippedBytes = await stripBundleSourceFiles(combined);
+    } catch (err) {
+      throw Errors.internal(
+        undefined,
+        `createSubmission: stripBundleSourceFiles failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    let storedSha256: string;
+    try {
+      const putResult = await putBlob(storageClient, finalBlobKey, strippedBytes);
+      storedSha256 = putResult.sha256;
     } catch (err) {
       throw Errors.internal(
         undefined,
@@ -220,7 +240,9 @@ export async function createSubmission(
       assignment_id: assignmentId,
       student_id: studentId,
       blob_object_key: finalBlobKey,
-      blob_sha256: blobSha256,
+      // sha256 of the STORED (source-stripped) blob — describes the object at
+      // finalBlobKey, not the original full staging bundle.
+      blob_sha256: storedSha256,
       recorder_version: recorderVersion,
       format_version: formatVersion,
       source_filename: originalFilename,

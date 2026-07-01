@@ -35,6 +35,7 @@ import { getSubmissionFiles } from '../../../services/submissions/files.js';
 import { getBlob } from '../../../services/storage/blobs.js';
 import { bundleKey } from '../../../services/storage/keys.js';
 import { createStorageClient, storageConfigFromEnv } from '../../../services/storage/client.js';
+import { getStorageClient } from '../../../services/storage/default-client.js';
 import { getConfig } from '../../../config/index.js';
 import {
   extractSubmittedFiles,
@@ -78,7 +79,8 @@ export function createSubmissionsRouter(): Hono {
     }
 
     const protectedMode = principal.user.protected;
-    const summary = await getSubmissionSummary(db, submissionId, protectedMode);
+    const summaryStorage = getStorageClient();
+    const summary = await getSubmissionSummary(db, summaryStorage, submissionId, protectedMode);
     if (summary === null) {
       return c.json(Errors.notFound().toBody(), 404);
     }
@@ -148,7 +150,7 @@ export function createSubmissionsRouter(): Hono {
       return c.json(Errors.notFound().toBody(), 404);
     }
 
-    const stats = await getSubmissionStats(db, submissionId);
+    const stats = await getSubmissionStats(db, getStorageClient(), submissionId);
     return c.json(stats);
   });
 

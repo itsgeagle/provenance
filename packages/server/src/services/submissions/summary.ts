@@ -27,11 +27,12 @@ import {
   assignments,
   roster_entries,
   flags,
-  events,
   per_file_stats,
   validation_results,
 } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
+import type { StorageClient } from '../storage/client.js';
+import { loadSubmissionIndex } from '../bundle/load-index.js';
 import { projectStudent, maskFilename, protectedLabel } from '../protect.js';
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,7 @@ function synthesizeValidationDetail(detail: unknown, overall: string): string | 
 
 export async function getSubmissionSummary(
   db: DrizzleDb,
+  storage: StorageClient,
   submissionId: string,
   protectedMode: boolean,
 ): Promise<SubmissionSummary | null> {
@@ -152,13 +154,10 @@ export async function getSubmissionSummary(
   }
   const flag_count = flag_counts.info + flag_counts.low + flag_counts.medium + flag_counts.high;
 
-  // Query 3: DISTINCT session_ids from events
-  const sessionRows = await db
-    .selectDistinct({ session_id: events.session_id })
-    .from(events)
-    .where(eq(events.submission_id, submissionId));
-
-  const session_ids = sessionRows.map((r) => r.session_id);
+  // Query 3: session_ids from the stored bundle's sessions (events are no longer
+  // persisted in Postgres; the bundle blob is the source of the event stream).
+  const { bundle } = await loadSubmissionIndex(db, storage, submissionId);
+  const session_ids = bundle.sessions.map((s) => s.sessionId);
 
   // Query 4: per_file_stats for files list
   const fileRows = await db

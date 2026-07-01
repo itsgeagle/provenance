@@ -51,6 +51,7 @@ import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 import { flags, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';
+import type { StorageClient } from '../storage/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { reconstructBundleFromDb } from '../heuristics/reconstruct-bundle.js';
 import { computeScore } from './compute.js';
@@ -217,6 +218,7 @@ function translateFlagsToRows(
  */
 export async function recomputeSubmission(
   db: DrizzleDb,
+  storage: StorageClient,
   submissionId: string,
   semesterId: string,
   config: ServerHeuristicConfig,
@@ -233,7 +235,7 @@ export async function recomputeSubmission(
     bundle,
     index: reconstructedIndex,
     validationReport,
-  } = await reconstructBundleFromDb(db, submissionId);
+  } = await reconstructBundleFromDb(db, storage, submissionId);
 
   // -------------------------------------------------------------------------
   // Step 2: Build EventIndex and run heuristics.

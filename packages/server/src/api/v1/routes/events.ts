@@ -19,6 +19,7 @@ import { Errors } from '../errors.js';
 import { authorize } from '../../../auth/authorize.js';
 import { findMembership } from '../../../auth/membership-cache.js';
 import { resolveSemesterFromSubmission } from '../../../services/submissions/resolve.js';
+import { getStorageClient } from '../../../services/storage/default-client.js';
 import {
   queryEvents,
   getEventBySeq,
@@ -140,7 +141,8 @@ export function createEventsRouter(): Hono {
     }
 
     // queryEvents throws ApiError on invalid ranges or limit exceeded
-    const result = await queryEvents(db, submissionId, params);
+    const storage = getStorageClient();
+    const result = await queryEvents(db, storage, submissionId, params);
 
     return c.json(result);
   });
@@ -183,7 +185,8 @@ export function createEventsRouter(): Hono {
       return c.json(Errors.notFound().toBody(), 404);
     }
 
-    const event = await getEventBySeq(db, submissionId, seq);
+    const storage = getStorageClient();
+    const event = await getEventBySeq(db, storage, submissionId, seq);
     if (event === null) {
       return c.json(Errors.notFound().toBody(), 404);
     }

@@ -7,9 +7,11 @@
  * (sum across all files).
  */
 
-import { eq, sql } from 'drizzle-orm';
-import { events, per_file_stats } from '../../db/schema.js';
+import { eq } from 'drizzle-orm';
+import { per_file_stats } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
+import type { StorageClient } from '../storage/client.js';
+import { loadSubmissionIndex } from '../bundle/load-index.js';
 
 // ---------------------------------------------------------------------------
 // Response type
@@ -47,6 +49,7 @@ export type SubmissionStats = {
 
 export async function getSubmissionStats(
   db: DrizzleDb,
+  storage: StorageClient,
   submissionId: string,
 ): Promise<SubmissionStats> {
   const rows = await db
@@ -86,33 +89,24 @@ export async function getSubmissionStats(
     saves += f.saves;
   }
 
-  // Event-stream totals derived from the events table.
-  // total_wall_ms = sum over sessions of (max(wall) - min(wall)).
-  const aggRows = await db.execute(sql`
-    WITH per_session AS (
-      SELECT
-        session_id,
-        EXTRACT(EPOCH FROM (MAX(wall) - MIN(wall))) * 1000 AS wall_ms
-      FROM ${events}
-      WHERE submission_id = ${submissionId}
-      GROUP BY session_id
-    )
-    SELECT
-      (SELECT COUNT(*) FROM ${events} WHERE submission_id = ${submissionId}) AS total_events,
-      (SELECT COUNT(*) FROM per_session) AS total_sessions,
-      COALESCE((SELECT SUM(wall_ms) FROM per_session), 0) AS total_wall_ms
-  `);
-  // postgres.js returns a RowList that iterates as an array of plain rows.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: postgres.js raw result
-  const aggArr = aggRows as any as Array<{
-    total_events?: string | number;
-    total_sessions?: string | number;
-    total_wall_ms?: string | number;
-  }>;
-  const aggRow = aggArr[0] ?? {};
-  const total_events = Number(aggRow.total_events ?? 0);
-  const total_sessions = Number(aggRow.total_sessions ?? 0);
-  const total_wall_ms = Number(aggRow.total_wall_ms ?? 0);
+  // Event-stream totals derived from the stored bundle (events are no longer
+  // persisted in Postgres). total_wall_ms = sum over sessions of
+  // (max(wall) - min(wall)); mirrors the former SQL aggregate exactly.
+  const { index } = await loadSubmissionIndex(db, storage, submissionId);
+  const total_events = index.ordered.length;
+  const total_sessions = index.bySessionId.size;
+  let total_wall_ms = 0;
+  for (const sessionEvents of index.bySessionId.values()) {
+    if (sessionEvents.length === 0) continue;
+    let minMs = Infinity;
+    let maxMs = -Infinity;
+    for (const ev of sessionEvents) {
+      const ms = new Date(ev.wall).getTime();
+      if (ms < minMs) minMs = ms;
+      if (ms > maxMs) maxMs = ms;
+    }
+    total_wall_ms += maxMs - minMs;
+  }
 
   return {
     per_file,

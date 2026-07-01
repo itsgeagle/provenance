@@ -59,7 +59,6 @@ import { dedupFile } from '../services/ingest/dedup.js';
 import { parseBundlePhase } from '../services/ingest/parse-bundle-phase.js';
 import { matchStudent, type MatchStudentResult } from '../services/ingest/match-student.js';
 import { createSubmission } from '../services/ingest/create-submission.js';
-import { materializeEvents } from '../services/ingest/materialize-events.js';
 import { computeAndStoreStats } from '../services/ingest/stats.js';
 import { runAndStoreValidation } from '../services/ingest/validation.js';
 import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission.js';
@@ -409,21 +408,13 @@ export async function startWorker(): Promise<() => Promise<void>> {
       }
 
       // Lever B: build the chronological index ONCE and share it across the
-      // materialize / stats / heuristics phases (each formerly rebuilt it).
+      // stats / heuristics phases (each formerly rebuilt it).
       // Shortens the transaction below and cuts per-bundle allocation/GC.
       const index = await timePhase('build_index', () => Promise.resolve(buildIndex(bundle)));
 
       try {
         await timePhase('tx_total', () =>
           withTransaction(db, async (tx) => {
-            try {
-              await timePhase('materialize_events', () =>
-                materializeEvents(tx, submissionResult.submissionId, bundle, index),
-              );
-            } catch (e) {
-              const cause = e instanceof Error ? e.message : String(e);
-              throw Object.assign(new Error(cause), { phase: 'materialize_events' as const });
-            }
             try {
               await timePhase('compute_stats', () =>
                 computeAndStoreStats(tx, submissionResult.submissionId, bundle, index),
@@ -475,11 +466,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
           typeof err === 'object' && err !== null && 'phase' in err
             ? (
                 err as {
-                  phase:
-                    | 'materialize_events'
-                    | 'compute_stats'
-                    | 'run_validation'
-                    | 'run_heuristics';
+                  phase: 'compute_stats' | 'run_validation' | 'run_heuristics';
                 }
               ).phase
             : 'worker_post_create';

@@ -1,39 +1,30 @@
 /**
- * Events query builder — PRD §8.9.
+ * Events query — PRD §8.9. Serves GET /submissions/{id}/events.
  *
- * Translates query params → SQL for GET /submissions/{id}/events.
+ * Events are no longer persisted in Postgres. This module parses the stored
+ * bundle blob on demand (via loadSubmissionIndex, LRU-cached) and reproduces the
+ * exact same rows the `events` table used to hold — `seq` is the global
+ * chronological index (globalIdx) and `prev_hash`/`hash` come from the raw
+ * envelope — then filters, orders, and paginates them in memory.
  *
- * Index hints (trust Postgres, no EXPLAIN tests per V35):
- *   - kind + t_from/t_to  → events_sub_kind_t_idx (submission_id, kind, t)
- *   - t_from/t_to only    → events_sub_t_idx (submission_id, t)
- *   - session_id          → PK (submission_id, seq) scan with a residual
- *       session_id filter. The dedicated (submission_id, session_id, seq) index
- *       was dropped (migration 0017) to cut ingest index-maintenance cost; the
- *       PK already yields seq order, so this only over-reads other sessions —
- *       cheap for the typical 1–3-session submission.
- *   - seq_from/seq_to     → PK (submission_id, seq)
- *   - file (payload->>'path')  → NO covering index; documented cost below
- *
- * file filter cost note:
- *   `payload->>'path' = $file` does a full scan of events for the submission.
- *   This is acceptable at current scale (~10k events/submission) since the scan
- *   is bounded by submission_id (PK prefix). A future GIN index on payload could
- *   accelerate this if file-filtered queries become the dominant access pattern.
+ * The row shape, ordering, cursor semantics, and total_count opt-in rule are
+ * preserved byte-for-byte from the SQL implementation so the API contract is
+ * unchanged.
  *
  * total_count:
  *   Only included when at least one of `kind` / `file` / `session_id` is in the
- *   query. Without these filters, counting is O(N) with no offsetting gain, so
- *   we omit it (cheap rule per PRD §8.9 line 1183).
+ *   query (matches the previous cheap-count rule, PRD §8.9).
  *
  * Cursor format:
- *   base64 JSON { seq: int }. Decode → seq > cursor.seq (asc) or seq < cursor.seq (desc).
- *   The seq field in the cursor uses the global seq (events.seq), not session-local seq.
+ *   base64 JSON { seq: int }. asc → seq > cursor.seq; desc → seq < cursor.seq.
+ *   The seq field uses the global seq (globalIdx), not session-local seq.
  */
 
-import { and, eq, gt, lt, gte, lte, inArray, sql } from 'drizzle-orm';
-import type { SQL } from 'drizzle-orm';
-import { events } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
+import type { StorageClient } from '../storage/client.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import { loadSubmissionIndex } from '../bundle/load-index.js';
 import { Errors } from '../../api/v1/errors.js';
 
 // ---------------------------------------------------------------------------
@@ -111,8 +102,56 @@ export function decodeEventCursor(cursor: string): { seq: number } | null {
 // Query builder
 // ---------------------------------------------------------------------------
 
+/**
+ * Reproduce the rows the `events` table used to hold, from a parsed bundle +
+ * index. Mirrors materialize-events.ts exactly: `seq` = globalIdx, ordered
+ * chronologically; `prev_hash`/`hash`/`payload` from the raw envelope, looked up
+ * by `${sessionId}:${session-local seq}`.
+ */
+export function buildEventRows(submissionId: string, bundle: Bundle, index: EventIndex): EventRow[] {
+  type Envelope = (typeof bundle.sessions)[number]['events'][number];
+  const envelopeMap = new Map<string, Envelope>();
+  for (const session of bundle.sessions) {
+    for (const envelope of session.events) {
+      envelopeMap.set(`${session.sessionId}:${envelope.seq}`, envelope);
+    }
+  }
+
+  const rows: EventRow[] = new Array(index.ordered.length);
+  for (let i = 0; i < index.ordered.length; i++) {
+    const ie = index.ordered[i]!;
+    const envelope = envelopeMap.get(`${ie.sessionId}:${ie.seq}`);
+    if (envelope === undefined) {
+      throw new Error(
+        `buildEventRows: envelope not found for ${ie.sessionId}:${ie.seq} (submission ${submissionId})`,
+      );
+    }
+    rows[i] = {
+      submission_id: submissionId,
+      seq: ie.globalIdx,
+      session_id: ie.sessionId,
+      t: ie.t,
+      wall: new Date(ie.wall).toISOString(),
+      kind: ie.kind,
+      payload: envelope.data,
+      prev_hash: envelope.prev_hash,
+      hash: envelope.hash,
+    };
+  }
+  return rows;
+}
+
+function payloadPath(payload: unknown): string | undefined {
+  if (payload !== null && typeof payload === 'object' && 'path' in payload) {
+    const p = (payload as { path: unknown }).path;
+    return typeof p === 'string' ? p : undefined;
+  }
+  return undefined;
+}
+
 export async function queryEvents(
   db: DrizzleDb,
+  storage: StorageClient,
   submissionId: string,
   params: EventQueryParams,
 ): Promise<EventQueryResult> {
@@ -167,120 +206,56 @@ export async function queryEvents(
     throw Errors.eventQueryRangeInvalid('t_to must be >= 0');
   }
 
-  // Build WHERE predicates
-  const predicates: SQL[] = [eq(events.submission_id, submissionId)];
+  // Parse the stored bundle and reproduce the full event-row list.
+  const { bundle, index } = await loadSubmissionIndex(db, storage, submissionId);
+  const allRows = buildEventRows(submissionId, bundle, index);
 
-  if (params.kind && params.kind.length > 0) {
-    if (params.kind.length === 1) {
-      predicates.push(eq(events.kind, params.kind[0]!));
-    } else {
-      predicates.push(inArray(events.kind, params.kind));
+  // Precompute range bounds once.
+  const kindSet =
+    params.kind && params.kind.length > 0 ? new Set(params.kind) : null;
+  const wallFromMs = params.wall_from !== undefined ? new Date(params.wall_from).getTime() : null;
+  const wallToMs = params.wall_to !== undefined ? new Date(params.wall_to).getTime() : null;
+  const cursor = params.cursor !== undefined ? decodeEventCursor(params.cursor) : null;
+
+  // Apply all predicates (including the cursor predicate — matches the SQL
+  // WHERE that both the page query and the count query shared).
+  const filtered = allRows.filter((r) => {
+    if (kindSet !== null && !kindSet.has(r.kind)) return false;
+    if (params.seq_from !== undefined && r.seq < params.seq_from) return false;
+    if (params.seq_to !== undefined && r.seq > params.seq_to) return false;
+    if (params.t_from !== undefined && r.t < params.t_from) return false;
+    if (params.t_to !== undefined && r.t > params.t_to) return false;
+    if (wallFromMs !== null && new Date(r.wall).getTime() < wallFromMs) return false;
+    if (wallToMs !== null && new Date(r.wall).getTime() > wallToMs) return false;
+    if (params.file !== undefined && payloadPath(r.payload) !== params.file) return false;
+    if (params.session_id !== undefined && r.session_id !== params.session_id) return false;
+    if (cursor !== null) {
+      if (order === 'seq_asc' && r.seq <= cursor.seq) return false;
+      if (order === 'seq_desc' && r.seq >= cursor.seq) return false;
     }
-  }
+    return true;
+  });
 
-  if (params.seq_from !== undefined) {
-    predicates.push(gte(events.seq, params.seq_from));
-  }
-  if (params.seq_to !== undefined) {
-    predicates.push(lte(events.seq, params.seq_to));
-  }
+  // Order by seq. allRows is globalIdx-ascending, so asc is already correct.
+  if (order === 'seq_desc') filtered.reverse();
 
-  if (params.t_from !== undefined) {
-    predicates.push(gte(events.t, params.t_from));
-  }
-  if (params.t_to !== undefined) {
-    predicates.push(lte(events.t, params.t_to));
-  }
-
-  if (params.wall_from !== undefined) {
-    predicates.push(gte(events.wall, new Date(params.wall_from)));
-  }
-  if (params.wall_to !== undefined) {
-    predicates.push(lte(events.wall, new Date(params.wall_to)));
-  }
-
-  if (params.file !== undefined) {
-    // No covering index for payload->>'path'; bounded by submission_id PK prefix.
-    predicates.push(sql`${events.payload}->>'path' = ${params.file}`);
-  }
-
-  if (params.session_id !== undefined) {
-    predicates.push(eq(events.session_id, params.session_id));
-  }
-
-  // Cursor predicate
-  if (params.cursor !== undefined) {
-    const decoded = decodeEventCursor(params.cursor);
-    if (decoded !== null) {
-      if (order === 'seq_asc') {
-        predicates.push(gt(events.seq, decoded.seq));
-      } else {
-        predicates.push(lt(events.seq, decoded.seq));
-      }
-    }
-    // Invalid cursor: silently ignore (treat as no cursor) — lenient for clients
-  }
-
-  const where = and(...predicates);
-
-  // Determine if we should compute total_count (opt-in per PRD §8.9)
+  // total_count opt-in per PRD §8.9 (counts the same filtered set, incl. cursor).
   const shouldCountTotal =
     (params.kind !== undefined && params.kind.length > 0) ||
     params.file !== undefined ||
     params.session_id !== undefined;
 
-  // Execute main query + optional count in parallel
-  const [rows, countResult] = await Promise.all([
-    db
-      .select({
-        submission_id: events.submission_id,
-        seq: events.seq,
-        session_id: events.session_id,
-        t: events.t,
-        wall: events.wall,
-        kind: events.kind,
-        payload: events.payload,
-        prev_hash: events.prev_hash,
-        hash: events.hash,
-      })
-      .from(events)
-      .where(where)
-      .orderBy(order === 'seq_asc' ? events.seq : sql`${events.seq} DESC`)
-      .limit(limit + 1), // fetch one extra to detect next page
-    shouldCountTotal
-      ? db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(events)
-          .where(where)
-      : Promise.resolve(null),
-  ]);
+  const hasMore = filtered.length > limit;
+  const items = hasMore ? filtered.slice(0, limit) : filtered;
 
-  // Determine if there's a next page
-  const hasMore = rows.length > limit;
-  const pageRows = hasMore ? rows.slice(0, limit) : rows;
-
-  // Build next_cursor from last item in page
   let next_cursor: string | null = null;
-  if (hasMore && pageRows.length > 0) {
-    const lastRow = pageRows[pageRows.length - 1]!;
-    next_cursor = encodeEventCursor(lastRow.seq);
+  if (hasMore && items.length > 0) {
+    next_cursor = encodeEventCursor(items[items.length - 1]!.seq);
   }
 
-  const items: EventRow[] = pageRows.map((r) => ({
-    submission_id: r.submission_id,
-    seq: r.seq,
-    session_id: r.session_id,
-    t: r.t,
-    wall: r.wall.toISOString(),
-    kind: r.kind,
-    payload: r.payload,
-    prev_hash: r.prev_hash,
-    hash: r.hash,
-  }));
-
   const result: EventQueryResult = { items, next_cursor };
-  if (shouldCountTotal && countResult !== null && countResult.length > 0) {
-    result.total_count = countResult[0]!.count;
+  if (shouldCountTotal) {
+    result.total_count = filtered.length;
   }
 
   return result;
@@ -292,37 +267,13 @@ export async function queryEvents(
 
 export async function getEventBySeq(
   db: DrizzleDb,
+  storage: StorageClient,
   submissionId: string,
   seq: number,
 ): Promise<EventRow | null> {
-  const rows = await db
-    .select({
-      submission_id: events.submission_id,
-      seq: events.seq,
-      session_id: events.session_id,
-      t: events.t,
-      wall: events.wall,
-      kind: events.kind,
-      payload: events.payload,
-      prev_hash: events.prev_hash,
-      hash: events.hash,
-    })
-    .from(events)
-    .where(and(eq(events.submission_id, submissionId), eq(events.seq, seq)))
-    .limit(1);
-
-  if (rows.length === 0) return null;
-  const r = rows[0]!;
-
-  return {
-    submission_id: r.submission_id,
-    seq: r.seq,
-    session_id: r.session_id,
-    t: r.t,
-    wall: r.wall.toISOString(),
-    kind: r.kind,
-    payload: r.payload,
-    prev_hash: r.prev_hash,
-    hash: r.hash,
-  };
+  const { bundle, index } = await loadSubmissionIndex(db, storage, submissionId);
+  // globalIdx === position in index.ordered, so a valid seq indexes directly.
+  if (seq < 0 || seq >= index.ordered.length) return null;
+  const rows = buildEventRows(submissionId, bundle, index);
+  return rows[seq] ?? null;
 }

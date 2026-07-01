@@ -22,7 +22,6 @@
  */
 
 import { Hono } from 'hono';
-import { and, eq, desc, sql } from 'drizzle-orm';
 import { getDb } from '../../../db/client.js';
 import { rateLimit } from '../../middleware/rate-limit.js';
 import { Errors, Warnings } from '../errors.js';
@@ -31,7 +30,9 @@ import { findMembership } from '../../../auth/membership-cache.js';
 import { resolveSemesterFromSubmission } from '../../../services/submissions/resolve.js';
 import { reconstructFile } from '../../../services/reconstruction.js';
 import { encodeRle } from '../../../services/provenance-rle.js';
-import { events } from '../../../db/schema.js';
+import { loadSubmissionIndex } from '../../../services/bundle/load-index.js';
+import { getStorageClient } from '../../../services/storage/default-client.js';
+import type { StorageClient } from '../../../services/storage/client.js';
 import type { DrizzleDb } from '../../../db/client.js';
 
 // ---------------------------------------------------------------------------
@@ -49,35 +50,26 @@ import type { DrizzleDb } from '../../../db/client.js';
  */
 async function resolveDefaultAtSeq(
   db: DrizzleDb,
+  storage: StorageClient,
   submissionId: string,
   filePath: string,
 ): Promise<number | undefined> {
-  const saveResult = await db
-    .select({ seq: events.seq })
-    .from(events)
-    .where(
-      and(
-        eq(events.submission_id, submissionId),
-        eq(events.kind, 'doc.save'),
-        sql`${events.payload}->>'path' = ${filePath}`,
-      ),
-    )
-    .orderBy(desc(events.seq))
-    .limit(1);
+  const { index } = await loadSubmissionIndex(db, storage, submissionId);
 
-  if (saveResult.length > 0) {
-    return saveResult[0]!.seq;
+  // Last doc.save for this file → its globalIdx (= the API's seq). byFile is in
+  // chronological order, so the last matching doc.save is the newest.
+  const fileEvents = index.byFile.get(filePath);
+  if (fileEvents !== undefined) {
+    for (let i = fileEvents.length - 1; i >= 0; i--) {
+      if (fileEvents[i]!.kind === 'doc.save') {
+        return fileEvents[i]!.globalIdx;
+      }
+    }
   }
 
   // No doc.save for this file — fall back to the last event seq overall.
-  const lastEvent = await db
-    .select({ seq: events.seq })
-    .from(events)
-    .where(eq(events.submission_id, submissionId))
-    .orderBy(desc(events.seq))
-    .limit(1);
-
-  return lastEvent[0]?.seq;
+  const ordered = index.ordered;
+  return ordered.length > 0 ? ordered[ordered.length - 1]!.globalIdx : undefined;
 }
 
 /**
@@ -144,14 +136,15 @@ export function createFilesRouter(): Hono {
       }
 
       // Resolve default atSeq (last doc.save, or last event) if not supplied.
+      const storage = getStorageClient();
       const atSeq =
         atSeqParsed.value !== undefined
           ? atSeqParsed.value
-          : await resolveDefaultAtSeq(db, submissionId, filePath);
+          : await resolveDefaultAtSeq(db, storage, submissionId, filePath);
 
       let result;
       try {
-        result = await reconstructFile(db, submissionId, filePath, atSeq);
+        result = await reconstructFile(db, storage, submissionId, filePath, atSeq);
       } catch (err: unknown) {
         const e = err as Record<string, unknown>;
         if (e['code'] === 'FILE_NOT_FOUND') {
@@ -227,14 +220,15 @@ export function createFilesRouter(): Hono {
         );
       }
 
+      const storage = getStorageClient();
       const atSeq =
         atSeqParsed.value !== undefined
           ? atSeqParsed.value
-          : await resolveDefaultAtSeq(db, submissionId, filePath);
+          : await resolveDefaultAtSeq(db, storage, submissionId, filePath);
 
       let result;
       try {
-        result = await reconstructFile(db, submissionId, filePath, atSeq);
+        result = await reconstructFile(db, storage, submissionId, filePath, atSeq);
       } catch (err: unknown) {
         const e = err as Record<string, unknown>;
         if (e['code'] === 'FILE_NOT_FOUND') {

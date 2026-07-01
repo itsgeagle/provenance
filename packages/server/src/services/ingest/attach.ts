@@ -52,7 +52,6 @@ import type { StorageClient } from '../storage/client.js';
 import { ingestStagingKey } from '../storage/keys.js';
 import { parseBundlePhase } from './parse-bundle-phase.js';
 import { createSubmission } from './create-submission.js';
-import { materializeEvents } from './materialize-events.js';
 import { computeAndStoreStats } from './stats.js';
 import { runAndStoreValidation } from './validation.js';
 import { runAndStoreHeuristics } from '../heuristics/run-per-submission.js';
@@ -261,16 +260,10 @@ export async function attachUnmatchedFile(
     }
 
     // -------------------------------------------------------------------------
-    // Step 8: Materialize events, compute stats, run validation + heuristics,
-    //         then update the ingest_files row to 'matched'.
+    // Step 8: Compute stats, run validation + heuristics, then update the
+    //         ingest_files row to 'matched'. (Events are not persisted; the
+    //         stored bundle blob is the event source for later reads.)
     // -------------------------------------------------------------------------
-    try {
-      await materializeEvents(tx, submissionResult.submissionId, bundle);
-    } catch (e) {
-      const cause = e instanceof Error ? e.message : String(e);
-      throw Object.assign(new Error(cause), { phase: 'materialize_events' as const });
-    }
-
     try {
       await computeAndStoreStats(tx, submissionResult.submissionId, bundle);
     } catch (e) {

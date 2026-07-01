@@ -565,49 +565,14 @@ export const ingest_files = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// events  (PRD §5.4 / migration 0007)
+// (events table removed — migration 0019)
+//
+// Events are no longer persisted in Postgres. The `.slog` provenance logs inside
+// the stored bundle blob are the source of the event stream; server read paths
+// (events API, replay, recompute, cross-flags, summary) re-parse the bundle on
+// demand via loadSubmissionIndex. `supporting_seqs` on flags / cross-flags still
+// hold `globalIdx` values (the chronological index buildIndex assigns).
 // ---------------------------------------------------------------------------
-
-/**
- * One row per event in the log-core hash chain, indexed chronologically.
- *
- * `seq` is the global chronological index across all sessions within the
- * submission (IndexedEvent.globalIdx from v2 buildIndex), NOT the
- * session-local seq from the bundle envelope.
- *
- * `payload` is the raw event data object from the bundle envelope, stored as
- * jsonb for structured queries.
- *
- * `prev_hash` + `hash` carry the log-core hash-chain values from
- * HashedEnvelope, enabling server-side chain verification.
- */
-export const events = pgTable(
-  'events',
-  {
-    submission_id: uuid('submission_id')
-      .notNull()
-      .references(() => submissions.id, { onDelete: 'cascade' }),
-    seq: integer('seq').notNull(),
-    session_id: text('session_id').notNull(),
-    t: integer('t').notNull(),
-    wall: timestamp('wall', { withTimezone: true }).notNull(),
-    kind: text('kind').notNull(),
-    payload: jsonb('payload').notNull(),
-    prev_hash: text('prev_hash').notNull(),
-    hash: text('hash').notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.submission_id, t.seq] }),
-    index('events_sub_kind_t_idx').on(t.submission_id, t.kind, t.t),
-    index('events_sub_t_idx').on(t.submission_id, t.t),
-    // NOTE: the former events_sub_session_seq_idx (submission_id, session_id, seq)
-    // was dropped (migration 0017). It cost ~360ms of the ~460ms per-50k-bundle
-    // index-maintenance floor on ingest, and the PK (submission_id, seq) already
-    // serves seq-ordered scans — per-session timeline queries fall back to the
-    // PK scan with a residual session_id filter, cheap for typical 1–3-session
-    // submissions. Re-add if profiling ever shows a per-session read regression.
-  ],
-);
 
 // ---------------------------------------------------------------------------
 // per_file_stats  (PRD §5.4 / migration 0007)
@@ -937,8 +902,6 @@ export type IngestFile = typeof ingest_files.$inferSelect;
 export type NewIngestFile = typeof ingest_files.$inferInsert;
 export type Submission = typeof submissions.$inferSelect;
 export type NewSubmission = typeof submissions.$inferInsert;
-export type Event = typeof events.$inferSelect;
-export type NewEvent = typeof events.$inferInsert;
 export type PerFileStat = typeof per_file_stats.$inferSelect;
 export type NewPerFileStat = typeof per_file_stats.$inferInsert;
 export type ValidationResult = typeof validation_results.$inferSelect;
