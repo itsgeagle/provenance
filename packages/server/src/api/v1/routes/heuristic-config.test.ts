@@ -18,6 +18,7 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { withTestDb } from '../../../../test/helpers/db.js';
+import { withTestMinio } from '../../../../test/helpers/minio.js';
 import { waitForAuditRow } from '../../../../test/helpers/audit.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
 import { _resetLoggerForTest } from '../../../logging.js';
@@ -39,10 +40,9 @@ import {
 import type { DrizzleDb } from '../../../db/client.js';
 import { DEFAULT_SERVER_CONFIG } from '../../../services/heuristics/config.js';
 import { computeDryRunDiff } from '../../../services/scoring/dry-run.js';
-import { materializeEvents } from '../../../services/ingest/materialize-events.js';
+import { putSubmissionBundle } from '../../../../test/helpers/seed-bundle.js';
 import { seedSubmission } from '../../../../test/helpers/seed-submission.js';
 import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
-import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
 import { sql } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
@@ -94,6 +94,18 @@ beforeEach(() => {
   _resetLoggerForTest();
   _setConfigForTest(parseEnv(BASE_ENV));
 });
+
+/**
+ * BASE_ENV with OBJECT_STORAGE_* overridden to point at an ephemeral MinIO
+ * instance from withTestMinio. computeDryRunDiff re-parses each submission's
+ * stored bundle blob on demand (via getStorageClient() / loadSubmissionIndex,
+ * events are no longer persisted in Postgres), so any test that exercises a
+ * non-empty semester must both store a bundle blob AND point config at the
+ * same MinIO the blob was written to.
+ */
+function minioEnv(endpoint: string, bucketName: string): Record<string, string> {
+  return { ...BASE_ENV, OBJECT_STORAGE_ENDPOINT: endpoint, OBJECT_STORAGE_BUCKET: bucketName };
+}
 
 // ---------------------------------------------------------------------------
 // DB injection (V18 pattern)
@@ -970,144 +982,177 @@ describe('computeDryRunDiff', () => {
   });
 
   it('returns zero tier_change when all weights match existing scores', async () => {
-    await withTestDb(async (db) => {
-      const adminUser = await insertUser(db);
-      const course = await insertCourse(db);
-      const semester = await insertSemester(db, course.id);
-      await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(minioEnv(endpoint, bucketName)));
 
-      // Insert an ingest_job (submissions require it)
-      const [ingestJob] = await db
-        .insert((await import('../../../db/schema.js')).ingest_jobs)
-        .values({
-          semester_id: semester.id,
-          uploaded_by: adminUser.id,
-          status: 'succeeded',
-        })
-        .returning();
+        const adminUser = await insertUser(db);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
 
-      const [assignment] = await db
-        .insert(assignments)
-        .values({
-          semester_id: semester.id,
-          assignment_id_str: 'hw1',
-          label: 'Homework 1',
-        })
-        .returning();
+        // Insert an ingest_job (submissions require it)
+        const [ingestJob] = await db
+          .insert((await import('../../../db/schema.js')).ingest_jobs)
+          .values({
+            semester_id: semester.id,
+            uploaded_by: adminUser.id,
+            status: 'succeeded',
+          })
+          .returning();
 
-      const [student] = await db
-        .insert(roster_entries)
-        .values({
-          semester_id: semester.id,
-          sid: 'stu001',
-          display_name: 'Alice',
-        })
-        .returning();
+        const [assignment] = await db
+          .insert(assignments)
+          .values({
+            semester_id: semester.id,
+            assignment_id_str: 'hw1',
+            label: 'Homework 1',
+          })
+          .returning();
 
-      // Insert a submission with score 0 (no flags)
-      const [submission] = await db
-        .insert(submissions)
-        .values({
-          semester_id: semester.id,
-          assignment_id: assignment!.id,
-          student_id: student!.id,
-          blob_object_key: 'test/blob',
-          blob_sha256: 'abc123',
-          source_filename: 'hw1_stu001.zip',
-          ingest_job_id: ingestJob!.id,
-          version_index: 1,
-          score_total: 0,
-          score_max_severity: 'info',
-        })
-        .returning();
+        const [student] = await db
+          .insert(roster_entries)
+          .values({
+            semester_id: semester.id,
+            sid: 'stu001',
+            display_name: 'Alice',
+          })
+          .returning();
 
-      // Same config → all scores identical → no tier change
-      const result = await computeDryRunDiff(db, semester.id, DEFAULT_SERVER_CONFIG, 2);
-      expect(result.diff.submissions_with_tier_change).toBe(0);
-      expect(result.diff.top_movers[0]?.old_score).toBe(0);
-      expect(result.diff.top_movers[0]?.new_score).toBe(0);
+        // Insert a submission with score 0 (no flags)
+        const [submission] = await db
+          .insert(submissions)
+          .values({
+            semester_id: semester.id,
+            assignment_id: assignment!.id,
+            student_id: student!.id,
+            blob_object_key: 'test/blob',
+            blob_sha256: 'abc123',
+            source_filename: 'hw1_stu001.zip',
+            ingest_job_id: ingestJob!.id,
+            version_index: 1,
+            score_total: 0,
+            score_max_severity: 'info',
+          })
+          .returning();
 
-      void submission;
+        // computeDryRunDiff now re-runs heuristics against the real stored
+        // bundle (events are no longer in Postgres). Store a trivial bundle
+        // (session.start only, no file activity) so nothing but
+        // extension_hash_mismatch could possibly fire — and disable that one
+        // heuristic in the candidate so the recomputed score is genuinely 0,
+        // matching the submission's stored score of 0 (same pattern as the
+        // V46 regression test below: extension_hash_mismatch always fires on
+        // these synthetic test bundles since their extension_hash is never in
+        // the known-good allowlist).
+        const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 0 }] });
+        await putSubmissionBundle(db, client, submission!.id, new Uint8Array(zipBuffer));
+
+        const candidateConfig = JSON.parse(
+          JSON.stringify(DEFAULT_SERVER_CONFIG),
+        ) as typeof DEFAULT_SERVER_CONFIG;
+        candidateConfig.per_flag['extension_hash_mismatch']!.enabled = false;
+
+        // Same config → all scores identical → no tier change
+        const result = await computeDryRunDiff(db, semester.id, candidateConfig, 2);
+        expect(result.diff.submissions_with_tier_change).toBe(0);
+        expect(result.diff.top_movers[0]?.old_score).toBe(0);
+        expect(result.diff.top_movers[0]?.new_score).toBe(0);
+
+        void submission;
+      });
     });
   });
 
   it('detects tier change when a weight change shifts score_max_severity', async () => {
-    await withTestDb(async (db) => {
-      const adminUser = await insertUser(db);
-      const course = await insertCourse(db);
-      const semester = await insertSemester(db, course.id);
-      await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(minioEnv(endpoint, bucketName)));
 
-      const [ingestJob] = await db
-        .insert((await import('../../../db/schema.js')).ingest_jobs)
-        .values({
+        const adminUser = await insertUser(db);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
+
+        const [ingestJob] = await db
+          .insert((await import('../../../db/schema.js')).ingest_jobs)
+          .values({
+            semester_id: semester.id,
+            uploaded_by: adminUser.id,
+            status: 'succeeded',
+          })
+          .returning();
+
+        const [assignment] = await db
+          .insert(assignments)
+          .values({
+            semester_id: semester.id,
+            assignment_id_str: 'hw2',
+            label: 'Homework 2',
+          })
+          .returning();
+
+        const [student] = await db
+          .insert(roster_entries)
+          .values({
+            semester_id: semester.id,
+            sid: 'stu002',
+            display_name: 'Bob',
+          })
+          .returning();
+
+        // Submission with score_max_severity='medium' (has a medium flag)
+        const [submission] = await db
+          .insert(submissions)
+          .values({
+            semester_id: semester.id,
+            assignment_id: assignment!.id,
+            student_id: student!.id,
+            blob_object_key: 'test/blob2',
+            blob_sha256: 'def456',
+            source_filename: 'hw2_stu002.zip',
+            ingest_job_id: ingestJob!.id,
+            version_index: 1,
+            score_total: 3, // severity_weight.medium = 3, confidence=1.0, weight=1.0
+            score_max_severity: 'medium',
+          })
+          .returning();
+
+        // Insert a medium flag for the submission
+        await db.insert(flags).values({
+          submission_id: submission!.id,
           semester_id: semester.id,
-          uploaded_by: adminUser.id,
-          status: 'succeeded',
-        })
-        .returning();
+          heuristic_id: 'large_paste',
+          severity: 'medium',
+          confidence: 1.0,
+          weight_at_compute: 1.0,
+          score_contribution: 3,
+          heuristic_config_version: 1,
+        });
 
-      const [assignment] = await db
-        .insert(assignments)
-        .values({
-          semester_id: semester.id,
-          assignment_id_str: 'hw2',
-          label: 'Homework 2',
-        })
-        .returning();
+        // Store a trivial bundle so recomputeSubmission can re-parse it.
+        const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 0 }] });
+        await putSubmissionBundle(db, client, submission!.id, new Uint8Array(zipBuffer));
 
-      const [student] = await db
-        .insert(roster_entries)
-        .values({
-          semester_id: semester.id,
-          sid: 'stu002',
-          display_name: 'Bob',
-        })
-        .returning();
+        // Now use a candidate that disables large_paste — score drops to 0, tier drops to 'info'.
+        // extension_hash_mismatch is also disabled: it always fires on these
+        // synthetic test bundles (extension_hash never matches the known-good
+        // allowlist) and would otherwise pollute new_score away from 0.
+        const candidateConfig = JSON.parse(
+          JSON.stringify(DEFAULT_SERVER_CONFIG),
+        ) as typeof DEFAULT_SERVER_CONFIG;
+        candidateConfig.per_flag['large_paste']!.enabled = false;
+        candidateConfig.per_flag['extension_hash_mismatch']!.enabled = false;
 
-      // Submission with score_max_severity='medium' (has a medium flag)
-      const [submission] = await db
-        .insert(submissions)
-        .values({
-          semester_id: semester.id,
-          assignment_id: assignment!.id,
-          student_id: student!.id,
-          blob_object_key: 'test/blob2',
-          blob_sha256: 'def456',
-          source_filename: 'hw2_stu002.zip',
-          ingest_job_id: ingestJob!.id,
-          version_index: 1,
-          score_total: 3, // severity_weight.medium = 3, confidence=1.0, weight=1.0
-          score_max_severity: 'medium',
-        })
-        .returning();
+        const result = await computeDryRunDiff(db, semester.id, candidateConfig, 2);
 
-      // Insert a medium flag for the submission
-      await db.insert(flags).values({
-        submission_id: submission!.id,
-        semester_id: semester.id,
-        heuristic_id: 'large_paste',
-        severity: 'medium',
-        confidence: 1.0,
-        weight_at_compute: 1.0,
-        score_contribution: 3,
-        heuristic_config_version: 1,
+        expect(result.diff.submissions_with_tier_change).toBe(1);
+        expect(result.diff.top_movers).toHaveLength(1);
+        expect(result.diff.top_movers[0]!.old_tier).toBe('medium');
+        expect(result.diff.top_movers[0]!.new_tier).toBe('info');
+        expect(result.diff.top_movers[0]!.old_score).toBe(3);
+        expect(result.diff.top_movers[0]!.new_score).toBe(0);
       });
-
-      // Now use a candidate that disables large_paste — score drops to 0, tier drops to 'info'
-      const candidateConfig = JSON.parse(
-        JSON.stringify(DEFAULT_SERVER_CONFIG),
-      ) as typeof DEFAULT_SERVER_CONFIG;
-      candidateConfig.per_flag['large_paste']!.enabled = false;
-
-      const result = await computeDryRunDiff(db, semester.id, candidateConfig, 2);
-
-      expect(result.diff.submissions_with_tier_change).toBe(1);
-      expect(result.diff.top_movers).toHaveLength(1);
-      expect(result.diff.top_movers[0]!.old_tier).toBe('medium');
-      expect(result.diff.top_movers[0]!.new_tier).toBe('info');
-      expect(result.diff.top_movers[0]!.old_score).toBe(3);
-      expect(result.diff.top_movers[0]!.new_score).toBe(0);
     });
   });
 });
@@ -1128,74 +1173,78 @@ describe('computeDryRunDiff', () => {
 
 describe('computeDryRunDiff — threshold forwarding (V46 regression)', () => {
   it('raising largePaste.minChars above paste size suppresses the flag in dry-run', async () => {
-    await withTestDb(async (db) => {
-      const submissionId = await seedSubmission(db);
-      const [subRow] = await db
-        .select({ semester_id: submissions.semester_id })
-        .from(submissions)
-        .where(eq(submissions.id, submissionId));
-      const semesterId = subRow!.semester_id;
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(minioEnv(endpoint, bucketName)));
 
-      // 250-char paste fires large_paste at medium severity by default
-      // (minChars=200, highSeverityChars=500).
-      const pasteContent = 'x'.repeat(250);
-      const { zipBuffer } = await buildTestBundle({
-        sessions: [
-          {
-            events: [
-              {
-                kind: 'paste',
-                data: {
-                  path: '/hw1.py',
-                  content: pasteContent,
-                  length: pasteContent.length,
-                  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        const submissionId = await seedSubmission(db);
+        const [subRow] = await db
+          .select({ semester_id: submissions.semester_id })
+          .from(submissions)
+          .where(eq(submissions.id, submissionId));
+        const semesterId = subRow!.semester_id;
+
+        // 250-char paste fires large_paste at medium severity by default
+        // (minChars=200, highSeverityChars=500).
+        const pasteContent = 'x'.repeat(250);
+        const { zipBuffer } = await buildTestBundle({
+          sessions: [
+            {
+              events: [
+                {
+                  kind: 'paste',
+                  data: {
+                    path: '/hw1.py',
+                    content: pasteContent,
+                    length: pasteContent.length,
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                  },
                 },
-              },
-            ],
-          },
-        ],
-      });
-      const loaded = await loadBundle(zipBuffer, 'test.zip');
-      if (!loaded.ok) throw new Error(`loadBundle failed: ${JSON.stringify(loaded.error)}`);
-      await materializeEvents(db, submissionId, loaded.value);
+              ],
+            },
+          ],
+        });
+        // Events are no longer persisted in Postgres — store the bundle blob
+        // itself so computeDryRunDiff's recompute can re-parse it on demand.
+        await putSubmissionBundle(db, client, submissionId, new Uint8Array(zipBuffer));
 
-      // Build a config where ONLY large_paste contributes (disable everything
-      // else so other heuristics that fire on the test bundle — e.g.
-      // extension_hash_mismatch — don't pollute new_score).
-      function isolateLargePaste(): typeof DEFAULT_SERVER_CONFIG {
-        const cfg = JSON.parse(
-          JSON.stringify(DEFAULT_SERVER_CONFIG),
-        ) as typeof DEFAULT_SERVER_CONFIG;
-        for (const id of Object.keys(cfg.per_flag)) {
-          if (id !== 'large_paste') cfg.per_flag[id]!.enabled = false;
+        // Build a config where ONLY large_paste contributes (disable everything
+        // else so other heuristics that fire on the test bundle — e.g.
+        // extension_hash_mismatch — don't pollute new_score).
+        function isolateLargePaste(): typeof DEFAULT_SERVER_CONFIG {
+          const cfg = JSON.parse(
+            JSON.stringify(DEFAULT_SERVER_CONFIG),
+          ) as typeof DEFAULT_SERVER_CONFIG;
+          for (const id of Object.keys(cfg.per_flag)) {
+            if (id !== 'large_paste') cfg.per_flag[id]!.enabled = false;
+          }
+          return cfg;
         }
-        return cfg;
-      }
 
-      // Run 1: default thresholds → large_paste fires.
-      const baseline = isolateLargePaste();
-      const baselineResult = await computeDryRunDiff(db, semesterId, baseline, 2);
-      const baselineMover = baselineResult.diff.top_movers.find(
-        (m) => m.submission_id === submissionId,
-      );
-      expect(baselineMover, 'baseline run should include the seeded submission').toBeDefined();
-      expect(baselineMover!.new_score).toBeGreaterThan(0);
-      expect(baselineMover!.new_tier).not.toBe('info');
+        // Run 1: default thresholds → large_paste fires.
+        const baseline = isolateLargePaste();
+        const baselineResult = await computeDryRunDiff(db, semesterId, baseline, 2);
+        const baselineMover = baselineResult.diff.top_movers.find(
+          (m) => m.submission_id === submissionId,
+        );
+        expect(baselineMover, 'baseline run should include the seeded submission').toBeDefined();
+        expect(baselineMover!.new_score).toBeGreaterThan(0);
+        expect(baselineMover!.new_tier).not.toBe('info');
 
-      // Run 2: raise minChars above paste size → large_paste must NOT fire.
-      const raised = isolateLargePaste();
-      raised.per_flag['large_paste']!.thresholds = { minChars: 300 };
-      const raisedResult = await computeDryRunDiff(db, semesterId, raised, 2);
-      const raisedMover = raisedResult.diff.top_movers.find(
-        (m) => m.submission_id === submissionId,
-      );
-      expect(
-        raisedMover,
-        'raised-threshold run should include the seeded submission',
-      ).toBeDefined();
-      expect(raisedMover!.new_score).toBe(0);
-      expect(raisedMover!.new_tier).toBe('info');
+        // Run 2: raise minChars above paste size → large_paste must NOT fire.
+        const raised = isolateLargePaste();
+        raised.per_flag['large_paste']!.thresholds = { minChars: 300 };
+        const raisedResult = await computeDryRunDiff(db, semesterId, raised, 2);
+        const raisedMover = raisedResult.diff.top_movers.find(
+          (m) => m.submission_id === submissionId,
+        );
+        expect(
+          raisedMover,
+          'raised-threshold run should include the seeded submission',
+        ).toBeDefined();
+        expect(raisedMover!.new_score).toBe(0);
+        expect(raisedMover!.new_tier).toBe('info');
+      });
     });
   });
 });
@@ -1491,128 +1540,19 @@ describe('GET /semesters/:semesterId/recompute/:jobId', () => {
 
 describe('computeDryRunDiff — protected mode masks top_movers student identity', () => {
   it('masked: top_movers.student has Student N / SN (never real name/sid)', async () => {
-    await withTestDb(async (db) => {
-      const adminUser = await insertUser(db);
-      const course = await insertCourse(db);
-      const semester = await insertSemester(db, course.id);
-      await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
-
-      const [ingestJob] = await db
-        .insert((await import('../../../db/schema.js')).ingest_jobs)
-        .values({
-          semester_id: semester.id,
-          uploaded_by: adminUser.id,
-          status: 'succeeded',
-        })
-        .returning();
-
-      const [assignment] = await db
-        .insert(assignments)
-        .values({
-          semester_id: semester.id,
-          assignment_id_str: 'hw_pm',
-          label: 'Homework PM',
-        })
-        .returning();
-
-      // Insert a student with a known protected_index so we can assert on label.
-      const [student] = await db
-        .insert(roster_entries)
-        .values({
-          semester_id: semester.id,
-          sid: 'real_sid_001',
-          display_name: 'Real Student Name',
-          protected_index: 7,
-        })
-        .returning();
-
-      // Submission with a medium flag so it shows up in top_movers.
-      const [submission] = await db
-        .insert(submissions)
-        .values({
-          semester_id: semester.id,
-          assignment_id: assignment!.id,
-          student_id: student!.id,
-          blob_object_key: 'test/pm_blob',
-          blob_sha256: 'pm_hash_abc',
-          source_filename: 'hw_pm_real_sid_001.zip',
-          ingest_job_id: ingestJob!.id,
-          version_index: 1,
-          score_total: 3,
-          score_max_severity: 'medium',
-        })
-        .returning();
-
-      await db.insert(flags).values({
-        submission_id: submission!.id,
-        semester_id: semester.id,
-        heuristic_id: 'large_paste',
-        severity: 'medium',
-        confidence: 1.0,
-        weight_at_compute: 1.0,
-        score_contribution: 3,
-        heuristic_config_version: 1,
-      });
-
-      // Candidate that disables large_paste so score drops → tier change → top_mover.
-      const candidateConfig = JSON.parse(
-        JSON.stringify(DEFAULT_SERVER_CONFIG),
-      ) as typeof DEFAULT_SERVER_CONFIG;
-      candidateConfig.per_flag['large_paste']!.enabled = false;
-
-      // Protected mode = true: student identity must be masked.
-      const protectedResult = await computeDryRunDiff(
-        db,
-        semester.id,
-        candidateConfig,
-        2,
-        true, // protectedMode
-      );
-
-      expect(protectedResult.diff.top_movers).toHaveLength(1);
-      const mover = protectedResult.diff.top_movers[0]!;
-      // Must match Student N pattern (protected_index = 7).
-      expect(mover.student.display_name).toBe('Student 7');
-      expect(mover.student.sid).toBe('S7');
-      // Real values must NOT appear.
-      expect(mover.student.display_name).not.toBe('Real Student Name');
-      expect(mover.student.sid).not.toBe('real_sid_001');
-
-      // Non-protected mode: real values must appear.
-      const realResult = await computeDryRunDiff(
-        db,
-        semester.id,
-        candidateConfig,
-        2,
-        false, // protectedMode
-      );
-
-      expect(realResult.diff.top_movers).toHaveLength(1);
-      const realMover = realResult.diff.top_movers[0]!;
-      expect(realMover.student.display_name).toBe('Real Student Name');
-      expect(realMover.student.sid).toBe('real_sid_001');
-
-      void submission;
-    });
-  });
-
-  it('protected dry-run via HTTP: top_movers.student masked', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      try {
-        // Protected principal.
-        const admin = await insertUser(db, { protected: true });
-        const sessionId = await insertSession(db, admin.id);
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(minioEnv(endpoint, bucketName)));
+        const adminUser = await insertUser(db);
         const course = await insertCourse(db);
         const semester = await insertSemester(db, course.id);
-        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
-        await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+        await insertMembership(db, adminUser.id, semester.id, 'admin', adminUser.id);
 
         const [ingestJob] = await db
           .insert((await import('../../../db/schema.js')).ingest_jobs)
           .values({
             semester_id: semester.id,
-            uploaded_by: admin.id,
+            uploaded_by: adminUser.id,
             status: 'succeeded',
           })
           .returning();
@@ -1621,30 +1561,32 @@ describe('computeDryRunDiff — protected mode masks top_movers student identity
           .insert(assignments)
           .values({
             semester_id: semester.id,
-            assignment_id_str: 'hw_http_pm',
-            label: 'HW HTTP PM',
+            assignment_id_str: 'hw_pm',
+            label: 'Homework PM',
           })
           .returning();
 
+        // Insert a student with a known protected_index so we can assert on label.
         const [student] = await db
           .insert(roster_entries)
           .values({
             semester_id: semester.id,
-            sid: 'http_real_sid',
-            display_name: 'HTTP Real Name',
-            protected_index: 3,
+            sid: 'real_sid_001',
+            display_name: 'Real Student Name',
+            protected_index: 7,
           })
           .returning();
 
+        // Submission with a medium flag so it shows up in top_movers.
         const [submission] = await db
           .insert(submissions)
           .values({
             semester_id: semester.id,
             assignment_id: assignment!.id,
             student_id: student!.id,
-            blob_object_key: 'test/http_pm_blob',
-            blob_sha256: 'http_pm_hash',
-            source_filename: 'hw_http_pm_http_real_sid.zip',
+            blob_object_key: 'test/pm_blob',
+            blob_sha256: 'pm_hash_abc',
+            source_filename: 'hw_pm_real_sid_001.zip',
             ingest_job_id: ingestJob!.id,
             version_index: 1,
             score_total: 3,
@@ -1663,38 +1605,165 @@ describe('computeDryRunDiff — protected mode masks top_movers student identity
           heuristic_config_version: 1,
         });
 
+        // computeDryRunDiff re-runs heuristics against the real stored bundle
+        // (events are no longer in Postgres) — store a trivial one so the
+        // recompute succeeds. The assertions here only check student-identity
+        // masking, not exact scores, so a minimal bundle is sufficient.
+        const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 0 }] });
+        await putSubmissionBundle(db, client, submission!.id, new Uint8Array(zipBuffer));
+
+        // Candidate that disables large_paste so score drops → tier change → top_mover.
         const candidateConfig = JSON.parse(
           JSON.stringify(DEFAULT_SERVER_CONFIG),
         ) as typeof DEFAULT_SERVER_CONFIG;
         candidateConfig.per_flag['large_paste']!.enabled = false;
 
-        const app = createV1App();
-        const res = await app.fetch(
-          new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
-            method: 'PUT',
-            headers: {
-              Cookie: `__Host-prov_sess=${sessionId}`,
-              'Content-Type': 'application/json',
-              'If-Match': '1',
-            },
-            body: JSON.stringify(candidateConfig),
-          }),
+        // Protected mode = true: student identity must be masked.
+        const protectedResult = await computeDryRunDiff(
+          db,
+          semester.id,
+          candidateConfig,
+          2,
+          true, // protectedMode
         );
 
-        expect(res.status).toBe(200);
-        const body = (await res.json()) as {
-          diff: { top_movers: { student: { display_name: string; sid: string } }[] };
-        };
-        expect(body.diff.top_movers).toHaveLength(1);
-        expect(body.diff.top_movers[0]!.student.display_name).toMatch(/^Student \d+$/);
-        expect(body.diff.top_movers[0]!.student.sid).toMatch(/^S/);
-        expect(body.diff.top_movers[0]!.student.display_name).not.toBe('HTTP Real Name');
-        expect(body.diff.top_movers[0]!.student.sid).not.toBe('http_real_sid');
+        expect(protectedResult.diff.top_movers).toHaveLength(1);
+        const mover = protectedResult.diff.top_movers[0]!;
+        // Must match Student N pattern (protected_index = 7).
+        expect(mover.student.display_name).toBe('Student 7');
+        expect(mover.student.sid).toBe('S7');
+        // Real values must NOT appear.
+        expect(mover.student.display_name).not.toBe('Real Student Name');
+        expect(mover.student.sid).not.toBe('real_sid_001');
+
+        // Non-protected mode: real values must appear.
+        const realResult = await computeDryRunDiff(
+          db,
+          semester.id,
+          candidateConfig,
+          2,
+          false, // protectedMode
+        );
+
+        expect(realResult.diff.top_movers).toHaveLength(1);
+        const realMover = realResult.diff.top_movers[0]!;
+        expect(realMover.student.display_name).toBe('Real Student Name');
+        expect(realMover.student.sid).toBe('real_sid_001');
 
         void submission;
-      } finally {
-        _testDb = null;
-      }
+      });
+    });
+  });
+
+  it('protected dry-run via HTTP: top_movers.student masked', async () => {
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(minioEnv(endpoint, bucketName)));
+        try {
+          // Protected principal.
+          const admin = await insertUser(db, { protected: true });
+          const sessionId = await insertSession(db, admin.id);
+          const course = await insertCourse(db);
+          const semester = await insertSemester(db, course.id);
+          await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+          await insertHeuristicConfig(db, semester.id, admin.id, 1, true);
+
+          const [ingestJob] = await db
+            .insert((await import('../../../db/schema.js')).ingest_jobs)
+            .values({
+              semester_id: semester.id,
+              uploaded_by: admin.id,
+              status: 'succeeded',
+            })
+            .returning();
+
+          const [assignment] = await db
+            .insert(assignments)
+            .values({
+              semester_id: semester.id,
+              assignment_id_str: 'hw_http_pm',
+              label: 'HW HTTP PM',
+            })
+            .returning();
+
+          const [student] = await db
+            .insert(roster_entries)
+            .values({
+              semester_id: semester.id,
+              sid: 'http_real_sid',
+              display_name: 'HTTP Real Name',
+              protected_index: 3,
+            })
+            .returning();
+
+          const [submission] = await db
+            .insert(submissions)
+            .values({
+              semester_id: semester.id,
+              assignment_id: assignment!.id,
+              student_id: student!.id,
+              blob_object_key: 'test/http_pm_blob',
+              blob_sha256: 'http_pm_hash',
+              source_filename: 'hw_http_pm_http_real_sid.zip',
+              ingest_job_id: ingestJob!.id,
+              version_index: 1,
+              score_total: 3,
+              score_max_severity: 'medium',
+            })
+            .returning();
+
+          await db.insert(flags).values({
+            submission_id: submission!.id,
+            semester_id: semester.id,
+            heuristic_id: 'large_paste',
+            severity: 'medium',
+            confidence: 1.0,
+            weight_at_compute: 1.0,
+            score_contribution: 3,
+            heuristic_config_version: 1,
+          });
+
+          // computeDryRunDiff re-runs heuristics against the real stored bundle
+          // (events are no longer in Postgres) — store a trivial one so the
+          // recompute succeeds. The assertions here only check student-identity
+          // masking, not exact scores, so a minimal bundle is sufficient.
+          const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 0 }] });
+          await putSubmissionBundle(db, client, submission!.id, new Uint8Array(zipBuffer));
+
+          const candidateConfig = JSON.parse(
+            JSON.stringify(DEFAULT_SERVER_CONFIG),
+          ) as typeof DEFAULT_SERVER_CONFIG;
+          candidateConfig.per_flag['large_paste']!.enabled = false;
+
+          const app = createV1App();
+          const res = await app.fetch(
+            new Request(`http://localhost/semesters/${semester.id}/heuristic-config?dryRun=true`, {
+              method: 'PUT',
+              headers: {
+                Cookie: `__Host-prov_sess=${sessionId}`,
+                'Content-Type': 'application/json',
+                'If-Match': '1',
+              },
+              body: JSON.stringify(candidateConfig),
+            }),
+          );
+
+          expect(res.status).toBe(200);
+          const body = (await res.json()) as {
+            diff: { top_movers: { student: { display_name: string; sid: string } }[] };
+          };
+          expect(body.diff.top_movers).toHaveLength(1);
+          expect(body.diff.top_movers[0]!.student.display_name).toMatch(/^Student \d+$/);
+          expect(body.diff.top_movers[0]!.student.sid).toMatch(/^S/);
+          expect(body.diff.top_movers[0]!.student.display_name).not.toBe('HTTP Real Name');
+          expect(body.diff.top_movers[0]!.student.sid).not.toBe('http_real_sid');
+
+          void submission;
+        } finally {
+          _testDb = null;
+        }
+      });
     });
   });
 });

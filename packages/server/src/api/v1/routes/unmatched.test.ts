@@ -40,7 +40,6 @@ import {
   ingest_jobs,
   ingest_files,
   submissions,
-  events as eventsTable,
   validation_results,
   per_file_stats,
 } from '../../../db/schema.js';
@@ -564,12 +563,11 @@ describe('PATCH /semesters/:semesterId/unmatched/:id — attach (requires MinIO)
           .where(eq(submissions.id, submissionId));
         expect(sub).toBeDefined();
 
-        // Verify events were materialized (count > 0).
-        const eventRows = await db
-          .select({ seq: eventsTable.seq })
-          .from(eventsTable)
-          .where(eq(eventsTable.submission_id, submissionId));
-        expect(eventRows.length).toBeGreaterThan(0);
+        // NOTE: events are no longer materialized into Postgres (the events
+        // table was dropped — migration 0019). The previous "events were
+        // materialized" assertion here has been removed; the event stream now
+        // lives only in the stored bundle blob and is re-parsed on demand by
+        // read paths (see events.test.ts).
 
         // Verify per_file_stats row exists.
         const statsRows = await db
