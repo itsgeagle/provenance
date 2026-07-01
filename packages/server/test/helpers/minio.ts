@@ -29,6 +29,12 @@ const BUCKET_NAME = 'test-bucket';
 export interface TestMinioContext {
   client: StorageClient;
   bucketName: string;
+  /** Container endpoint URL — wire into config (OBJECT_STORAGE_ENDPOINT) so that
+   *  code paths using getStorageClient() hit this same ephemeral MinIO. */
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
 }
 
 /**
@@ -73,7 +79,14 @@ export async function withTestMinio(fn: (ctx: TestMinioContext) => Promise<void>
   }
 
   try {
-    await fn({ client, bucketName: BUCKET_NAME });
+    await fn({
+      client,
+      bucketName: BUCKET_NAME,
+      endpoint,
+      accessKeyId: MINIO_USER,
+      secretAccessKey: MINIO_PASSWORD,
+      region: 'us-east-1',
+    });
   } finally {
     await container.stop();
   }
