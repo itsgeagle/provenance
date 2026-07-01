@@ -17,9 +17,9 @@
  * is gone (swept by retention). These functions never receive a null buffer.
  */
 
-import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
-import { runValidation } from '@provenance/analyzer/src/validation/run-validation.js';
-import { submittedFileVerdicts } from '@provenance/analyzer/src/validation/verify-submitted-code.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import { submittedFileVerdicts } from '@provenance/analysis-core/validation/verify-submitted-code.js';
 import type { SubmittedFileList, SubmittedFileContent } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------

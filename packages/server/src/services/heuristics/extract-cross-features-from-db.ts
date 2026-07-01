@@ -29,11 +29,11 @@ import {
   buildKindNgramSet,
   NGRAM_SIZE,
   REPRESENTATIVE_EVENT_COUNT,
-} from '@provenance/analyzer/src/heuristics/cross/features.js';
+} from '@provenance/analysis-core/heuristics/cross/features.js';
 import type {
   CrossSubmissionFeatures,
   CrossPasteFeature,
-} from '@provenance/analyzer/src/heuristics/cross/types.js';
+} from '@provenance/analysis-core/heuristics/cross/types.js';
 import { events } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 

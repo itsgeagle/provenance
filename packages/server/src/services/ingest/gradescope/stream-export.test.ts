@@ -12,7 +12,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { openLocalExport, type StreamedSubmission } from './stream-export.js';
 
 const PROVENANCE_FILE = /^(manifest\.json|manifest\.sig|session-.*\.slog(\.meta)?)$/;

@@ -50,8 +50,8 @@
 
 import { eq, isNull, and } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { runCrossHeuristics } from '@provenance/analyzer/src/heuristics/cross/run-cross-heuristics.js';
-import type { CrossSubmissionFeatures } from '@provenance/analyzer/src/heuristics/cross/types.js';
+import { runCrossHeuristics } from '@provenance/analysis-core/heuristics/cross/run-cross-heuristics.js';
+import type { CrossSubmissionFeatures } from '@provenance/analysis-core/heuristics/cross/types.js';
 import { cross_flags, cross_flag_participants, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';

@@ -26,10 +26,10 @@ import { withTestDb } from '../../../test/helpers/db.js';
 import { seedSubmission } from '../../../test/helpers/seed-submission.js';
 import { runAndStoreHeuristics } from './run-per-submission.js';
 import { flags, submissions } from '../../db/schema.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
-import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
-import { runValidation } from '@provenance/analyzer/src/validation/run-validation.js';
-import type { Bundle, ParsedSession } from '@provenance/analyzer/src/loader/types.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import type { Bundle, ParsedSession } from '@provenance/analysis-core/loader/types.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 

@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { encodeRle } from './provenance-rle.js';
-import type { ProvenanceKind } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
+import type { ProvenanceKind } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 
 // Helper to build a kindByGlobalIdx map from an object literal.
 function kinds(entries: Record<number, ProvenanceKind>): Map<number, ProvenanceKind> {

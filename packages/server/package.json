@@ -28,7 +28,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "@hono/zod-openapi": "^0.19.4",
-    "@provenance/analyzer": "*",
+    "@provenance/analysis-core": "*",
     "@types/nodemailer": "^8.0.0",
     "@types/papaparse": "^5.5.2",
     "arctic": "^3.7.0",

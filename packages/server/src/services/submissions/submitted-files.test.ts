@@ -11,7 +11,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { sha256Hex } from '@provenance/log-core';
 import { extractSubmittedFiles, extractSubmittedFileContent } from './submitted-files.js';
 

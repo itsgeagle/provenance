@@ -13,7 +13,7 @@
  * `event_seq` is the globalIdx of the event that last wrote those characters.
  */
 
-import type { ProvenanceKind } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
+import type { ProvenanceKind } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 
 // ---------------------------------------------------------------------------
 // Types

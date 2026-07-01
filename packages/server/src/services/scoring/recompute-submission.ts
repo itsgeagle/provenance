@@ -44,10 +44,10 @@
  */
 
 import { eq, inArray, isNull, and } from 'drizzle-orm';
-import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
-import { runHeuristics } from '@provenance/analyzer/src/heuristics/run-heuristics.js';
-import type { HeuristicConfig } from '@provenance/analyzer/src/heuristics/config.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import { runHeuristics } from '@provenance/analysis-core/heuristics/run-heuristics.js';
+import type { HeuristicConfig } from '@provenance/analysis-core/heuristics/config.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 import { flags, submissions } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import { withTransaction } from '../../db/client.js';

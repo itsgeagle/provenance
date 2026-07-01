@@ -38,12 +38,12 @@
  * deep-link into a specific session's timeline without decoding the int[].
  */
 
-import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
-import { runHeuristics } from '@provenance/analyzer/src/heuristics/run-heuristics.js';
-import type { EventIndex } from '@provenance/analyzer/src/index/event-index.js';
-import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
-import type { ValidationReport } from '@provenance/analyzer/src/validation/check-types.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import { runHeuristics } from '@provenance/analysis-core/heuristics/run-heuristics.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 import { flags, submissions } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';

@@ -38,7 +38,7 @@ import {
 import * as schema from '../../db/schema.js';
 import { startWorker } from '../../jobs/worker.js';
 import { createStorageClient, storageConfigFromEnv } from '../storage/client.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import {
   createResumableUpload,
   putResumablePart,

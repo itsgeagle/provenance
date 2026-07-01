@@ -34,7 +34,7 @@ import {
   type StudentSort,
 } from '../../../services/cohort/students.js';
 import { listAssignments } from '../../../services/cohort/assignments.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Router factory

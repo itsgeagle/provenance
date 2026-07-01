@@ -18,9 +18,9 @@
 import { getBlob } from '../storage/blobs.js';
 import type { StorageClient } from '../storage/client.js';
 import { recordPhase } from '../../jobs/ingest-profile.js';
-import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
-import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
-import type { LoaderError, SessionParseError } from '@provenance/analyzer/src/loader/types.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { LoaderError, SessionParseError } from '@provenance/analysis-core/loader/types.js';
 
 // ---------------------------------------------------------------------------
 // Types

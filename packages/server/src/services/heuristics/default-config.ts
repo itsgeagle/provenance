@@ -10,7 +10,7 @@
  * re-exports from there exclusively.
  */
 
-export { DEFAULT_HEURISTIC_CONFIG as DEFAULT_CONFIG_V0 } from '@provenance/analyzer/src/heuristics/config.js';
+export { DEFAULT_HEURISTIC_CONFIG as DEFAULT_CONFIG_V0 } from '@provenance/analysis-core/heuristics/config.js';
 
 /**
  * Sentinel version for the Phase 12 hard-coded config.

@@ -16,7 +16,7 @@ import { withTestMinio } from '../../../test/helpers/minio.js';
 import { parseBundlePhase } from './parse-bundle-phase.js';
 import { putBlob } from '../storage/blobs.js';
 import { ingestStagingKey } from '../storage/keys.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 

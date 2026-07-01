@@ -23,7 +23,7 @@ import { and, or, eq, isNull, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { submissions, assignments, roster_entries } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 import { SEVERITY_RANK } from '../scoring/denorm.js';
 import { projectStudent } from '../protect.js';
 

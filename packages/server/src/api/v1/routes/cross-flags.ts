@@ -30,7 +30,7 @@ import { getCrossFlag } from '../../../services/cross-flags/detail.js';
 import { authorize } from '../../../auth/authorize.js';
 import { findMembership } from '../../../auth/membership-cache.js';
 import { requirePrincipal } from '../../middleware/auth-session.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Router factory

@@ -39,7 +39,7 @@ import type { DrizzleDb } from '../../db/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { recomputeSubmission } from './recompute-submission.js';
 import { projectStudent } from '../protect.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // DryRunDiff — PRD §8.11 response shape

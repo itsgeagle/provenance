@@ -14,7 +14,7 @@
  * Severity ordering: high > medium > low > info.
  */
 
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 const SEVERITY_ORDER: Record<Severity, number> = {
   info: 0,

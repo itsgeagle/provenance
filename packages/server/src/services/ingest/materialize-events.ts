@@ -36,9 +36,9 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
-import type { EventIndex } from '@provenance/analyzer/src/index/event-index.js';
-import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
 import type { DrizzleDb } from '../../db/client.js';
 
 /**

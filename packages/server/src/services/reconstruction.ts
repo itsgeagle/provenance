@@ -18,10 +18,11 @@
 
 import { eq, and } from 'drizzle-orm';
 import { reconstructBundleFromDb } from './heuristics/reconstruct-bundle.js';
-import { reconstructFileWithProvenance } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
-import type { ProvenanceKind } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
+import { reconstructFileWithProvenance } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { ProvenanceKind } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 import { per_file_stats } from '../db/schema.js';
 import type { DrizzleDb } from '../db/client.js';
+import type { StorageClient } from './storage/client.js';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logging.js';
 
@@ -130,6 +131,7 @@ export function _resetReconstructionCacheForTest(): void {
  */
 export async function reconstructFile(
   db: DrizzleDb,
+  storage: StorageClient,
   submissionId: string,
   filePath: string,
   atSeq?: number,
@@ -165,8 +167,8 @@ export async function reconstructFile(
 
   const t0 = Date.now();
 
-  // Build EventIndex from DB.
-  const { index } = await reconstructBundleFromDb(db, submissionId);
+  // Build EventIndex from the stored bundle blob.
+  const { index } = await reconstructBundleFromDb(db, storage, submissionId);
 
   // Run v2 reconstructor. `upToGlobalIdx` semantics: exclusive upper bound.
   const replayState = reconstructFileWithProvenance(index, filePath, atSeq);

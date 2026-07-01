@@ -56,21 +56,21 @@ import {
 } from '@provenance/log-core';
 import type { BundleManifest, SlogMeta, Checkpoint, Envelope, Range } from '@provenance/log-core';
 
-import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
-import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
-import { computeStats } from '@provenance/analyzer/src/index/stats.js';
-import { runValidation } from '@provenance/analyzer/src/validation/run-validation.js';
-import { runHeuristics } from '@provenance/analyzer/src/heuristics/run-heuristics.js';
-import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import { computeStats } from '@provenance/analysis-core/index/stats.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import { runHeuristics } from '@provenance/analysis-core/heuristics/run-heuristics.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
 // Per-check breakdown (BENCH_CHECKS=1): the 8 validation checks in spec order.
-import { verifyManifestSig } from '@provenance/analyzer/src/validation/verify-manifest-sig.js';
-import { verifySessionBinding } from '@provenance/analyzer/src/validation/verify-session-binding.js';
-import { verifyChain } from '@provenance/analyzer/src/validation/verify-chain.js';
-import { verifySeq } from '@provenance/analyzer/src/validation/verify-seq.js';
-import { verifyMonotonicT } from '@provenance/analyzer/src/validation/verify-monotonic-t.js';
-import { verifyMonotonicWall } from '@provenance/analyzer/src/validation/verify-monotonic-wall.js';
-import { verifyDocSaveHashes } from '@provenance/analyzer/src/validation/verify-doc-save-hashes.js';
-import { verifySubmittedCode } from '@provenance/analyzer/src/validation/verify-submitted-code.js';
+import { verifyManifestSig } from '@provenance/analysis-core/validation/verify-manifest-sig.js';
+import { verifySessionBinding } from '@provenance/analysis-core/validation/verify-session-binding.js';
+import { verifyChain } from '@provenance/analysis-core/validation/verify-chain.js';
+import { verifySeq } from '@provenance/analysis-core/validation/verify-seq.js';
+import { verifyMonotonicT } from '@provenance/analysis-core/validation/verify-monotonic-t.js';
+import { verifyMonotonicWall } from '@provenance/analysis-core/validation/verify-monotonic-wall.js';
+import { verifyDocSaveHashes } from '@provenance/analysis-core/validation/verify-doc-save-hashes.js';
+import { verifySubmittedCode } from '@provenance/analysis-core/validation/verify-submitted-code.js';
 
 const ASSIGNMENT = 'hw10';
 const SEMESTER_STR = 'fa2026';

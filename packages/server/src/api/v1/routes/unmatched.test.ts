@@ -48,7 +48,7 @@ import * as schema from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
 import { putBlob } from '../../../services/storage/blobs.js';
 import { ingestStagingKey } from '../../../services/storage/keys.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 120_000 });
 

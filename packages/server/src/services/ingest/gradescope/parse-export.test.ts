@@ -4,8 +4,8 @@
 
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
-import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
 import { parseGradescopeExport } from './parse-export.js';
 
 const PROVENANCE_FILE = /^(manifest\.json|manifest\.sig|session-.*\.slog(\.meta)?)$/;

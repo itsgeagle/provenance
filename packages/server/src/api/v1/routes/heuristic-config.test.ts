@@ -41,8 +41,8 @@ import { DEFAULT_SERVER_CONFIG } from '../../../services/heuristics/config.js';
 import { computeDryRunDiff } from '../../../services/scoring/dry-run.js';
 import { materializeEvents } from '../../../services/ingest/materialize-events.js';
 import { seedSubmission } from '../../../../test/helpers/seed-submission.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
-import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
 import { sql } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------

@@ -64,7 +64,7 @@ import { computeAndStoreStats } from '../services/ingest/stats.js';
 import { runAndStoreValidation } from '../services/ingest/validation.js';
 import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission.js';
 import { withTransaction } from '../db/client.js';
-import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
 import { registerRecomputeHandlers } from './recompute.js';
 import { registerCrossFlagsHandler, enqueueCrossFlagsJob } from './recompute-cross-flags.js';
 import { createRetentionSweepHandler } from './retention-sweep.js';

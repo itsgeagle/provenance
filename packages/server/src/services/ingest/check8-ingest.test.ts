@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { createStorageClient, type StorageClient } from '../../services/storage/client.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { sha256Hex } from '@provenance/log-core';
 import { putBlob } from '../storage/blobs.js';
 import { bundleKey } from '../storage/keys.js';

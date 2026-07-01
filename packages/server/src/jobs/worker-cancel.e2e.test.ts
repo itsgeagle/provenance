@@ -39,7 +39,7 @@ import { startWorker } from './worker.js';
 import { enqueueIngestJob, cancelIngestJob } from '../services/ingest/job-control.js';
 import { stageBlob } from '../services/ingest/stage-blob.js';
 import { createStorageClient, storageConfigFromEnv } from '../services/storage/client.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import type { DrizzleDb } from '../db/client.js';
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 120_000 });

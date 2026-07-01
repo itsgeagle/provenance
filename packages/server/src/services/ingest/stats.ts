@@ -13,11 +13,11 @@
  * and start_length stays 0.
  */
 
-import { buildIndex } from '@provenance/analyzer/src/index/build-index.js';
-import { computeStats } from '@provenance/analyzer/src/index/stats.js';
-import { reconstructFileWithProvenance } from '@provenance/analyzer/src/index/reconstruct-file-provenance.js';
-import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
-import type { EventIndex, IndexedEvent } from '@provenance/analyzer/src/index/event-index.js';
+import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
+import { computeStats } from '@provenance/analysis-core/index/stats.js';
+import { reconstructFileWithProvenance } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import { per_file_stats } from '../../db/schema.js';
 import { sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';

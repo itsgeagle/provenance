@@ -4,7 +4,7 @@ import { withTestDb } from '../../../test/helpers/db.js';
 import { seedSubmission } from '../../../test/helpers/seed-submission.js';
 import { materializeEvents } from './materialize-events.js';
 import { events, submissions } from '../../db/schema.js';
-import type { Bundle, ParsedSession } from '@provenance/analyzer/src/loader/types.js';
+import type { Bundle, ParsedSession } from '@provenance/analysis-core/loader/types.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 

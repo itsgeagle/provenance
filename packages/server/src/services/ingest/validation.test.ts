@@ -25,8 +25,8 @@ import { withTestDb } from '../../../test/helpers/db.js';
 import { seedSubmission } from '../../../test/helpers/seed-submission.js';
 import { runAndStoreValidation } from './validation.js';
 import { validation_results, submissions } from '../../db/schema.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
-import { loadBundle } from '@provenance/analyzer/src/loader/parse-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+import { loadBundle } from '@provenance/analysis-core/loader/parse-bundle.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 

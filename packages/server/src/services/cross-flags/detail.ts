@@ -13,7 +13,7 @@ import { cross_flags } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
 import type { CrossFlagSummary } from './list.js';
 import { fetchParticipants } from './list.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 export type CrossFlagDetailResult = {
   item: CrossFlagSummary;

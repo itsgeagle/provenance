@@ -27,9 +27,9 @@
  *   spec order, the assertion will catch it loudly.
  */
 
-import { runValidation } from '@provenance/analyzer/src/validation/run-validation.js';
-import type { Bundle } from '@provenance/analyzer/src/loader/types.js';
-import type { ValidationReport } from '@provenance/analyzer/src/validation/check-types.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import type { Bundle } from '@provenance/analysis-core/loader/types.js';
+import type { ValidationReport } from '@provenance/analysis-core/validation/check-types.js';
 import { validation_results, submissions } from '../../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../db/client.js';

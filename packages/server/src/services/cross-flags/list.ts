@@ -24,7 +24,7 @@ import {
   assignments,
 } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 import { projectStudent } from '../protect.js';
 
 // ---------------------------------------------------------------------------

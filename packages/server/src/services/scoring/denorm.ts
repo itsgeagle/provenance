@@ -11,7 +11,7 @@
  * shape ever changes, update here and the migration's backfill in lockstep.
  */
 
-import type { Severity } from '@provenance/analyzer/src/heuristics/types.js';
+import type { Severity } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
 // Types

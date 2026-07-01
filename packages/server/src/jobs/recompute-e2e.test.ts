@@ -42,7 +42,7 @@ import {
 } from '../db/schema.js';
 import * as schema from '../db/schema.js';
 import { startWorker } from './worker.js';
-import { buildTestBundle } from '@provenance/analyzer/test/helpers/build-test-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import type { DrizzleDb } from '../db/client.js';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
