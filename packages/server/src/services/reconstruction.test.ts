@@ -1,18 +1,28 @@
 /**
  * Unit/integration tests for services/reconstruction.ts — Phase 18.
  *
- * Tests:
- *   1. Cold reconstruction returns expected content for a synthetic bundle.
- *   2. Cache hit returns same object reference (no DB round-trip).
- *   3. Eviction: fill cache past capacity → oldest entries evicted.
- *   4. Tainted file path → tainted flag returned correctly.
- *   5. Missing file path → throws FILE_NOT_FOUND.
+ * Events are no longer stored in Postgres: reconstructFile parses the stored
+ * bundle blob (via loadSubmissionIndex) and replays the file. Tests seed a real
+ * bundle whose events (doc.open 'hello' + doc.change ' world') reconstruct to
+ * 'hello world', plus the per_file_stats row reconstructFile checks first.
  *
- * Uses testcontainers Postgres (not mocked) for realistic DB state.
+ * Note on provenance indices: with a real bundle the session's `session.start`
+ * is globalIdx 0, so doc.open is globalIdx 1 and doc.change is globalIdx 2 (the
+ * old DB-seeded test used 0 and 1 because it had no session.start row).
+ *
+ * Tests:
+ *   1. Cold reconstruction returns 'hello world' with correct provenance.
+ *   2. Cache hit returns same object reference.
+ *   3. Eviction: fill cache past capacity → oldest entry evicted.
+ *   4. Tainted file path → tainted flag returned.
+ *   5. Missing file path → throws FILE_NOT_FOUND.
  */
 
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { withTestDb } from '../../test/helpers/db.js';
+import { withTestMinio } from '../../test/helpers/minio.js';
+import { putSubmissionBundle } from '../../test/helpers/seed-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
 import { parseEnv } from '../config/env.js';
@@ -24,13 +34,12 @@ import {
   assignments,
   ingest_jobs,
   submissions,
-  events,
   per_file_stats,
 } from '../db/schema.js';
 import type { DrizzleDb } from '../db/client.js';
+import type { StorageClient } from './storage/client.js';
 import { reconstructFile, _resetReconstructionCacheForTest } from './reconstruction.js';
-
-vi.setConfig({ testTimeout: 180_000, hookTimeout: 120_000 });
+import { _resetBundleIndexCacheForTest } from './bundle/load-index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,11 +73,7 @@ async function seedSubmission(db: DrizzleDb) {
 
   const [user] = await db
     .insert(users)
-    .values({
-      google_subject: `sub-${uid}`,
-      email: `u-${uid}@test.com`,
-      display_name: 'U',
-    })
+    .values({ google_subject: `sub-${uid}`, email: `u-${uid}@test.com`, display_name: 'U' })
     .returning();
 
   const [course] = await db
@@ -121,45 +126,32 @@ async function seedSubmission(db: DrizzleDb) {
 }
 
 /**
- * Insert a minimal doc.open + doc.change event sequence for file `main.py`.
- * doc.open seeds content 'hello'; doc.change appends ' world'.
- * Final content: 'hello world'.
+ * Build + store a bundle whose events reconstruct file `main.py` to
+ * 'hello world': doc.open seeds 'hello', doc.change appends ' world'.
  */
-async function seedFileEvents(db: DrizzleDb, submissionId: string, sessionId: string) {
-  const events_rows = [
-    {
-      submission_id: submissionId,
-      seq: 0,
-      session_id: sessionId,
-      t: 0,
-      wall: new Date('2024-01-01T10:00:00Z'),
-      kind: 'doc.open',
-      payload: { path: 'main.py', content: 'hello' },
-      prev_hash: '0000',
-      hash: 'hash0',
-    },
-    {
-      submission_id: submissionId,
-      seq: 1,
-      session_id: sessionId,
-      t: 1000,
-      wall: new Date('2024-01-01T10:00:01Z'),
-      kind: 'doc.change',
-      payload: {
-        path: 'main.py',
-        deltas: [
+async function putFileBundle(db: DrizzleDb, storage: StorageClient, submissionId: string) {
+  const { zipBuffer } = await buildTestBundle({
+    sessions: [
+      {
+        events: [
+          { kind: 'doc.open', data: { path: 'main.py', content: 'hello' } },
           {
-            range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
-            text: ' world',
+            kind: 'doc.change',
+            data: {
+              path: 'main.py',
+              deltas: [
+                {
+                  range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
+                  text: ' world',
+                },
+              ],
+            },
           },
         ],
       },
-      prev_hash: 'hash0',
-      hash: 'hash1',
-    },
-  ];
-
-  await db.insert(events).values(events_rows);
+    ],
+  });
+  await putSubmissionBundle(db, storage, submissionId, new Uint8Array(zipBuffer));
 }
 
 async function seedPerFileStats(
@@ -185,6 +177,7 @@ beforeEach(() => {
   _resetConfigForTest();
   _resetLoggerForTest();
   _resetReconstructionCacheForTest();
+  _resetBundleIndexCacheForTest();
 });
 
 // ---------------------------------------------------------------------------
@@ -193,24 +186,26 @@ beforeEach(() => {
 
 describe('reconstructFile — cold reconstruction', () => {
   it('returns expected content from doc.open + doc.change events', async () => {
-    await withTestDb(async (db) => {
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(makeTestEnv()));
 
-      const { submissionId } = await seedSubmission(db);
-      const sessionId = crypto.randomUUID();
-      await seedFileEvents(db, submissionId, sessionId);
-      await seedPerFileStats(db, submissionId, 'main.py');
+        const { submissionId } = await seedSubmission(db);
+        await putFileBundle(db, client, submissionId);
+        await seedPerFileStats(db, submissionId, 'main.py');
 
-      const result = await reconstructFile(db, submissionId, 'main.py');
+        const result = await reconstructFile(db, client, submissionId, 'main.py');
 
-      expect(result.content).toBe('hello world');
-      // provenance should have 11 entries (one per char)
-      expect(result.provenance).toHaveLength(11);
-      // First 5 chars come from doc.open (seq=0), next 6 from doc.change (seq=1).
-      expect(result.provenance.slice(0, 5).every((v) => v === 0)).toBe(true);
-      expect(result.provenance.slice(5).every((v) => v === 1)).toBe(true);
-      expect(result.tainted).toBe(false);
-      expect(result.computedAtMs).toBeGreaterThanOrEqual(0);
+        expect(result.content).toBe('hello world');
+        // provenance should have 11 entries (one per char)
+        expect(result.provenance).toHaveLength(11);
+        // First 5 chars come from doc.open (globalIdx 1), next 6 from
+        // doc.change (globalIdx 2). globalIdx 0 is the session.start event.
+        expect(result.provenance.slice(0, 5).every((v) => v === 1)).toBe(true);
+        expect(result.provenance.slice(5).every((v) => v === 2)).toBe(true);
+        expect(result.tainted).toBe(false);
+        expect(result.computedAtMs).toBeGreaterThanOrEqual(0);
+      });
     });
   });
 });
@@ -221,23 +216,24 @@ describe('reconstructFile — cold reconstruction', () => {
 
 describe('reconstructFile — cache hit', () => {
   it('returns same object reference on second call', async () => {
-    await withTestDb(async (db) => {
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(makeTestEnv()));
 
-      const { submissionId } = await seedSubmission(db);
-      const sessionId = crypto.randomUUID();
-      await seedFileEvents(db, submissionId, sessionId);
-      await seedPerFileStats(db, submissionId, 'main.py');
+        const { submissionId } = await seedSubmission(db);
+        await putFileBundle(db, client, submissionId);
+        await seedPerFileStats(db, submissionId, 'main.py');
 
-      const first = await reconstructFile(db, submissionId, 'main.py');
-      const t0 = Date.now();
-      const second = await reconstructFile(db, submissionId, 'main.py');
-      const elapsed = Date.now() - t0;
+        const first = await reconstructFile(db, client, submissionId, 'main.py');
+        const t0 = Date.now();
+        const second = await reconstructFile(db, client, submissionId, 'main.py');
+        const elapsed = Date.now() - t0;
 
-      // Same object reference proves no recomputation.
-      expect(second).toBe(first);
-      // Cache hit should be very fast (no DB round-trip).
-      expect(elapsed).toBeLessThan(50);
+        // Same object reference proves no recomputation.
+        expect(second).toBe(first);
+        // Cache hit should be very fast (no blob round-trip).
+        expect(elapsed).toBeLessThan(50);
+      });
     });
   });
 });
@@ -248,33 +244,29 @@ describe('reconstructFile — cache hit', () => {
 
 describe('reconstructFile — cache eviction', () => {
   it('evicts oldest entry when capacity is exceeded', async () => {
-    await withTestDb(async (db) => {
-      // Set cache capacity to 2 so we can test eviction easily.
-      _setConfigForTest(parseEnv(makeTestEnv({ RECONSTRUCTION_CACHE_SIZE: '2' })));
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        // Set cache capacity to 2 so we can test eviction easily.
+        _setConfigForTest(parseEnv(makeTestEnv({ RECONSTRUCTION_CACHE_SIZE: '2' })));
 
-      // Seed 3 submissions, each with a file.
-      const submissions_data: Array<{ submissionId: string; sessionId: string }> = [];
-      for (let i = 0; i < 3; i++) {
-        const { submissionId } = await seedSubmission(db);
-        const sessionId = crypto.randomUUID();
-        await seedFileEvents(db, submissionId, sessionId);
-        await seedPerFileStats(db, submissionId, 'main.py');
-        submissions_data.push({ submissionId, sessionId });
-      }
+        // Seed 3 submissions, each with a file.
+        const ids: string[] = [];
+        for (let i = 0; i < 3; i++) {
+          const { submissionId } = await seedSubmission(db);
+          await putFileBundle(db, client, submissionId);
+          await seedPerFileStats(db, submissionId, 'main.py');
+          ids.push(submissionId);
+        }
+        const [s0, s1, s2] = ids;
 
-      const [s0, s1, s2] = submissions_data;
+        const first0 = await reconstructFile(db, client, s0!, 'main.py');
+        await reconstructFile(db, client, s1!, 'main.py');
+        await reconstructFile(db, client, s2!, 'main.py'); // evicts s0
 
-      // Reconstruct file for submission 0 → cached.
-      const first0 = await reconstructFile(db, s0!.submissionId, 'main.py');
-      // Reconstruct file for submission 1 → cached (cache full at capacity=2).
-      await reconstructFile(db, s1!.submissionId, 'main.py');
-      // Reconstruct file for submission 2 → evicts submission 0.
-      await reconstructFile(db, s2!.submissionId, 'main.py');
-
-      // submission 0 was evicted; next call recomputes (new object).
-      const second0 = await reconstructFile(db, s0!.submissionId, 'main.py');
-      expect(second0).not.toBe(first0);
-      expect(second0.content).toBe(first0.content); // Same content, different object.
+        const second0 = await reconstructFile(db, client, s0!, 'main.py');
+        expect(second0).not.toBe(first0);
+        expect(second0.content).toBe(first0.content); // Same content, different object.
+      });
     });
   });
 });
@@ -285,17 +277,18 @@ describe('reconstructFile — cache eviction', () => {
 
 describe('reconstructFile — tainted file', () => {
   it('returns tainted=true when per_file_stats.reconstruction_tainted is true', async () => {
-    await withTestDb(async (db) => {
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(makeTestEnv()));
 
-      const { submissionId } = await seedSubmission(db);
-      const sessionId = crypto.randomUUID();
-      await seedFileEvents(db, submissionId, sessionId);
-      await seedPerFileStats(db, submissionId, 'main.py', { tainted: true });
+        const { submissionId } = await seedSubmission(db);
+        await putFileBundle(db, client, submissionId);
+        await seedPerFileStats(db, submissionId, 'main.py', { tainted: true });
 
-      const result = await reconstructFile(db, submissionId, 'main.py');
+        const result = await reconstructFile(db, client, submissionId, 'main.py');
 
-      expect(result.tainted).toBe(true);
+        expect(result.tainted).toBe(true);
+      });
     });
   });
 });
@@ -306,14 +299,17 @@ describe('reconstructFile — tainted file', () => {
 
 describe('reconstructFile — missing file path', () => {
   it('throws FILE_NOT_FOUND for path not in per_file_stats', async () => {
-    await withTestDb(async (db) => {
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        _setConfigForTest(parseEnv(makeTestEnv()));
 
-      const { submissionId } = await seedSubmission(db);
-      // Do NOT seed per_file_stats or events for this path.
+        const { submissionId } = await seedSubmission(db);
+        // Do NOT seed per_file_stats for this path — reconstructFile checks
+        // per_file_stats before touching the blob, so no bundle is needed.
 
-      await expect(reconstructFile(db, submissionId, 'nonexistent.py')).rejects.toMatchObject({
-        code: 'FILE_NOT_FOUND',
+        await expect(reconstructFile(db, client, submissionId, 'nonexistent.py')).rejects.toMatchObject(
+          { code: 'FILE_NOT_FOUND' },
+        );
       });
     });
   });

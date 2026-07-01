@@ -3,19 +3,21 @@
  *
  * Tests all file endpoints through createV1App() per V18 rule.
  *
- * Test groups:
- *   1. GET /submissions/:id/files/:path/content — happy path
- *   2. GET /submissions/:id/files/:path/content — with at_seq param
- *   3. GET /submissions/:id/files/:path/content — non-existent path → 404
- *   4. GET /submissions/:id/files/:path/content — tainted file → 200 + warning
- *   5. GET /submissions/:id/files/:path/content — Cache-Control header
- *   6. GET /submissions/:id/files/:path/provenance — happy path + RLE coverage
- *   7. GET /submissions/:id/files/:path/provenance — runs cover full content length
- *   8. GET /submissions/:id/files/:path/content — unauthenticated → 401
+ * Events are no longer stored in Postgres: the routes parse the stored bundle
+ * blob on demand (via getStorageClient() → loadSubmissionIndex). Each test spins
+ * a MinIO container, points the app config at it, and seeds a bundle whose events
+ * (doc.open 'hello' + doc.change ' world' + doc.save) reconstruct file main.py.
+ *
+ * globalIdx note: the bundle's session.start is globalIdx 0, so doc.open=1,
+ * doc.change=2, doc.save=3 (the old DB-seeded test used 0/1/2). The default
+ * at_seq is the last doc.save (3); at_seq=2 stops before doc.change → 'hello'.
  */
 
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { withTestDb } from '../../../../test/helpers/db.js';
+import { withTestMinio } from '../../../../test/helpers/minio.js';
+import { putSubmissionBundle } from '../../../../test/helpers/seed-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../../config/index.js';
 import { _resetLoggerForTest } from '../../../logging.js';
 import { parseEnv } from '../../../config/env.js';
@@ -30,11 +32,12 @@ import {
   assignments,
   ingest_jobs,
   submissions,
-  events,
   per_file_stats,
 } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
+import type { StorageClient } from '../../../services/storage/client.js';
 import { _resetReconstructionCacheForTest } from '../../../services/reconstruction.js';
+import { _resetBundleIndexCacheForTest } from '../../../services/bundle/load-index.js';
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 120_000 });
 
@@ -59,6 +62,7 @@ beforeEach(() => {
   _resetConfigForTest();
   _resetLoggerForTest();
   _resetReconstructionCacheForTest();
+  _resetBundleIndexCacheForTest();
 });
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,11 @@ function makeTestEnv(extra?: Record<string, string>) {
     RECONSTRUCTION_CACHE_SIZE: '100',
     ...extra,
   };
+}
+
+/** Config env wired to the ephemeral MinIO endpoint/bucket. */
+function envForMinio(endpoint: string, bucket: string, extra?: Record<string, string>) {
+  return makeTestEnv({ OBJECT_STORAGE_ENDPOINT: endpoint, OBJECT_STORAGE_BUCKET: bucket, ...extra });
 }
 
 async function seedUser(db: DrizzleDb) {
@@ -142,8 +151,14 @@ async function seedMembership(db: DrizzleDb, userId: string, semesterId: string)
   });
 }
 
+/**
+ * Seed a submission whose stored bundle reconstructs file main.py to
+ * 'hello world' (doc.open 'hello' → doc.change ' world' → doc.save), plus a
+ * per_file_stats row.
+ */
 async function seedSubmissionWithFile(
   db: DrizzleDb,
+  storage: StorageClient,
   semesterId: string,
   opts?: { tainted?: boolean },
 ) {
@@ -184,54 +199,30 @@ async function seedSubmissionWithFile(
     version_index: 1,
   });
 
-  const sessionId = crypto.randomUUID();
-
-  // Seed doc.open (initial content "hello") + doc.change (appends " world").
-  await db.insert(events).values([
-    {
-      submission_id: submissionId,
-      seq: 0,
-      session_id: sessionId,
-      t: 0,
-      wall: new Date('2024-01-01T10:00:00Z'),
-      kind: 'doc.open',
-      payload: { path: 'main.py', content: 'hello' },
-      prev_hash: '0000',
-      hash: 'hash0',
-    },
-    {
-      submission_id: submissionId,
-      seq: 1,
-      session_id: sessionId,
-      t: 1000,
-      wall: new Date('2024-01-01T10:00:01Z'),
-      kind: 'doc.change',
-      payload: {
-        path: 'main.py',
-        deltas: [
+  const { zipBuffer } = await buildTestBundle({
+    sessions: [
+      {
+        events: [
+          { kind: 'doc.open', data: { path: 'main.py', content: 'hello' } },
           {
-            range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
-            text: ' world',
+            kind: 'doc.change',
+            data: {
+              path: 'main.py',
+              deltas: [
+                {
+                  range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
+                  text: ' world',
+                },
+              ],
+            },
           },
+          { kind: 'doc.save', data: { path: 'main.py', sha256: 'abc123' } },
         ],
       },
-      prev_hash: 'hash0',
-      hash: 'hash1',
-    },
-    {
-      submission_id: submissionId,
-      seq: 2,
-      session_id: sessionId,
-      t: 2000,
-      wall: new Date('2024-01-01T10:00:02Z'),
-      kind: 'doc.save',
-      payload: { path: 'main.py', sha256: 'abc123' },
-      prev_hash: 'hash1',
-      hash: 'hash2',
-    },
-  ]);
+    ],
+  });
+  await putSubmissionBundle(db, storage, submissionId, new Uint8Array(zipBuffer));
 
-  // Seed per_file_stats row.
   await db.insert(per_file_stats).values({
     submission_id: submissionId,
     file_path: 'main.py',
@@ -244,172 +235,167 @@ async function seedSubmissionWithFile(
     reconstruction_tainted: opts?.tainted ?? false,
   });
 
-  return { submissionId, sessionId };
+  return { submissionId };
 }
 
 // ---------------------------------------------------------------------------
-// §1. GET /submissions/:id/files/:path/content — happy path
+// §1–5, 8. GET /submissions/:id/files/:path/content
 // ---------------------------------------------------------------------------
 
 describe('GET /submissions/:id/files/:path/content', () => {
   it('happy path: returns correct content + metadata', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(envForMinio(endpoint, bucketName)));
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id);
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id);
 
-      const { submissionId } = await seedSubmissionWithFile(db, semester.id);
+        const { submissionId } = await seedSubmissionWithFile(db, client, semester.id);
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${submissionId}/files/main.py/content`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${submissionId}/files/main.py/content`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['submission_id']).toBe(submissionId);
-      expect(body['path']).toBe('main.py');
-      expect(body['content']).toBe('hello world');
-      expect(typeof body['computed_at_ms']).toBe('number');
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body['submission_id']).toBe(submissionId);
+        expect(body['path']).toBe('main.py');
+        expect(body['content']).toBe('hello world');
+        expect(typeof body['computed_at_ms']).toBe('number');
+      });
     });
   });
 
-  // -------------------------------------------------------------------------
-  // §2. GET /submissions/:id/files/:path/content — with at_seq
-  // -------------------------------------------------------------------------
+  it('with at_seq=2: reconstruction stops before doc.change (only "hello")', async () => {
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(envForMinio(endpoint, bucketName)));
 
-  it('with at_seq=1: reconstruction stops before doc.change (only "hello")', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id);
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id);
+        const { submissionId } = await seedSubmissionWithFile(db, client, semester.id);
 
-      const { submissionId } = await seedSubmissionWithFile(db, semester.id);
+        const app = createV1App();
+        // globalIdx: session.start=0, doc.open=1, doc.change=2. at_seq is an
+        // exclusive upper bound → at_seq=2 includes doc.open (1), excludes
+        // doc.change (2), so content is just 'hello'.
+        const res = await app.fetch(
+          new Request(
+            `http://localhost/submissions/${submissionId}/files/main.py/content?at_seq=2`,
+            { headers: { Cookie: `__Host-prov_sess=${sessionId}` } },
+          ),
+        );
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${submissionId}/files/main.py/content?at_seq=1`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
-
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
-      // at_seq=1 is exclusive upper bound — doc.open (seq=0) is included, doc.change (seq=1) is NOT.
-      expect(body['content']).toBe('hello');
-      expect(body['at_seq']).toBe(1);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body['content']).toBe('hello');
+        expect(body['at_seq']).toBe(2);
+      });
     });
   });
-
-  // -------------------------------------------------------------------------
-  // §3. Non-existent path → 404 FILE_NOT_FOUND
-  // -------------------------------------------------------------------------
 
   it('returns 404 FILE_NOT_FOUND for path not in per_file_stats', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(envForMinio(endpoint, bucketName)));
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id);
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id);
 
-      const { submissionId } = await seedSubmissionWithFile(db, semester.id);
+        const { submissionId } = await seedSubmissionWithFile(db, client, semester.id);
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${submissionId}/files/nonexistent.py/content`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${submissionId}/files/nonexistent.py/content`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(404);
-      const body = (await res.json()) as Record<string, unknown>;
-      const error = body['error'] as Record<string, unknown>;
-      expect(error['code']).toBe('FILE_NOT_FOUND');
+        expect(res.status).toBe(404);
+        const body = (await res.json()) as Record<string, unknown>;
+        const error = body['error'] as Record<string, unknown>;
+        expect(error['code']).toBe('FILE_NOT_FOUND');
+      });
     });
   });
-
-  // -------------------------------------------------------------------------
-  // §4. Tainted file → 200 with empty content + warning
-  // -------------------------------------------------------------------------
 
   it('tainted file returns 200 with content:"" and warning field', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(envForMinio(endpoint, bucketName)));
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id);
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id);
 
-      const { submissionId } = await seedSubmissionWithFile(db, semester.id, { tainted: true });
+        const { submissionId } = await seedSubmissionWithFile(db, client, semester.id, {
+          tainted: true,
+        });
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${submissionId}/files/main.py/content`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${submissionId}/files/main.py/content`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['content']).toBe('');
-      const warning = body['warning'] as Record<string, unknown>;
-      expect(warning['code']).toBe('FILE_RECONSTRUCTION_TAINTED');
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body['content']).toBe('');
+        const warning = body['warning'] as Record<string, unknown>;
+        expect(warning['code']).toBe('FILE_RECONSTRUCTION_TAINTED');
+      });
     });
   });
-
-  // -------------------------------------------------------------------------
-  // §5. Cache-Control header
-  // -------------------------------------------------------------------------
 
   it('sets Cache-Control: max-age=60, private', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(envForMinio(endpoint, bucketName)));
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id);
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id);
 
-      const { submissionId } = await seedSubmissionWithFile(db, semester.id);
+        const { submissionId } = await seedSubmissionWithFile(db, client, semester.id);
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${submissionId}/files/main.py/content`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${submissionId}/files/main.py/content`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(200);
-      expect(res.headers.get('cache-control')).toBe('max-age=60, private');
+        expect(res.status).toBe(200);
+        expect(res.headers.get('cache-control')).toBe('max-age=60, private');
+      });
     });
   });
-
-  // -------------------------------------------------------------------------
-  // §8. Unauthenticated → 401
-  // -------------------------------------------------------------------------
 
   it('returns 401 without auth cookie', async () => {
     await withTestDb(async (db) => {
       _testDb = db;
       _setConfigForTest(parseEnv(makeTestEnv()));
 
-      // We just need a valid-looking submissionId.
+      // Auth fails before any storage access — no MinIO needed.
       const fakeId = crypto.randomUUID();
       const app = createV1App();
       const res = await app.fetch(
@@ -422,85 +408,82 @@ describe('GET /submissions/:id/files/:path/content', () => {
 });
 
 // ---------------------------------------------------------------------------
-// §6. GET /submissions/:id/files/:path/provenance — happy path
+// §6–7. GET /submissions/:id/files/:path/provenance
 // ---------------------------------------------------------------------------
 
 describe('GET /submissions/:id/files/:path/provenance', () => {
   it('happy path: returns RLE provenance with correct shape', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(envForMinio(endpoint, bucketName)));
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id);
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id);
 
-      const { submissionId } = await seedSubmissionWithFile(db, semester.id);
+        const { submissionId } = await seedSubmissionWithFile(db, client, semester.id);
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${submissionId}/files/main.py/provenance`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${submissionId}/files/main.py/provenance`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['submission_id']).toBe(submissionId);
-      expect(body['path']).toBe('main.py');
-      expect(typeof body['length']).toBe('number');
-      const provenance = body['provenance'] as Array<Record<string, unknown>>;
-      expect(Array.isArray(provenance)).toBe(true);
-      // Each run must have offset, length, kind, event_seq fields.
-      for (const run of provenance) {
-        expect(typeof run['offset']).toBe('number');
-        expect(typeof run['length']).toBe('number');
-        expect(typeof run['kind']).toBe('string');
-        expect(typeof run['event_seq']).toBe('number');
-      }
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body['submission_id']).toBe(submissionId);
+        expect(body['path']).toBe('main.py');
+        expect(typeof body['length']).toBe('number');
+        const provenance = body['provenance'] as Array<Record<string, unknown>>;
+        expect(Array.isArray(provenance)).toBe(true);
+        for (const run of provenance) {
+          expect(typeof run['offset']).toBe('number');
+          expect(typeof run['length']).toBe('number');
+          expect(typeof run['kind']).toBe('string');
+          expect(typeof run['event_seq']).toBe('number');
+        }
+      });
     });
   });
 
-  // -------------------------------------------------------------------------
-  // §7. Provenance runs cover the full content length
-  // -------------------------------------------------------------------------
-
   it('provenance runs cover the full content length', async () => {
-    await withTestDb(async (db) => {
-      _testDb = db;
-      _setConfigForTest(parseEnv(makeTestEnv()));
+    await withTestMinio(async ({ client, endpoint, bucketName }) => {
+      await withTestDb(async (db) => {
+        _testDb = db;
+        _setConfigForTest(parseEnv(envForMinio(endpoint, bucketName)));
 
-      const user = await seedUser(db);
-      const sessionId = await seedSession(db, user.id);
-      const { semester } = await seedCourseAndSemester(db);
-      await seedMembership(db, user.id, semester.id);
+        const user = await seedUser(db);
+        const sessionId = await seedSession(db, user.id);
+        const { semester } = await seedCourseAndSemester(db);
+        await seedMembership(db, user.id, semester.id);
 
-      const { submissionId } = await seedSubmissionWithFile(db, semester.id);
+        const { submissionId } = await seedSubmissionWithFile(db, client, semester.id);
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${submissionId}/files/main.py/provenance`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${submissionId}/files/main.py/provenance`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
-      const totalLength = body['length'] as number;
-      const provenance = body['provenance'] as Array<{ offset: number; length: number }>;
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        const totalLength = body['length'] as number;
+        const provenance = body['provenance'] as Array<{ offset: number; length: number }>;
 
-      // Sum of run lengths must equal total content length.
-      const sumOfRunLengths = provenance.reduce((sum, r) => sum + r.length, 0);
-      expect(sumOfRunLengths).toBe(totalLength);
+        const sumOfRunLengths = provenance.reduce((sum, r) => sum + r.length, 0);
+        expect(sumOfRunLengths).toBe(totalLength);
 
-      // Runs must be non-overlapping and contiguous.
-      let expectedOffset = 0;
-      for (const run of provenance) {
-        expect(run.offset).toBe(expectedOffset);
-        expectedOffset += run.length;
-      }
-      expect(expectedOffset).toBe(totalLength);
+        let expectedOffset = 0;
+        for (const run of provenance) {
+          expect(run.offset).toBe(expectedOffset);
+          expectedOffset += run.length;
+        }
+        expect(expectedOffset).toBe(totalLength);
+      });
     });
   });
 });

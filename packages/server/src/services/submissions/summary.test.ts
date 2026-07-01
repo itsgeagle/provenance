@@ -6,10 +6,17 @@
  * - source_filename does not contain the real uploaded filename when protectedMode=true
  * - files[].path (workspace file paths inside the submission) are NOT masked
  * - Non-protected mode returns real values unchanged
+ *
+ * Events are no longer persisted in Postgres — session_ids now come from the
+ * stored bundle blob's manifest (via loadSubmissionIndex), so every test here
+ * seeds a bundle blob in a test MinIO alongside the submission row.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { withTestDb } from '../../../test/helpers/db.js';
+import { withTestMinio } from '../../../test/helpers/minio.js';
+import { putSubmissionBundle } from '../../../test/helpers/seed-bundle.js';
+import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import {
   courses,
   semesters,
@@ -21,7 +28,13 @@ import {
   per_file_stats,
 } from '../../db/schema.js';
 import type { DrizzleDb } from '../../db/client.js';
+import type { StorageClient } from '../storage/client.js';
 import { getSubmissionSummary } from './summary.js';
+import { _resetBundleIndexCacheForTest } from '../bundle/load-index.js';
+
+beforeEach(() => {
+  _resetBundleIndexCacheForTest();
+});
 
 // ---------------------------------------------------------------------------
 // Seed helpers (mirrored from cohort/list.test.ts pattern)
@@ -133,112 +146,135 @@ async function seedSubmission(
 // Tests
 // ---------------------------------------------------------------------------
 
+/** Build + store a single-session bundle blob for `submissionId`; returns its sessionId. */
+async function seedBundleForSubmission(
+  db: DrizzleDb,
+  storage: StorageClient,
+  submissionId: string,
+): Promise<string> {
+  const sessionId = crypto.randomUUID();
+  const { zipBuffer } = await buildTestBundle({ sessions: [{ sessionId, eventCount: 2 }] });
+  await putSubmissionBundle(db, storage, submissionId, new Uint8Array(zipBuffer));
+  return sessionId;
+}
+
 describe('getSubmissionSummary — protected mode masking', () => {
   it('masks student identity and source_filename when protectedMode=true', async () => {
-    await withTestDb(async (db) => {
-      const user = await seedUser(db);
-      const { semester } = await seedCourseAndSemester(db);
-      const student = await seedStudent(db, semester.id, {
-        sid: 'smith123',
-        displayName: 'John Smith',
-        protectedIndex: 7,
-      });
-      const assignment = await seedAssignment(db, semester.id);
-      const job = await seedIngestJob(db, semester.id, user.id);
-      const sub = await seedSubmission(db, {
-        semesterId: semester.id,
-        assignmentId: assignment.id,
-        studentId: student.id,
-        ingestJobId: job.id,
-        sourceFilename: 'smith_john_hw01.zip',
-      });
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        const user = await seedUser(db);
+        const { semester } = await seedCourseAndSemester(db);
+        const student = await seedStudent(db, semester.id, {
+          sid: 'smith123',
+          displayName: 'John Smith',
+          protectedIndex: 7,
+        });
+        const assignment = await seedAssignment(db, semester.id);
+        const job = await seedIngestJob(db, semester.id, user.id);
+        const sub = await seedSubmission(db, {
+          semesterId: semester.id,
+          assignmentId: assignment.id,
+          studentId: student.id,
+          ingestJobId: job.id,
+          sourceFilename: 'smith_john_hw01.zip',
+        });
+        const sessionId = await seedBundleForSubmission(db, client, sub.id);
 
-      // Seed a per_file_stat to verify files[].path is NOT masked
-      await db.insert(per_file_stats).values({
-        submission_id: sub.id,
-        file_path: 'lab01/q1.py',
-        saves: 3,
-        chars_typed: 100,
-        chars_pasted: 0,
-        chars_external_change_delta: 0,
-        final_length: 100,
-        start_length: 0,
+        // Seed a per_file_stat to verify files[].path is NOT masked
+        await db.insert(per_file_stats).values({
+          submission_id: sub.id,
+          file_path: 'lab01/q1.py',
+          saves: 3,
+          chars_typed: 100,
+          chars_pasted: 0,
+          chars_external_change_delta: 0,
+          final_length: 100,
+          start_length: 0,
+        });
+
+        const summary = await getSubmissionSummary(db, client, sub.id, true);
+        expect(summary).not.toBeNull();
+
+        // student.display_name must match /^Student \d+$/
+        expect(summary!.student.display_name).toMatch(/^Student \d+$/);
+        // student.sid must start with S
+        expect(summary!.student.sid).toMatch(/^S/);
+        // source_filename must NOT contain 'smith' or 'john'
+        expect(summary!.source_filename.toLowerCase()).not.toContain('smith');
+        expect(summary!.source_filename.toLowerCase()).not.toContain('john');
+        // The label should be Student 7 — submission (using the protected_index)
+        expect(summary!.source_filename).toBe('Student 7 — submission');
+        // files[].path must NOT be masked (out of scope per spec)
+        expect(summary!.files[0]!.path).toBe('lab01/q1.py');
+        // session_ids now come from the stored bundle's manifest (in manifest order).
+        expect(summary!.session_ids).toEqual([sessionId]);
       });
-
-      const summary = await getSubmissionSummary(db, sub.id, true);
-      expect(summary).not.toBeNull();
-
-      // student.display_name must match /^Student \d+$/
-      expect(summary!.student.display_name).toMatch(/^Student \d+$/);
-      // student.sid must start with S
-      expect(summary!.student.sid).toMatch(/^S/);
-      // source_filename must NOT contain 'smith' or 'john'
-      expect(summary!.source_filename.toLowerCase()).not.toContain('smith');
-      expect(summary!.source_filename.toLowerCase()).not.toContain('john');
-      // The label should be Student 7 — submission (using the protected_index)
-      expect(summary!.source_filename).toBe('Student 7 — submission');
-      // files[].path must NOT be masked (out of scope per spec)
-      expect(summary!.files[0]!.path).toBe('lab01/q1.py');
     });
   });
 
   it('returns real values when protectedMode=false', async () => {
-    await withTestDb(async (db) => {
-      const user = await seedUser(db);
-      const { semester } = await seedCourseAndSemester(db);
-      const student = await seedStudent(db, semester.id, {
-        sid: 'smith123',
-        displayName: 'John Smith',
-        protectedIndex: 7,
-      });
-      const assignment = await seedAssignment(db, semester.id);
-      const job = await seedIngestJob(db, semester.id, user.id);
-      const sub = await seedSubmission(db, {
-        semesterId: semester.id,
-        assignmentId: assignment.id,
-        studentId: student.id,
-        ingestJobId: job.id,
-        sourceFilename: 'smith_john_hw01.zip',
-      });
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        const user = await seedUser(db);
+        const { semester } = await seedCourseAndSemester(db);
+        const student = await seedStudent(db, semester.id, {
+          sid: 'smith123',
+          displayName: 'John Smith',
+          protectedIndex: 7,
+        });
+        const assignment = await seedAssignment(db, semester.id);
+        const job = await seedIngestJob(db, semester.id, user.id);
+        const sub = await seedSubmission(db, {
+          semesterId: semester.id,
+          assignmentId: assignment.id,
+          studentId: student.id,
+          ingestJobId: job.id,
+          sourceFilename: 'smith_john_hw01.zip',
+        });
+        await seedBundleForSubmission(db, client, sub.id);
 
-      const summary = await getSubmissionSummary(db, sub.id, false);
-      expect(summary).not.toBeNull();
+        const summary = await getSubmissionSummary(db, client, sub.id, false);
+        expect(summary).not.toBeNull();
 
-      // Real display name and sid must be present
-      expect(summary!.student.display_name).toBe('John Smith');
-      expect(summary!.student.sid).toBe('smith123');
-      // Real source_filename must be present
-      expect(summary!.source_filename).toBe('smith_john_hw01.zip');
+        // Real display name and sid must be present
+        expect(summary!.student.display_name).toBe('John Smith');
+        expect(summary!.student.sid).toBe('smith123');
+        // Real source_filename must be present
+        expect(summary!.source_filename).toBe('smith_john_hw01.zip');
+      });
     });
   });
 
   it('falls back to UUID-derived label when protected_index is null', async () => {
-    await withTestDb(async (db) => {
-      const user = await seedUser(db);
-      const { semester } = await seedCourseAndSemester(db);
-      // No protectedIndex set — it will be null in the DB
-      const student = await seedStudent(db, semester.id, {
-        sid: 'jones456',
-        displayName: 'Alice Jones',
-      });
-      const assignment = await seedAssignment(db, semester.id);
-      const job = await seedIngestJob(db, semester.id, user.id);
-      const sub = await seedSubmission(db, {
-        semesterId: semester.id,
-        assignmentId: assignment.id,
-        studentId: student.id,
-        ingestJobId: job.id,
-        sourceFilename: 'jones_alice_hw01.zip',
-      });
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        const user = await seedUser(db);
+        const { semester } = await seedCourseAndSemester(db);
+        // No protectedIndex set — it will be null in the DB
+        const student = await seedStudent(db, semester.id, {
+          sid: 'jones456',
+          displayName: 'Alice Jones',
+        });
+        const assignment = await seedAssignment(db, semester.id);
+        const job = await seedIngestJob(db, semester.id, user.id);
+        const sub = await seedSubmission(db, {
+          semesterId: semester.id,
+          assignmentId: assignment.id,
+          studentId: student.id,
+          ingestJobId: job.id,
+          sourceFilename: 'jones_alice_hw01.zip',
+        });
+        await seedBundleForSubmission(db, client, sub.id);
 
-      const summary = await getSubmissionSummary(db, sub.id, true);
-      expect(summary).not.toBeNull();
+        const summary = await getSubmissionSummary(db, client, sub.id, true);
+        expect(summary).not.toBeNull();
 
-      // Fallback: display_name uses UUID stub (still matches /^Student /)
-      expect(summary!.student.display_name).toMatch(/^Student /);
-      // source_filename must not contain 'jones' or 'alice'
-      expect(summary!.source_filename.toLowerCase()).not.toContain('jones');
-      expect(summary!.source_filename.toLowerCase()).not.toContain('alice');
+        // Fallback: display_name uses UUID stub (still matches /^Student /)
+        expect(summary!.student.display_name).toMatch(/^Student /);
+        // source_filename must not contain 'jones' or 'alice'
+        expect(summary!.source_filename.toLowerCase()).not.toContain('jones');
+        expect(summary!.source_filename.toLowerCase()).not.toContain('alice');
+      });
     });
   });
 });
