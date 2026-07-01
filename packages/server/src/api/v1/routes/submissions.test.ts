@@ -254,87 +254,87 @@ describe('GET /submissions/:id', () => {
         const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 2 }] });
         await putSubmissionBundle(db, client, sub.id, new Uint8Array(zipBuffer));
 
-      // Seed a flag
-      await db.insert(flags).values({
-        submission_id: sub.id,
-        semester_id: semester.id,
-        heuristic_id: 'large_paste',
-        severity: 'high',
-        confidence: 0.9,
-        weight_at_compute: 1.0,
-        score_contribution: 8.0,
-        heuristic_config_version: 1,
-      });
+        // Seed a flag
+        await db.insert(flags).values({
+          submission_id: sub.id,
+          semester_id: semester.id,
+          heuristic_id: 'large_paste',
+          severity: 'high',
+          confidence: 0.9,
+          weight_at_compute: 1.0,
+          score_contribution: 8.0,
+          heuristic_config_version: 1,
+        });
 
-      // Seed a per_file_stat
-      await db.insert(per_file_stats).values({
-        submission_id: sub.id,
-        file_path: 'main.py',
-        saves: 3,
-        chars_typed: 100,
-        chars_pasted: 50,
-        chars_external_change_delta: 0,
-        final_length: 150,
-        start_length: 0,
-      });
+        // Seed a per_file_stat
+        await db.insert(per_file_stats).values({
+          submission_id: sub.id,
+          file_path: 'main.py',
+          saves: 3,
+          chars_typed: 100,
+          chars_pasted: 50,
+          chars_external_change_delta: 0,
+          final_length: 150,
+          start_length: 0,
+        });
 
-      // Seed validation_results for synthesis
-      await db.insert(validation_results).values({
-        submission_id: sub.id,
-        check_1_status: 'pass',
-        check_2_status: 'pass',
-        check_3_status: 'fail',
-        check_4_status: 'pass',
-        check_5_status: 'pass',
-        check_6_status: 'pass',
-        check_7_status: 'pass',
-        check_8_status: 'skipped',
-        overall: 'fail',
-        detail: [
-          { id: 'manifest_sig', status: 'pass', label: 'Manifest signature' },
-          { id: 'session_binding', status: 'pass', label: 'Session binding' },
-          {
-            id: 'chain_integrity',
-            status: 'fail',
-            label: 'Chain integrity',
-            detail: 'hash mismatch at seq 5',
-          },
-          { id: 'seq_gaps', status: 'pass', label: 'Seq gaps' },
-          { id: 'monotonic_t', status: 'pass', label: 'Monotonic t' },
-          { id: 'monotonic_wall', status: 'pass', label: 'Monotonic wall' },
-          { id: 'doc_save_hashes', status: 'pass', label: 'Doc save hashes' },
-          { id: 'submitted_code_match', status: 'skipped', label: 'Submitted code match' },
-        ] as unknown,
-      });
+        // Seed validation_results for synthesis
+        await db.insert(validation_results).values({
+          submission_id: sub.id,
+          check_1_status: 'pass',
+          check_2_status: 'pass',
+          check_3_status: 'fail',
+          check_4_status: 'pass',
+          check_5_status: 'pass',
+          check_6_status: 'pass',
+          check_7_status: 'pass',
+          check_8_status: 'skipped',
+          overall: 'fail',
+          detail: [
+            { id: 'manifest_sig', status: 'pass', label: 'Manifest signature' },
+            { id: 'session_binding', status: 'pass', label: 'Session binding' },
+            {
+              id: 'chain_integrity',
+              status: 'fail',
+              label: 'Chain integrity',
+              detail: 'hash mismatch at seq 5',
+            },
+            { id: 'seq_gaps', status: 'pass', label: 'Seq gaps' },
+            { id: 'monotonic_t', status: 'pass', label: 'Monotonic t' },
+            { id: 'monotonic_wall', status: 'pass', label: 'Monotonic wall' },
+            { id: 'doc_save_hashes', status: 'pass', label: 'Doc save hashes' },
+            { id: 'submitted_code_match', status: 'skipped', label: 'Submitted code match' },
+          ] as unknown,
+        });
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${sub.id}/summary`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${sub.id}/summary`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['id']).toBe(sub.id);
-      expect(body['semester_id']).toBe(semester.id);
-      expect(body['score_total']).toBe(5.0);
-      expect(body['score_max_severity']).toBe('medium');
-      expect(body['validation_status']).toBe('warn');
-      expect(body['superseded']).toBe(false);
-      expect(body['superseded_by_submission_id']).toBeNull();
-      const flagCounts = body['flag_counts'] as Record<string, number>;
-      expect(flagCounts['high']).toBe(1);
-      expect(flagCounts['info']).toBe(0);
-      const files = body['files'] as { path: string; final_length: number; saves: number }[];
-      expect(files).toHaveLength(1);
-      expect(files[0]!.path).toBe('main.py');
-      expect(files[0]!.saves).toBe(3);
-      // validation_overall_detail: chain_integrity=fail + submitted_code_match=skipped
-      expect(typeof body['validation_overall_detail']).toBe('string');
-      expect(body['validation_overall_detail'] as string).toContain('chain_integrity=fail');
-      const asgn = body['assignment'] as Record<string, unknown>;
-      expect(asgn['label']).toBe('HW1');
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body['id']).toBe(sub.id);
+        expect(body['semester_id']).toBe(semester.id);
+        expect(body['score_total']).toBe(5.0);
+        expect(body['score_max_severity']).toBe('medium');
+        expect(body['validation_status']).toBe('warn');
+        expect(body['superseded']).toBe(false);
+        expect(body['superseded_by_submission_id']).toBeNull();
+        const flagCounts = body['flag_counts'] as Record<string, number>;
+        expect(flagCounts['high']).toBe(1);
+        expect(flagCounts['info']).toBe(0);
+        const files = body['files'] as { path: string; final_length: number; saves: number }[];
+        expect(files).toHaveLength(1);
+        expect(files[0]!.path).toBe('main.py');
+        expect(files[0]!.saves).toBe(3);
+        // validation_overall_detail: chain_integrity=fail + submitted_code_match=skipped
+        expect(typeof body['validation_overall_detail']).toBe('string');
+        expect(body['validation_overall_detail'] as string).toContain('chain_integrity=fail');
+        const asgn = body['assignment'] as Record<string, unknown>;
+        expect(asgn['label']).toBe('HW1');
       });
     });
   });
@@ -555,48 +555,48 @@ describe('GET /submissions/:id/stats', () => {
         const { zipBuffer } = await buildTestBundle({ sessions: [{ eventCount: 2 }] });
         await putSubmissionBundle(db, client, sub.id, new Uint8Array(zipBuffer));
 
-      await db.insert(per_file_stats).values([
-        {
-          submission_id: sub.id,
-          file_path: 'main.py',
-          chars_typed: 100,
-          chars_pasted: 50,
-          chars_external_change_delta: 10,
-          saves: 3,
-          final_length: 160,
-          start_length: 0,
-          reconstruction_tainted: false,
-        },
-        {
-          submission_id: sub.id,
-          file_path: 'utils.py',
-          chars_typed: 200,
-          chars_pasted: 0,
-          chars_external_change_delta: 0,
-          saves: 5,
-          final_length: 200,
-          start_length: 0,
-          reconstruction_tainted: false,
-        },
-      ]);
+        await db.insert(per_file_stats).values([
+          {
+            submission_id: sub.id,
+            file_path: 'main.py',
+            chars_typed: 100,
+            chars_pasted: 50,
+            chars_external_change_delta: 10,
+            saves: 3,
+            final_length: 160,
+            start_length: 0,
+            reconstruction_tainted: false,
+          },
+          {
+            submission_id: sub.id,
+            file_path: 'utils.py',
+            chars_typed: 200,
+            chars_pasted: 0,
+            chars_external_change_delta: 0,
+            saves: 5,
+            final_length: 200,
+            start_length: 0,
+            reconstruction_tainted: false,
+          },
+        ]);
 
-      const app = createV1App();
-      const res = await app.fetch(
-        new Request(`http://localhost/submissions/${sub.id}/stats`, {
-          headers: { Cookie: `__Host-prov_sess=${sessionId}` },
-        }),
-      );
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/submissions/${sub.id}/stats`, {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
 
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        per_file: { path: string; chars_typed: number; saves: number }[];
-        aggregate: { chars_typed: number; chars_pasted: number; files: number; saves: number };
-      };
-      expect(body.per_file).toHaveLength(2);
-      expect(body.aggregate.chars_typed).toBe(300);
-      expect(body.aggregate.chars_pasted).toBe(50);
-      expect(body.aggregate.files).toBe(2);
-      expect(body.aggregate.saves).toBe(8);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          per_file: { path: string; chars_typed: number; saves: number }[];
+          aggregate: { chars_typed: number; chars_pasted: number; files: number; saves: number };
+        };
+        expect(body.per_file).toHaveLength(2);
+        expect(body.aggregate.chars_typed).toBe(300);
+        expect(body.aggregate.chars_pasted).toBe(50);
+        expect(body.aggregate.files).toBe(2);
+        expect(body.aggregate.saves).toBe(8);
       });
     });
   });

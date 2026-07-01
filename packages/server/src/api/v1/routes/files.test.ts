@@ -95,7 +95,11 @@ function makeTestEnv(extra?: Record<string, string>) {
 
 /** Config env wired to the ephemeral MinIO endpoint/bucket. */
 function envForMinio(endpoint: string, bucket: string, extra?: Record<string, string>) {
-  return makeTestEnv({ OBJECT_STORAGE_ENDPOINT: endpoint, OBJECT_STORAGE_BUCKET: bucket, ...extra });
+  return makeTestEnv({
+    OBJECT_STORAGE_ENDPOINT: endpoint,
+    OBJECT_STORAGE_BUCKET: bucket,
+    ...extra,
+  });
 }
 
 async function seedUser(db: DrizzleDb) {

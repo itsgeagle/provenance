@@ -104,7 +104,10 @@ export async function loadSubmissionIndex(
     .limit(1);
 
   if (rows.length === 0) {
-    throw new SubmissionBundleError('SUBMISSION_NOT_FOUND', `Submission not found: ${submissionId}`);
+    throw new SubmissionBundleError(
+      'SUBMISSION_NOT_FOUND',
+      `Submission not found: ${submissionId}`,
+    );
   }
   const { blob_object_key: blobKey, blob_sha256: blobSha } = rows[0]!;
 

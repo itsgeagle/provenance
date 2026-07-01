@@ -307,9 +307,9 @@ describe('reconstructFile — missing file path', () => {
         // Do NOT seed per_file_stats for this path — reconstructFile checks
         // per_file_stats before touching the blob, so no bundle is needed.
 
-        await expect(reconstructFile(db, client, submissionId, 'nonexistent.py')).rejects.toMatchObject(
-          { code: 'FILE_NOT_FOUND' },
-        );
+        await expect(
+          reconstructFile(db, client, submissionId, 'nonexistent.py'),
+        ).rejects.toMatchObject({ code: 'FILE_NOT_FOUND' });
       });
     });
   });

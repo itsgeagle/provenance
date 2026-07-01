@@ -14,7 +14,7 @@ Two storage costs dominate (see memory: `project_cost_model`, `project_ingest_pr
 
 Neither is strictly necessary. All analysis (stats, validation, per-submission heuristics, and cross-flags) is computed at ingest time from the in-memory parsed bundle. The `.slog` provenance logs already contain the full event stream, and file content at any point in time can be reconstructed from those events. So we can:
 
-1. **Stop storing event rows.** Compute everything at ingest as we do today, persist only the *derived* results, and re-parse the bundle from S3 on demand for the rare read paths that need raw events (replay, recompute, cross-flag recompute, the events/timeline API, session listing).
+1. **Stop storing event rows.** Compute everything at ingest as we do today, persist only the _derived_ results, and re-parse the bundle from S3 on demand for the rare read paths that need raw events (replay, recompute, cross-flag recompute, the events/timeline API, session listing).
 2. **Stop storing raw source files.** After all ingest-time computation (including hash-chain and manifest-signature verification, which need the source bytes in-memory for check 8), strip the source bytes from the bundle before writing it to its final key. Keep the signed `manifest.json` + `manifest.sig` + `.slog`/`.slog.meta` logs.
 
 While doing this, we also fix a standing architecture violation: the server currently imports analyzer source directly (contrary to `CLAUDE.md`). We extract the shared analysis logic into a new package, `packages/analysis-core`, that both `analyzer` and `server` depend on.
@@ -30,7 +30,7 @@ While doing this, we also fix a standing architecture violation: the server curr
 ## Non-goals
 
 - No change to the recorder, the log file format, the hash chain, or the manifest contents/signature. **The manifest is signed and MUST NOT be modified.**
-- No change to the HTTP API *shapes* unless forced (see §6). If forced, both ends change in one diff.
+- No change to the HTTP API _shapes_ unless forced (see §6). If forced, both ends change in one diff.
 - No data backfill (nothing deployed).
 - No change to retention semantics beyond the fact that there are no longer event rows to (not) purge, and stored blobs are now smaller.
 
@@ -68,7 +68,7 @@ The closure is fully self-contained: nothing in it imports React, the DOM, Vite 
 - Repoint every server import listed in the surface map from `@provenance/analyzer/src/...` (and `@provenance/analyzer/test/helpers/build-test-bundle.js`) to `@provenance/analysis-core` (barrel or subpath).
 - Repoint analyzer's own imports of the moved modules from relative paths / `@/loader` etc. to `@provenance/analysis-core`.
 - Remove `"@provenance/analyzer": "*"` from `server` `package.json` once no server import references analyzer.
-- Root build: analysis-core builds via `npm run build --workspaces` like the other leaf packages. Ensure it builds *before* analyzer/server consume its `dist/` — the repo builds packages independently and server/analyzer resolve via workspace symlinks; add analysis-core `dist` build to the standard flow (leaf libs build to `dist`; server uses `tsx`/`esbuild --packages=external`, analyzer uses Vite — both resolve the package's `exports`).
+- Root build: analysis-core builds via `npm run build --workspaces` like the other leaf packages. Ensure it builds _before_ analyzer/server consume its `dist/` — the repo builds packages independently and server/analyzer resolve via workspace symlinks; add analysis-core `dist` build to the standard flow (leaf libs build to `dist`; server uses `tsx`/`esbuild --packages=external`, analyzer uses Vite — both resolve the package's `exports`).
 
 ### Verification for Part 1 (behavior-preserving refactor)
 
@@ -119,8 +119,8 @@ In `packages/server/src/services/ingest/create-submission.ts`, the blob is curre
 
 - New helper `packages/server/src/services/ingest/strip-bundle.ts`: given the staging bundle ZIP bytes, produce a new ZIP containing **only** `manifest.json`, `manifest.sig`, and every `*.slog` / `*.slog.meta` entry. Drop all other (source) entries. Deterministic zipping (stable order, no timestamps that vary) so the output is reproducible.
 - `putBlob` the stripped ZIP to the final key. Store the **stripped** blob's sha256 in `submissions.blob_sha256` (that column describes the object actually at the key). `deleteBlob` the staging blob.
-- **Safe ordering:** validation check 8 (`submitted_code_match`) runs in phase 8 against the *in-memory* full bundle parsed in phase 3 — it never reads the stored blob. So stripping the stored blob in phase 5 does not affect any ingest-time computation. The manifest still lists `submission_files[]` with their `sha256`; we do not touch it, so the signature stays valid and checks 1–7 remain verifiable on the stored bundle.
-- **Consequence:** re-running check 8 against a *stored* (stripped) bundle would fail (bytes absent). We never re-run validation post-ingest (recompute re-runs only heuristics). Documented explicitly.
+- **Safe ordering:** validation check 8 (`submitted_code_match`) runs in phase 8 against the _in-memory_ full bundle parsed in phase 3 — it never reads the stored blob. So stripping the stored blob in phase 5 does not affect any ingest-time computation. The manifest still lists `submission_files[]` with their `sha256`; we do not touch it, so the signature stays valid and checks 1–7 remain verifiable on the stored bundle.
+- **Consequence:** re-running check 8 against a _stored_ (stripped) bundle would fail (bytes absent). We never re-run validation post-ingest (recompute re-runs only heuristics). Documented explicitly.
 
 ### Source tab (analyzer) — reconstruct from events
 

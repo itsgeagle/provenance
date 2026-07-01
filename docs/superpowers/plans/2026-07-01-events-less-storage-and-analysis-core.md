@@ -30,11 +30,13 @@
 ### Task 1: Scaffold `@provenance/analysis-core`
 
 **Files:**
+
 - Create: `packages/analysis-core/package.json`
 - Create: `packages/analysis-core/tsconfig.json`
 - Create: `packages/analysis-core/src/index.ts` (temporary empty barrel)
 
 **Interfaces:**
+
 - Produces: workspace package `@provenance/analysis-core` building to `dist/` with an `exports` map.
 
 - [ ] **Step 1:** Write `package.json` mirroring `packages/log-core/package.json`:
@@ -50,9 +52,15 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./loader": { "types": "./dist/loader/index.d.ts", "import": "./dist/loader/index.js" },
-    "./validation": { "types": "./dist/validation/index.d.ts", "import": "./dist/validation/index.js" },
+    "./validation": {
+      "types": "./dist/validation/index.d.ts",
+      "import": "./dist/validation/index.js"
+    },
     "./index-core": { "types": "./dist/index/index.d.ts", "import": "./dist/index/index.js" },
-    "./heuristics": { "types": "./dist/heuristics/index.d.ts", "import": "./dist/heuristics/index.js" }
+    "./heuristics": {
+      "types": "./dist/heuristics/index.d.ts",
+      "import": "./dist/heuristics/index.js"
+    }
   },
   "scripts": { "build": "tsc -p tsconfig.json" },
   "dependencies": {
@@ -86,11 +94,13 @@
 ### Task 2: Move the shared closure into analysis-core
 
 **Files (move with `git mv`, from `packages/analyzer/src/` → `packages/analysis-core/src/`):**
+
 - `loader/` (all), `validation/` (all), `index/` (all), `heuristics/` (all incl. `cross/`, `config/`), `extensions/detect-ai-extension.ts` (+ `.test.ts`).
 - `packages/analyzer/test/helpers/build-test-bundle.ts` → `packages/analysis-core/test/helpers/build-test-bundle.ts`.
 - Create barrels: `src/index.ts`, `src/loader/index.ts`, `src/validation/index.ts`, `src/index/index.ts`, `src/heuristics/index.ts`.
 
 **Interfaces:**
+
 - Produces (public API re-exported from `src/index.ts`): `loadBundle`, types `Bundle`, `ParsedSession`, `LoaderError`, `SessionParseError`; `runValidation`, `submittedFileVerdicts`, type `ValidationReport`; `buildIndex`, `computeStats`, `reconstructFileWithProvenance`, types `EventIndex`, `IndexedEvent`, `ProvenanceKind`; `runHeuristics`, `DEFAULT_HEURISTIC_CONFIG`, types `HeuristicConfig`, `Severity`; `extractCrossFeatures`, `runCrossHeuristics`, type `CrossSubmissionFeatures`; `detectAiExtension`.
 
 - [ ] **Step 1:** `git mv` each directory/file above. The closure's internal relative imports (e.g. `heuristics/run-heuristics.ts` → `../index/event-index.js`) stay valid because relative structure is preserved. `extensions/detect-ai-extension.ts` is referenced by `heuristics/ai-extension-active.ts` as `../extensions/detect-ai-extension.js` — preserved.
@@ -98,19 +108,19 @@
 - [ ] **Step 3:** Write the barrels. `src/index.ts` re-exports the public API from the subpath barrels; each subpath `index.ts` re-exports its dir's public symbols (values + types). Example `src/loader/index.ts`:
 
 ```ts
-export { loadBundle } from "./parse-bundle.js";
-export type { Bundle, ParsedSession, LoaderError, SessionParseError } from "./types.js";
+export { loadBundle } from './parse-bundle.js';
+export type { Bundle, ParsedSession, LoaderError, SessionParseError } from './types.js';
 ```
 
 Mirror for validation/index/heuristics. `src/index.ts`:
 
 ```ts
-export * from "./loader/index.js";
-export * from "./validation/index.js";
-export * from "./index/index.js";
-export * from "./heuristics/index.js";
-export { detectAiExtension } from "./extensions/detect-ai-extension.js";
-export type { AiDetection } from "./extensions/detect-ai-extension.js";
+export * from './loader/index.js';
+export * from './validation/index.js';
+export * from './index/index.js';
+export * from './heuristics/index.js';
+export { detectAiExtension } from './extensions/detect-ai-extension.js';
+export type { AiDetection } from './extensions/detect-ai-extension.js';
 ```
 
 (If `export *` produces type/name collisions across dirs, switch the colliding barrel to explicit named re-exports.)
@@ -146,11 +156,13 @@ export type { AiDetection } from "./extensions/detect-ai-extension.js";
 ### Task 5: `loadSubmissionIndex` + LRU cache
 
 **Files:**
+
 - Create: `packages/server/src/services/bundle/load-index.ts`
 - Test: `packages/server/src/services/bundle/load-index.test.ts`
 - Reference existing LRU in `packages/server/src/services/reconstruction.ts` (generalize or reuse its cache utility).
 
 **Interfaces:**
+
 - Produces: `loadSubmissionIndex(db, storage, submissionId: string): Promise<{ bundle: Bundle; index: EventIndex }>`. Throws a typed not-found if the submission or blob is missing. Cache key = `${submissionId}:${blob_sha256}`.
 
 - [ ] **Step 1:** Write failing test: seed a submission row with a known `blob_object_key`/`blob_sha256`, put a bundle blob in the test storage, assert `loadSubmissionIndex` returns an index whose event count matches the bundle, and that a second call hits the cache (spy on `getBlob` call count == 1).
@@ -164,6 +176,7 @@ export type { AiDetection } from "./extensions/detect-ai-extension.js";
 **Files:** `services/heuristics/reconstruct-bundle.ts`, `services/reconstruction.ts`, `services/scoring/recompute-submission.ts`; their tests.
 
 **Interfaces:**
+
 - Consumes: `loadSubmissionIndex` (Task 5).
 
 - [ ] **Step 1:** Update `reconstruct-bundle.ts`: replace the `events`-table SELECT in `reconstructBundleFromDb(db, submissionId)` with `loadSubmissionIndex(db, storage, submissionId)` (thread `storage` through its callers). Keep the returned shape (`{ bundle, index, ... }`) stable for callers. Where it previously also read `flags`/`validation_results`, keep those DB reads.
@@ -176,6 +189,7 @@ export type { AiDetection } from "./extensions/detect-ai-extension.js";
 **Files:** `services/events/query.ts` (`queryEvents`, `getEventBySeq`); `api/v1/routes/events.ts`; tests.
 
 **Interfaces:**
+
 - Consumes: `loadSubmissionIndex`. Preserves the `packages/shared` events response + cursor schema exactly.
 
 - [ ] **Step 1:** Read `packages/shared` events schema + `query.ts` to capture the exact response fields, filters (kind, seq/t/wall ranges, path via `payload.path`, session_id), and cursor semantics.
@@ -189,6 +203,7 @@ export type { AiDetection } from "./extensions/detect-ai-extension.js";
 **Files:** `services/heuristics/extract-cross-features-from-db.ts` → replace with extraction from `index` (use analysis-core `extractCrossFeatures`); `services/heuristics/run-cross.ts`; tests.
 
 **Interfaces:**
+
 - Consumes: `loadSubmissionIndex`, `extractCrossFeatures` (analysis-core).
 
 - [ ] **Step 1:** Update `run-cross.ts`: for each submission id in the semester, `loadSubmissionIndex` → `extractCrossFeatures(index)` (the pure analyzer function) → same `CrossSubmissionFeatures` used before. Remove `extract-cross-features-from-db.ts` (or reduce it to a thin adapter that only pulls non-event metadata still needed).
@@ -221,10 +236,12 @@ export type { AiDetection } from "./extensions/detect-ai-extension.js";
 ### Task 11: `strip-bundle` helper
 
 **Files:**
+
 - Create: `packages/server/src/services/ingest/strip-bundle.ts`
 - Test: `packages/server/src/services/ingest/strip-bundle.test.ts`
 
 **Interfaces:**
+
 - Produces: `stripBundleSourceFiles(zipBytes: Uint8Array): Promise<Uint8Array>` — returns a new ZIP containing only `manifest.json`, `manifest.sig`, and every `*.slog` / `*.slog.meta` entry, deterministically ordered.
 
 - [ ] **Step 1:** Write failing test: build a bundle zip (via analysis-core `buildTestBundle`) that includes source files; run `stripBundleSourceFiles`; assert the output entries are exactly the manifest/sig/slog/meta set (no source paths), that `loadBundle(output)` succeeds, and that `runValidation` checks 1–7 still pass on it (manifest sig + chain intact). Assert determinism: stripping twice yields byte-identical output.
@@ -238,6 +255,7 @@ export type { AiDetection } from "./extensions/detect-ai-extension.js";
 **Files:** `services/ingest/create-submission.ts`; its test.
 
 **Interfaces:**
+
 - Consumes: `stripBundleSourceFiles` (Task 11).
 
 - [ ] **Step 1:** Update the failing test for `create-submission`: after ingest, the object at `semesters/.../bundle.zip` contains no source entries but re-parses/validates (checks 1–7). Assert `submissions.blob_sha256` equals the sha256 of the **stripped** blob.
@@ -250,6 +268,7 @@ export type { AiDetection } from "./extensions/detect-ai-extension.js";
 **Files:** `services/submissions/submitted-files.ts`; `services/ingest/validation.ts` (persist per-file check-8 verdicts if not already in `validation_results.detail`); possibly `packages/shared` + analyzer Source view; tests.
 
 **Interfaces:**
+
 - Consumes: `loadSubmissionIndex`, `reconstructFileWithProvenance`, stored `validation_results.detail`.
 
 - [ ] **Step 1 (checkpoint):** Read `validation.ts` + `verify-submitted-code.ts` (`submittedFileVerdicts`) and the `validation_results` schema. Determine whether per-file submitted-code verdicts are already persisted in `detail`. If yes → reuse. If no → extend phase-8 storage to persist them (append to `detail` JSON; no schema change if `detail` is `jsonb`).

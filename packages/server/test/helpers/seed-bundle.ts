@@ -38,7 +38,8 @@ export async function putSubmissionBundle(
     .from(submissions)
     .where(eq(submissions.id, submissionId))
     .limit(1);
-  if (sub === undefined) throw new Error(`putSubmissionBundle: submission not found: ${submissionId}`);
+  if (sub === undefined)
+    throw new Error(`putSubmissionBundle: submission not found: ${submissionId}`);
 
   const { sha256 } = await putBlob(storage, sub.key, bundleBytes);
   await db.update(submissions).set({ blob_sha256: sha256 }).where(eq(submissions.id, submissionId));

@@ -215,12 +215,7 @@ describe('createSubmission', () => {
         const job = await seedIngestJob(db, semester.id, user.id);
 
         const fileId1 = crypto.randomUUID();
-        const stagingKey1 = await stageTestBlob(
-          client,
-          job.id,
-          fileId1,
-          bundleBytes,
-        );
+        const stagingKey1 = await stageTestBlob(client, job.id, fileId1, bundleBytes);
         const result1 = await createSubmission(
           { db, storageClient: client },
           {
@@ -235,12 +230,7 @@ describe('createSubmission', () => {
         );
 
         const fileId2 = crypto.randomUUID();
-        const stagingKey2 = await stageTestBlob(
-          client,
-          job.id,
-          fileId2,
-          bundleBytes,
-        );
+        const stagingKey2 = await stageTestBlob(client, job.id, fileId2, bundleBytes);
         const result2 = await createSubmission(
           { db, storageClient: client },
           {
@@ -312,12 +302,7 @@ describe('createSubmission', () => {
         const job = await seedIngestJob(db, semester.id, user.id);
 
         const fileId1 = crypto.randomUUID();
-        const stagingKey1 = await stageTestBlob(
-          client,
-          job.id,
-          fileId1,
-          bundleBytes,
-        );
+        const stagingKey1 = await stageTestBlob(client, job.id, fileId1, bundleBytes);
         const result1 = await createSubmission(
           { db, storageClient: client },
           {
@@ -332,12 +317,7 @@ describe('createSubmission', () => {
         );
 
         const fileId2 = crypto.randomUUID();
-        const stagingKey2 = await stageTestBlob(
-          client,
-          job.id,
-          fileId2,
-          bundleBytes,
-        );
+        const stagingKey2 = await stageTestBlob(client, job.id, fileId2, bundleBytes);
         const result2 = await createSubmission(
           { db, storageClient: client },
           {
@@ -386,12 +366,7 @@ describe('createSubmission', () => {
         const job = await seedIngestJob(db, semester.id, user.id);
 
         const fileId = crypto.randomUUID();
-        const stagingKey = await stageTestBlob(
-          client,
-          job.id,
-          fileId,
-          bundleBytes,
-        );
+        const stagingKey = await stageTestBlob(client, job.id, fileId, bundleBytes);
 
         const result = await createSubmission(
           { db, storageClient: client },
@@ -438,12 +413,7 @@ describe('createSubmission', () => {
 
         // Seed the first submission (version_index = 1).
         const fileId0 = crypto.randomUUID();
-        const stagingKey0 = await stageTestBlob(
-          client,
-          job.id,
-          fileId0,
-          bundleBytes,
-        );
+        const stagingKey0 = await stageTestBlob(client, job.id, fileId0, bundleBytes);
         await createSubmission(
           { db, storageClient: client },
           {
@@ -461,12 +431,7 @@ describe('createSubmission', () => {
         const results = await Promise.allSettled(
           [1, 2, 3].map(async (n) => {
             const fid = crypto.randomUUID();
-            const key = await stageTestBlob(
-              client,
-              job.id,
-              fid,
-              bundleBytes,
-            );
+            const key = await stageTestBlob(client, job.id, fid, bundleBytes);
             return createSubmission(
               { db, storageClient: client },
               {

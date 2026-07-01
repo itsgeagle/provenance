@@ -177,16 +177,16 @@ whose Google account belongs to your institution's Google Workspace domain can l
 5. Application type: **Web application**.
 6. Name: `Provenance Analyzer`.
 7. **Javascript authorized origins:** add:
-    ```
-    https://provenance.example.edu
-    ```
-    (Replace with your actual domain. For local dev: `http://localhost` and `http://localhost:5173`)
+   ```
+   https://provenance.example.edu
+   ```
+   (Replace with your actual domain. For local dev: `http://localhost` and `http://localhost:5173`)
 8. **Authorized redirect URIs:** add:
    ```
    https://provenance.example.edu/api/v1/auth/google/callback
    ```
    (Replace with your actual domain. For local dev: `http://localhost:3000/api/v1/auth/google/callback`.)
-9.  Click **Create**. Copy the **Client ID** and **Client Secret**.
+9. Click **Create**. Copy the **Client ID** and **Client Secret**.
 
 ### 3.2 Configure hosted domain restriction
 
@@ -313,6 +313,7 @@ resolution.
 ## 6. Retention policy
 
 > **Storage model.** Two deliberate cost decisions shape what is stored:
+>
 > - **Events are not stored in Postgres.** All analysis runs at ingest; only the
 >   derived results (`flags`, `per_file_stats`, `validation_results`, `cross_flags`)
 >   are persisted. Replay, recompute, cross-flags, the events/timeline API and the
@@ -535,33 +536,33 @@ Document the time taken and any issues found. Update this runbook if needed.
 
 ## 10. Environment variable reference
 
-| Variable                           | Required   | Default                                             | Description                                                               |
-| ---------------------------------- | ---------- | --------------------------------------------------- | ------------------------------------------------------------------------- |
-| `DATABASE_URL`                     | Yes        | —                                                   | PostgreSQL connection string                                              |
-| `DATABASE_POOL_MAX`                | No         | `10`                                                | Per-process Postgres connection cap. Must exceed `INGEST_CONCURRENCY` (§2.6) |
+| Variable                           | Required   | Default                                             | Description                                                                    |
+| ---------------------------------- | ---------- | --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`                     | Yes        | —                                                   | PostgreSQL connection string                                                   |
+| `DATABASE_POOL_MAX`                | No         | `10`                                                | Per-process Postgres connection cap. Must exceed `INGEST_CONCURRENCY` (§2.6)   |
 | `INGEST_CONCURRENCY`               | No         | `4`                                                 | Concurrent `ingest_file` jobs per worker. See §2.6 (Scaling the ingest worker) |
-| `PORT`                             | No         | `3000`                                              | HTTP port                                                                 |
-| `NODE_ENV`                         | No         | `development`                                       | `development` or `production`                                             |
-| `GOOGLE_OAUTH_CLIENT_ID`           | Yes        | —                                                   | Google OAuth 2.0 client ID                                                |
-| `GOOGLE_OAUTH_CLIENT_SECRET`       | Yes        | —                                                   | Google OAuth 2.0 client secret                                            |
-| `GOOGLE_OAUTH_REDIRECT_URI`        | No         | `http://localhost:3000/api/v1/auth/google/callback` | OAuth callback URL                                                        |
-| `AUTH_ALLOWED_HOSTED_DOMAINS`      | No         | `berkeley.edu`                                      | Comma-separated allowed `hd` values                                       |
-| `AUTH_SUPERADMIN_EMAILS`           | Yes (prod) | `[]`                                                | Comma-separated superadmin emails                                         |
-| `AUTH_COOKIE_SIGNING_SECRET`       | Yes (prod) | dev sentinel                                        | HMAC signing key for OAuth state cookie                                   |
-| `AUTH_SESSION_TTL_DAYS`            | No         | `14`                                                | Session lifetime in days                                                  |
-| `OBJECT_STORAGE_ENDPOINT`          | Yes        | —                                                   | S3-compatible endpoint URL                                                |
-| `OBJECT_STORAGE_REGION`            | No         | `us-east-1`                                         | S3 region                                                                 |
-| `OBJECT_STORAGE_BUCKET`            | Yes        | —                                                   | Bucket name                                                               |
-| `OBJECT_STORAGE_ACCESS_KEY_ID`     | Yes        | —                                                   | S3 access key                                                             |
-| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Yes        | —                                                   | S3 secret key                                                             |
-| `METRICS_AUTH_TOKEN`               | No         | —                                                   | Bearer token required for `GET /metrics`. If unset, /metrics returns 403. |
-| `RECONSTRUCTION_CACHE_SIZE`        | No         | `100`                                               | LRU cache capacity for file reconstruction                                |
-| `SMTP_HOST`                        | No         | —                                                   | SMTP server for invitation emails                                         |
-| `SMTP_PORT`                        | No         | `587`                                               | SMTP port                                                                 |
-| `SMTP_USER`                        | No         | —                                                   | SMTP username                                                             |
-| `SMTP_PASS`                        | No         | —                                                   | SMTP password                                                             |
-| `SMTP_FROM`                        | No         | `provenance@example.edu`                            | From address for invitation emails                                        |
-| `LOG_LEVEL`                        | No         | `info`                                              | Pino log level: `trace`, `debug`, `info`, `warn`, `error`                 |
+| `PORT`                             | No         | `3000`                                              | HTTP port                                                                      |
+| `NODE_ENV`                         | No         | `development`                                       | `development` or `production`                                                  |
+| `GOOGLE_OAUTH_CLIENT_ID`           | Yes        | —                                                   | Google OAuth 2.0 client ID                                                     |
+| `GOOGLE_OAUTH_CLIENT_SECRET`       | Yes        | —                                                   | Google OAuth 2.0 client secret                                                 |
+| `GOOGLE_OAUTH_REDIRECT_URI`        | No         | `http://localhost:3000/api/v1/auth/google/callback` | OAuth callback URL                                                             |
+| `AUTH_ALLOWED_HOSTED_DOMAINS`      | No         | `berkeley.edu`                                      | Comma-separated allowed `hd` values                                            |
+| `AUTH_SUPERADMIN_EMAILS`           | Yes (prod) | `[]`                                                | Comma-separated superadmin emails                                              |
+| `AUTH_COOKIE_SIGNING_SECRET`       | Yes (prod) | dev sentinel                                        | HMAC signing key for OAuth state cookie                                        |
+| `AUTH_SESSION_TTL_DAYS`            | No         | `14`                                                | Session lifetime in days                                                       |
+| `OBJECT_STORAGE_ENDPOINT`          | Yes        | —                                                   | S3-compatible endpoint URL                                                     |
+| `OBJECT_STORAGE_REGION`            | No         | `us-east-1`                                         | S3 region                                                                      |
+| `OBJECT_STORAGE_BUCKET`            | Yes        | —                                                   | Bucket name                                                                    |
+| `OBJECT_STORAGE_ACCESS_KEY_ID`     | Yes        | —                                                   | S3 access key                                                                  |
+| `OBJECT_STORAGE_SECRET_ACCESS_KEY` | Yes        | —                                                   | S3 secret key                                                                  |
+| `METRICS_AUTH_TOKEN`               | No         | —                                                   | Bearer token required for `GET /metrics`. If unset, /metrics returns 403.      |
+| `RECONSTRUCTION_CACHE_SIZE`        | No         | `100`                                               | LRU cache capacity for file reconstruction                                     |
+| `SMTP_HOST`                        | No         | —                                                   | SMTP server for invitation emails                                              |
+| `SMTP_PORT`                        | No         | `587`                                               | SMTP port                                                                      |
+| `SMTP_USER`                        | No         | —                                                   | SMTP username                                                                  |
+| `SMTP_PASS`                        | No         | —                                                   | SMTP password                                                                  |
+| `SMTP_FROM`                        | No         | `provenance@example.edu`                            | From address for invitation emails                                             |
+| `LOG_LEVEL`                        | No         | `info`                                              | Pino log level: `trace`, `debug`, `info`, `warn`, `error`                      |
 
 ---
 

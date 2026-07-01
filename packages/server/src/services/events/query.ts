@@ -108,7 +108,11 @@ export function decodeEventCursor(cursor: string): { seq: number } | null {
  * chronologically; `prev_hash`/`hash`/`payload` from the raw envelope, looked up
  * by `${sessionId}:${session-local seq}`.
  */
-export function buildEventRows(submissionId: string, bundle: Bundle, index: EventIndex): EventRow[] {
+export function buildEventRows(
+  submissionId: string,
+  bundle: Bundle,
+  index: EventIndex,
+): EventRow[] {
   type Envelope = (typeof bundle.sessions)[number]['events'][number];
   const envelopeMap = new Map<string, Envelope>();
   for (const session of bundle.sessions) {
@@ -211,8 +215,7 @@ export async function queryEvents(
   const allRows = buildEventRows(submissionId, bundle, index);
 
   // Precompute range bounds once.
-  const kindSet =
-    params.kind && params.kind.length > 0 ? new Set(params.kind) : null;
+  const kindSet = params.kind && params.kind.length > 0 ? new Set(params.kind) : null;
   const wallFromMs = params.wall_from !== undefined ? new Date(params.wall_from).getTime() : null;
   const wallToMs = params.wall_to !== undefined ? new Date(params.wall_to).getTime() : null;
   const cursor = params.cursor !== undefined ? decodeEventCursor(params.cursor) : null;
