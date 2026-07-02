@@ -68,17 +68,17 @@ Everything downstream follows from the measured shape of the load. From
 `ingest-700x50k-run.md` (700 students × 50k events, the headline fleet-scale
 scenario):
 
-| Property | Measured / observed | Infra implication |
-|---|---|---|
-| Ingest is **bursty and batch** | one 2.5 GB export, ~17.8 min processing window, a few times/semester | worker tier should **burst then scale toward zero** |
-| Ingest is **DB-write-bound** | `materialize_events` 20.6% + `create_submission` 6.6%; ~76% of per-bundle work is DB | DB write throughput is the lever, not app CPU |
-| Reads are **light, low-concurrency** | tens of course staff drilling into submissions | small always-on API; a read replica covers serving |
-| Data is **audit-permanent, monotonic** | ~22 GB rows + ~12 GB blobs per 700×50k cohort, kept forever | storage grows every semester; size for years, one node |
-| Data is **FERPA / UC P3–P4 sensitive** | student academic-integrity records | private networking, CMEK option, audit logging, US region |
+| Property                               | Measured / observed                                                                  | Infra implication                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Ingest is **bursty and batch**         | one 2.5 GB export, ~17.8 min processing window, a few times/semester                 | worker tier should **burst then scale toward zero**       |
+| Ingest is **DB-write-bound**           | `materialize_events` 20.6% + `create_submission` 6.6%; ~76% of per-bundle work is DB | DB write throughput is the lever, not app CPU             |
+| Reads are **light, low-concurrency**   | tens of course staff drilling into submissions                                       | small always-on API; a read replica covers serving        |
+| Data is **audit-permanent, monotonic** | ~22 GB rows + ~12 GB blobs per 700×50k cohort, kept forever                          | storage grows every semester; size for years, one node    |
+| Data is **FERPA / UC P3–P4 sensitive** | student academic-integrity records                                                   | private networking, CMEK option, audit logging, US region |
 
 The defining trait — **spiky compute on a tiny baseline with durable
 ever-growing storage** — is what rules out Kubernetes, AlloyDB-as-day-one, and
-distributed Postgres for this scale, and rules *in* serverless containers + a
+distributed Postgres for this scale, and rules _in_ serverless containers + a
 right-sized managed core.
 
 ## 3. Where time goes today (and the levers)
@@ -86,11 +86,11 @@ right-sized managed core.
 Grounded in `ingest-700x50k-run.md`. The end-to-end run was ~1369 s, in three
 cost centers with very different optimization stories:
 
-| Bucket | Share | Nature | Lever |
-|---|--:|---|---|
-| Worker DB writes | gates throughput @ ~0.70 bundles/s | `materialize_events` + `create_submission` + tx | `synchronous_commit=off`, partition `events`, Aurora/AlloyDB-class storage |
-| Staging pass | 804.6 s wall | serial, but **outpaces** the worker (0.87 vs 0.70 b/s) — not the gate | lower priority; only matters if the worker gets much faster |
-| Cross-flags | 300 s+ (did not finish) | re-reads all 35M rows to build tiny feature vectors | compute features **at ingest**, persist them; cross-flags reads vectors not events |
+| Bucket           |                              Share | Nature                                                                | Lever                                                                              |
+| ---------------- | ---------------------------------: | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Worker DB writes | gates throughput @ ~0.70 bundles/s | `materialize_events` + `create_submission` + tx                       | `synchronous_commit=off`, partition `events`, Aurora/AlloyDB-class storage         |
+| Staging pass     |                       804.6 s wall | serial, but **outpaces** the worker (0.87 vs 0.70 b/s) — not the gate | lower priority; only matters if the worker gets much faster                        |
+| Cross-flags      |            300 s+ (did not finish) | re-reads all 35M rows to build tiny feature vectors                   | compute features **at ingest**, persist them; cross-flags reads vectors not events |
 
 Two findings from the code review behind this plan are worth carrying into the
 migration because they are host-independent:
@@ -105,7 +105,7 @@ migration because they are host-independent:
   paste feature set per submission (`extract-cross-features-from-db.ts`). The
   worker already holds the full `EventIndex` at ingest time; extracting and
   persisting `CrossSubmissionFeatures` there turns the 300 s+ re-read into
-  seconds and is *more* correct (real `globalIdx` vs the replicated sort).
+  seconds and is _more_ correct (real `globalIdx` vs the replicated sort).
 
 These are tracked as pre/with-migration DB work in §5.
 
@@ -113,20 +113,20 @@ These are tracked as pre/with-migration DB work in §5.
 
 ### 4.1 Component map
 
-| Concern | GCP service | Day-one sizing (2–3 courses) |
-|---|---|---|
-| API server | **Cloud Run** | 1 vCPU / 1 GB, min-instances **1**, max ~5 |
-| Ingest worker | **Cloud Run** (CPU always-allocated) | 4–8 vCPU / 4–8 GB, min **1**, scale up per import |
-| Primary DB | **Cloud SQL for PostgreSQL** (Enterprise Plus, PG 16) | ~4 vCPU / 16 GB, SSD, HA | 
-| Read replica | Cloud SQL replica | 1, for analyzer + any event-reads |
-| Job queue DB | **separate** small Cloud SQL instance | db-g1-small (pg-boss only) |
-| Bundle storage | **GCS** bucket (Standard) | + lifecycle rules for blob retention |
-| Analyzer SPA | **Firebase Hosting** (or GCS + Cloud CDN) | static build, global CDN |
-| Secrets | **Secret Manager** | OAuth secrets, DB creds, signing keys |
-| Edge auth | **Identity-Aware Proxy** | Google SSO gate ahead of the app |
-| WAF / LB | **Cloud Armor** + external HTTPS LB | API ingress |
-| Scheduled jobs | **Cloud Scheduler** | retention sweep, session purge (replaces in-process cron) |
-| Metrics / logs | **Cloud Monitoring** + Managed Service for Prometheus | existing `/metrics` exports in |
+| Concern        | GCP service                                           | Day-one sizing (2–3 courses)                              |
+| -------------- | ----------------------------------------------------- | --------------------------------------------------------- |
+| API server     | **Cloud Run**                                         | 1 vCPU / 1 GB, min-instances **1**, max ~5                |
+| Ingest worker  | **Cloud Run** (CPU always-allocated)                  | 4–8 vCPU / 4–8 GB, min **1**, scale up per import         |
+| Primary DB     | **Cloud SQL for PostgreSQL** (Enterprise Plus, PG 16) | ~4 vCPU / 16 GB, SSD, HA                                  |
+| Read replica   | Cloud SQL replica                                     | 1, for analyzer + any event-reads                         |
+| Job queue DB   | **separate** small Cloud SQL instance                 | db-g1-small (pg-boss only)                                |
+| Bundle storage | **GCS** bucket (Standard)                             | + lifecycle rules for blob retention                      |
+| Analyzer SPA   | **Firebase Hosting** (or GCS + Cloud CDN)             | static build, global CDN                                  |
+| Secrets        | **Secret Manager**                                    | OAuth secrets, DB creds, signing keys                     |
+| Edge auth      | **Identity-Aware Proxy**                              | Google SSO gate ahead of the app                          |
+| WAF / LB       | **Cloud Armor** + external HTTPS LB                   | API ingress                                               |
+| Scheduled jobs | **Cloud Scheduler**                                   | retention sweep, session purge (replaces in-process cron) |
+| Metrics / logs | **Cloud Monitoring** + Managed Service for Prometheus | existing `/metrics` exports in                            |
 
 Region: **us-west1 (Oregon)** — nearest GCP region to Berkeley; keeps all data
 US-resident in one region for the data-classification story.
@@ -140,8 +140,8 @@ fatter (more vCPU/RAM — `INGEST_CONCURRENCY` scales with cores) and scale
 independently of the always-on API.
 
 **The pg-boss / Cloud Run wrinkle (be explicit about it).** pg-boss is a
-*polling* subscriber — it pulls jobs from Postgres. Cloud Run autoscales on
-inbound *requests*, so a poller does **not** autoscale on queue depth natively.
+_polling_ subscriber — it pulls jobs from Postgres. Cloud Run autoscales on
+inbound _requests_, so a poller does **not** autoscale on queue depth natively.
 Two paths:
 
 - **Pragmatic (day one):** keep pg-boss; run the worker as a Cloud Run service
@@ -165,7 +165,7 @@ work in §6 strengthens the case for it.)
 
 Start on **Cloud SQL for PostgreSQL (Enterprise Plus)**, not AlloyDB:
 
-- AlloyDB is the better *write-burst* engine (its distributed storage offloads
+- AlloyDB is the better _write-burst_ engine (its distributed storage offloads
   the WAL-fsync wall that dominates `materialize_events`), but it has a higher
   always-on floor — you'd pay for it through the idle 99% of the semester.
 - At 2–3 courses, a right-sized Cloud SQL Enterprise Plus instance (data cache +
@@ -193,15 +193,16 @@ endpoint + credential swap, via a GCS HMAC key or the native client):
 ### 4.5 SPA — CDN, not a Node server
 
 The analyzer is a static Vite build. Serve it from **Firebase Hosting** (or GCS
-+ Cloud CDN) — global CDN, near-zero cost, no container. Do not run a Node
-process to serve static assets.
+
+- Cloud CDN) — global CDN, near-zero cost, no container. Do not run a Node
+  process to serve static assets.
 
 ### 4.6 Auth — IAP + the existing hd-claim
 
 The app already enforces the Google ID-token `hd` claim against
 `AUTH_ALLOWED_HOSTED_DOMAINS` (CLAUDE.md "OAuth `hd` claim"). Set it to
 `berkeley.edu`. Layer **Identity-Aware Proxy** in front of the SPA/API so Google
-SSO is enforced at the infra edge *before* a request reaches the app — defense
+SSO is enforced at the infra edge _before_ a request reaches the app — defense
 in depth that complements, not replaces, the hd-claim. Berkeley accounts are
 Google-backed, so this is friction-free for staff.
 
@@ -262,7 +263,7 @@ Items 1–4 are tuning/topology; item 5 is an architecture improvement. Benchmar
 ### 6.1 The idea
 
 Instead of one all-at-once export per assignment, run an **hourly (or so) sweep**
-that pulls *new* student submissions from Gradescope as they arrive and ingests
+that pulls _new_ student submissions from Gradescope as they arrive and ingests
 them one-at-a-time. A new submission's files already contain the `.provenance`
 bundle (it is part of what the student submits), so each swept submission is the
 same per-submission shape the current export path already rebuilds.
@@ -284,7 +285,7 @@ this plan:
 
 ### 6.3 Shape
 
-A new **ingest source** that feeds the *existing* per-file pipeline — it must not
+A new **ingest source** that feeds the _existing_ per-file pipeline — it must not
 fork the pipeline:
 
 ```

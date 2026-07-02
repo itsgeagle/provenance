@@ -370,10 +370,7 @@ describe('signManifest', () => {
       files_under_review: ['hw08.py'] as readonly string[],
     };
     const sig = await signManifest(fields, secretKey);
-    const tampered = await verifyManifest(
-      { ...fields, assignment_id: 'hw09', sig },
-      pubkeyHex,
-    );
+    const tampered = await verifyManifest({ ...fields, assignment_id: 'hw09', sig }, pubkeyHex);
     expect(tampered.ok).toBe(false);
   });
 });

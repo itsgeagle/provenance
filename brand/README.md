@@ -9,23 +9,23 @@ Design spec: [`../docs/superpowers/specs/2026-06-18-provenance-brand-mark-design
 
 ## Color tokens
 
-| Token       | Light surface | Dark surface |
-| ----------- | ------------- | ------------ |
-| Ink / line  | `#18181b`     | `#fafafa`    |
-| Accent      | `#EA580C`     | `#F97316`    |
-| Background  | `#ffffff`     | transparent  |
+| Token      | Light surface | Dark surface |
+| ---------- | ------------- | ------------ |
+| Ink / line | `#18181b`     | `#fafafa`    |
+| Accent     | `#EA580C`     | `#F97316`    |
+| Background | `#ffffff`     | transparent  |
 
 The accent brightens on dark surfaces for contrast; same hue family.
 
 ## Source masters
 
-| File | Use |
-| ---- | --- |
-| `provenance-mark.svg` | symbol, light surface |
-| `provenance-mark-dark.svg` | symbol, dark surface |
-| `provenance-lockup.svg` | symbol + wordmark, light surface |
-| `provenance-lockup-dark.svg` | symbol + wordmark, dark surface |
-| `exports/favicon.svg` | symbol, adapts to light/dark via `prefers-color-scheme` |
+| File                         | Use                                                     |
+| ---------------------------- | ------------------------------------------------------- |
+| `provenance-mark.svg`        | symbol, light surface                                   |
+| `provenance-mark-dark.svg`   | symbol, dark surface                                    |
+| `provenance-lockup.svg`      | symbol + wordmark, light surface                        |
+| `provenance-lockup-dark.svg` | symbol + wordmark, dark surface                         |
+| `exports/favicon.svg`        | symbol, adapts to light/dark via `prefers-color-scheme` |
 
 The wordmark uses the analyzer's typeface — the Tailwind default system-sans
 stack (`ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial,
@@ -34,11 +34,11 @@ sans-serif`), weight 600. Because system fonts render per-machine, ship the
 
 ## Exports
 
-| File | Where it's wired |
-| ---- | ---------------- |
-| `exports/icon-128.png` | recorder VSIX icon → copied to `packages/recorder/icon.png` |
-| `exports/favicon.svg`, `exports/favicon-32.png` | analyzer → `packages/analyzer/public/` |
-| `exports/lockup-light.png`, `exports/lockup-dark.png` | README header (`<picture>`) |
+| File                                                  | Where it's wired                                            |
+| ----------------------------------------------------- | ----------------------------------------------------------- |
+| `exports/icon-128.png`                                | recorder VSIX icon → copied to `packages/recorder/icon.png` |
+| `exports/favicon.svg`, `exports/favicon-32.png`       | analyzer → `packages/analyzer/public/`                      |
+| `exports/lockup-light.png`, `exports/lockup-dark.png` | README header (`<picture>`)                                 |
 
 ## Regenerating exports
 

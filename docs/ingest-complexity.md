@@ -35,31 +35,31 @@ worth doing. It is a companion to the profiling notes captured during the June
 
 ## Notation
 
-| symbol | meaning |
-|---|---|
-| **n** | events in one bundle |
-| **L** | total file content size in one bundle |
-| **F** | files in an upload batch |
-| **S** | non-superseded submissions in a semester |
-| **P** | total paste events in a semester |
-| **G** | n-gram fingerprint size (bounded by the event-kind alphabet ⇒ ~constant) |
+| symbol | meaning                                                                  |
+| ------ | ------------------------------------------------------------------------ |
+| **n**  | events in one bundle                                                     |
+| **L**  | total file content size in one bundle                                    |
+| **F**  | files in an upload batch                                                 |
+| **S**  | non-superseded submissions in a semester                                 |
+| **P**  | total paste events in a semester                                         |
+| **G**  | n-gram fingerprint size (bounded by the event-kind alphabet ⇒ ~constant) |
 
 ## Per-stage complexity
 
-| # | Stage | Code | Complexity | Notes |
-|---|---|---|---|---|
-| — | Upload / staging | `resumable-upload.ts`, `stage-upload-job.ts` | **O(bytes)**, memory-bounded | Streamed chunks + temp file. Interleaving (commit `2f343cd`) enqueues per-file jobs as each stages — improves wall-clock, not asymptotics. |
-| 2 | Dedup | `dedup.ts` | **O(log D)** | One indexed `LIMIT 1` on `(semester, blob_sha256)`. Negligible. |
-| 3 | Parse bundle (`loadBundle`) | `parse-bundle-phase.ts` | **O(bytes + n)** | Unzip (inflate) + per-line `JSON.parse` + ed25519 manifest/checkpoint verify + per-submission-file sha256. Does **not** hash the chain. ~23% of CPU. |
-| 4 | Match student | `match-student.ts` | **O(filename)** + 1 indexed lookup | Negligible. |
-| 5 | Create submission | `create-submission.ts` | **O(versions)** + `FOR UPDATE` + S3 copy O(bytes) | A few indexed queries. Negligible. |
-| — | Build index (shared, built once) | `build-index.ts` | **O(n log n)** | Flatten + chronological sort + single-pass maps. ~5% of CPU. |
-| 6 | Materialize events | `materialize-events.ts` | **O(n log n)** DB, O(n) app, **1 round-trip** | Single `json_to_recordset` INSERT; cost is heap insert + index maintenance (irreducible DB floor). Not CPU-bound. |
-| 7 | Compute stats | `stats.ts`, `reconstruct-file*.ts` | **O(n)** (was O(n²)) | Reconstruction uses a line-cell content model — O(line) per intra-line edit, no whole-file copy (see "Interior edits"). ~3% of CPU. |
-| 8 | Run validation | `run-validation.ts` | **O(n + bytes)** | 8 checks. **Dominant stage (~44%)**, but linear. Dominated entirely by Check 3 — see below. |
-| 12 | Run heuristics | `run-per-submission.ts` | **O(n)** | ~19 detectors over the shared index. ~25% of CPU. |
-| — | Finalize | `job-control.ts` | **O(F)** | Aggregate sibling file statuses. Negligible. |
-| 14 | Cross-flags (semester) | `run-cross.ts`, `extract-cross-features-from-db.ts` | **O(Σ nₛ log nₛ) + O(S²·G) + O(P²)** | The only super-linear stage — in **S**, not n. See below. |
+| #   | Stage                            | Code                                                | Complexity                                        | Notes                                                                                                                                                |
+| --- | -------------------------------- | --------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| —   | Upload / staging                 | `resumable-upload.ts`, `stage-upload-job.ts`        | **O(bytes)**, memory-bounded                      | Streamed chunks + temp file. Interleaving (commit `2f343cd`) enqueues per-file jobs as each stages — improves wall-clock, not asymptotics.           |
+| 2   | Dedup                            | `dedup.ts`                                          | **O(log D)**                                      | One indexed `LIMIT 1` on `(semester, blob_sha256)`. Negligible.                                                                                      |
+| 3   | Parse bundle (`loadBundle`)      | `parse-bundle-phase.ts`                             | **O(bytes + n)**                                  | Unzip (inflate) + per-line `JSON.parse` + ed25519 manifest/checkpoint verify + per-submission-file sha256. Does **not** hash the chain. ~23% of CPU. |
+| 4   | Match student                    | `match-student.ts`                                  | **O(filename)** + 1 indexed lookup                | Negligible.                                                                                                                                          |
+| 5   | Create submission                | `create-submission.ts`                              | **O(versions)** + `FOR UPDATE` + S3 copy O(bytes) | A few indexed queries. Negligible.                                                                                                                   |
+| —   | Build index (shared, built once) | `build-index.ts`                                    | **O(n log n)**                                    | Flatten + chronological sort + single-pass maps. ~5% of CPU.                                                                                         |
+| 6   | Materialize events               | `materialize-events.ts`                             | **O(n log n)** DB, O(n) app, **1 round-trip**     | Single `json_to_recordset` INSERT; cost is heap insert + index maintenance (irreducible DB floor). Not CPU-bound.                                    |
+| 7   | Compute stats                    | `stats.ts`, `reconstruct-file*.ts`                  | **O(n)** (was O(n²))                              | Reconstruction uses a line-cell content model — O(line) per intra-line edit, no whole-file copy (see "Interior edits"). ~3% of CPU.                  |
+| 8   | Run validation                   | `run-validation.ts`                                 | **O(n + bytes)**                                  | 8 checks. **Dominant stage (~44%)**, but linear. Dominated entirely by Check 3 — see below.                                                          |
+| 12  | Run heuristics                   | `run-per-submission.ts`                             | **O(n)**                                          | ~19 detectors over the shared index. ~25% of CPU.                                                                                                    |
+| —   | Finalize                         | `job-control.ts`                                    | **O(F)**                                          | Aggregate sibling file statuses. Negligible.                                                                                                         |
+| 14  | Cross-flags (semester)           | `run-cross.ts`, `extract-cross-features-from-db.ts` | **O(Σ nₛ log nₛ) + O(S²·G) + O(P²)**              | The only super-linear stage — in **S**, not n. See below.                                                                                            |
 
 ## The enqueue / "front half" (before any worker runs)
 
@@ -84,10 +84,10 @@ I/O-bound and needs Postgres + MinIO to measure, so it is **not** covered by
 
 Where the O(F) work sits relative to the HTTP response differs by entry path:
 
-| Entry path | Code | Enqueue location | Request latency |
-|---|---|---|---|
-| Multipart `POST /ingest` | `ingest.ts` ~L455 | Inline: stage all files, then a second loop of F `boss.send` | **O(F)** in-request |
-| `POST /ingest:gradescope` (sync) | `local-path.ts` | Inline, **interleaved**: per file stage + insert + send, worker starts mid-stream | **O(F)** in-request |
+| Entry path                                | Code               | Enqueue location                                                                                                                              | Request latency     |
+| ----------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| Multipart `POST /ingest`                  | `ingest.ts` ~L455  | Inline: stage all files, then a second loop of F `boss.send`                                                                                  | **O(F)** in-request |
+| `POST /ingest:gradescope` (sync)          | `local-path.ts`    | Inline, **interleaved**: per file stage + insert + send, worker starts mid-stream                                                             | **O(F)** in-request |
 | Resumable `POST …/complete` (large files) | `ingest.ts` ~L1123 | **Background**: request does 1 job-row insert + 1 `boss.send` (`ingest_stage_upload`), returns 202; the O(F) staging+enqueue runs in that job | **O(1)** in-request |
 
 The resumable path — the one used for multi-GB exports — already moves the
@@ -96,7 +96,7 @@ entire O(F) front half off the request, so user-perceived latency there is O(1).
 ### Is the enqueue worth optimizing?
 
 - **Multipart `POST /ingest` (the non-interleaved path) — DONE.**
-  It already stages all files first and *then* enqueues, so the F `boss.send`
+  It already stages all files first and _then_ enqueues, so the F `boss.send`
   calls collapsed into a single `boss.insert([…])` (pg-boss binds the whole job
   array as one JSON param — no bind-param ceiling, no chunking) and the F
   `ingest_files` inserts into a chunked bulk insert (`INGEST_FILE_INSERT_CHUNK`
@@ -198,7 +198,7 @@ Levers considered and their verdicts:
 - **Chain verification (44%, the dominant cost) — irreducible.** It is the
   tamper-evidence check; it cannot be skipped or weakened. It already runs
   exactly once with no redundancy.
-  - *Theoretical lever:* Check 3 is embarrassingly parallel (each entry verifies
+  - _Theoretical lever:_ Check 3 is embarrassingly parallel (each entry verifies
     against its own stored `prev_hash`, not a running value), so the per-event
     hash recompute could be sharded across `worker_threads`. This would only
     help **single-giant-bundle latency**, not throughput (throughput already
@@ -280,11 +280,11 @@ reconstruction stages. `append` is unchanged (marginally faster).
 
 **Caveat — the line-cell model's weak case is pure line-insertion.** An edit
 that adds/removes whole lines shifts the cell array O(lines). A stream that is
-*dominated* by interior whole-line insertion (`BENCH_EDIT=mid`/`scatter`)
+_dominated_ by interior whole-line insertion (`BENCH_EDIT=mid`/`scatter`)
 therefore regresses vs the old string model (e.g. `mid` @25k/408 KB: 3029 →
 7306 ms). This is not the real recorder pattern — `doc.change` events are
 overwhelmingly intra-line keystrokes, and `methodfill` (~3.5% newlines) already
-nets a win — and the quadratic constant is over the *line* count, so at
+nets a win — and the quadratic constant is over the _line_ count, so at
 realistic file sizes (≤ ~50 KB / ~1k lines) even this pattern is a few ms. If
 real bundles ever prove line-insertion-heavy at large file sizes, the next step
 is a **gap buffer over the cell array** (O(1) amortized for localized
@@ -299,7 +299,7 @@ hard case for any non-tree structure.
 > built on `bench:stages` (which has **no database**) and the per-bundle cost is
 > dominated by `materialize_events` — inserting 50k event rows/bundle (35 M
 > total). The reconstruction stages are <2% of real ingest. The CPU-only
-> analysis below is still correct *as a CPU analysis*; it just isn't the
+> analysis below is still correct _as a CPU analysis_; it just isn't the
 > end-to-end story. See [`ingest-700x50k-run.md`](./ingest-700x50k-run.md) for
 > the measured numbers.
 
@@ -310,12 +310,12 @@ whole import take?
 
 **Per-bundle, at 50k events** (from the table above, realistic `methodfill`):
 
-| stage group | before all opts | after | saving |
-|---|---|---|---|
-| reconstruction stages (stats+heur) | 158 ms | 51 ms | **3.1×** |
-| whole CPU pipeline (bench, no DB/S3) | 513 ms | 404 ms | **1.27×** (−109 ms) |
+| stage group                          | before all opts | after  | saving              |
+| ------------------------------------ | --------------- | ------ | ------------------- |
+| reconstruction stages (stats+heur)   | 158 ms          | 51 ms  | **3.1×**            |
+| whole CPU pipeline (bench, no DB/S3) | 513 ms          | 404 ms | **1.27×** (−109 ms) |
 
-The 109 ms/bundle saving is *entirely* the stats+heur reconstruction delta; the
+The 109 ms/bundle saving is _entirely_ the stats+heur reconstruction delta; the
 other ~400 ms (parse + chain-hash validation) is reconstruction-independent and
 unchanged.
 
@@ -323,16 +323,17 @@ unchanged.
 283 s** (~76 s saved).
 
 **End-to-end wall-clock.** Worker wall time adds ~90 ms/bundle of DB materialize
-+ S3 ops + staging share on top of CPU (the measured `c=1` drain of ~348 s ÷ 700
-≈ 497 ms/bundle vs 404 ms CPU), and `INGEST_CONCURRENCY` parallelizes the drain
-near-linearly with cores. The 109 ms CPU saving is fixed (it does not
-parallelize away), so the ratio holds across concurrency:
 
-| `INGEST_CONCURRENCY` | before all opts | after (predicted) |
-|---|---|---|
-| 1 (serial) | ~7.1 min (424 s) | **~5.8 min (348 s)** |
-| 4 | ~106 s | **~87 s** |
-| 8 | ~53 s | **~44 s** |
+- S3 ops + staging share on top of CPU (the measured `c=1` drain of ~348 s ÷ 700
+  ≈ 497 ms/bundle vs 404 ms CPU), and `INGEST_CONCURRENCY` parallelizes the drain
+  near-linearly with cores. The 109 ms CPU saving is fixed (it does not
+  parallelize away), so the ratio holds across concurrency:
+
+| `INGEST_CONCURRENCY` | before all opts  | after (predicted)    |
+| -------------------- | ---------------- | -------------------- |
+| 1 (serial)           | ~7.1 min (424 s) | **~5.8 min (348 s)** |
+| 4                    | ~106 s           | **~87 s**            |
+| 8                    | ~53 s            | **~44 s**            |
 
 So **expect ~1.2× faster end-to-end** for the 700 × 50k import (slightly below
 the 1.27× CPU figure, because the fixed DB/S3 overhead is unchanged), saving
@@ -340,7 +341,7 @@ the 1.27× CPU figure, because the fixed DB/S3 overhead is unchanged), saving
 
 **Two things move this number:**
 
-- **Bigger bundles widen it.** The win is super-linear in the *old* cost, so it
+- **Bigger bundles widen it.** The win is super-linear in the _old_ cost, so it
   grows with event count: 1.0× (10k) → 1.15× (25k) → 1.27× (50k) → 1.47× (100k)
   on CPU. A 700 × 100k import would see ~1.4× end-to-end.
 - **Saturated I/O shrinks it.** The speedup is a CPU saving; once

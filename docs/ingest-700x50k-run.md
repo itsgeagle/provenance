@@ -36,12 +36,12 @@ from export metadata, assignment from the manifest) worked exactly as expected.
 
 ### End-to-end wall-clock
 
-| segment | time | notes |
-|---|--:|---|
-| stage + enqueue (interleaved with drain) | 804.6 s | sequential per-bundle rebuild-zip + S3 PUT, worker draining concurrently |
-| worker drain tail (after staging) | 264.0 s | backlog remaining once all 700 were enqueued |
-| **ingest processing window (stage→last bundle)** | **1,068.6 s ≈ 17.8 min** | **the headline number** |
-| cross-flags recompute | >300 s (**did not finish**) | enqueued + started, cut off at the 5-min poll timeout — see caveat |
+| segment                                          |                        time | notes                                                                    |
+| ------------------------------------------------ | --------------------------: | ------------------------------------------------------------------------ |
+| stage + enqueue (interleaved with drain)         |                     804.6 s | sequential per-bundle rebuild-zip + S3 PUT, worker draining concurrently |
+| worker drain tail (after staging)                |                     264.0 s | backlog remaining once all 700 were enqueued                             |
+| **ingest processing window (stage→last bundle)** |    **1,068.6 s ≈ 17.8 min** | **the headline number**                                                  |
+| cross-flags recompute                            | >300 s (**did not finish**) | enqueued + started, cut off at the 5-min poll timeout — see caveat       |
 
 **Throughput: 0.66 bundles/s = ~1.53 s/bundle wall at c=8.**
 
@@ -87,9 +87,9 @@ at c=8. The real number is **~17.8 min at c=8**. Two compounding errors:
 
 1. **`bench:stages` excludes the database.** It measures parse → index → stats →
    validation → heuristics in-process with no Postgres. But `materialize_events`
-   + `create_submission` (the dominant ~8.7 s/bundle) are pure DB work it never
-   sees. The CPU-only per-bundle figure (~0.4 s) was real but only ~4% of the
-   true cost.
+   - `create_submission` (the dominant ~8.7 s/bundle) are pure DB work it never
+     sees. The CPU-only per-bundle figure (~0.4 s) was real but only ~4% of the
+     true cost.
 2. **The doc's drain figures (44 s @ c=8) were measured on the small seed
    export**, whose bundles have far fewer events — so far less to materialize.
    They don't transfer to 50k-event bundles.
@@ -112,15 +112,15 @@ by single-Postgres write contention.
 - **Contended per-phase latency.** The per-bundle averages are inflated by 8-way
   contention; treat them as relative shares, not isolated costs.
 - **Local single-node Postgres + MinIO.** Production storage/DB throughput would
-  shift the absolute numbers; the *shape* (DB-materialize-dominated) holds.
+  shift the absolute numbers; the _shape_ (DB-materialize-dominated) holds.
 
 ## Storage footprint
 
-| | size |
-|---|--:|
-| Fixture zip (on disk) | 2.5 GB |
-| MinIO blobs (700 staged bundles) | 12.4 GB |
-| Postgres (35 M event rows + indexes) | 22 GB |
+|                                      |    size |
+| ------------------------------------ | ------: |
+| Fixture zip (on disk)                |  2.5 GB |
+| MinIO blobs (700 staged bundles)     | 12.4 GB |
+| Postgres (35 M event rows + indexes) |   22 GB |
 
 ## Reproduction
 

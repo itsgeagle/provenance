@@ -57,13 +57,7 @@ import {
   signBundleManifest,
   signManifest,
 } from '@provenance/log-core';
-import type {
-  BundleManifest,
-  SlogMeta,
-  Checkpoint,
-  Envelope,
-  Range,
-} from '@provenance/log-core';
+import type { BundleManifest, SlogMeta, Checkpoint, Envelope, Range } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
 // Constants tied to real recorder behaviour
@@ -115,14 +109,68 @@ export const SEED_STUDENT_COUNT = 700;
 // ---------------------------------------------------------------------------
 
 const FIRST_NAMES = [
-  'Alice', 'Bob', 'Carol', 'Dan', 'Erin', 'Frank', 'Grace', 'Hassan', 'Iris', 'Jian',
-  'Kavya', 'Leo', 'Mira', 'Noah', 'Omar', 'Priya', 'Quinn', 'Rosa', 'Sam', 'Tara',
-  'Umar', 'Vera', 'Wes', 'Xinyi', 'Yara', 'Zach', 'Ana', 'Bao', 'Chloe', 'Diego',
+  'Alice',
+  'Bob',
+  'Carol',
+  'Dan',
+  'Erin',
+  'Frank',
+  'Grace',
+  'Hassan',
+  'Iris',
+  'Jian',
+  'Kavya',
+  'Leo',
+  'Mira',
+  'Noah',
+  'Omar',
+  'Priya',
+  'Quinn',
+  'Rosa',
+  'Sam',
+  'Tara',
+  'Umar',
+  'Vera',
+  'Wes',
+  'Xinyi',
+  'Yara',
+  'Zach',
+  'Ana',
+  'Bao',
+  'Chloe',
+  'Diego',
 ];
 const LAST_NAMES = [
-  'Adams', 'Bauer', 'Chen', 'Diaz', 'Evans', 'Foster', 'Gupta', 'Huang', 'Ito', 'Jain',
-  'Kim', 'Lopez', 'Mehta', 'Nguyen', 'Okoro', 'Park', 'Qureshi', 'Rao', 'Silva', 'Tanaka',
-  'Ueda', 'Vargas', 'Wong', 'Xu', 'Yadav', 'Zhang', 'Ali', 'Brooks', 'Cruz', 'Dubois',
+  'Adams',
+  'Bauer',
+  'Chen',
+  'Diaz',
+  'Evans',
+  'Foster',
+  'Gupta',
+  'Huang',
+  'Ito',
+  'Jain',
+  'Kim',
+  'Lopez',
+  'Mehta',
+  'Nguyen',
+  'Okoro',
+  'Park',
+  'Qureshi',
+  'Rao',
+  'Silva',
+  'Tanaka',
+  'Ueda',
+  'Vargas',
+  'Wong',
+  'Xu',
+  'Yadav',
+  'Zhang',
+  'Ali',
+  'Brooks',
+  'Cruz',
+  'Dubois',
 ];
 
 export interface SeedSubmitter {
@@ -293,7 +341,10 @@ function cosmeticForKind(kind: string, rng: () => number, path: string): EventSp
     case 'doc.close':
       return { kind, data: { path } };
     default:
-      return { kind: 'terminal.open', data: { terminal_id: 't1', shell: 'bash', shell_integration: true } };
+      return {
+        kind: 'terminal.open',
+        data: { terminal_id: 't1', shell: 'bash', shell_integration: true },
+      };
   }
 }
 
@@ -339,7 +390,10 @@ function buildEventStream(
     const text = pasteText;
     content += text;
     pasteText = null;
-    sink.push({ kind: 'paste', data: { path, range, length: text.length, sha256: sha256Hex(text), content: text } });
+    sink.push({
+      kind: 'paste',
+      data: { path, range, length: text.length, sha256: sha256Hex(text), content: text },
+    });
   };
 
   // A small random lead-in (window focus / idle heartbeats before the file is
@@ -354,7 +408,13 @@ function buildEventStream(
   // Open the file — inline content anchors reconstruction (Check 7).
   events.push({
     kind: 'doc.open',
-    data: { path, sha256: sha256Hex(content), line_count: content.split('\n').length, content, truncated: false },
+    data: {
+      path,
+      sha256: sha256Hex(content),
+      line_count: content.split('\n').length,
+      content,
+      truncated: false,
+    },
   });
 
   // A short weighted-random mix from the shared alphabet (see MIX_KINDS). There
@@ -372,7 +432,10 @@ function buildEventStream(
     let r = rng() * MIX_TOTAL_WEIGHT;
     let kind = MIX_KINDS[MIX_KINDS.length - 1]!.kind;
     for (const k of MIX_KINDS) {
-      if (r < k.w) { kind = k.kind; break; }
+      if (r < k.w) {
+        kind = k.kind;
+        break;
+      }
       r -= k.w;
     }
     if (kind === 'doc.change') events.push(typeOneLine());
@@ -459,8 +522,18 @@ async function buildBundleFiles(
   const lines: string[] = [];
   const checkpoints: Checkpoint[] = [];
 
-  const append = async (seq: number, kind: string, data: Record<string, unknown>): Promise<void> => {
-    const envelope = { seq, t, wall: new Date(baseMs + t).toISOString(), kind, data } as unknown as Envelope;
+  const append = async (
+    seq: number,
+    kind: string,
+    data: Record<string, unknown>,
+  ): Promise<void> => {
+    const envelope = {
+      seq,
+      t,
+      wall: new Date(baseMs + t).toISOString(),
+      kind,
+      data,
+    } as unknown as Envelope;
     const entry = chainEntry(prevHash, envelope);
     lines.push(serializeEntry(entry).trimEnd());
     prevHash = entry.hash;
@@ -507,7 +580,9 @@ async function buildBundleFiles(
         meta_sha256: sha256Hex(metaJson),
       },
     ],
-    submission_files: [{ path: submittedPath, status: 'present', sha256: sha256Hex(submittedContent) }],
+    submission_files: [
+      { path: submittedPath, status: 'present', sha256: sha256Hex(submittedContent) },
+    ],
   };
   const signed = await signBundleManifest(manifest, keypair.privateKey);
 

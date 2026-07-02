@@ -4,7 +4,7 @@
 
 **Goal:** Make the large-file (resumable / local-path) ingest start processing bundles as soon as their rows are staged, instead of staging every row first and only then enqueuing any processing.
 
-**Architecture:** Today `ingestLocalPath` runs in two phases — stage *all* `ingest_files` rows (the "Total" the UI watches climb), then enqueue all `ingest_file` jobs at the end. We move the per-file `boss.send(INGEST_FILE)` *inside* the staging loop so workers begin immediately. The reason it was batched at the end is the finalize trigger: `maybeEnqueueFinalize` fires when zero `ingest_files` rows are still `pending`, so a fast worker draining the queue during a staging lull would finalize the job before later bundles are staged. We gate finalize behind a new `ingest_jobs.staging_complete` flag (default `true`); the streaming stager sets it `false` while it runs and `true` when the loop finishes, then triggers one finalize check. Atomic-staging callers (HTTP routes) keep the `true` default and are untouched.
+**Architecture:** Today `ingestLocalPath` runs in two phases — stage _all_ `ingest_files` rows (the "Total" the UI watches climb), then enqueue all `ingest_file` jobs at the end. We move the per-file `boss.send(INGEST_FILE)` _inside_ the staging loop so workers begin immediately. The reason it was batched at the end is the finalize trigger: `maybeEnqueueFinalize` fires when zero `ingest_files` rows are still `pending`, so a fast worker draining the queue during a staging lull would finalize the job before later bundles are staged. We gate finalize behind a new `ingest_jobs.staging_complete` flag (default `true`); the streaming stager sets it `false` while it runs and `true` when the loop finishes, then triggers one finalize check. Atomic-staging callers (HTTP routes) keep the `true` default and are untouched.
 
 **Tech Stack:** TypeScript (strict, ESM), Hono, Drizzle ORM, Postgres, pg-boss, S3/MinIO, Vitest + testcontainers.
 
@@ -34,10 +34,12 @@
 ## Task 1: Add `staging_complete` column to `ingest_jobs`
 
 **Files:**
+
 - Modify: `packages/server/src/db/schema.ts:373-403` (the `ingest_jobs` table)
 - Create: `packages/server/db/migrations/0018_<generated>.sql` (+ `meta/0018_snapshot.json`, updated `meta/_journal.json`) via drizzle-kit
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces: `ingest_jobs.staging_complete: boolean` (NOT NULL, default `true`). Column name `staging_complete`; Drizzle field name `staging_complete`.
 
@@ -109,10 +111,12 @@ git commit --no-gpg-sign -m "feat(server): add ingest_jobs.staging_complete colu
 Add the gated finalize trigger and the two flag setters, owned by `job-control.ts` (it already owns all `ingest_jobs` lifecycle writes). Test-first.
 
 **Files:**
+
 - Modify: `packages/server/src/services/ingest/job-control.ts`
 - Test: `packages/server/src/services/ingest/job-control.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ingest_jobs`, `ingest_files` (schema); `JOB_KINDS` from `../../jobs/pg-boss.js`; `getLogger` from `../../logging.js`; `count, and, eq` from `drizzle-orm`; `PgBoss` type from `pg-boss`.
 - Produces (all exported from `job-control.ts`):
   - `interface IngestFinalizePayload { ingestJobId: string }`
@@ -338,9 +342,11 @@ git commit --no-gpg-sign -m "feat(server): gate ingest finalize on staging_compl
 Pure refactor: delete the worker's private `maybeEnqueueFinalize` and private `IngestFinalizePayload`, import both from `job-control.js`. The six call sites stay byte-for-byte identical because the signature is preserved.
 
 **Files:**
+
 - Modify: `packages/server/src/jobs/worker.ts` (delete lines `81` interface and `731-750` function; add an import)
 
 **Interfaces:**
+
 - Consumes: `maybeEnqueueFinalize`, `IngestFinalizePayload` from `../services/ingest/job-control.js`.
 - Produces: nothing new.
 
@@ -398,10 +404,12 @@ git commit --no-gpg-sign -m "refactor(server): move maybeEnqueueFinalize into jo
 Move the per-file `boss.send` into the staging loop; mark staging started on entry and complete after the loop, then trigger one finalize check. This is the change the user actually asked for — processing begins while later bundles are still being staged.
 
 **Files:**
+
 - Modify: `packages/server/src/services/ingest/local-path.ts`
 - Test: `packages/server/src/services/ingest/local-path.e2e.test.ts` (existing multi-bundle e2e is the regression guard)
 
 **Interfaces:**
+
 - Consumes: `markStagingStarted`, `markStagingComplete`, `maybeEnqueueFinalize` from `./job-control.js`; `getBoss`, `JOB_KINDS` (already imported).
 - Produces: unchanged `IngestLocalPathResult`.
 
@@ -424,15 +432,15 @@ import {
 In `ingestLocalPath`, just after `let jobId: string | null = existingJobId;` (currently around line 102) and before the `try`/`for await` staging loop, add:
 
 ```typescript
-    const boss = await getBoss();
+const boss = await getBoss();
 
-    // A pre-created job (resumable /complete path) exists with the default
-    // staging_complete=true; flip it false before we enqueue anything so a fast
-    // worker cannot finalize mid-stream. Lazily-created jobs are flipped at
-    // creation time below.
-    if (jobId !== null) {
-      await markStagingStarted(db, jobId);
-    }
+// A pre-created job (resumable /complete path) exists with the default
+// staging_complete=true; flip it false before we enqueue anything so a fast
+// worker cannot finalize mid-stream. Lazily-created jobs are flipped at
+// creation time below.
+if (jobId !== null) {
+  await markStagingStarted(db, jobId);
+}
 ```
 
 - [ ] **Step 3: Mark staging started on lazy job creation**
@@ -440,11 +448,11 @@ In `ingestLocalPath`, just after `let jobId: string | null = existingJobId;` (cu
 In the loop, update the lazy-create branch (currently lines 128-131):
 
 ```typescript
-        // Lazily create the job on the first real bundle.
-        if (jobId === null) {
-          jobId = (await enqueueIngestJob(db, semesterId, userId)).jobId;
-          await markStagingStarted(db, jobId);
-        }
+// Lazily create the job on the first real bundle.
+if (jobId === null) {
+  jobId = (await enqueueIngestJob(db, semesterId, userId)).jobId;
+  await markStagingStarted(db, jobId);
+}
 ```
 
 - [ ] **Step 4: Enqueue each file inside the loop, right after its row is inserted**
@@ -452,33 +460,33 @@ In the loop, update the lazy-create branch (currently lines 128-131):
 Replace the inner submitter loop (currently lines 134-151) so the `boss.send` happens per row instead of in a batch at the end:
 
 ```typescript
-        bundlesProcessed++;
-        for (const submitter of sub.submitters) {
-          const fileId = crypto.randomUUID();
-          const { blobSha256, sizeBytes } = await stageBlob(
-            { storageClient },
-            { jobId, ingestFileId: fileId, body: sub.bundleZip },
-          );
-          await db.insert(ingest_files).values({
-            id: fileId,
-            ingest_job_id: jobId,
-            original_filename: `${sub.folderKey}.zip`,
-            size_bytes: sizeBytes,
-            blob_sha256: blobSha256,
-            status: 'pending',
-            match_sid: submitter.sid,
-          });
-          // Enqueue immediately so the worker starts on this bundle while we
-          // stream the next ones. Safe because the job's staging_complete is
-          // false until the loop finishes (see Step 2/3), so maybeEnqueueFinalize
-          // will not settle the job early. PRD §12.3: retry up to 3 times.
-          await boss.send(
-            JOB_KINDS.INGEST_FILE,
-            { ingestFileId: fileId, ingestJobId: jobId },
-            { retryLimit: 3 },
-          );
-          submissionsQueued++;
-        }
+bundlesProcessed++;
+for (const submitter of sub.submitters) {
+  const fileId = crypto.randomUUID();
+  const { blobSha256, sizeBytes } = await stageBlob(
+    { storageClient },
+    { jobId, ingestFileId: fileId, body: sub.bundleZip },
+  );
+  await db.insert(ingest_files).values({
+    id: fileId,
+    ingest_job_id: jobId,
+    original_filename: `${sub.folderKey}.zip`,
+    size_bytes: sizeBytes,
+    blob_sha256: blobSha256,
+    status: 'pending',
+    match_sid: submitter.sid,
+  });
+  // Enqueue immediately so the worker starts on this bundle while we
+  // stream the next ones. Safe because the job's staging_complete is
+  // false until the loop finishes (see Step 2/3), so maybeEnqueueFinalize
+  // will not settle the job early. PRD §12.3: retry up to 3 times.
+  await boss.send(
+    JOB_KINDS.INGEST_FILE,
+    { ingestFileId: fileId, ingestJobId: jobId },
+    { retryLimit: 3 },
+  );
+  submissionsQueued++;
+}
 ```
 
 Note: the `stagedFileIds` array is no longer needed — remove its declaration (`const stagedFileIds: string[] = [];`, currently line 99) and the `stagedFileIds.push(fileId);` line.
@@ -488,18 +496,18 @@ Note: the `stagedFileIds` array is no longer needed — remove its declaration (
 Delete the post-loop block that read rows back and enqueued them (currently lines 161-178, the `// Enqueue one ingest_file job per staged file, after all staging succeeds` block). Replace it with:
 
 ```typescript
-    // Staging finished cleanly. Mark the job fully staged so finalize is now
-    // permitted, then trigger one check in case every enqueued file already
-    // drained before we got here (no worker would otherwise re-trigger it).
-    if (jobId !== null) {
-      await markStagingComplete(db, jobId);
-      await maybeEnqueueFinalize(boss, db, jobId);
-    }
+// Staging finished cleanly. Mark the job fully staged so finalize is now
+// permitted, then trigger one check in case every enqueued file already
+// drained before we got here (no worker would otherwise re-trigger it).
+if (jobId !== null) {
+  await markStagingComplete(db, jobId);
+  await maybeEnqueueFinalize(boss, db, jobId);
+}
 ```
 
 The `eq` import and the read-back of `ingest_files` rows are no longer used by this block — if `eq` is now unused in the file, remove it from the `drizzle-orm` import. (It may still be used elsewhere; check before removing.)
 
-Leave the `catch (stagingErr)` compensation (`failIngestJob`) unchanged. **Known behavior change to note in the commit body:** with interleaving, bundles staged *before* a mid-stream staging error have already been enqueued and may be processed by workers; the job is still marked `failed` (its `staging_complete` stays `false`, so `maybeEnqueueFinalize` never settles it). This matches the existing contract that a staging error fails the job; the difference is that earlier, valid submissions may have been materialized. This is acceptable — they are real submissions — and the failure is surfaced via `failIngestJob`.
+Leave the `catch (stagingErr)` compensation (`failIngestJob`) unchanged. **Known behavior change to note in the commit body:** with interleaving, bundles staged _before_ a mid-stream staging error have already been enqueued and may be processed by workers; the job is still marked `failed` (its `staging_complete` stays `false`, so `maybeEnqueueFinalize` never settles it). This matches the existing contract that a staging error fails the job; the difference is that earlier, valid submissions may have been materialized. This is acceptable — they are real submissions — and the failure is surfaced via `failIngestJob`.
 
 - [ ] **Step 6: Run the local-path e2e**
 
@@ -508,17 +516,15 @@ Expected: PASS. The existing multi-bundle export test drives the real worker thr
 
 - [ ] **Step 7: Add an explicit final-count assertion if not already present**
 
-Open `packages/server/src/services/ingest/local-path.e2e.test.ts`. Confirm the multi-bundle test asserts on the *finalized* `ingest_jobs` row — specifically that `status` is `succeeded` (or `partial`) and `summary.total` equals the number of staged submissions. If such an assertion is missing, add it after the worker drains:
+Open `packages/server/src/services/ingest/local-path.e2e.test.ts`. Confirm the multi-bundle test asserts on the _finalized_ `ingest_jobs` row — specifically that `status` is `succeeded` (or `partial`) and `summary.total` equals the number of staged submissions. If such an assertion is missing, add it after the worker drains:
 
 ```typescript
-      const jobRow = (
-        await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId))
-      )[0]!;
-      expect(jobRow.staging_complete).toBe(true);
-      expect(['succeeded', 'partial']).toContain(jobRow.status);
-      // total must equal every submission we staged — an early finalize would
-      // under-count or leave the job settled before later files landed.
-      expect((jobRow.summary as { total: number }).total).toBe(expectedSubmissionCount);
+const jobRow = (await db.select().from(ingest_jobs).where(eq(ingest_jobs.id, jobId)))[0]!;
+expect(jobRow.staging_complete).toBe(true);
+expect(['succeeded', 'partial']).toContain(jobRow.status);
+// total must equal every submission we staged — an early finalize would
+// under-count or leave the job settled before later files landed.
+expect((jobRow.summary as { total: number }).total).toBe(expectedSubmissionCount);
 ```
 
 Replace `expectedSubmissionCount` with the count the test already knows it staged (the test constructs the export, so this is a literal or a derived count already in scope).

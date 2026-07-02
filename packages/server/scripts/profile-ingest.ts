@@ -107,12 +107,20 @@ async function ensureAdmin(db: DrizzleDb): Promise<string> {
   } else {
     const [row] = await db
       .insert(users)
-      .values({ google_subject: 'perf-admin-subject', email: ADMIN_EMAIL, display_name: 'Perf Admin' })
+      .values({
+        google_subject: 'perf-admin-subject',
+        email: ADMIN_EMAIL,
+        display_name: 'Perf Admin',
+      })
       .returning({ id: users.id });
     userId = row!.id;
   }
   const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-  const sess = await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, SESSION_ID)).limit(1);
+  const sess = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.id, SESSION_ID))
+    .limit(1);
   if (sess.length > 0) {
     await db.update(sessions).set({ expires_at: expiresAt }).where(eq(sessions.id, SESSION_ID));
   } else {
@@ -123,7 +131,11 @@ async function ensureAdmin(db: DrizzleDb): Promise<string> {
 
 async function ensureSemester(db: DrizzleDb, userId: string): Promise<string> {
   let courseId: string;
-  const ec = await db.select({ id: courses.id }).from(courses).where(eq(courses.slug, PERF.courseSlug)).limit(1);
+  const ec = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(eq(courses.slug, PERF.courseSlug))
+    .limit(1);
   if (ec.length > 0) {
     courseId = ec[0]!.id;
   } else {
@@ -134,7 +146,11 @@ async function ensureSemester(db: DrizzleDb, userId: string): Promise<string> {
     courseId = course!.id;
   }
 
-  const es = await db.select({ id: semesters.id }).from(semesters).where(eq(semesters.slug, PERF.slug)).limit(1);
+  const es = await db
+    .select({ id: semesters.id })
+    .from(semesters)
+    .where(eq(semesters.slug, PERF.slug))
+    .limit(1);
   let semesterId: string;
   if (es.length > 0) {
     semesterId = es[0]!.id;
@@ -213,7 +229,11 @@ async function pollJobTerminal(db: DrizzleDb, jobId: string, timeoutMs: number):
   return 'timeout';
 }
 
-async function waitForCrossFlags(db: DrizzleDb, semesterId: string, timeoutMs: number): Promise<number> {
+async function waitForCrossFlags(
+  db: DrizzleDb,
+  semesterId: string,
+  timeoutMs: number,
+): Promise<number> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const [{ value } = { value: 0 }] = await db
@@ -248,7 +268,9 @@ async function main(): Promise<void> {
   log(`semester ${PERF.slug} → ${semesterId}; wiping prior data…`);
   await wipeSemester(db, semesterId);
 
-  log(`mode: ${USE_LOCAL_PATH ? 'local disk-path' : 'HTTP :gradescope route'}; INGEST_CONCURRENCY=${cfg.INGEST_CONCURRENCY}, DATABASE_POOL_MAX=${cfg.DATABASE_POOL_MAX}`);
+  log(
+    `mode: ${USE_LOCAL_PATH ? 'local disk-path' : 'HTTP :gradescope route'}; INGEST_CONCURRENCY=${cfg.INGEST_CONCURRENCY}, DATABASE_POOL_MAX=${cfg.DATABASE_POOL_MAX}`,
+  );
   log('starting in-process worker…');
   const stopWorker = await startWorker();
 
@@ -359,17 +381,25 @@ async function main(): Promise<void> {
   const totalWall = wall.upload + wall.drain + wall.crossFlags;
   log('');
   log('════════════════ WALL-CLOCK ════════════════');
-  const stageLabel = USE_LOCAL_PATH ? 'stage+enqueue (interleaved w/ drain)' : 'upload request (parse+stage+enqueue)';
+  const stageLabel = USE_LOCAL_PATH
+    ? 'stage+enqueue (interleaved w/ drain)'
+    : 'upload request (parse+stage+enqueue)';
   log(`${stageLabel.padEnd(36)} : ${fmt(wall.upload).padStart(8)}  ${pct(wall.upload, totalWall)}`);
-  log(`worker drain tail (after staging)    : ${fmt(wall.drain).padStart(8)}  ${pct(wall.drain, totalWall)}`);
-  log(`cross-flags recompute (whole cohort) : ${fmt(wall.crossFlags).padStart(8)}  ${pct(wall.crossFlags, totalWall)}`);
+  log(
+    `worker drain tail (after staging)    : ${fmt(wall.drain).padStart(8)}  ${pct(wall.drain, totalWall)}`,
+  );
+  log(
+    `cross-flags recompute (whole cohort) : ${fmt(wall.crossFlags).padStart(8)}  ${pct(wall.crossFlags, totalWall)}`,
+  );
   log(`TOTAL (end-to-end)                   : ${fmt(totalWall).padStart(8)}`);
   if (totalWall > 0 && submissionCount > 0) {
     log('');
     const procWall = wall.upload + wall.drain; // staging+drain overlap → true processing window
-    log(`throughput: ${submissionCount} submissions / ${(procWall / 1000).toFixed(1)}s ` +
+    log(
+      `throughput: ${submissionCount} submissions / ${(procWall / 1000).toFixed(1)}s ` +
         `= ${(submissionCount / (procWall / 1000)).toFixed(1)} bundles/s ` +
-        `(${(procWall / submissionCount).toFixed(1)}ms/bundle wall, INGEST_CONCURRENCY=${cfg.INGEST_CONCURRENCY})`);
+        `(${(procWall / submissionCount).toFixed(1)}ms/bundle wall, INGEST_CONCURRENCY=${cfg.INGEST_CONCURRENCY})`,
+    );
   }
   log('');
 
@@ -379,7 +409,9 @@ async function main(): Promise<void> {
     log('(no per-phase data — was INGEST_PROFILE unset?)');
   }
   log('');
-  log(`result: ${finalStatus}; ${submissionCount} submissions, ${flagCount} flags, ${crossFlagCount} cross-flags.`);
+  log(
+    `result: ${finalStatus}; ${submissionCount} submissions, ${flagCount} flags, ${crossFlagCount} cross-flags.`,
+  );
 
   process.exit(finalStatus === 'succeeded' || finalStatus === 'partial' ? 0 : 1);
 }
@@ -389,6 +421,8 @@ function pct(part: number, total: number): string {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`[profile] failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+  process.stderr.write(
+    `[profile] failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+  );
   process.exit(1);
 });

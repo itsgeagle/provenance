@@ -94,12 +94,8 @@
           "name": "api_tokens_user_id_users_id_fk",
           "tableFrom": "api_tokens",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -109,9 +105,7 @@
         "api_tokens_prefix_unique": {
           "name": "api_tokens_prefix_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "prefix"
-          ]
+          "columns": ["prefix"]
         }
       },
       "policies": {},
@@ -169,12 +163,8 @@
           "name": "assignments_semester_id_semesters_id_fk",
           "tableFrom": "assignments",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -184,10 +174,7 @@
         "assignments_semester_assignment_key": {
           "name": "assignments_semester_assignment_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "semester_id",
-            "assignment_id_str"
-          ]
+          "columns": ["semester_id", "assignment_id_str"]
         }
       },
       "policies": {},
@@ -337,12 +324,8 @@
           "name": "audit_log_actor_user_id_users_id_fk",
           "tableFrom": "audit_log",
           "tableTo": "users",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -350,12 +333,8 @@
           "name": "audit_log_actor_token_id_api_tokens_id_fk",
           "tableFrom": "audit_log",
           "tableTo": "api_tokens",
-          "columnsFrom": [
-            "actor_token_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["actor_token_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -363,12 +342,8 @@
           "name": "audit_log_semester_id_semesters_id_fk",
           "tableFrom": "audit_log",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -423,9 +398,7 @@
         "courses_slug_unique": {
           "name": "courses_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -478,12 +451,8 @@
           "name": "cross_flag_participants_cross_flag_id_cross_flags_id_fk",
           "tableFrom": "cross_flag_participants",
           "tableTo": "cross_flags",
-          "columnsFrom": [
-            "cross_flag_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["cross_flag_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -491,12 +460,8 @@
           "name": "cross_flag_participants_submission_id_submissions_id_fk",
           "tableFrom": "cross_flag_participants",
           "tableTo": "submissions",
-          "columnsFrom": [
-            "submission_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["submission_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -504,10 +469,7 @@
       "compositePrimaryKeys": {
         "cross_flag_participants_cross_flag_id_submission_id_pk": {
           "name": "cross_flag_participants_cross_flag_id_submission_id_pk",
-          "columns": [
-            "cross_flag_id",
-            "submission_id"
-          ]
+          "columns": ["cross_flag_id", "submission_id"]
         }
       },
       "uniqueConstraints": {},
@@ -599,12 +561,8 @@
           "name": "cross_flags_semester_id_semesters_id_fk",
           "tableFrom": "cross_flags",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -734,12 +692,8 @@
           "name": "events_submission_id_submissions_id_fk",
           "tableFrom": "events",
           "tableTo": "submissions",
-          "columnsFrom": [
-            "submission_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["submission_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -747,10 +701,7 @@
       "compositePrimaryKeys": {
         "events_submission_id_seq_pk": {
           "name": "events_submission_id_seq_pk",
-          "columns": [
-            "submission_id",
-            "seq"
-          ]
+          "columns": ["submission_id", "seq"]
         }
       },
       "uniqueConstraints": {},
@@ -910,12 +861,8 @@
           "name": "flags_submission_id_submissions_id_fk",
           "tableFrom": "flags",
           "tableTo": "submissions",
-          "columnsFrom": [
-            "submission_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["submission_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -923,12 +870,8 @@
           "name": "flags_semester_id_semesters_id_fk",
           "tableFrom": "flags",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1002,12 +945,8 @@
           "name": "heuristic_configs_semester_id_semesters_id_fk",
           "tableFrom": "heuristic_configs",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1015,12 +954,8 @@
           "name": "heuristic_configs_set_by_users_id_fk",
           "tableFrom": "heuristic_configs",
           "tableTo": "users",
-          "columnsFrom": [
-            "set_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["set_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1030,10 +965,7 @@
         "heuristic_configs_semester_version_key": {
           "name": "heuristic_configs_semester_version_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "semester_id",
-            "version"
-          ]
+          "columns": ["semester_id", "version"]
         }
       },
       "policies": {},
@@ -1174,12 +1106,8 @@
           "name": "ingest_files_ingest_job_id_ingest_jobs_id_fk",
           "tableFrom": "ingest_files",
           "tableTo": "ingest_jobs",
-          "columnsFrom": [
-            "ingest_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["ingest_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1187,12 +1115,8 @@
           "name": "ingest_files_matched_student_id_roster_entries_id_fk",
           "tableFrom": "ingest_files",
           "tableTo": "roster_entries",
-          "columnsFrom": [
-            "matched_student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["matched_student_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1200,12 +1124,8 @@
           "name": "ingest_files_matched_assignment_id_assignments_id_fk",
           "tableFrom": "ingest_files",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "matched_assignment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["matched_assignment_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1213,12 +1133,8 @@
           "name": "ingest_files_submission_id_submissions_id_fk",
           "tableFrom": "ingest_files",
           "tableTo": "submissions",
-          "columnsFrom": [
-            "submission_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["submission_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1226,12 +1142,8 @@
           "name": "ingest_files_resolved_by_users_id_fk",
           "tableFrom": "ingest_files",
           "tableTo": "users",
-          "columnsFrom": [
-            "resolved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["resolved_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1316,12 +1228,8 @@
           "name": "ingest_jobs_semester_id_semesters_id_fk",
           "tableFrom": "ingest_jobs",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1329,12 +1237,8 @@
           "name": "ingest_jobs_uploaded_by_users_id_fk",
           "tableFrom": "ingest_jobs",
           "tableTo": "users",
-          "columnsFrom": [
-            "uploaded_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["uploaded_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1408,12 +1312,8 @@
           "name": "memberships_user_id_users_id_fk",
           "tableFrom": "memberships",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1421,12 +1321,8 @@
           "name": "memberships_semester_id_semesters_id_fk",
           "tableFrom": "memberships",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1434,12 +1330,8 @@
           "name": "memberships_granted_by_users_id_fk",
           "tableFrom": "memberships",
           "tableTo": "users",
-          "columnsFrom": [
-            "granted_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["granted_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1447,10 +1339,7 @@
       "compositePrimaryKeys": {
         "memberships_user_id_semester_id_pk": {
           "name": "memberships_user_id_semester_id_pk",
-          "columns": [
-            "user_id",
-            "semester_id"
-          ]
+          "columns": ["user_id", "semester_id"]
         }
       },
       "uniqueConstraints": {},
@@ -1518,12 +1407,8 @@
           "name": "pending_invitations_semester_id_semesters_id_fk",
           "tableFrom": "pending_invitations",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1531,12 +1416,8 @@
           "name": "pending_invitations_invited_by_users_id_fk",
           "tableFrom": "pending_invitations",
           "tableTo": "users",
-          "columnsFrom": [
-            "invited_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["invited_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1624,12 +1505,8 @@
           "name": "per_file_stats_submission_id_submissions_id_fk",
           "tableFrom": "per_file_stats",
           "tableTo": "submissions",
-          "columnsFrom": [
-            "submission_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["submission_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1637,10 +1514,7 @@
       "compositePrimaryKeys": {
         "per_file_stats_submission_id_file_path_pk": {
           "name": "per_file_stats_submission_id_file_path_pk",
-          "columns": [
-            "submission_id",
-            "file_path"
-          ]
+          "columns": ["submission_id", "file_path"]
         }
       },
       "uniqueConstraints": {},
@@ -1682,10 +1556,7 @@
       "compositePrimaryKeys": {
         "rate_limit_buckets_principal_id_route_class_pk": {
           "name": "rate_limit_buckets_principal_id_route_class_pk",
-          "columns": [
-            "principal_id",
-            "route_class"
-          ]
+          "columns": ["principal_id", "route_class"]
         }
       },
       "uniqueConstraints": {},
@@ -1804,12 +1675,8 @@
           "name": "recompute_jobs_semester_id_semesters_id_fk",
           "tableFrom": "recompute_jobs",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1817,12 +1684,8 @@
           "name": "recompute_jobs_target_config_id_heuristic_configs_id_fk",
           "tableFrom": "recompute_jobs",
           "tableTo": "heuristic_configs",
-          "columnsFrom": [
-            "target_config_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["target_config_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -1830,12 +1693,8 @@
           "name": "recompute_jobs_triggered_by_users_id_fk",
           "tableFrom": "recompute_jobs",
           "tableTo": "users",
-          "columnsFrom": [
-            "triggered_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["triggered_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1936,12 +1795,8 @@
           "name": "roster_entries_semester_id_semesters_id_fk",
           "tableFrom": "roster_entries",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1951,18 +1806,12 @@
         "roster_entries_semester_sid_key": {
           "name": "roster_entries_semester_sid_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "semester_id",
-            "sid"
-          ]
+          "columns": ["semester_id", "sid"]
         },
         "roster_entries_semester_protected_index_key": {
           "name": "roster_entries_semester_protected_index_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "semester_id",
-            "protected_index"
-          ]
+          "columns": ["semester_id", "protected_index"]
         }
       },
       "policies": {},
@@ -2050,12 +1899,8 @@
           "name": "semesters_course_id_courses_id_fk",
           "tableFrom": "semesters",
           "tableTo": "courses",
-          "columnsFrom": [
-            "course_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["course_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2065,10 +1910,7 @@
         "semesters_course_id_slug_key": {
           "name": "semesters_course_id_slug_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "course_id",
-            "slug"
-          ]
+          "columns": ["course_id", "slug"]
         }
       },
       "policies": {},
@@ -2190,12 +2032,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2203,12 +2041,8 @@
           "name": "sessions_view_as_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "view_as_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["view_as_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2421,12 +2255,8 @@
           "name": "submissions_semester_id_semesters_id_fk",
           "tableFrom": "submissions",
           "tableTo": "semesters",
-          "columnsFrom": [
-            "semester_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["semester_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2434,12 +2264,8 @@
           "name": "submissions_assignment_id_assignments_id_fk",
           "tableFrom": "submissions",
           "tableTo": "assignments",
-          "columnsFrom": [
-            "assignment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assignment_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2447,12 +2273,8 @@
           "name": "submissions_student_id_roster_entries_id_fk",
           "tableFrom": "submissions",
           "tableTo": "roster_entries",
-          "columnsFrom": [
-            "student_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["student_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2460,12 +2282,8 @@
           "name": "submissions_ingest_job_id_ingest_jobs_id_fk",
           "tableFrom": "submissions",
           "tableTo": "ingest_jobs",
-          "columnsFrom": [
-            "ingest_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["ingest_job_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2475,12 +2293,7 @@
         "submissions_version_key": {
           "name": "submissions_version_key",
           "nullsNotDistinct": false,
-          "columns": [
-            "semester_id",
-            "assignment_id",
-            "student_id",
-            "version_index"
-          ]
+          "columns": ["semester_id", "assignment_id", "student_id", "version_index"]
         }
       },
       "policies": {},
@@ -2565,9 +2378,7 @@
         "users_google_subject_unique": {
           "name": "users_google_subject_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "google_subject"
-          ]
+          "columns": ["google_subject"]
         }
       },
       "policies": {},
@@ -2659,12 +2470,8 @@
           "name": "validation_results_submission_id_submissions_id_fk",
           "tableFrom": "validation_results",
           "tableTo": "submissions",
-          "columnsFrom": [
-            "submission_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["submission_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

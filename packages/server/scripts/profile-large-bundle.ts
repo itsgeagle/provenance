@@ -123,7 +123,10 @@ const MIX: ReadonlyArray<{ kind: string; w: number }> = [
 ];
 const MIX_W = MIX.reduce((n, k) => n + k.w, 0);
 
-function buildLargeBundleFiles(eventCount: number, courseSig: string): Promise<Record<string, string>> {
+function buildLargeBundleFiles(
+  eventCount: number,
+  courseSig: string,
+): Promise<Record<string, string>> {
   return (async () => {
     const rng = mulberry32(0xc0ffee);
     const keypair = await generateSessionKeypair();
@@ -155,8 +158,18 @@ function buildLargeBundleFiles(eventCount: number, courseSig: string): Promise<R
     const lines: string[] = [];
     const checkpoints: Checkpoint[] = [];
 
-    const append = async (seq: number, kind: string, data: Record<string, unknown>): Promise<void> => {
-      const envelope = { seq, t, wall: new Date(baseMs + t).toISOString(), kind, data } as unknown as Envelope;
+    const append = async (
+      seq: number,
+      kind: string,
+      data: Record<string, unknown>,
+    ): Promise<void> => {
+      const envelope = {
+        seq,
+        t,
+        wall: new Date(baseMs + t).toISOString(),
+        kind,
+        data,
+      } as unknown as Envelope;
       const entry = chainEntry(prevHash, envelope);
       lines.push(serializeEntry(entry).trimEnd());
       prevHash = entry.hash;
@@ -169,7 +182,10 @@ function buildLargeBundleFiles(eventCount: number, courseSig: string): Promise<R
     const cosmetic = (kind: string): EventSpec => {
       switch (kind) {
         case 'selection.change':
-          return { kind, data: { path: path0, range: endRange(content), was_selection: rng() < 0.4 } };
+          return {
+            kind,
+            data: { path: path0, range: endRange(content), was_selection: rng() < 0.4 },
+          };
         case 'session.heartbeat':
           return { kind, data: { focused: true, active_file: path0, idle_since_ms: 0 } };
         case 'focus.change':
@@ -179,7 +195,10 @@ function buildLargeBundleFiles(eventCount: number, courseSig: string): Promise<R
         case 'doc.close':
           return { kind, data: { path: path0 } };
         default:
-          return { kind: 'terminal.open', data: { terminal_id: 't1', shell: 'bash', shell_integration: true } };
+          return {
+            kind: 'terminal.open',
+            data: { terminal_id: 't1', shell: 'bash', shell_integration: true },
+          };
       }
     };
 
@@ -207,7 +226,10 @@ function buildLargeBundleFiles(eventCount: number, courseSig: string): Promise<R
       if (i === pasteAt1 || i === pasteAt2) {
         const blob =
           `# pasted helper block ${i}\n` +
-          Array.from({ length: 20 }, (_, j) => `    val_${i}_${j} = lookup(${j}) + offset(${i})`).join('\n') +
+          Array.from(
+            { length: 20 },
+            (_, j) => `    val_${i}_${j} = lookup(${j}) + offset(${i})`,
+          ).join('\n') +
           '\n';
         const range = endRange(content);
         content += blob;
@@ -235,7 +257,11 @@ function buildLargeBundleFiles(eventCount: number, courseSig: string): Promise<R
         const line = `    step_${typed} = transform(data[${typed % 50}], ${typed})\n`;
         content += line;
         typed++;
-        await append(seq++, 'doc.change', { path: path0, deltas: [{ range, text: line }], source: 'typed' });
+        await append(seq++, 'doc.change', {
+          path: path0,
+          deltas: [{ range, text: line }],
+          source: 'typed',
+        });
       } else {
         const ev = cosmetic(kind);
         await append(seq++, ev.kind, ev.data);
@@ -329,23 +355,40 @@ async function ensureBucket(): Promise<void> {
 }
 
 async function setup(db: DrizzleDb): Promise<string> {
-  const eu = await db.select({ id: users.id }).from(users).where(eq(users.email, ADMIN_EMAIL)).limit(1);
+  const eu = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, ADMIN_EMAIL))
+    .limit(1);
   let userId: string;
   if (eu.length > 0) userId = eu[0]!.id;
   else {
     const [row] = await db
       .insert(users)
-      .values({ google_subject: 'large-admin-subject', email: ADMIN_EMAIL, display_name: 'Large Admin' })
+      .values({
+        google_subject: 'large-admin-subject',
+        email: ADMIN_EMAIL,
+        display_name: 'Large Admin',
+      })
       .returning({ id: users.id });
     userId = row!.id;
   }
   const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-  const es = await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, SESSION_ID)).limit(1);
-  if (es.length > 0) await db.update(sessions).set({ expires_at: expiresAt }).where(eq(sessions.id, SESSION_ID));
+  const es = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.id, SESSION_ID))
+    .limit(1);
+  if (es.length > 0)
+    await db.update(sessions).set({ expires_at: expiresAt }).where(eq(sessions.id, SESSION_ID));
   else await db.insert(sessions).values({ id: SESSION_ID, user_id: userId, expires_at: expiresAt });
 
   let courseId: string;
-  const ec = await db.select({ id: courses.id }).from(courses).where(eq(courses.slug, PERF.courseSlug)).limit(1);
+  const ec = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(eq(courses.slug, PERF.courseSlug))
+    .limit(1);
   if (ec.length > 0) courseId = ec[0]!.id;
   else {
     const [c] = await db
@@ -356,7 +399,11 @@ async function setup(db: DrizzleDb): Promise<string> {
   }
 
   let semesterId: string;
-  const esem = await db.select({ id: semesters.id }).from(semesters).where(eq(semesters.slug, PERF.slug)).limit(1);
+  const esem = await db
+    .select({ id: semesters.id })
+    .from(semesters)
+    .where(eq(semesters.slug, PERF.slug))
+    .limit(1);
   if (esem.length > 0) semesterId = esem[0]!.id;
   else {
     const [s] = await db
@@ -391,7 +438,8 @@ async function setup(db: DrizzleDb): Promise<string> {
     .from(ingest_jobs)
     .where(eq(ingest_jobs.semester_id, semesterId));
   const jobIds = jobRows.map((r) => r.id);
-  if (jobIds.length > 0) await db.delete(ingest_files).where(inArray(ingest_files.ingest_job_id, jobIds));
+  if (jobIds.length > 0)
+    await db.delete(ingest_files).where(inArray(ingest_files.ingest_job_id, jobIds));
   await db.delete(ingest_jobs).where(eq(ingest_jobs.semester_id, semesterId));
   await db.delete(roster_entries).where(eq(roster_entries.semester_id, semesterId));
   await db.delete(assignments).where(eq(assignments.semester_id, semesterId));
@@ -429,7 +477,9 @@ async function main(): Promise<void> {
   log(`building one ~4-hour bundle with ${eventCount.toLocaleString()} events…`);
   const tGen = Date.now();
   const exportBytes = await buildExportZip(eventCount);
-  log(`export ZIP ${(exportBytes.byteLength / 1024 / 1024).toFixed(1)} MB built in ${fmt(Date.now() - tGen)}`);
+  log(
+    `export ZIP ${(exportBytes.byteLength / 1024 / 1024).toFixed(1)} MB built in ${fmt(Date.now() - tGen)}`,
+  );
 
   await ensureBucket();
   const semesterId = await setup(db);
@@ -496,6 +546,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  process.stderr.write(`[large] failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+  process.stderr.write(
+    `[large] failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+  );
   process.exit(1);
 });

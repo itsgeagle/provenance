@@ -1,10 +1,10 @@
 ## Recording your work with the Provenance Recorder
 
-For some assignments this term you'll record your work with the **Provenance Recorder**, a VS Code extension that keeps a tamper-evident log of *how* your code comes together as you work. When you're done, the extension bundles your assignment files together with that log into a single sealed `.zip` — that one file is your submission, so your work can be reviewed as a process and not just a final file.
+For some assignments this term you'll record your work with the **Provenance Recorder**, a VS Code extension that keeps a tamper-evident log of _how_ your code comes together as you work. When you're done, the extension bundles your assignment files together with that log into a single sealed `.zip` — that one file is your submission, so your work can be reviewed as a process and not just a final file.
 
 The extension only runs inside assignment folders the course has authorized. In every other folder it does nothing — no recording, no network requests, and no change to how VS Code behaves. Setup takes about two minutes, and you only do it once.
 
-> **What gets recorded?** Inside the assignment folder only: your edits, pastes, saves, terminal commands, and editor focus. Everything stays on your computer until *you* upload the sealed `.zip`. The complete, itemized list is on the [extension's Marketplace page](https://marketplace.visualstudio.com/items?itemName=itsgeagle.provenance-recorder#what-it-records).
+> **What gets recorded?** Inside the assignment folder only: your edits, pastes, saves, terminal commands, and editor focus. Everything stays on your computer until _you_ upload the sealed `.zip`. The complete, itemized list is on the [extension's Marketplace page](https://marketplace.visualstudio.com/items?itemName=itsgeagle.provenance-recorder#what-it-records).
 
 ### Before you start
 
@@ -80,7 +80,8 @@ Upload **only that `.zip`** to Gradescope — nothing else. The bundle already i
 
 **The status bar doesn't say `Provenance: recording`.**
 The recorder only activates for an authorized assignment folder. Check that:
-- You opened the assignment folder *itself*, not a parent or subfolder.
+
+- You opened the assignment folder _itself_, not a parent or subfolder.
 - The `.provenance-manifest` file is still present in that folder.
 - You installed the build the course expects. If the manifest's signature doesn't match your installed build, recording won't start — reinstall the version posted for this assignment.
 

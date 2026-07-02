@@ -37,9 +37,11 @@
 ## Task 1: Add the `ingest_stage_upload` job kind
 
 **Files:**
+
 - Modify: `packages/server/src/jobs/pg-boss.ts:14-55`
 
 **Interfaces:**
+
 - Produces: `JOB_KINDS.INGEST_STAGE_UPLOAD === 'ingest_stage_upload'` (consumed by the route, worker, and staging service).
 
 - [ ] **Step 1: Add the kind to the registry and the doc comment**
@@ -86,11 +88,13 @@ git commit --no-gpg-sign -m "feat(server): add ingest_stage_upload job kind"
 This lets the background staging job stage into an `ingest_jobs` row the route created up front, instead of `ingestLocalPath` lazily creating its own. Existing callers that omit `jobId` keep today's lazy-create behavior exactly.
 
 **Files:**
+
 - Modify: `packages/server/src/services/ingest/local-path.ts:34-93`
 - Modify: `packages/server/src/services/ingest/resumable-upload.ts:120-159`
 - Test: `packages/server/src/services/ingest/local-path.e2e.test.ts`
 
 **Interfaces:**
+
 - Consumes: `JOB_KINDS` (unused here), `enqueueIngestJob` (existing).
 - Produces:
   - `IngestLocalPathArgs.jobId?: string` — when set, stage into this job (no lazy create); the result's `jobId` equals it even for a roster-only export (`submissionsQueued: 0`).
@@ -162,26 +166,26 @@ export interface IngestLocalPathArgs {
 Then change the destructure and the `jobId` initializer. Replace:
 
 ```ts
-  const { semesterId, userId, archivePath, maxBundleBytes, maxBatchFiles } = args;
+const { semesterId, userId, archivePath, maxBundleBytes, maxBatchFiles } = args;
 ```
 
 with:
 
 ```ts
-  const { semesterId, userId, archivePath, maxBundleBytes, maxBatchFiles } = args;
-  const existingJobId = args.jobId ?? null;
+const { semesterId, userId, archivePath, maxBundleBytes, maxBatchFiles } = args;
+const existingJobId = args.jobId ?? null;
 ```
 
 And replace the `let jobId` declaration:
 
 ```ts
-    let jobId: string | null = null;
+let jobId: string | null = null;
 ```
 
 with:
 
 ```ts
-    let jobId: string | null = existingJobId;
+let jobId: string | null = existingJobId;
 ```
 
 The existing lazy-create guard `if (jobId === null) { jobId = (await enqueueIngestJob(...)).jobId; }` now only fires when no `jobId` was supplied — exactly the desired behavior. The rest of the function (per-file staging, the `stagedFileIds.length > 0` enqueue block, the `roster`/`bundlesProcessed`/`submissionsQueued` result) is unchanged.
@@ -212,17 +216,17 @@ export interface CompleteResumableArgs {
 Then forward it in the `ingestLocalPath` call inside `completeResumableUpload` (add one line to the args object):
 
 ```ts
-    return await ingestLocalPath(
-      { db: args.db, storageClient },
-      {
-        semesterId: args.semesterId,
-        userId: args.userId,
-        archivePath: tmp.path,
-        maxBundleBytes: args.maxBundleBytes,
-        maxBatchFiles: args.maxBatchFiles,
-        jobId: args.jobId,
-      },
-    );
+return await ingestLocalPath(
+  { db: args.db, storageClient },
+  {
+    semesterId: args.semesterId,
+    userId: args.userId,
+    archivePath: tmp.path,
+    maxBundleBytes: args.maxBundleBytes,
+    maxBatchFiles: args.maxBatchFiles,
+    jobId: args.jobId,
+  },
+);
 ```
 
 - [ ] **Step 6: Run the resumable service e2e to confirm no regression**
@@ -247,10 +251,12 @@ git commit --no-gpg-sign -m "feat(server): let ingest stage into a pre-created j
 ## Task 3: `stage-upload-job` service — orchestrate background staging
 
 **Files:**
+
 - Create: `packages/server/src/services/ingest/stage-upload-job.ts`
 - Create: `packages/server/src/services/ingest/stage-upload-job.e2e.test.ts`
 
 **Interfaces:**
+
 - Consumes: `completeResumableUpload` (now accepts `jobId`), `failIngestJob`, `JOB_KINDS`, `DrizzleDb`, `StorageClient`, `PgBoss`.
 - Produces:
   - `interface IngestStageUploadPayload { ingestJobId: string; semesterId: string; userId: string; uploadId: string; s3UploadId: string }`
@@ -455,9 +461,11 @@ git commit --no-gpg-sign -m "feat(server): stage completed resumable uploads in 
 ## Task 4: Register the `ingest_stage_upload` worker handler
 
 **Files:**
+
 - Modify: `packages/server/src/jobs/worker.ts:42-66` (imports), `:103-108` (queue creation), `:544-614` (register after the ingest_finalize handler)
 
 **Interfaces:**
+
 - Consumes: `stageUploadIntoJob`, `IngestStageUploadPayload` (from `stage-upload-job.ts`), `JOB_KINDS.INGEST_STAGE_UPLOAD`, `getConfig`, `createStorageClient`, `failIngestJob` (already imported).
 - Produces: a registered pg-boss worker for `ingest_stage_upload`.
 
@@ -477,7 +485,7 @@ import {
 In the queue-creation block (after `await boss.createQueue(JOB_KINDS.INGEST_FINALIZE);`, ~line 104) add:
 
 ```ts
-  await boss.createQueue(JOB_KINDS.INGEST_STAGE_UPLOAD);
+await boss.createQueue(JOB_KINDS.INGEST_STAGE_UPLOAD);
 ```
 
 - [ ] **Step 3: Register the handler**
@@ -485,44 +493,44 @@ In the queue-creation block (after `await boss.createQueue(JOB_KINDS.INGEST_FINA
 Immediately after the `JOB_KINDS.INGEST_FINALIZE` `boss.work(...)` registration block closes (after line 614, before the `registerRecomputeHandlers` call) add:
 
 ```ts
-  // -------------------------------------------------------------------------
-  // ingest_stage_upload handler
-  //
-  // Assembles a completed resumable (chunked) upload and stages its bundles
-  // into the pre-created ingest job, off the HTTP request path. Enqueued with
-  // retryLimit: 0 by the route (S3 multipart completion is non-idempotent), so
-  // on any failure we mark the job failed here rather than letting it hang.
-  // -------------------------------------------------------------------------
-  await boss.work<IngestStageUploadPayload>(
-    JOB_KINDS.INGEST_STAGE_UPLOAD,
-    { batchSize: 1, pollingIntervalSeconds },
-    async (jobs) => {
-      const job = jobs[0]!;
-      const db = getDb();
-      const cfg = getConfig();
-      const storageClient = createStorageClient(storageConfigFromEnv(cfg));
-      const stageBoss = await getBoss();
+// -------------------------------------------------------------------------
+// ingest_stage_upload handler
+//
+// Assembles a completed resumable (chunked) upload and stages its bundles
+// into the pre-created ingest job, off the HTTP request path. Enqueued with
+// retryLimit: 0 by the route (S3 multipart completion is non-idempotent), so
+// on any failure we mark the job failed here rather than letting it hang.
+// -------------------------------------------------------------------------
+await boss.work<IngestStageUploadPayload>(
+  JOB_KINDS.INGEST_STAGE_UPLOAD,
+  { batchSize: 1, pollingIntervalSeconds },
+  async (jobs) => {
+    const job = jobs[0]!;
+    const db = getDb();
+    const cfg = getConfig();
+    const storageClient = createStorageClient(storageConfigFromEnv(cfg));
+    const stageBoss = await getBoss();
 
-      logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: started');
-      try {
-        await stageUploadIntoJob(
-          { db, storageClient, boss: stageBoss },
-          {
-            ...job.data,
-            maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
-            maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
-          },
-        );
-        logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: completed');
-      } catch (err) {
-        const cause = err instanceof Error ? err.message : String(err);
-        logger.error({ ingestJobId: job.data.ingestJobId, err }, 'ingest_stage_upload: failed');
-        await failIngestJob(db, job.data.ingestJobId, `stage_upload error: ${cause}`).catch(() => {
-          // Best-effort — do not re-throw (retryLimit is 0; nothing to retry).
-        });
-      }
-    },
-  );
+    logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: started');
+    try {
+      await stageUploadIntoJob(
+        { db, storageClient, boss: stageBoss },
+        {
+          ...job.data,
+          maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
+          maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+        },
+      );
+      logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: completed');
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      logger.error({ ingestJobId: job.data.ingestJobId, err }, 'ingest_stage_upload: failed');
+      await failIngestJob(db, job.data.ingestJobId, `stage_upload error: ${cause}`).catch(() => {
+        // Best-effort — do not re-throw (retryLimit is 0; nothing to retry).
+      });
+    }
+  },
+);
 ```
 
 (`getBoss`, `getConfig`, `getDb`, `createStorageClient`, `storageConfigFromEnv`, `failIngestJob`, and `logger` are all already imported/in scope in `startWorker`.)
@@ -544,10 +552,12 @@ git commit --no-gpg-sign -m "feat(server): register ingest_stage_upload worker h
 ## Task 5: Rewrite the `/complete` route to enqueue staging and return immediately
 
 **Files:**
+
 - Modify: `packages/server/src/api/v1/routes/ingest.ts:1118-1187` (the body of the `/complete` handler after the `s3UploadId` validation), `:55-63` (imports)
 - Test: `packages/server/src/api/v1/routes/ingest-gradescope.e2e.test.ts`
 
 **Interfaces:**
+
 - Consumes: `enqueueIngestJob`, `getBoss`, `JOB_KINDS` (already imported in the route), `IngestStageUploadPayload` (new import from `stage-upload-job.ts`).
 - Produces: `POST /ingest/uploads/:uploadId/complete` returns `202 { job_id, roster:{added:0,updated:0}, bundles_processed:0, submissions_queued:0, skipped:[] }` immediately and enqueues one `ingest_stage_upload` job.
 
@@ -621,43 +631,43 @@ import type { IngestStageUploadPayload } from '../../../services/ingest/stage-up
 Then replace the handler body from the `storageClient`/`completeResumableUpload` call through the end of the two `c.json(...)` returns (current `:1119-1186`) with:
 
 ```ts
-      // Create the ingest job row up front so the client gets a job_id to poll
-      // immediately, then hand the heavy assemble→download→stage work to a
-      // background `ingest_stage_upload` job. This keeps the request fast: a
-      // multi-GB export no longer blocks /complete for minutes (which left the
-      // UI stuck at "Uploading… 100%").
-      const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
+// Create the ingest job row up front so the client gets a job_id to poll
+// immediately, then hand the heavy assemble→download→stage work to a
+// background `ingest_stage_upload` job. This keeps the request fast: a
+// multi-GB export no longer blocks /complete for minutes (which left the
+// UI stuck at "Uploading… 100%").
+const { jobId } = await enqueueIngestJob(db, semesterId, principal.user.id);
 
-      const boss = await getBoss();
-      await boss.send(
-        JOB_KINDS.INGEST_STAGE_UPLOAD,
-        {
-          ingestJobId: jobId,
-          semesterId,
-          userId: principal.user.id,
-          uploadId,
-          s3UploadId,
-        } satisfies IngestStageUploadPayload,
-        // Not retryable: S3 multipart completion is non-idempotent. On failure
-        // the worker marks the job failed so the UI surfaces it.
-        { singletonKey: jobId, retryLimit: 0 },
-      );
+const boss = await getBoss();
+await boss.send(
+  JOB_KINDS.INGEST_STAGE_UPLOAD,
+  {
+    ingestJobId: jobId,
+    semesterId,
+    userId: principal.user.id,
+    uploadId,
+    s3UploadId,
+  } satisfies IngestStageUploadPayload,
+  // Not retryable: S3 multipart completion is non-idempotent. On failure
+  // the worker marks the job failed so the UI surfaces it.
+  { singletonKey: jobId, retryLimit: 0 },
+);
 
-      c.set('auditDetail', { job_id: jobId });
+c.set('auditDetail', { job_id: jobId });
 
-      // The roster/counts/skipped are reported via GET /ingest/jobs/:jobId as the
-      // background job runs; the immediate response carries placeholders so the
-      // wire shape (and the analyzer's GradescopeIngestResponse parse) is stable.
-      return c.json(
-        {
-          job_id: jobId,
-          roster: { added: 0, updated: 0 },
-          bundles_processed: 0,
-          submissions_queued: 0,
-          skipped: [],
-        },
-        202,
-      );
+// The roster/counts/skipped are reported via GET /ingest/jobs/:jobId as the
+// background job runs; the immediate response carries placeholders so the
+// wire shape (and the analyzer's GradescopeIngestResponse parse) is stable.
+return c.json(
+  {
+    job_id: jobId,
+    roster: { added: 0, updated: 0 },
+    bundles_processed: 0,
+    submissions_queued: 0,
+    skipped: [],
+  },
+  202,
+);
 ```
 
 Delete the now-unused `storageClient` creation, the `completeResumableUpload` call, the `if (!result.ok)` block, the `skippedSummary` mapping, and the `if (result.jobId === null)` branch — they are all replaced by the above. Keep everything ABOVE it (the `s3UploadId` presence validation at `:1111-1117`).
@@ -687,6 +697,7 @@ git commit --no-gpg-sign -m "feat(server): make resumable upload /complete async
 ## Task 6: Documentation
 
 **Files:**
+
 - Modify: the ingest docs file last touched by commit `d92c327` ("docs: update ingest docs for streaming + resumable HTTP upload") — locate with `git show --stat d92c327`.
 
 **Interfaces:** none (docs only).

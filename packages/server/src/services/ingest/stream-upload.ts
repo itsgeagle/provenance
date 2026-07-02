@@ -42,7 +42,9 @@ export interface StreamUploadOptions {
  * to a temp file. Resolves with the temp path and byte count, or a discriminated
  * error (missing file, over size limit, or a malformed body).
  */
-export async function streamUploadToTempFile(opts: StreamUploadOptions): Promise<StreamUploadResult> {
+export async function streamUploadToTempFile(
+  opts: StreamUploadOptions,
+): Promise<StreamUploadResult> {
   const { fieldName, maxBytes, headers, body } = opts;
 
   const dir = await mkdtemp(path.join(os.tmpdir(), 'prov-upload-'));
@@ -85,7 +87,11 @@ export async function streamUploadToTempFile(opts: StreamUploadOptions): Promise
       bb = busboy({ headers: headerObj, limits: { files: 1, fileSize: maxBytes } });
     } catch (e) {
       void cleanup().then(() =>
-        finish({ ok: false, error: 'malformed', detail: e instanceof Error ? e.message : String(e) }),
+        finish({
+          ok: false,
+          error: 'malformed',
+          detail: e instanceof Error ? e.message : String(e),
+        }),
       );
       return;
     }
@@ -109,7 +115,11 @@ export async function streamUploadToTempFile(opts: StreamUploadOptions): Promise
 
     bb.on('error', (e: unknown) => {
       void cleanup().then(() =>
-        finish({ ok: false, error: 'malformed', detail: e instanceof Error ? e.message : String(e) }),
+        finish({
+          ok: false,
+          error: 'malformed',
+          detail: e instanceof Error ? e.message : String(e),
+        }),
       );
     });
 
@@ -142,7 +152,11 @@ export async function streamUploadToTempFile(opts: StreamUploadOptions): Promise
 
     nodeReq.on('error', (e: unknown) => {
       void cleanup().then(() =>
-        finish({ ok: false, error: 'malformed', detail: e instanceof Error ? e.message : String(e) }),
+        finish({
+          ok: false,
+          error: 'malformed',
+          detail: e instanceof Error ? e.message : String(e),
+        }),
       );
     });
 

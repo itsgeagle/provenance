@@ -152,9 +152,7 @@ export async function completeMultipartUpload(
   const body =
     '<CompleteMultipartUpload>' +
     parts
-      .map(
-        (p) => `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>${p.etag}</ETag></Part>`,
-      )
+      .map((p) => `<Part><PartNumber>${p.partNumber}</PartNumber><ETag>${p.etag}</ETag></Part>`)
       .join('') +
     '</CompleteMultipartUpload>';
   const url = `${client.bucketUrl}/${key}?uploadId=${encodeURIComponent(uploadId)}`;

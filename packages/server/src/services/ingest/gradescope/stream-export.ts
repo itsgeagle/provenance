@@ -231,14 +231,17 @@ export async function openLocalExport(archivePath: string): Promise<OpenLocalExp
     bucket.push({ rel, entry });
   }
 
-  const rosterSubmitters = dedupeSubmitters(
-    meta.submissions.flatMap((s) => s.submitters),
-  );
+  const rosterSubmitters = dedupeSubmitters(meta.submissions.flatMap((s) => s.submitters));
 
   async function* submissions(): AsyncGenerator<StreamedSubmission, void, void> {
     for (const sub of meta.submissions) {
       if (sub.submitters.length === 0) {
-        yield { kind: 'skipped', folderKey: sub.folderKey, submitters: [], reason: 'no_submitters' };
+        yield {
+          kind: 'skipped',
+          folderKey: sub.folderKey,
+          submitters: [],
+          reason: 'no_submitters',
+        };
         continue;
       }
 

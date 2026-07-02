@@ -15,7 +15,10 @@ describe('chunk', () => {
   });
 
   it('handles an exact multiple with no trailing empty chunk', () => {
-    expect(chunk([1, 2, 3, 4], 2)).toEqual([[1, 2], [3, 4]]);
+    expect(chunk([1, 2, 3, 4], 2)).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
   });
 
   it('preserves order across chunk boundaries', () => {

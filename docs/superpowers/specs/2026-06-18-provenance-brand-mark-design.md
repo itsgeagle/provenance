@@ -29,11 +29,11 @@ two links genuinely interlock (not one flatly stacked on the other).
 Ink-on-white with a single orange accent. Two surface variants, because the
 mark must work on the analyzer's dark UI as well as the Marketplace's white tile.
 
-| Token        | Light surface | Dark surface |
-| ------------ | ------------- | ------------ |
-| Ink / line   | `#18181b`     | `#fafafa`    |
-| Accent       | `#EA580C`     | `#F97316`    |
-| Background    | `#ffffff`     | transparent  |
+| Token      | Light surface | Dark surface |
+| ---------- | ------------- | ------------ |
+| Ink / line | `#18181b`     | `#fafafa`    |
+| Accent     | `#EA580C`     | `#F97316`    |
+| Background | `#ffffff`     | transparent  |
 
 (The accent brightens slightly on dark for contrast; same hue family.)
 
@@ -88,16 +88,16 @@ the SVG source kept as the editable master.
 
 All source masters live in a new top-level `brand/` directory.
 
-| File | Purpose |
-| ---- | ------- |
-| `brand/provenance-mark.svg` | symbol, light surface (master) |
-| `brand/provenance-mark-dark.svg` | symbol, dark surface (master) |
-| `brand/provenance-lockup.svg` | symbol + wordmark (master) |
-| `brand/provenance-lockup-dark.svg` | lockup, dark surface (master) |
-| `brand/exports/icon-128.png` | recorder VSIX icon (white bg) |
-| `brand/exports/favicon.svg` + `favicon-32.png` | analyzer favicon |
-| `brand/exports/lockup-light.png` / `lockup-dark.png` | README / headers |
-| `brand/README.md` | tokens, variants, and how to re-export |
+| File                                                 | Purpose                                |
+| ---------------------------------------------------- | -------------------------------------- |
+| `brand/provenance-mark.svg`                          | symbol, light surface (master)         |
+| `brand/provenance-mark-dark.svg`                     | symbol, dark surface (master)          |
+| `brand/provenance-lockup.svg`                        | symbol + wordmark (master)             |
+| `brand/provenance-lockup-dark.svg`                   | lockup, dark surface (master)          |
+| `brand/exports/icon-128.png`                         | recorder VSIX icon (white bg)          |
+| `brand/exports/favicon.svg` + `favicon-32.png`       | analyzer favicon                       |
+| `brand/exports/lockup-light.png` / `lockup-dark.png` | README / headers                       |
+| `brand/README.md`                                    | tokens, variants, and how to re-export |
 
 Wiring (one pass, all three surfaces):
 
@@ -119,7 +119,7 @@ Exports are produced with `rsvg-convert` (already available on this machine).
 - **Extension-hash allowlist.** Adding an icon changes the recorder VSIX, hence
   its build hash. Per CLAUDE.md, when the recorder ships a new VSIX the
   analyzer's `known-good-extension-hashes.json` must be refreshed via
-  `npm run update-hashes`. This is a consequence of the *production build*, not
+  `npm run update-hashes`. This is a consequence of the _production build_, not
   of the logo per se, but the logo change is what lands in that build — flag it
   so it is not forgotten when the prod VSIX is cut.
 - **No new dependencies.** `rsvg-convert` is a local CLI, not an npm dep. No
