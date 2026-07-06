@@ -33,7 +33,16 @@ Requires Node 22+ and npm 10+. Docker is required to run the server (Postgres + 
 git clone <repo> provenance
 cd provenance
 npm install
+npm run build
 ```
+
+`npm run build` is a one-time prerequisite, not just a test step. The workspace
+packages (`log-core`, `shared`, `analysis-core`) are consumed through their
+`exports` maps, which point at built output in each package's git-ignored `dist/`.
+Until you build, that `dist/` is absent and any dev entrypoint that imports these
+packages — notably the analyzer frontend — fails to resolve with
+`imported but could not be resolved` errors. Re-run `npm run build` (or the
+per-package `build` script) after pulling changes to those packages.
 
 ### Run all tests
 
@@ -108,6 +117,10 @@ full ingest guide, plus the dev tooling for generating large test fixtures (`gen
 and profiling the pipeline (`profile:ingest`, `profile:large`).
 
 ### Run the analyzer frontend
+
+Requires the workspace to have been built at least once (`npm run build` from the
+repo root — see [Quickstart](#quickstart--development-environment)), since the
+analyzer imports `log-core` / `shared` / `analysis-core` from their `dist/` output.
 
 ```sh
 npm run dev --workspace=packages/analyzer
