@@ -358,6 +358,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     emitFocusChange: (data) => sessionHost.emit('focus.change', data),
     emitFsExternalChange: (data) => sessionHost.emit('fs.external_change', data),
     filesUnderReview: manifest.files_under_review,
+    provenanceDir,
     expectedContent: expectedContentRegistry,
     pasteIntercept,
     largeInsertCounter,

@@ -1159,6 +1159,153 @@ describe('startDocWiring', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Provenance-artifact exclusion: the recorder must never record reads/edits
+  // of its OWN files — the .provenance/ dir (live .slog/.slog.meta/manifest.json/
+  // manifest.sig) and the activation manifest at the workspace root. Guards
+  // against inlining the log into doc.open and against the auto-revert →
+  // doc.change/paste feedback loop when a student opens the live log.
+  // -------------------------------------------------------------------------
+
+  const PROVENANCE_DIR = '/workspace/.provenance';
+
+  it('does NOT emit doc.open when a file under .provenance/ is opened', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: [],
+      provenanceDir: PROVENANCE_DIR,
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    openSub.handler!(fakeDoc({ path: '.provenance/session-abc.slog' }));
+
+    expect(emitters.emitDocOpen).not.toHaveBeenCalled();
+  });
+
+  it('does NOT emit doc.change/paste for an auto-revert on the live .slog (feedback-loop guard)', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: [],
+      provenanceDir: PROVENANCE_DIR,
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    // Simulate VS Code auto-reverting the clean .slog buffer after the writer
+    // appended a big chunk (reason undefined, isDirty false) — exactly the shape
+    // that would otherwise be reclassified as a paste and re-recorded.
+    changeSub.handler!(
+      fakeChangeEvent(
+        '.provenance/session-abc.slog',
+        [{ startLine: 10, startChar: 0, endLine: 10, endChar: 0, text: 'x'.repeat(500) }],
+        { isDirty: false, reason: undefined },
+      ),
+    );
+
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+  });
+
+  it('does NOT emit selection.change when clicking around inside a .provenance/ file', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: [],
+      provenanceDir: PROVENANCE_DIR,
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    selectionSub.handler!({
+      textEditor: { document: fakeDoc({ path: '.provenance/manifest.json' }) },
+      selections: [
+        {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 0 },
+          isEmpty: true,
+          isReversed: false,
+          active: { line: 0, character: 0 },
+          anchor: { line: 0, character: 0 },
+        },
+      ],
+      kind: undefined,
+    });
+
+    expect(emitters.emitSelectionChange).not.toHaveBeenCalled();
+  });
+
+  it('does NOT emit doc.open for the activation manifest, even without provenanceDir', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: [],
+      // provenanceDir intentionally omitted — manifest exclusion is by name.
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    openSub.handler!(fakeDoc({ path: '.provenance-manifest' }));
+    openSub.handler!(fakeDoc({ path: 'provenance-manifest' }));
+
+    expect(emitters.emitDocOpen).not.toHaveBeenCalled();
+  });
+
+  it('does NOT emit synthetic doc.open for a .provenance/ file already open at activation', () => {
+    setMockWindowState({ focused: true });
+    setMockTextDocuments([
+      {
+        uri: fakeUri('.provenance/session-abc.slog'),
+        lineCount: 1,
+        getText: () => '{"seq":0}\n',
+      },
+    ]);
+    const registry = new ExpectedContentRegistry([]);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: [],
+      provenanceDir: PROVENANCE_DIR,
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    expect(emitters.emitDocOpen).not.toHaveBeenCalled();
+  });
+
+  it('still records a normal in-workspace file when provenanceDir is set (no over-exclusion)', () => {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      provenanceDir: PROVENANCE_DIR,
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+
+    openSub.handler!(fakeDoc({ path: 'src/foo.py' }));
+
+    expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
+  });
+
+  // -------------------------------------------------------------------------
   // Issue A fix: synthetic doc.open for already-open documents (recorder v1.1)
   // -------------------------------------------------------------------------
 

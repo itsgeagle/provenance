@@ -10,8 +10,10 @@
  */
 
 import * as vscode from 'vscode';
+import { sep as pathSep } from 'node:path';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { MANIFEST_FILE_NAMES } from '../activation/manifest-loader.js';
 import type {
   DocOpenPayload,
   DocChangePayload,
@@ -62,6 +64,13 @@ export type DocWiringDeps = {
   emitFsExternalChange: (data: FsExternalChangePayload) => void;
   /** Relative paths from the `.provenance-manifest`/`provenance-manifest` file. */
   filesUnderReview: readonly string[];
+  /**
+   * Absolute path to the `.provenance/` directory for this session. Files inside it
+   * (the live `.slog`/`.slog.meta`, `manifest.json`, `manifest.sig`) are NEVER recorded,
+   * along with the activation manifest at the workspace root. Optional so tests that
+   * don't exercise the exclusion can omit it; production always passes it.
+   */
+  provenanceDir?: string;
   /** Registry for expected-content model. */
   expectedContent: ExpectedContentRegistry;
   /** Signal 2: command-intercept handle. Null if not available (tests can omit). */
@@ -121,6 +130,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
     emitSelectionChange,
     emitFocusChange,
     emitFsExternalChange,
+    provenanceDir,
     expectedContent,
     pasteIntercept,
     largeInsertCounter,
@@ -151,14 +161,53 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
   //      returns the absolute fsPath verbatim when the file is OUTSIDE the
   //      workspace folder. A successful relative-path conversion means the
   //      file is inside the workspace.
+  //   3. NOT one of the recorder's own artifacts (see isProvenanceArtifact).
   //
   // The startup catch-up loop at the bottom of this function applies the
   // same filter inline; the helper here covers live events.
   // -------------------------------------------------------------------------
+
+  // Normalized `.provenance/` prefix (dir + separator) for prefix matching.
+  // Computed once; undefined when no provenanceDir was supplied (test-only).
+  const provenanceDirPrefix =
+    provenanceDir === undefined
+      ? undefined
+      : provenanceDir.endsWith(pathSep)
+        ? provenanceDir
+        : provenanceDir + pathSep;
+
+  // -------------------------------------------------------------------------
+  // The recorder must NEVER record reads or edits of its OWN artifacts:
+  //   - everything under the `.provenance/` directory (the live `.slog`,
+  //     `.slog.meta`, `manifest.json`, `manifest.sig`), and
+  //   - the activation manifest at the workspace root (`.provenance-manifest`
+  //     / `provenance-manifest`).
+  //
+  // Without this exclusion, a student opening the live log in the editor would
+  // (a) emit a `doc.open` that inlines the log's own content, and (b) trigger a
+  // self-feeding loop: the SessionWriter appends to the `.slog` on disk, VS Code
+  // auto-reverts the still-clean editor buffer to match, that revert surfaces as
+  // an `onDidChangeTextDocument` (see the reload-from-disk note in the doc.change
+  // handler), and the appended bytes get re-recorded as a `doc.change`/`paste` —
+  // which appends again, and so on. The `.provenance/` files are also not in
+  // files_under_review, so the reload-from-disk discriminator never covered them.
+  //
+  // `fsPath` prefix match (not asRelativePath) so it's robust to the
+  // provenanceDirOverride case; the manifest is matched by workspace-relative
+  // name since it lives at the workspace root.
+  // -------------------------------------------------------------------------
+  function isProvenanceArtifact(fsPath: string, rel: string): boolean {
+    if ((MANIFEST_FILE_NAMES as readonly string[]).includes(rel)) return true;
+    if (provenanceDirPrefix === undefined) return false;
+    return fsPath === provenanceDir || fsPath.startsWith(provenanceDirPrefix);
+  }
+
   function isRecordable(uri: { fsPath: string; scheme: string }): boolean {
     if (uri.scheme !== 'file') return false;
     const rel = workspace.asRelativePath(uri as import('vscode').Uri);
-    return rel !== uri.fsPath;
+    if (rel === uri.fsPath) return false;
+    if (isProvenanceArtifact(uri.fsPath, rel)) return false;
+    return true;
   }
 
   // -------------------------------------------------------------------------
