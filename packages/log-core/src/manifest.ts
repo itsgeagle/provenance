@@ -1,5 +1,5 @@
 /**
- * Parser and signature verifier for the .provenance-manifest assignment file.
+ * Parser and signature verifier for the `.provenance-manifest`/`provenance-manifest` assignment file.
  * PRD §4.1 — the recorder activates only when this manifest is present and valid.
  *
  * Signing payload: canonicalize({assignment_id, semester, issued_at, files_under_review})
@@ -58,7 +58,7 @@ function buildSignedPayload(manifest: Omit<Manifest, 'sig'>): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a .provenance-manifest file (text content) into a Manifest.
+ * Parse a `.provenance-manifest`/`provenance-manifest` file (text content) into a Manifest.
  * Validates JSON structure and field shapes. Does NOT verify the signature.
  */
 export function parseManifest(text: string): Result<Manifest, ManifestError> {
@@ -133,7 +133,7 @@ export function parseManifest(text: string): Result<Manifest, ManifestError> {
  * canonicalize({assignment_id, semester, issued_at, files_under_review}).
  *
  * This is the routine course staff tooling (and the dev seed) use to produce a
- * `.provenance-manifest` sig; verifyManifest against the same payload confirms it.
+ * `.provenance-manifest`/`provenance-manifest` sig; verifyManifest against the same payload confirms it.
  */
 export async function signManifest(
   manifest: Omit<Manifest, 'sig'>,

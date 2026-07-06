@@ -3,7 +3,7 @@
  * activate() is a thin wrapper that constructs production dependencies and
  * calls activateImpl(), which contains the real logic and is testable in isolation.
  *
- * PRD §4.1: Activate only when .provenance-manifest is present and signature-valid.
+ * PRD §4.1: Activate only when a `.provenance-manifest` (or `provenance-manifest`) is present and signature-valid.
  * PRD §5.1: Emit session.start with full context; emit session.end on deactivate.
  * PRD §4.2: session.heartbeat every 30s; clock.skew on wall-clock drift.
  * PRD §4.7: Buffered, async I/O via SessionWriter (not a raw WriteStream).
@@ -128,7 +128,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   // Initialize activeSession to null before we begin (in case we early-return or error).
   activeSession = null;
 
-  // Step 1: Load and verify the .provenance-manifest file.
+  // Step 1: Load and verify the `.provenance-manifest`/`provenance-manifest` file.
   let manifest: Manifest;
   if (deps.preloadedManifest !== undefined) {
     manifest = deps.preloadedManifest;

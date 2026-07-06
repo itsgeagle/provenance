@@ -99,7 +99,7 @@ describe('loadAndVerifyManifest', () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('returns no_manifest_file when .provenance-manifest does not exist', async () => {
+  it('returns no_manifest_file when neither manifest name exists', async () => {
     const folder = makeWorkspaceFolder(tmpDir);
     const result = await loadAndVerifyManifest(folder, 'a'.repeat(64));
     expect(result.ok).toBe(false);
@@ -213,6 +213,70 @@ describe('loadAndVerifyManifest', () => {
       expect(result.value.semester).toBe('fa26');
       expect(result.value.files_under_review).toEqual(['hw03.py']);
       expect(result.value.sig).toBe(sigHex);
+    }
+  });
+
+  it('accepts a plain provenance-manifest (no leading dot) when the dotfile is absent', async () => {
+    const { pubkeyHex, privkeyHex } = await generateTestKeypair();
+    const manifestData = {
+      assignment_id: 'hw03',
+      semester: 'fa26',
+      issued_at: '2026-09-15T00:00:00Z',
+      files_under_review: ['hw03.py'],
+    };
+    const sigHex = await signManifest(manifestData, privkeyHex);
+    const fullManifest = { ...manifestData, sig: sigHex };
+
+    // Only the non-dotfile form exists.
+    await fs.writeFile(
+      path.join(tmpDir, 'provenance-manifest'),
+      JSON.stringify(fullManifest),
+      'utf8',
+    );
+    const folder = makeWorkspaceFolder(tmpDir);
+
+    const result = await loadAndVerifyManifest(folder, pubkeyHex);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.assignment_id).toBe('hw03');
+      expect(result.value.sig).toBe(sigHex);
+    }
+  });
+
+  it('prefers the dotfile form when both manifest names are present', async () => {
+    const { pubkeyHex, privkeyHex } = await generateTestKeypair();
+
+    const dotManifestData = {
+      assignment_id: 'hw03-dot',
+      semester: 'fa26',
+      issued_at: '2026-09-15T00:00:00Z',
+      files_under_review: ['hw03.py'],
+    };
+    const dotSig = await signManifest(dotManifestData, privkeyHex);
+    await fs.writeFile(
+      path.join(tmpDir, '.provenance-manifest'),
+      JSON.stringify({ ...dotManifestData, sig: dotSig }),
+      'utf8',
+    );
+
+    const plainManifestData = {
+      assignment_id: 'hw03-plain',
+      semester: 'fa26',
+      issued_at: '2026-09-15T00:00:00Z',
+      files_under_review: ['hw03.py'],
+    };
+    const plainSig = await signManifest(plainManifestData, privkeyHex);
+    await fs.writeFile(
+      path.join(tmpDir, 'provenance-manifest'),
+      JSON.stringify({ ...plainManifestData, sig: plainSig }),
+      'utf8',
+    );
+
+    const folder = makeWorkspaceFolder(tmpDir);
+    const result = await loadAndVerifyManifest(folder, pubkeyHex);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.assignment_id).toBe('hw03-dot');
     }
   });
 

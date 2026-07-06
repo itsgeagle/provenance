@@ -35,7 +35,7 @@ export type { SessionKeypair, EncryptedPrivkey } from './session-keys.js';
 export { signCheckpoint, verifyCheckpoint } from './checkpoint-signer.js';
 export type { Checkpoint } from './checkpoint-signer.js';
 
-// Assignment manifest (.provenance-manifest)
+// Assignment manifest (.provenance-manifest / provenance-manifest)
 export { parseManifest, verifyManifest, signManifest } from './manifest.js';
 export type { Manifest, ManifestError } from './manifest.js';
 

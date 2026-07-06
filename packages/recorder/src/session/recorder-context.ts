@@ -49,7 +49,7 @@ function computeMachineId(sessionId: string): string {
 /**
  * Build a RecorderContext (= SessionStartPayload) from injected dependencies.
  *
- * @param manifest          The verified .provenance-manifest file.
+ * @param manifest          The verified `.provenance-manifest`/`provenance-manifest` file.
  * @param prevSessionId     The previous session's id if continuing after a crash, else null.
  * @param extension         The recorder's own VS Code Extension object (for version/id).
  * @param vscodeVersion     vscode.version string injected for testability.

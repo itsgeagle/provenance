@@ -21,8 +21,8 @@
  *
  * Analyzer re-verification: the Analyzer (or course staff tooling) can reproduce this
  * hash from a known-good VSIX by extracting the dist/ directory and running the same
- * algorithm. The course maintains the expected hash out-of-band (e.g., in the .provenance-manifest
- * manifest generator, not in the extension itself).
+ * algorithm. The course maintains the expected hash out-of-band (e.g., in the
+ * `.provenance-manifest`/`provenance-manifest` manifest generator, not in the extension itself).
  *
  * Empty directory: returns the sha256 of an empty byte sequence:
  *   e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
