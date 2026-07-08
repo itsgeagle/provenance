@@ -158,4 +158,97 @@ describe('AssignmentsView', () => {
       timeout: 3000,
     });
   });
+
+  it('create form POSTs and refreshes the list with the new assignment', async () => {
+    let observedBody: { assignment_id_str?: string; label?: string } | null = null;
+    const items: Array<Record<string, unknown>> = [];
+
+    mswServer.use(
+      http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/assignments`, () =>
+        HttpResponse.json({ items }),
+      ),
+      http.post(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/assignments`, async ({ request }) => {
+        observedBody = (await request.json()) as { assignment_id_str?: string; label?: string };
+        const created = {
+          id: '30000000-0000-0000-0000-000000000009',
+          semester_id: DEFAULT_SEMESTER_ID,
+          assignment_id_str: observedBody.assignment_id_str,
+          label: observedBody.label || observedBody.assignment_id_str,
+          sort_order: 0,
+          submission_count: 0,
+          distinct_students: 0,
+          mean_score: 0,
+          median_score: 0,
+          p95_score: 0,
+          fail_count: 0,
+          warn_count: 0,
+        };
+        items.push(created);
+        return HttpResponse.json({ assignment: created }, { status: 201 });
+      }),
+    );
+
+    renderAssignmentsView();
+
+    await waitFor(
+      () => expect(screen.getByTestId('create-assignment-submit')).toBeInTheDocument(),
+      {
+        timeout: 3000,
+      },
+    );
+
+    fireEvent.change(screen.getByTestId('create-assignment-id-input'), {
+      target: { value: '  proj2  ' },
+    });
+    fireEvent.change(screen.getByTestId('create-assignment-label-input'), {
+      target: { value: 'Project 2' },
+    });
+    fireEvent.click(screen.getByTestId('create-assignment-submit'));
+
+    await waitFor(() => expect(observedBody).not.toBeNull(), { timeout: 3000 });
+    expect(observedBody!.assignment_id_str).toBe('proj2'); // trimmed
+    expect(observedBody!.label).toBe('Project 2');
+
+    await waitFor(() => expect(screen.getByText('Project 2')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+  });
+
+  it('shows an inline error when create returns 409', async () => {
+    mswServer.use(
+      http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/assignments`, () =>
+        HttpResponse.json({ items: [] }),
+      ),
+      http.post(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/assignments`, () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 'ASSIGNMENT_ID_STR_TAKEN',
+              message: "An assignment with id 'hw1' already exists in this semester",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    renderAssignmentsView();
+
+    await waitFor(
+      () => expect(screen.getByTestId('create-assignment-submit')).toBeInTheDocument(),
+      {
+        timeout: 3000,
+      },
+    );
+
+    fireEvent.change(screen.getByTestId('create-assignment-id-input'), {
+      target: { value: 'hw1' },
+    });
+    fireEvent.click(screen.getByTestId('create-assignment-submit'));
+
+    await waitFor(() => expect(screen.getByTestId('create-assignment-error')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    expect(screen.getByTestId('create-assignment-error').textContent).toMatch(/already exists/);
+  });
 });

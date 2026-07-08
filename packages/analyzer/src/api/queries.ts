@@ -24,6 +24,7 @@ import {
   StudentListResponseSchema,
   AssignmentListResponseSchema,
   UpdateAssignmentResponseSchema,
+  CreateAssignmentResponseSchema,
   IngestJobSchema,
   IngestJobListResponseSchema,
   IngestFileListResponseSchema,
@@ -795,6 +796,31 @@ export function useUpdateAssignment(semesterId: string) {
           body: JSON.stringify(body),
         },
         UpdateAssignmentResponseSchema,
+      );
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assignments(semesterId) });
+    },
+  });
+}
+
+/** Mutation: POST /semesters/:semesterId/assignments */
+export function useCreateAssignment(semesterId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assignmentIdStr, label }: { assignmentIdStr: string; label?: string }) => {
+      const body: { assignment_id_str: string; label?: string } = {
+        assignment_id_str: assignmentIdStr,
+      };
+      if (label !== undefined && label !== '') body.label = label;
+      return apiFetch(
+        `/semesters/${semesterId}/assignments`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        CreateAssignmentResponseSchema,
       );
     },
     onSuccess: () => {

@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react';
-import { useAssignments, useUpdateAssignment } from '../../api/queries.js';
+import { useAssignments, useUpdateAssignment, useCreateAssignment } from '../../api/queries.js';
 import { useActiveSemester } from '../../api/use-active-semester.js';
 import { ApiError } from '../../api/client.js';
 import type { AssignmentSummary } from '@provenance/shared/api-schemas';
@@ -71,6 +71,77 @@ function EditRow({ assignment, semesterId, onDone }: EditRowProps) {
   );
 }
 
+function CreateAssignmentForm({ semesterId }: { semesterId: string }) {
+  const [assignmentIdStr, setAssignmentIdStr] = useState('');
+  const [label, setLabel] = useState('');
+  const { mutate: createAssignment, isPending, error } = useCreateAssignment(semesterId);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const id = assignmentIdStr.trim();
+    if (id === '') return;
+    createAssignment(
+      { assignmentIdStr: id, label: label.trim() },
+      {
+        onSuccess: () => {
+          setAssignmentIdStr('');
+          setLabel('');
+        },
+      },
+    );
+  }
+
+  const errorMsg =
+    error instanceof ApiError ? error.message : error instanceof Error ? error.message : null;
+
+  return (
+    <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
+      <h2 className="mb-3 text-sm font-semibold text-gray-700">Create assignment</h2>
+      <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
+        <label className="text-xs text-gray-600">
+          Assignment ID
+          <input
+            type="text"
+            value={assignmentIdStr}
+            onChange={(e) => setAssignmentIdStr(e.target.value)}
+            placeholder="hw1"
+            className="mt-0.5 block w-40 rounded border border-gray-300 px-2 py-1.5 font-mono text-xs"
+            data-testid="create-assignment-id-input"
+          />
+        </label>
+        <label className="text-xs text-gray-600">
+          Label (optional)
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Homework 1"
+            className="mt-0.5 block w-56 rounded border border-gray-300 px-2 py-1.5 text-sm"
+            data-testid="create-assignment-label-input"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={isPending || assignmentIdStr.trim() === ''}
+          className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+          data-testid="create-assignment-submit"
+        >
+          {isPending ? 'Creating…' : 'Create'}
+        </button>
+        {errorMsg && (
+          <span className="text-xs text-red-600" data-testid="create-assignment-error">
+            {errorMsg}
+          </span>
+        )}
+      </form>
+      <p className="mt-2 text-[11px] text-gray-400">
+        The ID must match the filename convention / manifest id that submissions will use, so
+        later-ingested or attached files link to this assignment.
+      </p>
+    </div>
+  );
+}
+
 export function AssignmentsView() {
   const { semesterId } = useActiveSemester();
 
@@ -81,6 +152,8 @@ export function AssignmentsView() {
     <div className="mx-auto max-w-4xl px-4 py-8">
       <h1 className="mb-6 text-xl font-semibold text-gray-900">Assignments</h1>
       <p className="mb-4 text-xs text-gray-500">Click a label to edit it inline.</p>
+
+      {semesterId && <CreateAssignmentForm semesterId={semesterId} />}
 
       {isLoading && (
         <div className="py-8 text-center text-sm text-gray-400">Loading assignments…</div>
