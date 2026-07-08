@@ -39,6 +39,52 @@ export const ingestPaths = {
         },
       },
     },
+    post: {
+      tags: ['Assignments'],
+      summary: 'Manually create an assignment (semester admin)',
+      security: [{ BearerAuth: [] }, { SessionCookie: [] }],
+      parameters: [
+        {
+          name: 'semesterId',
+          in: 'path',
+          required: true,
+          schema: { $ref: '#/components/schemas/UUID' },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              required: ['assignment_id_str'],
+              properties: {
+                assignment_id_str: { type: 'string' },
+                label: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        '201': {
+          description: 'Assignment created',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['assignment'],
+                properties: {
+                  assignment: { $ref: '#/components/schemas/AssignmentSummary' },
+                },
+              },
+            },
+          },
+        },
+        '400': { description: 'VALIDATION' },
+        '409': { description: 'ASSIGNMENT_ID_STR_TAKEN (assignment id already exists)' },
+      },
+    },
   },
   '/semesters/{semesterId}/assignments/{assignmentId}': {
     patch: {

@@ -42,6 +42,7 @@ export type ApiErrorCode =
   // Conflict (409)
   | 'COURSE_SLUG_TAKEN'
   | 'SEMESTER_SLUG_TAKEN'
+  | 'ASSIGNMENT_ID_STR_TAKEN'
   | 'MEMBER_ALREADY'
   | 'INVITATION_ALREADY_OPEN'
   | 'CANNOT_DEMOTE_SELF'
@@ -297,6 +298,15 @@ export const Errors = {
       409,
       `Semester slug '${slug}' is already in use for this course`,
       { slug },
+    );
+  },
+
+  assignmentIdStrTaken(idStr: string): ApiError {
+    return new ApiError(
+      'ASSIGNMENT_ID_STR_TAKEN',
+      409,
+      `An assignment with id '${idStr}' already exists in this semester`,
+      { assignment_id_str: idStr },
     );
   },
 

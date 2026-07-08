@@ -246,6 +246,19 @@ export const UpdateAssignmentResponseSchema = z.object({
 });
 export type UpdateAssignmentResponse = z.infer<typeof UpdateAssignmentResponseSchema>;
 
+// POST /semesters/:semesterId/assignments — manual assignment creation.
+// label is optional; the server defaults a blank label to assignment_id_str.
+export const CreateAssignmentRequestSchema = z.object({
+  assignment_id_str: z.string().min(1).max(200),
+  label: z.string().max(200).optional(),
+});
+export type CreateAssignmentRequest = z.infer<typeof CreateAssignmentRequestSchema>;
+
+export const CreateAssignmentResponseSchema = z.object({
+  assignment: AssignmentSummarySchema,
+});
+export type CreateAssignmentResponse = z.infer<typeof CreateAssignmentResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // Phase 22 — Ingest schemas (PRD §8.6)
 // ---------------------------------------------------------------------------

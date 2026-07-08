@@ -163,3 +163,64 @@ export async function updateAssignment(
   if (!updated) throw Errors.notFound();
   return updated;
 }
+
+// ---------------------------------------------------------------------------
+// POST /semesters/:semesterId/assignments — manual assignment creation.
+//
+// Inserts a new assignment row. A brand-new assignment has no submissions, so
+// all aggregate stats are zero. A blank label defaults to assignment_id_str
+// (matches the ingest upsert in create-submission.ts). Relies on the
+// (semester_id, assignment_id_str) unique constraint: an insert that hits it
+// is DO NOTHING → empty returning → 409.
+// ---------------------------------------------------------------------------
+
+export type CreateAssignmentInput = {
+  assignmentIdStr: string;
+  label?: string;
+};
+
+export async function createAssignment(
+  db: DrizzleDb,
+  semesterId: string,
+  input: CreateAssignmentInput,
+): Promise<AssignmentSummary> {
+  const label =
+    input.label !== undefined && input.label.trim() !== '' ? input.label : input.assignmentIdStr;
+
+  const inserted = await db
+    .insert(assignments)
+    .values({
+      semester_id: semesterId,
+      assignment_id_str: input.assignmentIdStr,
+      label,
+      sort_order: 0,
+    })
+    .onConflictDoNothing({
+      target: [assignments.semester_id, assignments.assignment_id_str],
+    })
+    .returning({
+      id: assignments.id,
+      semester_id: assignments.semester_id,
+      assignment_id_str: assignments.assignment_id_str,
+      label: assignments.label,
+      sort_order: assignments.sort_order,
+    });
+
+  if (inserted.length === 0) throw Errors.assignmentIdStrTaken(input.assignmentIdStr);
+  const row = inserted[0]!;
+
+  return {
+    id: row.id,
+    semester_id: row.semester_id,
+    assignment_id_str: row.assignment_id_str,
+    label: row.label,
+    sort_order: row.sort_order,
+    submission_count: 0,
+    distinct_students: 0,
+    mean_score: 0,
+    median_score: 0,
+    p95_score: 0,
+    fail_count: 0,
+    warn_count: 0,
+  };
+}
