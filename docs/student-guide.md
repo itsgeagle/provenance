@@ -10,7 +10,7 @@ The extension only runs inside assignment folders the course has authorized. In 
 
 You'll need:
 
-- **Visual Studio Code 1.94 or newer.** Check via **Code → About Visual Studio Code** (macOS) or **Help → About** (Windows/Linux). Update from <https://code.visualstudio.com> if you're behind.
+- **Visual Studio Code 1.100 or newer.** Check via **Code → About Visual Studio Code** (macOS) or **Help → About** (Windows/Linux). Update from <https://code.visualstudio.com> if you're behind. (On macOS, run VS Code from your **Applications** folder — launching a freshly downloaded copy from Downloads or a disk image can leave it read-only and unable to update or load the extension.)
 - **The assignment folder** distributed for the assignment. It contains a hidden `.provenance-manifest` file — that's what authorizes recording. If it's missing, recording can't start; re-download the starter files.
 
 ### 1. Install the extension

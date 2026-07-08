@@ -174,7 +174,7 @@ provenance/
 ## Architecture rules (enforced)
 
 - `packages/log-core` has zero runtime dependencies on VS Code, Node-only APIs, or the DOM. It's pure TypeScript that runs in any JS environment. An ESLint `no-restricted-imports` rule on `packages/log-core/**/*.ts` rejects `vscode`, `node:*`, `fs`, `path`, `worker_threads`, `crypto` imports.
-- `packages/recorder` depends on `log-core`, `vscode`, and a small fixed set of approved libraries (`@noble/ed25519`, `@noble/hashes`, `@noble/ciphers`, `canonicalize`, `jszip`). The packaged VSIX is ESM (requires VS Code ≥ 1.94).
+- `packages/recorder` depends on `log-core`, `vscode`, and a small fixed set of approved libraries (`@noble/ed25519`, `@noble/hashes`, `@noble/ciphers`, `canonicalize`, `jszip`). The packaged VSIX is ESM (requires VS Code ≥ 1.100, where the extension host loads ESM entry points via `import()`).
 - The log file format is the contract between recorder and analyzer. It's specified in PRD §5 and pinned with test vectors in `packages/log-core/src/hash-chain.test.ts`.
 
 ## Common commands
