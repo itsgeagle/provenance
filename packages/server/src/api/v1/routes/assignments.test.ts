@@ -365,3 +365,195 @@ describe('PATCH /semesters/:semesterId/assignments/:assignmentId', () => {
     });
   });
 });
+
+describe('POST /semesters/:semesterId/assignments', () => {
+  it('happy path: creates assignment, returns summary, audit row created', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/assignments`, {
+            method: 'POST',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ assignment_id_str: 'hw1', label: 'Homework 1' }),
+          }),
+        );
+        expect(res.status).toBe(201);
+        const body = (await res.json()) as {
+          assignment: {
+            id: string;
+            assignment_id_str: string;
+            label: string;
+            submission_count: number;
+          };
+        };
+        expect(body.assignment.assignment_id_str).toBe('hw1');
+        expect(body.assignment.label).toBe('Homework 1');
+        expect(body.assignment.submission_count).toBe(0);
+
+        const [row] = await db
+          .select()
+          .from(assignments)
+          .where(eq(assignments.id, body.assignment.id));
+        expect(row!.assignment_id_str).toBe('hw1');
+
+        const auditRow = await waitForAuditRow(db, 'assignment.create', body.assignment.id);
+        expect(auditRow).toBeDefined();
+        expect(auditRow!.actor_user_id).toBe(admin.id);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('defaults a blank label to assignment_id_str', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/assignments`, {
+            method: 'POST',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ assignment_id_str: 'lab3' }),
+          }),
+        );
+        expect(res.status).toBe(201);
+        const body = (await res.json()) as { assignment: { label: string } };
+        expect(body.assignment.label).toBe('lab3');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 409 when assignment_id_str already exists', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+        await insertAssignment(db, semester.id, { assignment_id_str: 'hw1' });
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/assignments`, {
+            method: 'POST',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ assignment_id_str: 'hw1' }),
+          }),
+        );
+        expect(res.status).toBe(409);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe('ASSIGNMENT_ID_STR_TAKEN');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 400 VALIDATION when assignment_id_str is missing', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const sessionId = await insertSession(db, admin.id);
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, admin.id, semester.id, 'admin', admin.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/assignments`, {
+            method: 'POST',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ label: 'no id' }),
+          }),
+        );
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { error: { code: string } };
+        expect(body.error.code).toBe('VALIDATION');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 401 when unauthenticated', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/assignments`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ assignment_id_str: 'hw1' }),
+          }),
+        );
+        expect(res.status).toBe(401);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('returns 403 for grader (write requires admin)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const grader = await insertUser(db);
+        const sessionId = await insertSession(db, grader.id);
+        const admin = await insertUser(db, { email: 'admin@berkeley.edu' });
+        const course = await insertCourse(db);
+        const semester = await insertSemester(db, course.id);
+        await insertMembership(db, grader.id, semester.id, 'grader', admin.id);
+
+        const app = createV1App();
+        const res = await app.fetch(
+          new Request(`http://localhost/semesters/${semester.id}/assignments`, {
+            method: 'POST',
+            headers: {
+              Cookie: `__Host-prov_sess=${sessionId}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ assignment_id_str: 'hw1' }),
+          }),
+        );
+        expect(res.status).toBe(403);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});

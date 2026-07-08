@@ -28,6 +28,8 @@ import { Errors } from '../errors.js';
 import {
   UpdateAssignmentRequestSchema,
   UpdateAssignmentResponseSchema,
+  CreateAssignmentRequestSchema,
+  CreateAssignmentResponseSchema,
 } from '@provenance/shared/api-schemas';
 import * as assignmentService from '../../../services/cohort/assignments.js';
 
@@ -72,6 +74,44 @@ export function createAssignmentsRouter(): Hono {
 
       const response = UpdateAssignmentResponseSchema.parse({ assignment: updated });
       return c.json(response);
+    },
+  );
+
+  router.post(
+    '/semesters/:semesterId/assignments',
+    rateLimit('write.misc'),
+    requireAuth({
+      action: 'write',
+      target: (c) => ({ semesterId: c.req.param('semesterId')! }),
+    }),
+    audit('assignment.create', 'assignment', (c) => (c.var.auditDetail?.id as string) ?? 'unknown'),
+    async (c) => {
+      const semesterId = c.req.param('semesterId')!;
+
+      let body;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json(Errors.validation([{ error: 'Invalid JSON' }]).toBody(), 400);
+      }
+
+      const parsed = CreateAssignmentRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json(Errors.validation(parsed.error.issues).toBody(), 400);
+      }
+
+      const db = getDb();
+      const createInput: assignmentService.CreateAssignmentInput = {
+        assignmentIdStr: parsed.data.assignment_id_str,
+      };
+      if (parsed.data.label !== undefined) createInput.label = parsed.data.label;
+      const created = await assignmentService.createAssignment(db, semesterId, createInput);
+
+      // Feed the audit middleware the created entity's UUID.
+      c.set('auditDetail', { id: created.id });
+
+      const response = CreateAssignmentResponseSchema.parse({ assignment: created });
+      return c.json(response, 201);
     },
   );
 
