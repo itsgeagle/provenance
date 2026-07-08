@@ -1634,6 +1634,7 @@ All write actions and all blob downloads. Reads of individual submissions are lo
 | `semester.create`, `semester.update`, `semester.archive` | `semester`               | superadmin / admin              |
 | `member.invite`, `member.update`, `member.remove`        | `semester` (with detail) | admin actions                   |
 | `roster.upload`, `roster.commit`, `roster.update_entry`  | `semester`               | admin                           |
+| `assignment.create`                                       | `assignment`             | admin                           |
 | `assignment.update`                                      | `assignment`             | admin                           |
 | `ingest.start`, `ingest.cancel`                          | `ingest_job`             | admin                           |
 | `ingest.unmatched.attach`, `ingest.unmatched.discard`    | `ingest_file`            | admin                           |
