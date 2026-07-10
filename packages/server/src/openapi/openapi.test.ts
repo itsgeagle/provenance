@@ -293,7 +293,14 @@ const PATH_EQUIVALENCES: Record<string, string> = {
  * checking because they are infrastructure/public routes with no meaningful
  * request/response schema contract to enforce.
  */
-const EXCLUDED_PATHS = new Set(['/openapi.json', '/docs']);
+const EXCLUDED_PATHS = new Set([
+  '/openapi.json',
+  '/docs',
+  // fs-backend presigned download target: the on-server stand-in for the S3
+  // presigned-URL target (absent from our server in s3 mode), not documented
+  // API surface. Clients follow it opaquely from bundle.download's signedUrl.
+  '/blob',
+]);
 
 /**
  * Extract all non-middleware (non-ALL) routes from a Hono app.
