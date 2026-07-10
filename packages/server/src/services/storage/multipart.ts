@@ -55,6 +55,7 @@ async function failOnNon2xx(res: Response, op: string, key: string): Promise<voi
 
 /** Initiate a multipart upload; returns the S3 upload id. */
 export async function createMultipartUpload(client: StorageClient, key: string): Promise<string> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const url = `${client.bucketUrl}/${key}?uploads`;
   const res = await client.aws.fetch(url, { method: 'POST' });
   await failOnNon2xx(res, 'createMultipartUpload', key);
@@ -78,6 +79,7 @@ export async function uploadPart(
   partNumber: number,
   body: ArrayBuffer | Uint8Array,
 ): Promise<string> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const url = `${client.bucketUrl}/${key}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`;
   const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
   const res = await client.aws.fetch(url, {
@@ -102,6 +104,7 @@ export async function listParts(
   key: string,
   uploadId: string,
 ): Promise<UploadedPart[]> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const parts: UploadedPart[] = [];
   // S3 paginates parts; follow part-number-marker until IsTruncated is false.
   let marker = '';
@@ -149,6 +152,7 @@ export async function completeMultipartUpload(
   uploadId: string,
   parts: UploadedPart[],
 ): Promise<void> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const body =
     '<CompleteMultipartUpload>' +
     parts
@@ -180,6 +184,7 @@ export async function abortMultipartUpload(
   key: string,
   uploadId: string,
 ): Promise<void> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const url = `${client.bucketUrl}/${key}?uploadId=${encodeURIComponent(uploadId)}`;
   const res = await client.aws.fetch(url, { method: 'DELETE' });
   // 204 on success; 404 if already gone — both fine (idempotent).

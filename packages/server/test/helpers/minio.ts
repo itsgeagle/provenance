@@ -27,7 +27,12 @@ const MINIO_PASSWORD = 'minioadmin';
 const BUCKET_NAME = 'test-bucket';
 
 export interface TestMinioContext {
-  client: StorageClient;
+  /**
+   * Always the `s3` variant — this harness only ever wires up MinIO. Typed as
+   * the narrowed branch (not the full `StorageClient` union) so callers can
+   * access `.aws` / `.bucketUrl` directly without re-narrowing on `kind`.
+   */
+  client: Extract<StorageClient, { kind: 's3' }>;
   bucketName: string;
   /** Container endpoint URL — wire into config (OBJECT_STORAGE_ENDPOINT) so that
    *  code paths using getStorageClient() hit this same ephemeral MinIO. */
@@ -52,12 +57,17 @@ export async function withTestMinio(fn: (ctx: TestMinioContext) => Promise<void>
   const endpoint = container.getConnectionUrl();
 
   const client = createStorageClient({
+    kind: 's3',
     endpoint,
     region: 'us-east-1',
     bucket: BUCKET_NAME,
     accessKeyId: MINIO_USER,
     secretAccessKey: MINIO_PASSWORD,
   });
+  // Config literal above is `kind: 's3'`, so `createStorageClient` returns the
+  // s3 branch — this narrows the type for the rest of this function and for
+  // `TestMinioContext.client`.
+  if (client.kind !== 's3') throw new Error('expected s3 client from s3 config');
 
   // Create the bucket via the S3 PUT-bucket API before running the test fn.
   // Retry up to 10 times with 500ms backoff to handle "server not initialized yet" races.

@@ -37,6 +37,7 @@ export async function putBlob(
   key: string,
   body: ReadableStream<Uint8Array> | ArrayBuffer | Uint8Array,
 ): Promise<PutBlobResult> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const hasher = createHash('sha256');
   let size = 0;
 
@@ -106,6 +107,7 @@ export async function getBlob(
   client: StorageClient,
   key: string,
 ): Promise<ReadableStream<Uint8Array>> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const url = `${client.bucketUrl}/${key}`;
   const res = await client.aws.fetch(url, { method: 'GET' });
 
@@ -141,6 +143,7 @@ export async function presignGetUrl(
   key: string,
   ttlSeconds: number,
 ): Promise<string> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const objectUrl = `${client.bucketUrl}/${key}`;
 
   // aws4fetch's AwsClient exposes credentials as public properties (see type definitions).
@@ -177,6 +180,7 @@ export async function presignGetUrl(
  * @throws If the server returns a non-2xx/204 status.
  */
 export async function deleteBlob(client: StorageClient, key: string): Promise<void> {
+  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
   const url = `${client.bucketUrl}/${key}`;
   const res = await client.aws.fetch(url, { method: 'DELETE' });
 

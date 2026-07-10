@@ -92,12 +92,14 @@ beforeAll(async () => {
 
   const endpoint = minioContainer.getConnectionUrl();
   storageClient = createStorageClient({
+    kind: 's3',
     endpoint,
     region: 'us-east-1',
     bucket: BUCKET_NAME,
     accessKeyId: MINIO_USER,
     secretAccessKey: MINIO_PASSWORD,
   });
+  if (storageClient.kind !== 's3') throw new Error('expected s3 client from s3 config');
 
   // Create the bucket (with retries for container readiness).
   const bucketUrl = `${endpoint}/${BUCKET_NAME}`;

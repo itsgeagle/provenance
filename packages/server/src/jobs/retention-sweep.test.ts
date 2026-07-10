@@ -38,6 +38,7 @@ import {
   submissions,
 } from '../db/schema.js';
 import type { StorageClient } from '../services/storage/client.js';
+import type { AwsClient } from 'aws4fetch';
 import { sql } from 'drizzle-orm';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -46,10 +47,11 @@ vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 // Mock storage client
 // ---------------------------------------------------------------------------
 
-function makeStorageMock(): StorageClient & { deletedKeys: string[] } {
+function makeStorageMock(): Extract<StorageClient, { kind: 's3' }> & { deletedKeys: string[] } {
   const deletedKeys: string[] = [];
   const mock = {
-    aws: {} as StorageClient['aws'],
+    kind: 's3' as const,
+    aws: {} as AwsClient,
     bucketUrl: 'http://localhost:9000/test',
     deletedKeys,
   };
