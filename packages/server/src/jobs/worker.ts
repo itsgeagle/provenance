@@ -69,6 +69,7 @@ import { registerCrossFlagsHandler, enqueueCrossFlagsJob } from './recompute-cro
 import { createRetentionSweepHandler } from './retention-sweep.js';
 import { createPurgeExpiredSessionsHandler } from './purge-expired-sessions.js';
 import { createPurgeExpiredExportsHandler } from './purge-expired-exports.js';
+import { createReapStaleUploadsHandler } from './reap-stale-uploads.js';
 
 // ---------------------------------------------------------------------------
 // Payload types (mirrored from POST /ingest enqueue calls)
@@ -107,6 +108,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
   await boss.createQueue(JOB_KINDS.RETENTION_SWEEP);
   await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_SESSIONS);
   await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_EXPORTS);
+  await boss.createQueue(JOB_KINDS.REAP_STALE_UPLOADS);
   logger.info('worker: ensured queues exist');
 
   // -------------------------------------------------------------------------
@@ -670,6 +672,12 @@ export async function startWorker(): Promise<() => Promise<void>> {
     createPurgeExpiredExportsHandler(),
   );
 
+  await boss.work(
+    JOB_KINDS.REAP_STALE_UPLOADS,
+    { batchSize: 1 },
+    createReapStaleUploadsHandler(storageClient, cfg.BLOB_STORAGE_FS_STAGING_TTL_SECONDS * 1000),
+  );
+
   // -------------------------------------------------------------------------
   // Register pg-boss scheduled (cron) jobs.
   //
@@ -690,6 +698,9 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
   // purge_expired_exports — 3am UTC daily (stub until Phase 26).
   await boss.schedule(JOB_KINDS.PURGE_EXPIRED_EXPORTS, '0 3 * * *', {});
+
+  // reap_stale_uploads — 4am UTC daily (fs backend only; no-op under s3).
+  await boss.schedule(JOB_KINDS.REAP_STALE_UPLOADS, '0 4 * * *', {});
 
   logger.info(
     'worker started (phase 25: ingest + recompute + cross-flags + cron handlers registered)',
