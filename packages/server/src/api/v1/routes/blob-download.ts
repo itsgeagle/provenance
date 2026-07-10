@@ -46,14 +46,10 @@ export function createBlobDownloadRouter(getClient: () => StorageClient = getSto
     return c.body(stream);
   };
 
-  // Registered at both the relative path (matches when this router is
-  // mounted at '/' inside createV1App(), which is itself mounted at
-  // '/api/v1' by createApp() — the normal production request path, where
-  // Hono strips the '/api/v1' prefix before delegating to this router) and
-  // the full absolute path (matches when this router is exercised standalone
-  // via `.request()` in tests, with no outer mount to supply the prefix).
+  // Mounted at '/' inside createV1App(), which createApp() mounts at
+  // '/api/v1' — so this single registration resolves to '/api/v1/blob' in
+  // production. Tests mirror that mount chain rather than faking the prefix.
   router.get('/blob', handler);
-  router.get('/api/v1/blob', handler);
 
   return router;
 }

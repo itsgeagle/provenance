@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { Hono } from 'hono';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +11,7 @@ const SECRET = 'z'.repeat(32);
 
 async function setup(): Promise<{
   client: Extract<StorageClient, { kind: 'fs' }>;
-  app: ReturnType<typeof createBlobDownloadRouter>;
+  app: Hono;
 }> {
   const rootDir = await mkdtemp(join(tmpdir(), 'prov-blobroute-'));
   const client: Extract<StorageClient, { kind: 'fs' }> = {
@@ -20,7 +21,13 @@ async function setup(): Promise<{
     publicBaseUrl: 'http://host',
   };
   // Inject the client via a factory arg so the test needs no env/config.
-  const app = createBlobDownloadRouter(() => client);
+  // Mount the router under '/api/v1' to mirror production: the router
+  // declares '/blob' relative to that mount (createV1App is mounted at
+  // '/api/v1' by createApp), so it resolves to '/api/v1/blob' here too —
+  // no faked prefix in the route registration.
+  const inner = createBlobDownloadRouter(() => client);
+  const app = new Hono();
+  app.route('/api/v1', inner);
   return { client, app };
 }
 
