@@ -21,6 +21,7 @@
  *   purge_expired_exports — daily cron
  *   purge_expired_sessions — hourly cron
  *   retention_sweep       — daily cron
+ *   reap_stale_uploads    — daily cron (fs backend only)
  *
  * Kinds are registered as a const so future phases can import and reference
  * them without string literals.
@@ -54,6 +55,7 @@ export const JOB_KINDS = {
   PURGE_EXPIRED_EXPORTS: 'purge_expired_exports',
   PURGE_EXPIRED_SESSIONS: 'purge_expired_sessions',
   RETENTION_SWEEP: 'retention_sweep',
+  REAP_STALE_UPLOADS: 'reap_stale_uploads',
 } as const;
 
 export type JobKind = (typeof JOB_KINDS)[keyof typeof JOB_KINDS];

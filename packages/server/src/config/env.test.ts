@@ -201,3 +201,61 @@ describe('parseEnv — type coercions', () => {
     expect(() => parseEnv(withOverrides({ LOG_LEVEL: 'verbose' }))).toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// BLOB_STORAGE_BACKEND
+// ---------------------------------------------------------------------------
+
+describe('BLOB_STORAGE_BACKEND', () => {
+  it('defaults to s3 and requires OBJECT_STORAGE_* (present in base) ', () => {
+    const env = parseEnv(VALID_BASE);
+    expect(env.BLOB_STORAGE_BACKEND).toBe('s3');
+  });
+
+  it('rejects s3 backend missing OBJECT_STORAGE_BUCKET', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { OBJECT_STORAGE_BUCKET: _omit, ...rest } = VALID_BASE;
+    expect(() => parseEnv({ ...rest, BLOB_STORAGE_BACKEND: 's3' })).toThrow(/OBJECT_STORAGE/);
+  });
+
+  it('accepts fs backend with FS_ROOT + SIGNING_SECRET and no OBJECT_STORAGE_*', () => {
+    /* eslint-disable @typescript-eslint/no-unused-vars -- destructured only to omit from ...rest */
+    const {
+      OBJECT_STORAGE_ENDPOINT,
+      OBJECT_STORAGE_BUCKET,
+      OBJECT_STORAGE_ACCESS_KEY_ID,
+      OBJECT_STORAGE_SECRET_ACCESS_KEY,
+      ...rest
+    } = VALID_BASE;
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+    const env = parseEnv({
+      ...rest,
+      BLOB_STORAGE_BACKEND: 'fs',
+      BLOB_STORAGE_FS_ROOT: '/srv/provenance/blobs',
+      BLOB_URL_SIGNING_SECRET: 'x'.repeat(32),
+    });
+    expect(env.BLOB_STORAGE_BACKEND).toBe('fs');
+    expect(env.BLOB_STORAGE_FS_ROOT).toBe('/srv/provenance/blobs');
+  });
+
+  it('rejects fs backend missing BLOB_URL_SIGNING_SECRET', () => {
+    expect(() =>
+      parseEnv({
+        ...VALID_BASE,
+        BLOB_STORAGE_BACKEND: 'fs',
+        BLOB_STORAGE_FS_ROOT: '/srv/provenance/blobs',
+      }),
+    ).toThrow(/BLOB_URL_SIGNING_SECRET/);
+  });
+
+  it('rejects fs backend with too-short signing secret', () => {
+    expect(() =>
+      parseEnv({
+        ...VALID_BASE,
+        BLOB_STORAGE_BACKEND: 'fs',
+        BLOB_STORAGE_FS_ROOT: '/srv/provenance/blobs',
+        BLOB_URL_SIGNING_SECRET: 'short',
+      }),
+    ).toThrow();
+  });
+});

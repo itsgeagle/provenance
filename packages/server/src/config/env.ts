@@ -57,11 +57,15 @@ const rawEnvSchema = z.object({
   PUBLIC_BASE_URL: z.string().url(),
   DATABASE_URL: z.string().url(),
   DATABASE_POOL_MAX: intStr(10),
-  OBJECT_STORAGE_ENDPOINT: z.string().url(),
+  BLOB_STORAGE_BACKEND: z.enum(['s3', 'fs']).default('s3'),
+  OBJECT_STORAGE_ENDPOINT: z.string().url().optional(),
   OBJECT_STORAGE_REGION: z.string().min(1).default('auto'),
-  OBJECT_STORAGE_BUCKET: z.string().min(1),
-  OBJECT_STORAGE_ACCESS_KEY_ID: z.string().min(1),
-  OBJECT_STORAGE_SECRET_ACCESS_KEY: z.string().min(1),
+  OBJECT_STORAGE_BUCKET: z.string().min(1).optional(),
+  OBJECT_STORAGE_ACCESS_KEY_ID: z.string().min(1).optional(),
+  OBJECT_STORAGE_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  BLOB_STORAGE_FS_ROOT: z.string().min(1).optional(),
+  BLOB_URL_SIGNING_SECRET: z.string().min(32).optional(),
+  BLOB_STORAGE_FS_STAGING_TTL_SECONDS: intStr(86400),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1),
   AUTH_ALLOWED_HOSTED_DOMAINS: jsonStringArray.default('["berkeley.edu"]'),
@@ -171,6 +175,39 @@ export const envSchema = rawEnvSchema.superRefine((data, ctx) => {
         code: z.ZodIssueCode.custom,
         path: ['AUTH_COOKIE_SIGNING_SECRET'],
         message: 'AUTH_COOKIE_SIGNING_SECRET must be set explicitly in production',
+      });
+    }
+  }
+
+  // BLOB_STORAGE_BACKEND selects which set of storage vars is required.
+  if (data.BLOB_STORAGE_BACKEND === 's3') {
+    for (const k of [
+      'OBJECT_STORAGE_ENDPOINT',
+      'OBJECT_STORAGE_BUCKET',
+      'OBJECT_STORAGE_ACCESS_KEY_ID',
+      'OBJECT_STORAGE_SECRET_ACCESS_KEY',
+    ] as const) {
+      if (!data[k]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [k],
+          message: `${k} is required when BLOB_STORAGE_BACKEND is "s3"`,
+        });
+      }
+    }
+  } else {
+    if (!data.BLOB_STORAGE_FS_ROOT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['BLOB_STORAGE_FS_ROOT'],
+        message: 'BLOB_STORAGE_FS_ROOT is required when BLOB_STORAGE_BACKEND is "fs"',
+      });
+    }
+    if (!data.BLOB_URL_SIGNING_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['BLOB_URL_SIGNING_SECRET'],
+        message: 'BLOB_URL_SIGNING_SECRET is required when BLOB_STORAGE_BACKEND is "fs"',
       });
     }
   }

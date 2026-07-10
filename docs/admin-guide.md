@@ -80,6 +80,27 @@ Generate the cookie secret:
 openssl rand -base64 32
 ```
 
+### Filesystem blob backend (apphost deployment)
+
+Set `BLOB_STORAGE_BACKEND=fs` to store bundles on an ordinary directory
+(`BLOB_STORAGE_FS_ROOT`) instead of S3-compatible object storage. Used for the
+EECS Instructional apphost, where blobs live on an NFS mount bind-mounted into
+the container (which runs as root inside the container so it can write the mount).
+
+Required when `fs`:
+
+- `BLOB_STORAGE_FS_ROOT` — the mount directory (e.g. `/srv/provenance/blobs`).
+- `BLOB_URL_SIGNING_SECRET` — ≥32-char HMAC secret. Bundle downloads are served
+  by `GET /api/v1/blob` via a signed, TTL-bounded URL (TTL =
+  `BLOB_DOWNLOAD_URL_TTL_SECONDS`), replacing S3 presigned URLs. The token is the
+  credential — same exposure as an S3 presigned URL.
+
+Multipart/resumable uploads are supported (parts stage under
+`<root>/.uploads/`). A daily cron (`reap_stale_uploads`, 04:00 UTC) reclaims
+staging dirs older than `BLOB_STORAGE_FS_STAGING_TTL_SECONDS` (default 24h) so a
+crashed upload cannot leak disk. Stored bundles remain provenance-only and
+write-once; retention still deletes only blobs, never DB rows.
+
 ### 2.3 Run database migrations
 
 ```bash

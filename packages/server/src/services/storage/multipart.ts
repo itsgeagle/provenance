@@ -16,6 +16,13 @@
  */
 
 import type { StorageClient } from './client.js';
+import {
+  fsCreateMultipartUpload,
+  fsUploadPart,
+  fsListParts,
+  fsCompleteMultipartUpload,
+  fsAbortMultipartUpload,
+} from './fs-multipart.js';
 
 /** Minimum size (bytes) of every multipart part except the last (S3 rule). */
 export const S3_MIN_PART_BYTES = 5 * 1024 * 1024;
@@ -55,6 +62,7 @@ async function failOnNon2xx(res: Response, op: string, key: string): Promise<voi
 
 /** Initiate a multipart upload; returns the S3 upload id. */
 export async function createMultipartUpload(client: StorageClient, key: string): Promise<string> {
+  if (client.kind === 'fs') return fsCreateMultipartUpload(client, key);
   const url = `${client.bucketUrl}/${key}?uploads`;
   const res = await client.aws.fetch(url, { method: 'POST' });
   await failOnNon2xx(res, 'createMultipartUpload', key);
@@ -78,6 +86,7 @@ export async function uploadPart(
   partNumber: number,
   body: ArrayBuffer | Uint8Array,
 ): Promise<string> {
+  if (client.kind === 'fs') return fsUploadPart(client, key, uploadId, partNumber, body);
   const url = `${client.bucketUrl}/${key}?partNumber=${partNumber}&uploadId=${encodeURIComponent(uploadId)}`;
   const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
   const res = await client.aws.fetch(url, {
@@ -102,6 +111,7 @@ export async function listParts(
   key: string,
   uploadId: string,
 ): Promise<UploadedPart[]> {
+  if (client.kind === 'fs') return fsListParts(client, key, uploadId);
   const parts: UploadedPart[] = [];
   // S3 paginates parts; follow part-number-marker until IsTruncated is false.
   let marker = '';
@@ -149,6 +159,7 @@ export async function completeMultipartUpload(
   uploadId: string,
   parts: UploadedPart[],
 ): Promise<void> {
+  if (client.kind === 'fs') return fsCompleteMultipartUpload(client, key, uploadId, parts);
   const body =
     '<CompleteMultipartUpload>' +
     parts
@@ -180,6 +191,7 @@ export async function abortMultipartUpload(
   key: string,
   uploadId: string,
 ): Promise<void> {
+  if (client.kind === 'fs') return fsAbortMultipartUpload(client, key, uploadId);
   const url = `${client.bucketUrl}/${key}?uploadId=${encodeURIComponent(uploadId)}`;
   const res = await client.aws.fetch(url, { method: 'DELETE' });
   // 204 on success; 404 if already gone — both fine (idempotent).

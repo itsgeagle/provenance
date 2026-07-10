@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import { AwsV4Signer } from 'aws4fetch';
 import type { StorageClient } from './client.js';
+import { fsPutBlob, fsGetBlob, fsDeleteBlob, fsPresignGetUrl } from './fs-blobs.js';
 
 // ---------------------------------------------------------------------------
 // putBlob
@@ -37,6 +38,7 @@ export async function putBlob(
   key: string,
   body: ReadableStream<Uint8Array> | ArrayBuffer | Uint8Array,
 ): Promise<PutBlobResult> {
+  if (client.kind === 'fs') return fsPutBlob(client, key, body);
   const hasher = createHash('sha256');
   let size = 0;
 
@@ -106,6 +108,7 @@ export async function getBlob(
   client: StorageClient,
   key: string,
 ): Promise<ReadableStream<Uint8Array>> {
+  if (client.kind === 'fs') return fsGetBlob(client, key);
   const url = `${client.bucketUrl}/${key}`;
   const res = await client.aws.fetch(url, { method: 'GET' });
 
@@ -141,6 +144,7 @@ export async function presignGetUrl(
   key: string,
   ttlSeconds: number,
 ): Promise<string> {
+  if (client.kind === 'fs') return fsPresignGetUrl(client, key, ttlSeconds);
   const objectUrl = `${client.bucketUrl}/${key}`;
 
   // aws4fetch's AwsClient exposes credentials as public properties (see type definitions).
@@ -177,6 +181,7 @@ export async function presignGetUrl(
  * @throws If the server returns a non-2xx/204 status.
  */
 export async function deleteBlob(client: StorageClient, key: string): Promise<void> {
+  if (client.kind === 'fs') return fsDeleteBlob(client, key);
   const url = `${client.bucketUrl}/${key}`;
   const res = await client.aws.fetch(url, { method: 'DELETE' });
 

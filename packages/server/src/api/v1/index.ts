@@ -44,6 +44,7 @@ import { createSubmissionsRouter } from './routes/submissions.js';
 import { createEventsRouter } from './routes/events.js';
 import { createFilesRouter } from './routes/files.js';
 import { createBundleRouter } from './routes/bundle.js';
+import { createBlobDownloadRouter } from './routes/blob-download.js';
 import { createAuditRouter } from './routes/audit.js';
 import { createAdminRouter } from './routes/admin.js';
 import { createOpenApiRouter } from './routes/openapi.js';
@@ -145,6 +146,16 @@ export function createV1App(): Hono {
   // Bundle download route (Phase 18).
   // Paths: /submissions/:submissionId/bundle (GET → 302)
   app.route('/', createBundleRouter());
+
+  // Blob download route (fs storage backend presigned-URL target).
+  // Path: /blob (GET) — self-authenticating via HMAC query token; no
+  // session/token auth (the token IS the credential, same as S3 presigned
+  // URLs). Not gated by authSessionMiddleware above: that middleware only
+  // 401s when an Authorization header is present but invalid — it does not
+  // require credentials to be present, so an unauthenticated request (the
+  // normal case for a presigned download link) passes through to the
+  // handler, which performs no principal check of its own.
+  app.route('/', createBlobDownloadRouter());
 
   // Audit log route (Phase 19).
   // Path: /audit (GET — semester admin or superadmin)
