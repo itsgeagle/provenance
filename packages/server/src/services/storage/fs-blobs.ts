@@ -7,7 +7,7 @@
  * reserved multipart staging tree.
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
@@ -97,3 +97,67 @@ export async function fsDeleteBlob(client: FsClient, key: string): Promise<void>
   }
 }
 
+// ---------------------------------------------------------------------------
+// Presigned URL signing (fs backend)
+// ---------------------------------------------------------------------------
+
+interface BlobUrlPayload {
+  k: string; // key
+  e: number; // expiry, epoch seconds
+}
+
+/** Sign a blob key + expiry into base64url payload (`d`) and HMAC signature (`s`). */
+export function signBlobUrl(
+  secret: string,
+  key: string,
+  expEpochSec: number,
+): { d: string; s: string } {
+  const payload: BlobUrlPayload = { k: key, e: expEpochSec };
+  const d = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const s = createHmac('sha256', secret).update(d).digest().toString('base64url');
+  return { d, s };
+}
+
+/** Verify a signed blob URL. Timing-safe; never throws. */
+export function verifyBlobUrl(
+  secret: string,
+  d: string,
+  s: string,
+  nowEpochSec: number,
+): { ok: true; key: string } | { ok: false; reason: 'bad_signature' | 'expired' | 'malformed' } {
+  const expected = createHmac('sha256', secret).update(d).digest();
+  let provided: Buffer;
+  try {
+    provided = Buffer.from(s, 'base64url');
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
+    return { ok: false, reason: 'bad_signature' };
+  }
+  let payload: BlobUrlPayload;
+  try {
+    payload = JSON.parse(Buffer.from(d, 'base64url').toString('utf8')) as BlobUrlPayload;
+  } catch {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (typeof payload.k !== 'string' || typeof payload.e !== 'number') {
+    return { ok: false, reason: 'malformed' };
+  }
+  if (nowEpochSec >= payload.e) return { ok: false, reason: 'expired' };
+  return { ok: true, key: payload.k };
+}
+
+/** Mint a self-authenticating, TTL-bounded download URL back to our own server. */
+export async function fsPresignGetUrl(
+  client: FsClient,
+  key: string,
+  ttlSeconds: number,
+): Promise<string> {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const { d, s } = signBlobUrl(client.signingSecret, key, nowSec + ttlSeconds);
+  const base = client.publicBaseUrl.endsWith('/')
+    ? client.publicBaseUrl.slice(0, -1)
+    : client.publicBaseUrl;
+  return `${base}/api/v1/blob?d=${d}&s=${s}`;
+}

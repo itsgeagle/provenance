@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 import { AwsV4Signer } from 'aws4fetch';
 import type { StorageClient } from './client.js';
-import { fsPutBlob, fsGetBlob, fsDeleteBlob } from './fs-blobs.js';
+import { fsPutBlob, fsGetBlob, fsDeleteBlob, fsPresignGetUrl } from './fs-blobs.js';
 
 // ---------------------------------------------------------------------------
 // putBlob
@@ -144,7 +144,7 @@ export async function presignGetUrl(
   key: string,
   ttlSeconds: number,
 ): Promise<string> {
-  if (client.kind === 'fs') throw new Error('fs storage backend: not implemented yet');
+  if (client.kind === 'fs') return fsPresignGetUrl(client, key, ttlSeconds);
   const objectUrl = `${client.bucketUrl}/${key}`;
 
   // aws4fetch's AwsClient exposes credentials as public properties (see type definitions).
