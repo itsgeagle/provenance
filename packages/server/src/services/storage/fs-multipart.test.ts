@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, rm, access } from 'node:fs/promises';
+import { mkdtemp, rm, access, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -62,6 +62,52 @@ describe('fs multipart round-trip', () => {
       const have = new Set((await fsListParts(c, key, uploadId)).map((p) => p.partNumber));
       const missing = [1, 2, 3].filter((n) => !have.has(n));
       expect(missing).toEqual([2]);
+    } finally { await rm(c.rootDir, { recursive: true, force: true }); }
+  });
+
+  it('sorts a COPY of the parts arg: descending arg still assembles ascending, arg unmutated', async () => {
+    const c = await tmpClient();
+    try {
+      const key = 'out.zip';
+      const uploadId = await fsCreateMultipartUpload(c, key);
+      const p1 = bytes(8, 0x11);
+      const p2 = bytes(8, 0x22);
+      const e1 = await fsUploadPart(c, key, uploadId, 1, p1);
+      const e2 = await fsUploadPart(c, key, uploadId, 2, p2);
+      // Hand the parts array in DESCENDING order — exercises the internal
+      // `[...parts].sort(...)`, which must sort a copy and assemble ascending.
+      const parts = [
+        { partNumber: 2, etag: e2, size: 8 },
+        { partNumber: 1, etag: e1, size: 8 },
+      ];
+      await fsCompleteMultipartUpload(c, key, uploadId, parts);
+      const got = await collect(await fsGetBlob(c, key));
+      const expected = new Uint8Array(16); expected.set(p1, 0); expected.set(p2, 8);
+      expect(got).toEqual(expected);
+      // The caller's array must be untouched (proves the sort copied first).
+      expect(parts.map((p) => p.partNumber)).toEqual([2, 1]);
+    } finally { await rm(c.rootDir, { recursive: true, force: true }); }
+  });
+
+  it('mid-assembly error leaves no final blob and no leftover .tmp- file', async () => {
+    const c = await tmpClient();
+    try {
+      const key = 'out.zip';
+      const uploadId = await fsCreateMultipartUpload(c, key);
+      const e1 = await fsUploadPart(c, key, uploadId, 1, bytes(8, 0x11));
+      // Reference a part whose `.part` file does not exist → read stream errors
+      // mid-assembly, triggering the destroy-stream + rm-tmp cleanup path.
+      await expect(
+        fsCompleteMultipartUpload(c, key, uploadId, [
+          { partNumber: 1, etag: e1, size: 8 },
+          { partNumber: 99, etag: '"x"', size: 1 },
+        ]),
+      ).rejects.toThrow();
+      // (b) No final blob at the destination key.
+      await expect(fsGetBlob(c, key)).rejects.toThrow();
+      // (c) No leftover `.tmp-` file in the destination's parent dir (rootDir).
+      const siblings = await readdir(c.rootDir);
+      expect(siblings.filter((n) => n.includes('.tmp-'))).toEqual([]);
     } finally { await rm(c.rootDir, { recursive: true, force: true }); }
   });
 
