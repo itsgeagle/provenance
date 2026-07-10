@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { resolveKeyPath, fsPutBlob, fsGetBlob, fsDeleteBlob, FS_STAGING_DIR } from './fs-blobs.js';
 import { signBlobUrl, verifyBlobUrl, fsPresignGetUrl } from './fs-blobs.js';
 import type { StorageClient } from './client.js';
@@ -154,6 +154,14 @@ describe('signBlobUrl / verifyBlobUrl', () => {
   it('rejects garbage signature without throwing', () => {
     const { d } = signBlobUrl(secret, 'a/b.zip', 2000);
     expect(verifyBlobUrl(secret, d, '!!!not-base64!!!', 1000).ok).toBe(false);
+  });
+  it('returns malformed (does not throw) for a validly-signed null payload', () => {
+    // `JSON.parse('null')` succeeds and returns null, so the parse try/catch
+    // never fires — the null-payload guard must catch it before the property
+    // type checks dereference it.
+    const d = Buffer.from('null', 'utf8').toString('base64url');
+    const s = createHmac('sha256', secret).update(d).digest().toString('base64url');
+    expect(verifyBlobUrl(secret, d, s, 1000)).toEqual({ ok: false, reason: 'malformed' });
   });
 });
 

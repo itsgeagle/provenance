@@ -135,12 +135,19 @@ export function verifyBlobUrl(
   if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
     return { ok: false, reason: 'bad_signature' };
   }
-  let payload: BlobUrlPayload;
+  let parsed: unknown;
   try {
-    payload = JSON.parse(Buffer.from(d, 'base64url').toString('utf8')) as BlobUrlPayload;
+    parsed = JSON.parse(Buffer.from(d, 'base64url').toString('utf8'));
   } catch {
     return { ok: false, reason: 'malformed' };
   }
+  // `JSON.parse('null')` / `'123'` / `'"foo"'` succeed without throwing, so the
+  // catch above never fires for them — guard against null / non-object before
+  // reading properties, or the field checks below would throw.
+  if (parsed === null || typeof parsed !== 'object') {
+    return { ok: false, reason: 'malformed' };
+  }
+  const payload = parsed as Partial<BlobUrlPayload>;
   if (typeof payload.k !== 'string' || typeof payload.e !== 'number') {
     return { ok: false, reason: 'malformed' };
   }
