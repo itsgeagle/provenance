@@ -18,6 +18,8 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import { useFullEventIndex } from '../../data/useFullEventIndex.js';
 import { ReplayInner } from '../replay/ReplayView.js';
+import { StatusRegion } from '../../components/a11y/StatusRegion.js';
+import { ErrorRegion } from '../../components/a11y/ErrorRegion.js';
 import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 import type { FlagRow } from '@provenance/shared/api-schemas';
 
@@ -77,20 +79,21 @@ export function Replay() {
 
   if (indexQuery.isLoading || summaryQuery.isLoading) {
     return (
-      <div
-        className="container mx-auto py-12 text-center text-gray-400"
-        data-testid="replay-loading"
-      >
-        <p className="text-sm">Loading replay data…</p>
-      </div>
+      <StatusRegion className="container mx-auto py-12 text-center text-gray-600">
+        <p className="text-sm" data-testid="replay-loading">
+          Loading replay data…
+        </p>
+      </StatusRegion>
     );
   }
 
   if (indexQuery.isError) {
     return (
-      <div className="container mx-auto py-12 text-center text-red-600" data-testid="replay-error">
-        <p className="text-sm">Failed to load events: {String(indexQuery.error)}</p>
-      </div>
+      <ErrorRegion className="container mx-auto py-12 text-center text-red-600">
+        <p className="text-sm" data-testid="replay-error">
+          Failed to load events: {String(indexQuery.error)}
+        </p>
+      </ErrorRegion>
     );
   }
 

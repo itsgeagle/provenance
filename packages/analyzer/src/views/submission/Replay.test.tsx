@@ -200,10 +200,25 @@ describe('Replay tab (v3)', () => {
     mockIndexResult.value = null;
   });
 
-  it('shows loading state while the event index is being fetched', () => {
+  it('shows loading state while the event index is being fetched, announced via role=status', () => {
     mockIndexResult.value = loadingResult<EventIndex>();
     renderReplay(makeProvider());
-    expect(screen.getByTestId('replay-loading')).toBeInTheDocument();
+    const loadingEl = screen.getByTestId('replay-loading');
+    expect(loadingEl).toBeInTheDocument();
+    expect(loadingEl.closest('[role="status"]')).not.toBeNull();
+  });
+
+  it('shows error state announced via role=alert', () => {
+    mockIndexResult.value = {
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('boom'),
+    } as unknown as UseQueryResult<EventIndex>;
+    renderReplay(makeProvider());
+    const errorEl = screen.getByTestId('replay-error');
+    expect(errorEl).toBeInTheDocument();
+    expect(errorEl.closest('[role="alert"]')).not.toBeNull();
   });
 
   it('renders ReplayInner once index and summary are ready', async () => {

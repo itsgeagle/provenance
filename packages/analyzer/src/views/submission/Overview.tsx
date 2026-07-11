@@ -9,6 +9,8 @@ import { useMemo } from 'react';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import { collectActiveExtensions } from '../../extensions/collect-active-extensions.js';
 import { ActiveExtensionsCard } from '../../extensions/ActiveExtensionsCard.js';
+import { StatusRegion } from '../../components/a11y/StatusRegion.js';
+import { ErrorRegion } from '../../components/a11y/ErrorRegion.js';
 
 // ---------------------------------------------------------------------------
 // Severity chip
@@ -79,17 +81,17 @@ export function Overview() {
 
   if (summaryQuery.isLoading) {
     return (
-      <div className="p-8 text-gray-500" data-testid="overview-loading">
-        Loading submission…
-      </div>
+      <StatusRegion className="p-8 text-gray-600">
+        <div data-testid="overview-loading">Loading submission…</div>
+      </StatusRegion>
     );
   }
 
   if (summaryQuery.isError) {
     return (
-      <div className="p-8 text-red-600" data-testid="overview-error">
-        Failed to load submission summary.
-      </div>
+      <ErrorRegion className="p-8 text-red-600">
+        <div data-testid="overview-error">Failed to load submission summary.</div>
+      </ErrorRegion>
     );
   }
 

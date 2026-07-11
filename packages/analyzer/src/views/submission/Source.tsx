@@ -12,6 +12,8 @@
 
 import { useState } from 'react';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
+import { StatusRegion } from '../../components/a11y/StatusRegion.js';
+import { ErrorRegion } from '../../components/a11y/ErrorRegion.js';
 
 // ---------------------------------------------------------------------------
 // Verdict badge styling
@@ -35,17 +37,17 @@ export function Source() {
 
   if (filesQ.isLoading) {
     return (
-      <div className="p-6 text-sm text-gray-500" data-testid="source-loading">
-        Loading…
-      </div>
+      <StatusRegion className="p-6 text-sm text-gray-600">
+        <div data-testid="source-loading">Loading…</div>
+      </StatusRegion>
     );
   }
 
   if (filesQ.isError) {
     return (
-      <div className="p-6 text-sm text-red-600" data-testid="source-error">
-        Failed to load submitted files.
-      </div>
+      <ErrorRegion className="p-6 text-sm text-red-600">
+        <div data-testid="source-error">Failed to load submitted files.</div>
+      </ErrorRegion>
     );
   }
 
@@ -96,9 +98,9 @@ export function Source() {
             Select a file to view its submitted content.
           </div>
         ) : contentQ.isLoading ? (
-          <div className="text-sm text-gray-500" data-testid="source-content-loading">
-            Loading…
-          </div>
+          <StatusRegion className="text-sm text-gray-600">
+            <div data-testid="source-content-loading">Loading…</div>
+          </StatusRegion>
         ) : (
           <pre
             className="whitespace-pre-wrap break-words font-mono text-xs"

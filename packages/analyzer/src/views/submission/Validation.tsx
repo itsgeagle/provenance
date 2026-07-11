@@ -8,6 +8,8 @@
 import { CheckCircle2, XCircle, AlertCircle, Circle } from 'lucide-react';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import type { ValidationCheckResult } from '../../data/SubmissionDataProvider.js';
+import { StatusRegion } from '../../components/a11y/StatusRegion.js';
+import { ErrorRegion } from '../../components/a11y/ErrorRegion.js';
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -100,23 +102,21 @@ export function Validation() {
 
   if (isLoading) {
     return (
-      <div
-        className="container mx-auto py-12 text-center text-gray-400"
-        data-testid="validation-loading"
-      >
-        <p className="text-sm">Loading validation results…</p>
-      </div>
+      <StatusRegion className="container mx-auto py-12 text-center text-gray-600">
+        <p className="text-sm" data-testid="validation-loading">
+          Loading validation results…
+        </p>
+      </StatusRegion>
     );
   }
 
   if (isError || !data) {
     return (
-      <div
-        className="container mx-auto py-12 text-center text-red-400"
-        data-testid="validation-error"
-      >
-        <p className="text-sm">Failed to load validation results.</p>
-      </div>
+      <ErrorRegion className="container mx-auto py-12 text-center text-red-400">
+        <p className="text-sm" data-testid="validation-error">
+          Failed to load validation results.
+        </p>
+      </ErrorRegion>
     );
   }
 

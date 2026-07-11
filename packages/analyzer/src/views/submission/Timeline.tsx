@@ -9,6 +9,8 @@
 import { useState } from 'react';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import type { EventQueryFilters } from '../../data/SubmissionDataProvider.js';
+import { StatusRegion } from '../../components/a11y/StatusRegion.js';
+import { ErrorRegion } from '../../components/a11y/ErrorRegion.js';
 
 // ---------------------------------------------------------------------------
 // Event kind filter options (most common kinds)
@@ -156,14 +158,14 @@ export function Timeline() {
         </div>
 
         {eventsQuery.isLoading && (
-          <div className="p-6 text-gray-500 text-sm text-center" data-testid="timeline-loading">
-            Loading events…
-          </div>
+          <StatusRegion className="p-6 text-gray-600 text-sm text-center">
+            <div data-testid="timeline-loading">Loading events…</div>
+          </StatusRegion>
         )}
         {eventsQuery.isError && (
-          <div className="p-6 text-red-600 text-sm" data-testid="timeline-error">
-            Failed to load events.
-          </div>
+          <ErrorRegion className="p-6 text-red-600 text-sm">
+            <div data-testid="timeline-error">Failed to load events.</div>
+          </ErrorRegion>
         )}
         {!eventsQuery.isLoading && !eventsQuery.isError && displayEvents.length === 0 && (
           <div className="p-6 text-gray-600 text-sm text-center" data-testid="timeline-empty">

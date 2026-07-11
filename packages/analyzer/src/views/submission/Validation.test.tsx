@@ -215,10 +215,28 @@ describe('Validation tab', () => {
     });
   });
 
-  it('shows loading state when data is pending', () => {
+  it('shows loading state when data is pending, announced via role=status', () => {
     const provider = makeProvider({ overall: 'pass', checks: [] }, /* loading= */ true);
     renderValidation(provider);
 
-    expect(screen.getByTestId('validation-loading')).toBeInTheDocument();
+    const loadingEl = screen.getByTestId('validation-loading');
+    expect(loadingEl).toBeInTheDocument();
+    expect(loadingEl.closest('[role="status"]')).not.toBeNull();
+  });
+
+  it('shows error state announced via role=alert', () => {
+    const provider = makeProvider({ overall: 'pass', checks: EIGHT_CHECKS });
+    provider.useValidation = () =>
+      ({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error('boom'),
+      }) as unknown as ReturnType<SubmissionDataProvider['useValidation']>;
+    renderValidation(provider);
+
+    const errorEl = screen.getByTestId('validation-error');
+    expect(errorEl).toBeInTheDocument();
+    expect(errorEl.closest('[role="alert"]')).not.toBeNull();
   });
 });

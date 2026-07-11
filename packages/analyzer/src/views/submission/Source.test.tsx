@@ -218,11 +218,31 @@ describe('Source tab', () => {
     });
   });
 
-  it('shows loading state when data is pending', () => {
+  it('shows loading state when data is pending, announced via role=status', () => {
     const provider = makeProvider({ available: true, files: [] }, {}, /* loading= */ true);
     renderSource(provider);
 
-    expect(screen.getByTestId('source-loading')).toBeInTheDocument();
+    const loadingEl = screen.getByTestId('source-loading');
+    expect(loadingEl).toBeInTheDocument();
+    expect(loadingEl.closest('[role="status"]')).not.toBeNull();
+  });
+
+  it('shows error state announced via role=alert', async () => {
+    const provider = makeProvider({ available: true, files: [] });
+    provider.useSubmittedFiles = () =>
+      ({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error('boom'),
+      }) as unknown as ReturnType<SubmissionDataProvider['useSubmittedFiles']>;
+    renderSource(provider);
+
+    await waitFor(() => {
+      const errorEl = screen.getByTestId('source-error');
+      expect(errorEl).toBeInTheDocument();
+      expect(errorEl.closest('[role="alert"]')).not.toBeNull();
+    });
   });
 
   it('shows unavailable state when available is false', async () => {
