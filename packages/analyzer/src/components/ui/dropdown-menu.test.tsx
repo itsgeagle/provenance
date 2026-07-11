@@ -28,6 +28,21 @@ describe('DropdownMenu primitives', () => {
     expect(screen.getByText('Open Menu')).toBeInTheDocument();
   });
 
+  it('gives DropdownMenuItem a visible keyboard-focus ring independent of focus:bg-accent', () => {
+    render(
+      <DropdownMenu open>
+        <DropdownMenuTrigger>Open</DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem>Item 1</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    const item = screen.getByText('Item 1');
+    expect(item.className).toContain('focus:ring-2');
+    expect(item.className).toContain('focus:ring-ring');
+    expect(item.className).toContain('focus:ring-inset');
+  });
+
   it('renders DropdownMenuLabel', () => {
     render(
       <DropdownMenu open>
