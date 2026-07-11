@@ -26,6 +26,7 @@ import {
   maybeEnqueueFinalize,
 } from './job-control.js';
 import { stageBlob } from './stage-blob.js';
+import { createBoundedRunner } from './bounded-runner.js';
 import { upsertRosterFromSubmitters } from './gradescope/upsert-roster.js';
 import { openLocalExport } from './gradescope/stream-export.js';
 import { getBoss, JOB_KINDS } from '../../jobs/pg-boss.js';
@@ -52,6 +53,16 @@ export interface IngestLocalPathArgs {
    * single-request / CLI local-path callers (which keep lazy creation).
    */
   jobId?: string;
+  /**
+   * Max bundles staged concurrently (blob write + `ingest_files` insert +
+   * enqueue). Default 1 → strictly serial, identical to the original behavior.
+   * Submissions are independent, so higher values overlap the per-bundle blob
+   * writes (the win on network/NFS-backed storage) while the generator builds
+   * the next bundle. Keep `stageConcurrency + INGEST_CONCURRENCY` within
+   * `DATABASE_POOL_MAX` headroom, since each in-flight stage briefly holds a
+   * connection for its row insert.
+   */
+  stageConcurrency?: number;
 }
 
 export interface IngestLocalPathSkipped {
@@ -115,6 +126,12 @@ export async function ingestLocalPath(
       await markStagingStarted(db, jobId);
     }
 
+    // Stage bundles with bounded concurrency (default 1 = serial). The ordered
+    // bookkeeping — job creation, the file-count cap, and the counters — stays
+    // on this serial producer path; only the independent per-bundle work (blob
+    // write + row insert + enqueue) runs in the pool.
+    const runner = createBoundedRunner(args.stageConcurrency ?? 1);
+
     try {
       for await (const sub of opened.submissions()) {
         if (sub.kind === 'skipped') {
@@ -129,6 +146,7 @@ export async function ingestLocalPath(
 
         // Enforce the file-count cap as we stream (one file per submitter).
         if (submissionsQueued + sub.submitters.length > maxBatchFiles) {
+          await runner.settle(); // let in-flight stages finish before failing
           if (jobId !== null) {
             await failIngestJob(db, jobId, `exceeded INGEST_MAX_BATCH_FILES (${maxBatchFiles})`);
           }
@@ -139,41 +157,53 @@ export async function ingestLocalPath(
           };
         }
 
-        // Lazily create the job on the first real bundle.
+        // Lazily create the job on the first real bundle. Capture a non-null id
+        // for the stage tasks (the closures cannot narrow the outer `jobId`).
+        let activeJobId: string;
         if (jobId === null) {
-          jobId = (await enqueueIngestJob(db, semesterId, userId)).jobId;
+          activeJobId = (await enqueueIngestJob(db, semesterId, userId)).jobId;
+          jobId = activeJobId;
           await markStagingStarted(db, jobId);
+        } else {
+          activeJobId = jobId;
         }
 
         bundlesProcessed++;
+        const { bundleZip, folderKey } = sub;
         for (const submitter of sub.submitters) {
           const fileId = crypto.randomUUID();
-          const { blobSha256, sizeBytes } = await stageBlob(
-            { storageClient },
-            { jobId, ingestFileId: fileId, body: sub.bundleZip },
-          );
-          await db.insert(ingest_files).values({
-            id: fileId,
-            ingest_job_id: jobId,
-            original_filename: `${sub.folderKey}.zip`,
-            size_bytes: sizeBytes,
-            blob_sha256: blobSha256,
-            status: 'pending',
-            match_sid: submitter.sid,
-          });
-          // Enqueue immediately so the worker starts on this bundle while we
-          // stream the next ones. Safe because the job's staging_complete is
-          // false until the loop finishes (see markStagingStarted above), so
-          // maybeEnqueueFinalize will not settle the job early.
-          await boss.send(
-            JOB_KINDS.INGEST_FILE,
-            { ingestFileId: fileId, ingestJobId: jobId },
-            { retryLimit: 3 },
-          );
+          const matchSid = submitter.sid;
           submissionsQueued++;
+          // Stage blob + insert row + enqueue, immediately so the worker starts
+          // on this bundle while we stream the next ones. Safe because the job's
+          // staging_complete stays false until markStagingComplete below, so
+          // maybeEnqueueFinalize will not settle the job early. `submit` applies
+          // backpressure once `stageConcurrency` stages are in flight.
+          await runner.submit(async () => {
+            const { blobSha256, sizeBytes } = await stageBlob(
+              { storageClient },
+              { jobId: activeJobId, ingestFileId: fileId, body: bundleZip },
+            );
+            await db.insert(ingest_files).values({
+              id: fileId,
+              ingest_job_id: activeJobId,
+              original_filename: `${folderKey}.zip`,
+              size_bytes: sizeBytes,
+              blob_sha256: blobSha256,
+              status: 'pending',
+              match_sid: matchSid,
+            });
+            await boss.send(
+              JOB_KINDS.INGEST_FILE,
+              { ingestFileId: fileId, ingestJobId: activeJobId },
+              { retryLimit: 3 },
+            );
+          });
         }
       }
+      await runner.drain();
     } catch (stagingErr) {
+      await runner.settle(); // wait out in-flight stages before failing the job
       if (jobId !== null) {
         const detail = stagingErr instanceof Error ? stagingErr.message : String(stagingErr);
         await failIngestJob(db, jobId, detail);

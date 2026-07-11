@@ -76,6 +76,13 @@ services:
       # Overlaps NFS I/O latency within a worker; CPU throughput comes from
       # running more worker replicas, not from raising this.
       INGEST_CONCURRENCY: "6"
+      # Staging (unpack a Gradescope export -> stage each bundle -> enqueue) is a
+      # single serial job; on the NFS mount its per-bundle blob writes otherwise
+      # starve the ingest workers. Overlap them so the workers stay fed.
+      INGEST_STAGE_CONCURRENCY: "6"
+      # Headroom for INGEST_CONCURRENCY (6) + INGEST_STAGE_CONCURRENCY (6) + pg-boss
+      # polling on the staging worker. 4 workers x 16 = 64 conns < postgres default 100.
+      DATABASE_POOL_MAX: "16"
     volumes:
       - /home/submit/provenance:/data
     depends_on:

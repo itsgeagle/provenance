@@ -131,6 +131,8 @@ export interface CompleteResumableArgs {
   s3UploadId: string;
   maxBundleBytes: number;
   maxBatchFiles: number;
+  /** Bundles staged concurrently (see ingestLocalPath). Default 1 = serial. */
+  stageConcurrency?: number;
   /** Optional pre-created ingest job to stage into (see ingestLocalPath). */
   jobId?: string;
 }
@@ -163,6 +165,7 @@ export async function completeResumableUpload(
         archivePath: tmp.path,
         maxBundleBytes: args.maxBundleBytes,
         maxBatchFiles: args.maxBatchFiles,
+        ...(args.stageConcurrency !== undefined ? { stageConcurrency: args.stageConcurrency } : {}),
         ...(args.jobId !== undefined ? { jobId: args.jobId } : {}),
       },
     );

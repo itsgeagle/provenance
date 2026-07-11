@@ -38,6 +38,8 @@ export interface IngestStageUploadPayload {
 export interface StageUploadArgs extends IngestStageUploadPayload {
   maxBundleBytes: number;
   maxBatchFiles: number;
+  /** Bundles staged concurrently (see ingestLocalPath). Default 1 = serial. */
+  stageConcurrency?: number;
 }
 
 export interface StageUploadDeps {
@@ -68,6 +70,7 @@ export async function stageUploadIntoJob(
       s3UploadId: args.s3UploadId,
       maxBundleBytes: args.maxBundleBytes,
       maxBatchFiles: args.maxBatchFiles,
+      ...(args.stageConcurrency !== undefined ? { stageConcurrency: args.stageConcurrency } : {}),
       jobId: args.ingestJobId,
     },
   );

@@ -108,6 +108,16 @@ const rawEnvSchema = z.object({
    */
   INGEST_CONCURRENCY: intStr(4),
   /**
+   * Number of bundles the staging step writes concurrently while unpacking a
+   * Gradescope export (blob write + `ingest_files` insert + enqueue per bundle).
+   * Default 1 = serial (unchanged). Staging is otherwise a single serial job, so
+   * on network/NFS-backed storage it starves the ingest workers; raising this
+   * overlaps the per-bundle blob writes so the workers stay fed. Each in-flight
+   * stage briefly holds a DB connection for its row insert, so keep
+   * INGEST_STAGE_CONCURRENCY + INGEST_CONCURRENCY within DATABASE_POOL_MAX.
+   */
+  INGEST_STAGE_CONCURRENCY: intStr(1),
+  /**
    * pg-boss polling interval (ms) for the INGEST_FILE / INGEST_FINALIZE queues,
    * converted to pollingIntervalSeconds. The default pg-boss interval is 2000ms;
    * the lower default here cuts the fixed per-job pickup latency that dominates

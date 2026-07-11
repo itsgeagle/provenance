@@ -639,6 +639,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
             ...job.data,
             maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
             maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+            stageConcurrency: cfg.INGEST_STAGE_CONCURRENCY,
           },
         );
         logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: completed');
