@@ -14,19 +14,44 @@
  * the API alone.
  */
 import { parseMode, runMode } from './run-mode.js';
+import { getNotifier } from './notify/notifier.js';
+import { installCrashHandlers } from './notify/fatal.js';
+import { getConfig } from './config/index.js';
 
 const mode = parseMode(process.argv.slice(2));
 
+// Last-resort safety net: notify + bounded flush before exiting on an
+// otherwise-unhandled crash. Installed before runMode() so it also covers
+// crashes during startup.
+installCrashHandlers(getNotifier());
+
 runMode(mode)
   .then((teardown) => {
+    getNotifier().notify({
+      severity: 'info',
+      kind: 'app.startup',
+      title: 'Provenance started',
+      detail: {
+        sha: process.env.GIT_SHA ?? 'unknown',
+        mode,
+        backend: getConfig().BLOB_STORAGE_BACKEND,
+      },
+    });
+
     if (teardown === null) return;
     // Worker (or all) mode owns a pg-boss connection — drain it on shutdown.
-    const shutdown = async () => {
+    const shutdown = async (signal: string) => {
+      getNotifier().notify({
+        severity: 'info',
+        kind: 'app.shutdown',
+        title: `Shutting down (${signal})`,
+      });
+      await getNotifier().flush();
       await teardown();
       process.exit(0);
     };
-    process.on('SIGTERM', () => void shutdown());
-    process.on('SIGINT', () => void shutdown());
+    process.on('SIGTERM', () => void shutdown('SIGTERM'));
+    process.on('SIGINT', () => void shutdown('SIGINT'));
   })
   .catch((err: unknown) => {
     console.error(err instanceof Error ? err.message : String(err));
