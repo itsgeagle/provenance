@@ -22,6 +22,7 @@ import { useNavigate } from 'react-router-dom';
 import type { StudentRollupRow } from '@provenance/shared/api-schemas';
 import type { StudentSort } from '../../api/queries.js';
 import { useActiveSemester } from '../../api/use-active-semester.js';
+import { SortableHeader, type SortDirection } from '../../components/a11y/SortableHeader.js';
 
 // ---------------------------------------------------------------------------
 // Severity badge (local copy to keep import-free)
@@ -60,6 +61,18 @@ const COLUMN_TO_SORT: Record<string, StudentSort | undefined> = {
   score: 'score_sum_desc',
   score_max: 'score_max_desc',
 };
+
+/**
+ * Current sort direction for a sortable column. Each StudentSort value has
+ * exactly one valid direction (student is asc-only, the score columns are
+ * desc-only — there is no toggle), so this just checks whether `sort` equals
+ * the column's single mapped value.
+ */
+function getSortDirection(columnId: string, sort: StudentSort): SortDirection {
+  const mapped = COLUMN_TO_SORT[columnId];
+  if (!mapped || sort !== mapped) return null;
+  return mapped === 'student_asc' ? 'asc' : 'desc';
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -223,13 +236,21 @@ export function StudentRollupTable({
               <tr key={hg.id}>
                 {hg.headers.map((header) => {
                   const isSortable = header.column.id in COLUMN_TO_SORT;
+                  if (isSortable) {
+                    return (
+                      <SortableHeader
+                        key={header.id}
+                        label={String(header.column.columnDef.header)}
+                        direction={getSortDirection(header.column.id, sort)}
+                        onSort={() => handleHeaderClick(header.column.id)}
+                        className="cursor-pointer select-none border-b border-gray-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-100"
+                      />
+                    );
+                  }
                   return (
                     <th
                       key={header.id}
-                      className={`border-b border-gray-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 ${
-                        isSortable ? 'cursor-pointer select-none hover:bg-gray-100' : ''
-                      }`}
-                      onClick={() => isSortable && handleHeaderClick(header.column.id)}
+                      className="border-b border-gray-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600"
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                     </th>
