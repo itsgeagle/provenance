@@ -193,4 +193,27 @@ describe('SubmissionShell — tab navigation', () => {
       { timeout: 3000 },
     );
   });
+
+  it('exposes ARIA tablist semantics with aria-selected on the active tab', async () => {
+    setupMinimalHandlers();
+    renderShell();
+
+    const tablist = screen.getByRole('tablist', { name: 'Submission views' });
+    expect(tablist).toBeInTheDocument();
+
+    const overviewTab = screen.getByTestId('tab-overview');
+    expect(overviewTab).toHaveAttribute('role', 'tab');
+    expect(overviewTab).toHaveAttribute('aria-selected', 'true');
+
+    const timelineTab = screen.getByTestId('tab-timeline');
+    expect(timelineTab).toHaveAttribute('role', 'tab');
+    expect(timelineTab).toHaveAttribute('aria-selected', 'false');
+
+    fireEvent.click(timelineTab);
+
+    await waitFor(() => {
+      expect(timelineTab).toHaveAttribute('aria-selected', 'true');
+    });
+    expect(overviewTab).toHaveAttribute('aria-selected', 'false');
+  });
 });

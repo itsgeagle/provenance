@@ -262,17 +262,27 @@ export function CohortView() {
 
           <div className="flex-1" />
 
-          {/* Tab toggle */}
-          <div className="flex rounded-md border border-gray-300 text-xs overflow-hidden">
+          {/* Tab toggle — 2-way view toggle using the toggle-button pattern
+              (aria-pressed), not a tablist: this switches which table
+              renders, not a sub-route. */}
+          <div
+            className="flex rounded-md border border-gray-300 text-xs overflow-hidden"
+            role="group"
+            aria-label="View mode"
+          >
             <button
-              className={`px-3 py-1.5 ${activeTab === 'submissions' ? 'bg-gray-100 font-medium text-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              type="button"
+              aria-pressed={activeTab === 'submissions'}
+              className={`px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${activeTab === 'submissions' ? 'bg-gray-100 font-medium text-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               onClick={() => setTab('submissions')}
               data-testid="tab-submissions"
             >
               By submission
             </button>
             <button
-              className={`border-l border-gray-300 px-3 py-1.5 ${activeTab === 'students' ? 'bg-gray-100 font-medium text-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              type="button"
+              aria-pressed={activeTab === 'students'}
+              className={`border-l border-gray-300 px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${activeTab === 'students' ? 'bg-gray-100 font-medium text-gray-900' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               onClick={() => setTab('students')}
               data-testid="tab-students"
             >

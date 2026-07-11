@@ -231,6 +231,30 @@ describe('CohortView', () => {
     expect(screen.queryByTestId('cohort-table-scroll')).not.toBeInTheDocument();
   });
 
+  it('exposes aria-pressed on the active view toggle button', async () => {
+    mswServer.use(
+      cohortSubmissionsHandler([], { total_count: 0 }),
+      cohortStudentsHandler([]),
+      assignmentsHandler(),
+    );
+
+    renderCohortView();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-submissions')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('tab-submissions')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('tab-students')).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByTestId('tab-students'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-students')).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(screen.getByTestId('tab-submissions')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('renders 5k-row dataset without error (virtualization smoke test)', async () => {
     // Generate 5000 rows with valid UUIDs
     // UUID format: 8-4-4-4-12 hex chars

@@ -69,17 +69,23 @@ export function SubmissionShell() {
   return (
     <ApiSubmissionDataProviderContext submissionId={submissionId}>
       <div className="flex flex-1 flex-col min-h-0" data-testid="submission-shell">
-        {/* Tab nav */}
+        {/* Tab nav — WAI-ARIA tabs pattern applied to route-driven buttons
+            (not the stateful Radix Tabs primitive, which owns its own panel
+            state and doesn't fit URL-driven routing). */}
         <nav className="border-b border-gray-200 bg-white px-4 sm:px-6">
-          <div className="flex gap-0 -mb-px">
+          <div className="flex gap-0 -mb-px" role="tablist" aria-label="Submission views">
             {ALL_TABS.map((tab) => (
               <button
                 key={tab.id}
+                id={`tab-${tab.id}`}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-controls="submission-tabpanel"
                 onClick={() => setTab(tab.id)}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors focus:outline-none ${
+                className={`px-4 py-3 text-sm border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   activeTab === tab.id
-                    ? 'border-blue-600 text-blue-700'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-blue-600 font-semibold text-blue-700'
+                    : 'border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
                 data-testid={`tab-${tab.id}`}
               >
@@ -95,6 +101,10 @@ export function SubmissionShell() {
               children manage internal scroll. Use overflow-hidden + min-h-0.
             - Other tabs grow with content, so use overflow-auto to scroll. */}
         <div
+          id="submission-tabpanel"
+          role="tabpanel"
+          aria-labelledby={`tab-${activeTab}`}
+          tabIndex={0}
           className={`flex-1 min-h-0 bg-gray-50 ${
             activeTab === 'replay' ? 'overflow-hidden' : 'overflow-auto'
           }`}
