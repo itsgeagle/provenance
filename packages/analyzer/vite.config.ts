@@ -28,7 +28,12 @@ export default defineConfig({
         ]
       : []),
   ],
-  base: './',
+  // Absolute base so built asset URLs are `/assets/...`, not `./assets/...`.
+  // With a relative base, reloading a deep client route (e.g. /s/:sem/:cohort)
+  // makes the browser resolve `./assets/*` against the deep path, the SPA
+  // fallback returns index.html for that miss, and the app renders a blank
+  // page. The SPA is served from the domain root, so `/` is correct.
+  base: '/',
   server: {
     // The proxy is the same-origin trick that keeps __Host- session cookies
     // working in dev: the browser only ever sees the Vite dev origin, the
