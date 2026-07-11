@@ -133,6 +133,15 @@ const rawEnvSchema = z.object({
   ALERT_DEDUPE_WINDOW_SECONDS: intStr(300),
   // Build commit, surfaced in the app.startup notification (baked by the Dockerfile).
   GIT_SHA: z.string().optional(),
+  // Deployment (see docs/superpowers/specs/2026-07-10-apphost-deployment-design.md).
+  // When set, the API server listens on this Unix socket path instead of a TCP PORT.
+  SOCKET_PATH: z.string().optional(),
+  // Directory of the built analyzer SPA served from the same origin as the API.
+  PUBLIC_DIR: z.string().min(1).default('./public'),
+  // Storage quota watched by the hourly quota-check cron (default 1 TiB).
+  STORAGE_QUOTA_BYTES: intStr(1099511627776),
+  STORAGE_QUOTA_WARN_PCT: intStr(80),
+  STORAGE_QUOTA_CRITICAL_PCT: intStr(90),
 });
 
 // ---------------------------------------------------------------------------

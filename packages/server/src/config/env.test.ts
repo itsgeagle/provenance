@@ -285,3 +285,24 @@ describe('alert config', () => {
     expect(() => parseEnv({ ...VALID_BASE, ALERT_WEBHOOK_MIN_SEVERITY: 'loud' })).toThrow();
   });
 });
+
+describe('deployment config', () => {
+  it('applies defaults', () => {
+    const env = parseEnv(VALID_BASE);
+    expect(env.SOCKET_PATH).toBeUndefined();
+    expect(env.PUBLIC_DIR).toBe('./public');
+    expect(env.STORAGE_QUOTA_BYTES).toBe(1099511627776);
+    expect(env.STORAGE_QUOTA_WARN_PCT).toBe(80);
+    expect(env.STORAGE_QUOTA_CRITICAL_PCT).toBe(90);
+  });
+
+  it('parses a socket path and custom quota', () => {
+    const env = parseEnv({
+      ...VALID_BASE,
+      SOCKET_PATH: '/run/sockets/app.sock',
+      STORAGE_QUOTA_BYTES: '2199023255552',
+    });
+    expect(env.SOCKET_PATH).toBe('/run/sockets/app.sock');
+    expect(env.STORAGE_QUOTA_BYTES).toBe(2199023255552);
+  });
+});
