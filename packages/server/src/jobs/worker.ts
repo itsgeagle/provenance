@@ -70,6 +70,8 @@ import { createRetentionSweepHandler } from './retention-sweep.js';
 import { createPurgeExpiredSessionsHandler } from './purge-expired-sessions.js';
 import { createPurgeExpiredExportsHandler } from './purge-expired-exports.js';
 import { createReapStaleUploadsHandler } from './reap-stale-uploads.js';
+import { withFailureNotification } from '../notify/job-failure.js';
+import { getNotifier } from '../notify/notifier.js';
 
 // ---------------------------------------------------------------------------
 // Payload types (mirrored from POST /ingest enqueue calls)
@@ -543,65 +545,69 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
   await boss.work<IngestFinalizePayload>(
     JOB_KINDS.INGEST_FINALIZE,
-    { batchSize: 1, pollingIntervalSeconds },
+    { batchSize: 1, pollingIntervalSeconds, includeMetadata: true },
     async (jobs) => {
-      const job = jobs[0]!;
-      const { ingestJobId } = job.data;
+      await withFailureNotification(
+        { kind: 'job.dead_letter', severity: 'warn', notifier: getNotifier() },
+        async (job: PgBoss.JobWithMetadata<IngestFinalizePayload>): Promise<void> => {
+          const { ingestJobId } = job.data;
 
-      const db = getDb();
-      logger.info({ ingestJobId }, 'ingest_finalize: started');
+          const db = getDb();
+          logger.info({ ingestJobId }, 'ingest_finalize: started');
 
-      try {
-        await finalizeIngestJob(db, ingestJobId);
+          try {
+            await finalizeIngestJob(db, ingestJobId);
 
-        // Record the terminal status to metrics.
-        const statusRows = await db
-          .select({ status: ingest_jobs.status })
-          .from(ingest_jobs)
-          .where(eq(ingest_jobs.id, ingestJobId))
-          .limit(1);
+            // Record the terminal status to metrics.
+            const statusRows = await db
+              .select({ status: ingest_jobs.status })
+              .from(ingest_jobs)
+              .where(eq(ingest_jobs.id, ingestJobId))
+              .limit(1);
 
-        const finalStatus = statusRows[0]?.status ?? 'unknown';
-        if (['succeeded', 'partial', 'failed'].includes(finalStatus)) {
-          recordIngestJobTerminal(finalStatus);
-        }
+            const finalStatus = statusRows[0]?.status ?? 'unknown';
+            if (['succeeded', 'partial', 'failed'].includes(finalStatus)) {
+              recordIngestJobTerminal(finalStatus);
+            }
 
-        logger.info({ ingestJobId }, 'ingest_finalize: completed');
+            logger.info({ ingestJobId }, 'ingest_finalize: completed');
 
-        // Dev profiling (INGEST_PROFILE=1): the batch's per-file work is done by
-        // the time finalize runs, so dump the accumulated per-phase table.
-        dumpProfile((msg) => logger.info({ profile: true }, msg));
+            // Dev profiling (INGEST_PROFILE=1): the batch's per-file work is done by
+            // the time finalize runs, so dump the accumulated per-phase table.
+            dumpProfile((msg) => logger.info({ profile: true }, msg));
 
-        // Enqueue cross-flag recompute for the semester (Phase 14).
-        // Look up semesterId from the ingest_job row.
-        // singletonKey=semesterId collapses concurrent enqueues to one pending job.
-        // Fire-and-forget: cross-flag failure doesn't affect the ingest job's
-        // terminal status (they are independent concerns).
-        const jobRows = await db
-          .select({ semester_id: ingest_jobs.semester_id })
-          .from(ingest_jobs)
-          .where(eq(ingest_jobs.id, ingestJobId))
-          .limit(1);
+            // Enqueue cross-flag recompute for the semester (Phase 14).
+            // Look up semesterId from the ingest_job row.
+            // singletonKey=semesterId collapses concurrent enqueues to one pending job.
+            // Fire-and-forget: cross-flag failure doesn't affect the ingest job's
+            // terminal status (they are independent concerns).
+            const jobRows = await db
+              .select({ semester_id: ingest_jobs.semester_id })
+              .from(ingest_jobs)
+              .where(eq(ingest_jobs.id, ingestJobId))
+              .limit(1);
 
-        if (jobRows[0]?.semester_id) {
-          const semesterId = jobRows[0].semester_id;
-          await enqueueCrossFlagsJob(boss, semesterId).catch((err: unknown) => {
-            logger.warn(
-              { ingestJobId, semesterId, err },
-              'ingest_finalize: failed to enqueue recompute_cross_flags (non-fatal)',
-            );
-          });
-        }
-      } catch (err) {
-        logger.error({ ingestJobId, err }, 'ingest_finalize: error — marking job failed');
-        try {
-          const cause = err instanceof Error ? err.message : String(err);
-          await failIngestJob(db, ingestJobId, `finalize error: ${cause}`);
-        } catch {
-          // Best-effort.
-        }
-        throw err; // Let pg-boss retry.
-      }
+            if (jobRows[0]?.semester_id) {
+              const semesterId = jobRows[0].semester_id;
+              await enqueueCrossFlagsJob(boss, semesterId).catch((err: unknown) => {
+                logger.warn(
+                  { ingestJobId, semesterId, err },
+                  'ingest_finalize: failed to enqueue recompute_cross_flags (non-fatal)',
+                );
+              });
+            }
+          } catch (err) {
+            logger.error({ ingestJobId, err }, 'ingest_finalize: error — marking job failed');
+            try {
+              const cause = err instanceof Error ? err.message : String(err);
+              await failIngestJob(db, ingestJobId, `finalize error: ${cause}`);
+            } catch {
+              // Best-effort.
+            }
+            throw err; // Let pg-boss retry.
+          }
+        },
+      )(jobs[0]!);
     },
   );
 
@@ -656,8 +662,15 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
   await boss.work(
     JOB_KINDS.RETENTION_SWEEP,
-    { batchSize: 1 },
-    createRetentionSweepHandler(db, storageClient),
+    { batchSize: 1, includeMetadata: true },
+    async (jobs) => {
+      await withFailureNotification(
+        { kind: 'job.dead_letter', severity: 'warn', notifier: getNotifier() },
+        async () => {
+          await createRetentionSweepHandler(db, storageClient)();
+        },
+      )(jobs[0]!);
+    },
   );
 
   await boss.work(
@@ -674,8 +687,18 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
   await boss.work(
     JOB_KINDS.REAP_STALE_UPLOADS,
-    { batchSize: 1 },
-    createReapStaleUploadsHandler(storageClient, cfg.BLOB_STORAGE_FS_STAGING_TTL_SECONDS * 1000),
+    { batchSize: 1, includeMetadata: true },
+    async (jobs) => {
+      await withFailureNotification(
+        { kind: 'job.dead_letter', severity: 'warn', notifier: getNotifier() },
+        async () => {
+          await createReapStaleUploadsHandler(
+            storageClient,
+            cfg.BLOB_STORAGE_FS_STAGING_TTL_SECONDS * 1000,
+          )();
+        },
+      )(jobs[0]!);
+    },
   );
 
   // -------------------------------------------------------------------------

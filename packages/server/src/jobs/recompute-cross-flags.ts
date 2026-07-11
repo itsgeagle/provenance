@@ -31,6 +31,8 @@ import { getLogger } from '../logging.js';
 import { JOB_KINDS } from './pg-boss.js';
 import { runAndStoreCrossHeuristics } from '../services/heuristics/run-cross.js';
 import { getStorageClient } from '../services/storage/default-client.js';
+import { withFailureNotification } from '../notify/job-failure.js';
+import { getNotifier } from '../notify/notifier.js';
 
 // ---------------------------------------------------------------------------
 // Payload type
@@ -86,31 +88,35 @@ export async function registerCrossFlagsHandler(boss: PgBoss): Promise<void> {
 
   await boss.work<RecomputeCrossFlagsPayload>(
     JOB_KINDS.RECOMPUTE_CROSS_FLAGS,
-    { batchSize: 1 },
+    { batchSize: 1, includeMetadata: true },
     async (jobs) => {
-      const job = jobs[0]!;
-      const { semesterId } = job.data;
-      const db = getDb();
-      logger.info({ semesterId }, 'recompute_cross_flags: started');
+      await withFailureNotification(
+        { kind: 'job.dead_letter', severity: 'warn', notifier: getNotifier() },
+        async (job: PgBoss.JobWithMetadata<RecomputeCrossFlagsPayload>): Promise<void> => {
+          const { semesterId } = job.data;
+          const db = getDb();
+          logger.info({ semesterId }, 'recompute_cross_flags: started');
 
-      try {
-        // Advisory lock is acquired inside runAndStoreCrossHeuristics as
-        // pg_advisory_xact_lock (transaction-scoped). No explicit lock/unlock here.
-        const storage = getStorageClient();
-        const result = await runAndStoreCrossHeuristics(db, storage, semesterId);
+          try {
+            // Advisory lock is acquired inside runAndStoreCrossHeuristics as
+            // pg_advisory_xact_lock (transaction-scoped). No explicit lock/unlock here.
+            const storage = getStorageClient();
+            const result = await runAndStoreCrossHeuristics(db, storage, semesterId);
 
-        logger.info(
-          {
-            semesterId,
-            flag_count: result.flag_count,
-            participant_count: result.participant_count,
-          },
-          'recompute_cross_flags: completed',
-        );
-      } catch (err) {
-        logger.error({ semesterId, err }, 'recompute_cross_flags: error');
-        throw err; // Let pg-boss retry (retryLimit: 5).
-      }
+            logger.info(
+              {
+                semesterId,
+                flag_count: result.flag_count,
+                participant_count: result.participant_count,
+              },
+              'recompute_cross_flags: completed',
+            );
+          } catch (err) {
+            logger.error({ semesterId, err }, 'recompute_cross_flags: error');
+            throw err; // Let pg-boss retry (retryLimit: 5).
+          }
+        },
+      )(jobs[0]!);
     },
   );
 

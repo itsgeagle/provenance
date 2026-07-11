@@ -33,6 +33,7 @@
 import PgBoss from 'pg-boss';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logging.js';
+import { getNotifier } from '../notify/notifier.js';
 
 // ---------------------------------------------------------------------------
 // Job kind registry
@@ -94,6 +95,12 @@ export async function getBoss(): Promise<PgBoss> {
 
     boss.on('error', (err: unknown) => {
       logger.error({ err }, 'pg-boss error');
+      getNotifier().notify({
+        severity: 'critical',
+        kind: 'pgboss.error',
+        title: 'pg-boss error',
+        detail: { message: err instanceof Error ? err.message : String(err) },
+      });
     });
 
     await boss.start();
