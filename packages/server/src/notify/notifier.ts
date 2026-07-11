@@ -1,9 +1,14 @@
 import type { Logger } from 'pino';
 import type { Notifier, NotifyEvent, Sink } from './types.js';
+import type { Severity } from './severity.js';
 import { meets } from './severity.js';
 import { renderEvent } from './render.js';
 import { getLogger } from '../logging.js';
-import type { Throttler } from './throttle.js';
+import { getConfig } from '../config/index.js';
+import { Throttler } from './throttle.js';
+import { createWebhookSink } from './sinks/webhook-sink.js';
+import { createSmtpSink } from './sinks/smtp-sink.js';
+import { getRealEmailTransport, type SendEmailFn } from '../email/transport.js';
 
 const LEVEL: Record<NotifyEvent['severity'], 'info' | 'warn' | 'error'> = {
   info: 'info',
@@ -64,14 +69,80 @@ export function createNotifier(deps: {
   };
 }
 
-// Module-level singleton, mirroring getLogger()/getConfig(). Real sink
-// assembly (webhook/smtp, wired from ALERT_* config) lands in a later task;
-// until then this is log-only.
+/**
+ * The slice of `Env` that sink assembly depends on. Kept as an explicit type
+ * (rather than importing `Env` directly) so `assembleSinks` can be unit
+ * tested with a plain object literal instead of the full parsed config.
+ */
+export interface SinkAssemblyConfig {
+  ALERT_WEBHOOK_URL?: string | undefined;
+  ALERT_WEBHOOK_MIN_SEVERITY: Severity;
+  ALERT_WEBHOOK_TIMEOUT_MS: number;
+  SMTP_URL: string;
+  SMTP_FROM: string;
+  ALERT_EMAIL_RECIPIENTS: string[];
+  ALERT_SMTP_MIN_SEVERITY: Severity;
+}
+
+/**
+ * Builds the push-sink list from a config slice. Pure with respect to
+ * `process.env`/wall clock: callers inject `fetchImpl`/`emailSend` for
+ * tests, and pass real deps at the `getNotifier()` call site. Gating:
+ *   - webhook sink added iff `ALERT_WEBHOOK_URL` is set.
+ *   - smtp sink added iff `SMTP_URL !== ''` and `ALERT_EMAIL_RECIPIENTS` is non-empty.
+ * Does not include the built-in log sink — that's inline in `createNotifier`.
+ */
+export function assembleSinks(
+  cfg: SinkAssemblyConfig,
+  deps: {
+    logger: Logger;
+    fetchImpl?: typeof fetch | undefined;
+    emailSend?: SendEmailFn | undefined;
+  },
+): Sink[] {
+  const sinks: Sink[] = [];
+
+  if (cfg.ALERT_WEBHOOK_URL) {
+    sinks.push(
+      createWebhookSink({
+        url: cfg.ALERT_WEBHOOK_URL,
+        minSeverity: cfg.ALERT_WEBHOOK_MIN_SEVERITY,
+        timeoutMs: cfg.ALERT_WEBHOOK_TIMEOUT_MS,
+        fetchImpl: deps.fetchImpl,
+        logger: deps.logger,
+      }),
+    );
+  }
+
+  if (cfg.SMTP_URL !== '' && cfg.ALERT_EMAIL_RECIPIENTS.length > 0) {
+    const send =
+      deps.emailSend ?? getRealEmailTransport({ SMTP_URL: cfg.SMTP_URL, SMTP_FROM: cfg.SMTP_FROM });
+    sinks.push(
+      createSmtpSink({
+        send,
+        recipients: cfg.ALERT_EMAIL_RECIPIENTS,
+        minSeverity: cfg.ALERT_SMTP_MIN_SEVERITY,
+        from: cfg.SMTP_FROM,
+      }),
+    );
+  }
+
+  return sinks;
+}
+
+// Module-level singleton, mirroring getLogger()/getConfig().
 let _notifier: Notifier | null = null;
 
 export function getNotifier(): Notifier {
   if (_notifier) return _notifier;
-  _notifier = createNotifier({ sinks: [], logger: getLogger() });
+  const cfg = getConfig();
+  const logger = getLogger();
+  const sinks = assembleSinks(cfg, { logger });
+  const throttler = new Throttler({
+    windowMs: cfg.ALERT_DEDUPE_WINDOW_SECONDS * 1000,
+    now: () => Date.now(),
+  });
+  _notifier = createNotifier({ sinks, logger, throttler });
   return _notifier;
 }
 
