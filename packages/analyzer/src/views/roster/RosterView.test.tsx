@@ -5,6 +5,9 @@
  * - Upload modal: shows after clicking "Upload CSV".
  * - Diff preview: shows correct counts after upload.
  * - Empty state: message when no roster entries.
+ * - Accessible dialog: exposes role="dialog" with an accessible name, moves
+ *   focus into the dialog on open, and is closeable via Escape or the
+ *   Radix-supplied close control (WCAG 4.1.2 / 2.1.2 / 2.4.3).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -79,7 +82,7 @@ describe('RosterView', () => {
     });
   });
 
-  it('shows upload modal when "Upload CSV" is clicked', async () => {
+  it('shows upload modal as an accessible dialog when "Upload CSV" is clicked', async () => {
     mswServer.use(rosterHandler([], 0));
 
     renderRosterView();
@@ -89,7 +92,56 @@ describe('RosterView', () => {
     });
     fireEvent.click(screen.getByTestId('upload-csv-btn'));
 
-    expect(screen.getByTestId('upload-modal')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'Upload Roster CSV' });
+    expect(dialog).toBeInTheDocument();
+  });
+
+  it('moves focus into the dialog when opened', async () => {
+    mswServer.use(rosterHandler([], 0));
+
+    renderRosterView();
+
+    await waitFor(() => expect(screen.getByTestId('upload-csv-btn')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    fireEvent.click(screen.getByTestId('upload-csv-btn'));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Upload Roster CSV' });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+  });
+
+  it('closes the upload modal on Escape', async () => {
+    mswServer.use(rosterHandler([], 0));
+
+    renderRosterView();
+
+    await waitFor(() => expect(screen.getByTestId('upload-csv-btn')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    fireEvent.click(screen.getByTestId('upload-csv-btn'));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Upload Roster CSV' });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('closes the upload modal via the close control and restores focus to the trigger', async () => {
+    mswServer.use(rosterHandler([], 0));
+
+    renderRosterView();
+
+    await waitFor(() => expect(screen.getByTestId('upload-csv-btn')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    const uploadBtn = screen.getByTestId('upload-csv-btn');
+    fireEvent.click(uploadBtn);
+
+    await screen.findByRole('dialog', { name: 'Upload Roster CSV' });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(uploadBtn));
   });
 
   it('shows diff preview with correct counts after upload', async () => {

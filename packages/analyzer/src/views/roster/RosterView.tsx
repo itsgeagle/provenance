@@ -11,6 +11,13 @@
 import { useState, useRef } from 'react';
 import { useRoster, useRosterUpload, useRosterCommit } from '../../api/queries.js';
 import { useActiveSemester } from '../../api/use-active-semester.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog.js';
 import type { RosterDiff } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
@@ -21,9 +28,11 @@ interface UploadModalProps {
   semesterId: string;
   onClose: () => void;
   onCommitted: () => void;
+  /** Element focus is restored to when the dialog closes (the "Upload CSV" trigger). */
+  triggerRef: React.RefObject<HTMLButtonElement | null>;
 }
 
-function UploadModal({ semesterId, onClose, onCommitted }: UploadModalProps) {
+function UploadModal({ semesterId, onClose, onCommitted, triggerRef }: UploadModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [diff, setDiff] = useState<RosterDiff | null>(null);
   const [acceptDeletions, setAcceptDeletions] = useState(false);
@@ -68,12 +77,29 @@ function UploadModal({ semesterId, onClose, onCommitted }: UploadModalProps) {
     (commitError instanceof Error ? commitError.message : null);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      data-testid="upload-modal"
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
     >
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-lg">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900">Upload Roster CSV</h2>
+      <DialogContent
+        className="max-w-lg"
+        data-testid="upload-modal"
+        onCloseAutoFocus={(event) => {
+          // Not triggered via DialogTrigger (open/close is externally controlled by
+          // RosterView's showUpload state), so Radix has no trigger element to
+          // restore focus to on its own. Restore it manually (WCAG 2.4.3).
+          event.preventDefault();
+          triggerRef.current?.focus();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Upload Roster CSV</DialogTitle>
+          <DialogDescription className="sr-only">
+            Upload a roster CSV to preview and commit changes to the roster.
+          </DialogDescription>
+        </DialogHeader>
 
         {!diff ? (
           <>
@@ -183,13 +209,18 @@ function UploadModal({ semesterId, onClose, onCommitted }: UploadModalProps) {
               disabled={isCommitting}
               className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
               data-testid="commit-btn"
+              aria-label={
+                diff.to_delete > 0 && acceptDeletions
+                  ? `Commit roster changes, including deleting ${diff.to_delete} entries`
+                  : undefined
+              }
             >
               {isCommitting ? 'Committing…' : 'Commit'}
             </button>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -202,6 +233,7 @@ export function RosterView() {
 
   const { data, isLoading, error } = useRoster(semesterId);
   const [showUpload, setShowUpload] = useState(false);
+  const uploadBtnRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
@@ -212,6 +244,7 @@ export function RosterView() {
         </span>
         <div className="flex-1" />
         <button
+          ref={uploadBtnRef}
           onClick={() => setShowUpload(true)}
           className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"
           data-testid="upload-csv-btn"
@@ -263,6 +296,7 @@ export function RosterView() {
           semesterId={semesterId}
           onClose={() => setShowUpload(false)}
           onCommitted={() => setShowUpload(false)}
+          triggerRef={uploadBtnRef}
         />
       )}
     </div>
