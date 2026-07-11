@@ -1,0 +1,17 @@
+[Unit]
+Description=Provenance apphost stack (docker compose)
+ConditionPathExists=/etc/is-instapphost
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=always
+WorkingDirectory=%h/provenance/deploy
+ExecStartPre=-/bin/rm -f /srv/appsockets/provenance/main/app.sock
+ExecStartPre=-/usr/bin/docker compose -f compose.apphost.yaml down
+ExecStart=/usr/bin/docker compose -f compose.apphost.yaml up
+ExecStop=/usr/bin/docker compose -f compose.apphost.yaml down
+
+[Install]
+WantedBy=default.target

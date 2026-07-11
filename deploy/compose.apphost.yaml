@@ -1,0 +1,62 @@
+# Apphost compose stack (rootless Docker). See docs/deploy-apphost.md for the
+# full runbook. `.env` (not checked in) must define POSTGRES_USER,
+# POSTGRES_PASSWORD, POSTGRES_DB, and DATABASE_URL.
+#
+# IMPORTANT: DATABASE_URL in .env must point at the compose service name
+# `postgres:5432` (e.g. postgres://user:pass@postgres:5432/provenance), NOT
+# localhost -- the app container resolves "postgres" via Docker's internal
+# DNS, not the host's loopback.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    env_file: .env
+    environment:
+      SOCKET_PATH: /run/sockets/app.sock
+      BLOB_STORAGE_FS_ROOT: /data
+    volumes:
+      - /home/submit/provenance:/data
+      - /srv/appsockets/provenance/main:/run/sockets
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  pgdump:
+    image: postgres:16
+    entrypoint: ["/bin/sh", "/pg-dump-sidecar.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_DIR: /data/backups
+      PGDUMP_KEEP: ${PGDUMP_KEEP:-7}
+      HEALTHCHECKS_URL: ${HEALTHCHECKS_URL:-}
+    volumes:
+      - ./pg-dump-sidecar.sh:/pg-dump-sidecar.sh:ro
+      - /home/submit/provenance:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  pgdata:
