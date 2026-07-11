@@ -216,7 +216,7 @@ export function CohortView() {
     if (semestersLoading) {
       return (
         <div
-          className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400"
+          className="flex flex-1 items-center justify-center py-16 text-sm text-gray-600"
           data-testid="cohort-no-semester"
         >
           Loading semester…
@@ -304,7 +304,7 @@ export function CohortView() {
         <div className="flex-1 overflow-auto p-4">
           {isLoading && (
             <div
-              className="flex items-center justify-center py-16 text-sm text-gray-400"
+              className="flex items-center justify-center py-16 text-sm text-gray-600"
               data-testid="cohort-loading"
             >
               Loading…
@@ -312,7 +312,7 @@ export function CohortView() {
           )}
           {error !== null && !isLoading && (
             <div
-              className="flex items-center justify-center py-16 text-sm text-red-500"
+              className="flex items-center justify-center py-16 text-sm text-destructive"
               data-testid="cohort-error"
             >
               Failed to load data. Please try again.

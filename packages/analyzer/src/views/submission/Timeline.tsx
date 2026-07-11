@@ -148,7 +148,7 @@ export function Timeline() {
               <>
                 {events.length.toLocaleString()} events
                 {events.length > displayEvents.length && (
-                  <span className="text-gray-400 ml-1">(showing first {displayEvents.length})</span>
+                  <span className="text-gray-600 ml-1">(showing first {displayEvents.length})</span>
                 )}
               </>
             )}
@@ -166,7 +166,7 @@ export function Timeline() {
           </div>
         )}
         {!eventsQuery.isLoading && !eventsQuery.isError && displayEvents.length === 0 && (
-          <div className="p-6 text-gray-400 text-sm text-center" data-testid="timeline-empty">
+          <div className="p-6 text-gray-600 text-sm text-center" data-testid="timeline-empty">
             No events match the current filters.
           </div>
         )}
@@ -178,14 +178,14 @@ export function Timeline() {
               className="px-4 py-2 flex items-baseline gap-3 text-sm hover:bg-gray-50"
               data-testid={`event-row-${event.seq}`}
             >
-              <span className="text-gray-300 font-mono text-xs w-8 shrink-0 text-right">
+              <span className="text-gray-600 font-mono text-xs w-8 shrink-0 text-right">
                 {event.seq}
               </span>
               <span className="text-gray-500 font-mono text-xs w-20 shrink-0">
                 {formatWall(event.wall)}
               </span>
               <span className="text-blue-700 font-medium text-xs w-40 shrink-0">{event.kind}</span>
-              <span className="text-gray-400 text-xs truncate">
+              <span className="text-gray-600 text-xs truncate">
                 {eventSummary(event.kind, event.payload)}
               </span>
             </div>

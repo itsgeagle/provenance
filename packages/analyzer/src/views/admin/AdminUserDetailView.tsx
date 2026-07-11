@@ -22,8 +22,10 @@ export function AdminUserDetailView() {
         </Link>
       </div>
 
-      {isLoading && <div className="py-8 text-center text-sm text-gray-400">Loading…</div>}
-      {error && <div className="py-8 text-center text-sm text-red-500">Failed to load user.</div>}
+      {isLoading && <div className="py-8 text-center text-sm text-gray-600">Loading…</div>}
+      {error && (
+        <div className="py-8 text-center text-sm text-destructive">Failed to load user.</div>
+      )}
 
       {!isLoading && !error && data !== undefined && (
         <>
@@ -59,7 +61,7 @@ export function AdminUserDetailView() {
           </div>
 
           <h3 className="mb-2 text-sm font-semibold text-gray-700">
-            Memberships <span className="text-gray-400">({data.memberships.length})</span>
+            Memberships <span className="text-gray-600">({data.memberships.length})</span>
           </h3>
           <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
             <table className="w-full text-sm" data-testid="memberships-table">
@@ -75,7 +77,7 @@ export function AdminUserDetailView() {
               <tbody className="divide-y divide-gray-100">
                 {data.memberships.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
                       No memberships.
                     </td>
                   </tr>

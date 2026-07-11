@@ -101,9 +101,9 @@ export function AdminCoursesView() {
         </form>
       </div>
 
-      {isLoading && <div className="py-8 text-center text-sm text-gray-400">Loading courses…</div>}
+      {isLoading && <div className="py-8 text-center text-sm text-gray-600">Loading courses…</div>}
       {error && (
-        <div className="py-8 text-center text-sm text-red-500" data-testid="courses-error">
+        <div className="py-8 text-center text-sm text-destructive" data-testid="courses-error">
           Failed to load courses.
         </div>
       )}
@@ -123,7 +123,7 @@ export function AdminCoursesView() {
             <tbody className="divide-y divide-gray-100">
               {data?.courses.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
                     No courses yet. Create one above.
                   </td>
                 </tr>
@@ -157,7 +157,7 @@ export function AdminCoursesView() {
                     </td>
                     <td className="px-4 py-2 text-right">
                       {course.archived ? (
-                        <span className="text-xs text-gray-400">—</span>
+                        <span className="text-xs text-gray-600">—</span>
                       ) : archiveConfirm === course.id ? (
                         <div
                           className="ml-auto max-w-xs text-left"

@@ -109,7 +109,7 @@ export function Overview() {
             <dt className="text-gray-500">Student</dt>
             <dd className="font-medium" data-testid="summary-student">
               {summary.student.display_name}
-              <span className="ml-1 text-gray-400">({summary.student.sid})</span>
+              <span className="ml-1 text-gray-600">({summary.student.sid})</span>
             </dd>
           </div>
           <div>
@@ -184,7 +184,7 @@ export function Overview() {
                         ? 'text-red-600'
                         : check.status === 'warn'
                           ? 'text-yellow-600'
-                          : 'text-gray-400'
+                          : 'text-gray-600'
                   }
                   data-testid={`check-status-${check.id}`}
                 >

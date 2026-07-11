@@ -36,8 +36,8 @@ const FILE_STATUS_COLORS: Record<string, string> = {
   unmatched: 'text-yellow-700',
   duplicate: 'text-gray-500',
   failed: 'text-red-600',
-  superseded: 'text-gray-400',
-  discarded: 'text-gray-400',
+  superseded: 'text-gray-600',
+  discarded: 'text-gray-600',
   pending: 'text-blue-600',
 };
 
@@ -59,7 +59,7 @@ export function IngestJobView() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 items-center justify-center py-16 text-sm text-gray-400">
+      <div className="flex flex-1 items-center justify-center py-16 text-sm text-gray-600">
         Loading job…
       </div>
     );
@@ -68,7 +68,7 @@ export function IngestJobView() {
   if (error || !job) {
     return (
       <div
-        className="flex flex-1 items-center justify-center py-16 text-sm text-red-500"
+        className="flex flex-1 items-center justify-center py-16 text-sm text-destructive"
         data-testid="job-error"
       >
         Failed to load job. Please try again.
@@ -97,7 +97,7 @@ export function IngestJobView() {
           {STATUS_LABELS[job.status] ?? job.status}
         </span>
         {!isTerminal && (
-          <span className="text-xs text-gray-400 animate-pulse">Polling every 3s…</span>
+          <span className="text-xs text-gray-600 animate-pulse">Polling every 3s…</span>
         )}
       </div>
 
@@ -140,7 +140,7 @@ export function IngestJobView() {
           <tbody className="divide-y divide-gray-100">
             {job.files.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
                   No files yet.
                 </td>
               </tr>
@@ -163,7 +163,7 @@ export function IngestJobView() {
                       ? file.matched_assignment.label || file.matched_assignment.assignment_id_str
                       : '—'}
                   </td>
-                  <td className="px-4 py-2 text-xs text-gray-400 text-right">
+                  <td className="px-4 py-2 text-xs text-gray-600 text-right">
                     {(file.size_bytes / 1024).toFixed(1)} KB
                   </td>
                 </tr>
@@ -174,7 +174,7 @@ export function IngestJobView() {
       </div>
 
       {job.files.length === 200 && (
-        <p className="mt-2 text-xs text-gray-400">
+        <p className="mt-2 text-xs text-gray-600">
           Showing first 200 files. Use the API to retrieve more.
         </p>
       )}

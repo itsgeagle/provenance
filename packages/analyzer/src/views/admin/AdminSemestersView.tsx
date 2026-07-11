@@ -117,7 +117,7 @@ export function AdminSemestersView() {
         </Link>
       </div>
       <h2 className="mb-4 text-base font-semibold text-gray-900">
-        {course?.name ?? 'Course'} <span className="text-gray-400">/ semesters</span>
+        {course?.name ?? 'Course'} <span className="text-gray-600">/ semesters</span>
       </h2>
 
       <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4">
@@ -203,10 +203,10 @@ export function AdminSemestersView() {
       </div>
 
       {isLoading && (
-        <div className="py-8 text-center text-sm text-gray-400">Loading semesters…</div>
+        <div className="py-8 text-center text-sm text-gray-600">Loading semesters…</div>
       )}
       {error && (
-        <div className="py-8 text-center text-sm text-red-500">Failed to load semesters.</div>
+        <div className="py-8 text-center text-sm text-destructive">Failed to load semesters.</div>
       )}
 
       {!isLoading && !error && (
@@ -225,7 +225,7 @@ export function AdminSemestersView() {
             <tbody className="divide-y divide-gray-100">
               {data?.semesters.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-600">
                     No semesters yet.
                   </td>
                 </tr>

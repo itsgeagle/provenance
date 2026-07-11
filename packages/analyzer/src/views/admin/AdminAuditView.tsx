@@ -59,10 +59,10 @@ export function AdminAuditView() {
       </div>
 
       {query.isLoading && (
-        <div className="py-8 text-center text-sm text-gray-400">Loading audit log…</div>
+        <div className="py-8 text-center text-sm text-gray-600">Loading audit log…</div>
       )}
       {query.error && (
-        <div className="py-8 text-center text-sm text-red-500" data-testid="audit-error">
+        <div className="py-8 text-center text-sm text-destructive" data-testid="audit-error">
           Failed to load audit log.
         </div>
       )}
@@ -83,7 +83,7 @@ export function AdminAuditView() {
             <tbody className="divide-y divide-gray-100">
               {query.data?.items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-gray-400">
+                  <td colSpan={6} className="px-3 py-8 text-center text-gray-600">
                     No audit rows match.
                   </td>
                 </tr>

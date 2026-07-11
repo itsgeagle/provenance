@@ -155,7 +155,7 @@ export function StudentRollupTable({
         header: 'Worst Submission',
         cell: (info) => {
           const ws = info.getValue();
-          if (!ws || !basePath) return <span className="text-xs text-gray-400">—</span>;
+          if (!ws || !basePath) return <span className="text-xs text-gray-600">—</span>;
           return (
             <button
               className="text-xs text-indigo-600 hover:underline"
@@ -273,7 +273,7 @@ export function StudentRollupTable({
         {nextCursor !== null && (
           <div
             ref={sentinelRef}
-            className="flex justify-center py-3 text-xs text-gray-400"
+            className="flex justify-center py-3 text-xs text-gray-600"
             data-testid="student-load-more-sentinel"
           >
             {isLoadingMore ? 'Loading more…' : 'Scroll for more'}

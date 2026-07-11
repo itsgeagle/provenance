@@ -211,7 +211,7 @@ export function FilterRail({ filters, assignments, onApply, onClear }: FilterRai
             </label>
           ))}
           {/* Clear severity */}
-          <label className="flex items-center gap-2 text-sm text-gray-400">
+          <label className="flex items-center gap-2 text-sm text-gray-600">
             <input
               type="radio"
               name="severity_min"
@@ -244,7 +244,7 @@ export function FilterRail({ filters, assignments, onApply, onClear }: FilterRai
             className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
             data-testid="filter-score-min"
           />
-          <span className="text-xs text-gray-400">to</span>
+          <span className="text-xs text-gray-600">to</span>
           <input
             type="number"
             min={0}

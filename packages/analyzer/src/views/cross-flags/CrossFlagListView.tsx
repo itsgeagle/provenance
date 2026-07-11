@@ -171,7 +171,7 @@ export function CrossFlagListView() {
               <tbody data-testid="cross-flag-rows">
                 {displayItems.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-sm">
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-600 text-sm">
                       No cross-flags found.
                     </td>
                   </tr>
@@ -188,7 +188,7 @@ export function CrossFlagListView() {
                       <SeverityBadge severity={item.severity} />
                     </td>
                     <td className="px-4 py-2 text-gray-600">{item.participants.length}</td>
-                    <td className="px-4 py-2 text-gray-400 text-xs">
+                    <td className="px-4 py-2 text-gray-600 text-xs">
                       {new Date(item.created_at).toLocaleDateString()}
                     </td>
                   </tr>

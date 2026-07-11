@@ -365,7 +365,7 @@ export function CompareView() {
       )}
 
       {selectedBundles.length < 2 && (
-        <p className="text-sm text-amber-600" data-testid="compare-need-more">
+        <p className="text-sm text-amber-700" data-testid="compare-need-more">
           Select at least 2 bundles above to enable comparison.
         </p>
       )}

@@ -85,9 +85,9 @@ export function AdminUsersView() {
         />
       </div>
 
-      {isLoading && <div className="py-8 text-center text-sm text-gray-400">Loading users…</div>}
+      {isLoading && <div className="py-8 text-center text-sm text-gray-600">Loading users…</div>}
       {error && (
-        <div className="py-8 text-center text-sm text-red-500" data-testid="users-error">
+        <div className="py-8 text-center text-sm text-destructive" data-testid="users-error">
           Failed to load users.
         </div>
       )}
@@ -107,7 +107,7 @@ export function AdminUsersView() {
             <tbody className="divide-y divide-gray-100">
               {data?.items.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-600">
                     No users match.
                   </td>
                 </tr>
@@ -129,7 +129,7 @@ export function AdminUsersView() {
                           superadmin
                         </span>
                       ) : (
-                        <span className="text-xs text-gray-400">user</span>
+                        <span className="text-xs text-gray-600">user</span>
                       )}
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-500">

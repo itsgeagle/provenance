@@ -66,7 +66,7 @@ const VAL_COLOR: Record<string, string> = {
 };
 
 function ValidationBadge({ status }: { status: string | null }) {
-  if (!status) return <span className="text-xs text-gray-400">—</span>;
+  if (!status) return <span className="text-xs text-gray-600">—</span>;
   return (
     <span
       className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ${VAL_COLOR[status] ?? 'bg-gray-100 text-gray-700'}`}
@@ -223,7 +223,7 @@ export function CohortTable({
         header: 'Top Flags',
         cell: (info) => {
           const flags = info.getValue();
-          if (flags.length === 0) return <span className="text-xs text-gray-400">—</span>;
+          if (flags.length === 0) return <span className="text-xs text-gray-600">—</span>;
           return (
             <div className="flex flex-wrap gap-1">
               {flags.map((f) => (
@@ -368,7 +368,7 @@ export function CohortTable({
         {nextCursor !== null && (
           <div
             ref={sentinelRef}
-            className="flex justify-center py-3 text-xs text-gray-400"
+            className="flex justify-center py-3 text-xs text-gray-600"
             data-testid="cohort-load-more-sentinel"
           >
             {isLoadingMore ? 'Loading more…' : 'Scroll for more'}
