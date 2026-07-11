@@ -32,7 +32,7 @@ runMode(mode)
       kind: 'app.startup',
       title: 'Provenance started',
       detail: {
-        sha: process.env.GIT_SHA ?? 'unknown',
+        sha: getConfig().GIT_SHA ?? 'unknown',
         mode,
         backend: getConfig().BLOB_STORAGE_BACKEND,
       },
