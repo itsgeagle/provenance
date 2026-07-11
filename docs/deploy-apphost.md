@@ -125,11 +125,30 @@ GIT_SHA=$(git -C .. rev-parse --short HEAD) docker compose -f compose.apphost.ya
 systemctl --user restart provenance
 ```
 
-`entrypoint.sh` runs the Drizzle migrator (`dist/db/migrate.js`) before
-starting the server on every restart; migrations are idempotent, so this is
-safe even if the incoming commit has no new migration. Tail
-`journalctl --user -u provenance -f` again to confirm the new `GIT_SHA` shows
-up in the startup notification and the socket comes back up.
+The stack runs one image in three roles (see `entrypoint.sh` and the topology
+comment in `compose.apphost.yaml`): a one-shot `migrate` service runs the
+Drizzle migrator (`dist/db/migrate.js`) and exits; `app` (`--mode=api`) and the
+`worker` replicas (`--mode=worker`) both wait on it via
+`service_completed_successfully`, so migrations run exactly once per deploy no
+matter how many workers there are. Migrations are idempotent, so a commit with
+no new migration is safe. Tail `journalctl --user -u provenance -f` again to
+confirm the new `GIT_SHA` shows up in the startup notification and the socket
+comes back up.
+
+> **`GIT_SHA` must be set at build time, not in `.env`.** It is baked into the
+> image by the build ARG above. Do not add a `GIT_SHA=` line to `deploy/.env`
+> — `env_file` injects it at runtime and overrides the baked value; an empty
+> line surfaces as `sha: ""` in the startup notification.
+
+### Scaling ingest workers
+
+Ingest is CPU-bound on a single Node thread, so throughput scales with the
+number of worker **processes**, not with `INGEST_CONCURRENCY` inside one
+process. The systemd unit starts the stack with `--scale worker=2`; raise that
+number to give large imports more cores (each worker is capped at its
+`mem_limit`, so keep `N × worker mem_limit` within the box's fair share).
+Change the `--scale worker=N` value in `provenance.service`, then
+`systemctl --user daemon-reload && systemctl --user restart provenance`.
 
 ## 4. Restore drill
 

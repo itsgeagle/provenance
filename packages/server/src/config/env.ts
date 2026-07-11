@@ -132,7 +132,13 @@ const rawEnvSchema = z.object({
   ALERT_SMTP_MIN_SEVERITY: z.enum(['info', 'warn', 'critical']).default('critical'),
   ALERT_DEDUPE_WINDOW_SECONDS: intStr(300),
   // Build commit, surfaced in the app.startup notification (baked by the Dockerfile).
-  GIT_SHA: z.string().optional(),
+  // Coerce empty string to undefined: Compose's `env_file` injects the deploy
+  // template's bare `GIT_SHA=` line at runtime, clobbering the baked ENV; an
+  // empty value must fall through to the `?? 'unknown'` default, not render as "".
+  GIT_SHA: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v : undefined)),
   // Deployment (see docs/superpowers/specs/2026-07-10-apphost-deployment-design.md).
   // When set, the API server listens on this Unix socket path instead of a TCP PORT.
   SOCKET_PATH: z.string().optional(),

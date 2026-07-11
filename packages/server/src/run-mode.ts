@@ -13,6 +13,7 @@
  */
 import { startApi } from './api/start.js';
 import { startWorker } from './jobs/worker.js';
+import { stopBoss } from './jobs/pg-boss.js';
 
 export const RUN_MODES = ['api', 'worker', 'all'] as const;
 export type RunMode = (typeof RUN_MODES)[number];
@@ -20,6 +21,8 @@ export type RunMode = (typeof RUN_MODES)[number];
 export interface ModeDeps {
   startApi: () => void;
   startWorker: () => Promise<() => Promise<void>>;
+  /** Drains the pg-boss singleton on shutdown; no-op if it was never started. */
+  stopBoss: () => Promise<void>;
 }
 
 /**
@@ -40,19 +43,22 @@ export function parseMode(argv: readonly string[]): string {
 /**
  * Start the requested mode.
  *
- * Returns a teardown function when a worker was started (`worker` / `all`) so
- * the caller can wire it to SIGTERM/SIGINT; returns `null` for `api` (the HTTP
- * server has no async resources to drain on shutdown). Throws on an unknown
- * mode.
+ * Always returns a teardown function so the caller can wire it to
+ * SIGTERM/SIGINT. In `api` mode the teardown drains the pg-boss singleton that
+ * the API lazily starts to enqueue jobs (a no-op if nothing was ever
+ * enqueued); in `worker` / `all` it is the worker's own teardown (which also
+ * stops pg-boss). Throws on an unknown mode.
  */
 export async function runMode(
   mode: string,
-  deps: ModeDeps = { startApi, startWorker },
+  deps: ModeDeps = { startApi, startWorker, stopBoss },
 ): Promise<(() => Promise<void>) | null> {
   switch (mode) {
     case 'api':
       deps.startApi();
-      return null;
+      // The API enqueues via the lazily-started pg-boss singleton; drain it on
+      // shutdown so we don't leave a background instance undrained.
+      return deps.stopBoss;
     case 'worker':
       return deps.startWorker();
     case 'all':

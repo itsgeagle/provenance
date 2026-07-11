@@ -306,3 +306,25 @@ describe('deployment config', () => {
     expect(env.STORAGE_QUOTA_BYTES).toBe(2199023255552);
   });
 });
+
+describe('GIT_SHA', () => {
+  it('passes a real sha through unchanged', () => {
+    const env = parseEnv({ ...VALID_BASE, GIT_SHA: 'a86ce59' });
+    expect(env.GIT_SHA).toBe('a86ce59');
+  });
+
+  it('is undefined when absent', () => {
+    const env = parseEnv(VALID_BASE);
+    expect(env.GIT_SHA).toBeUndefined();
+  });
+
+  // Regression: the deploy .env template ships a bare `GIT_SHA=` line, and
+  // Compose's env_file injects that empty string at runtime, clobbering the
+  // Dockerfile-baked ENV. An empty string must coerce to undefined so the
+  // `?? 'unknown'` fallback at the startup notification fires instead of
+  // rendering `sha: ""`.
+  it('coerces an empty string to undefined', () => {
+    const env = parseEnv({ ...VALID_BASE, GIT_SHA: '' });
+    expect(env.GIT_SHA).toBeUndefined();
+  });
+});

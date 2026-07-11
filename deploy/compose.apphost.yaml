@@ -6,23 +6,85 @@
 # `postgres:5432` (e.g. postgres://user:pass@postgres:5432/provenance), NOT
 # localhost -- the app container resolves "postgres" via Docker's internal
 # DNS, not the host's loopback.
+#
+# Topology (see deploy/entrypoint.sh): one image, three roles.
+#   migrate -> one-shot, runs DB migrations then exits 0. api + worker wait on it.
+#   app     -> HTTP API only (--mode=api), listens on the nginx-fronted socket.
+#   worker  -> pg-boss jobs + cron only (--mode=worker). Scale for ingest CPU:
+#              `docker compose ... up --scale worker=2` (the systemd unit does this).
+# Ingest is CPU-bound on a single Node thread, so throughput scales with worker
+# PROCESSES, not with INGEST_CONCURRENCY inside one process. See docs/admin-guide.md.
+#
+# Memory: mem_limit caps each container to a fair share of the shared apphost
+# box (~16 GB total for Provenance here). NODE_OPTIONS bounds V8's heap so a
+# process can't size itself against the box's full physical RAM. mem_limit
+# requires cgroup memory-controller delegation under rootless Docker; if
+# `docker info` reports no memory-limit support, only the NODE_OPTIONS caps
+# apply. memswap_limit == mem_limit disables swap (OOM-kill over NFS-swap thrash).
 services:
+  migrate:
+    image: provenance-server:latest
+    command: ["migrate"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: "no"
   app:
+    # Owns the image build; migrate + worker consume the same tag. A bare
+    # `docker compose up` auto-builds this if the tag is missing.
     build:
       context: ..
       dockerfile: deploy/Dockerfile
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
+    image: provenance-server:latest
+    command: ["--mode=api"]
     env_file: .env
     environment:
       SOCKET_PATH: /run/sockets/app.sock
       BLOB_STORAGE_FS_ROOT: /data
+      # Bound V8 heap; API serves reads + reconstruction cache, lighter than ingest.
+      NODE_OPTIONS: "--max-old-space-size=2048"
+      # Blob downloads are fs reads through libuv's threadpool (default 4).
+      UV_THREADPOOL_SIZE: "8"
     volumes:
       - /home/submit/provenance:/data
       - /srv/appsockets/provenance/main:/run/sockets
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    mem_limit: 3g
+    memswap_limit: 3g
+    restart: unless-stopped
+  worker:
+    image: provenance-server:latest
+    command: ["--mode=worker"]
+    env_file: .env
+    environment:
+      BLOB_STORAGE_FS_ROOT: /data
+      # Ingest holds parsed bundles + the 16-entry bundle LRU in heap. Raise
+      # (and mem_limit below) if you routinely ingest very large bundles.
+      NODE_OPTIONS: "--max-old-space-size=3072"
+      # fs/NFS blob syscalls per ingest job (2 reads + 1 write + 1 delete,
+      # full-bundle buffered) go through libuv's threadpool; lift it off 4.
+      UV_THREADPOOL_SIZE: "16"
+      # Overlaps NFS I/O latency within a worker; CPU throughput comes from
+      # running more worker replicas, not from raising this.
+      INGEST_CONCURRENCY: "6"
+    volumes:
+      - /home/submit/provenance:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    mem_limit: 4g
+    memswap_limit: 4g
     restart: unless-stopped
   postgres:
     image: postgres:16
@@ -39,6 +101,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 3g
+    memswap_limit: 3g
     restart: unless-stopped
   pgdump:
     image: postgres:16
@@ -57,6 +121,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    mem_limit: 512m
+    memswap_limit: 512m
     restart: unless-stopped
 volumes:
   pgdata:

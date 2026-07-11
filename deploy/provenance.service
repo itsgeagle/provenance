@@ -10,7 +10,10 @@ Restart=always
 WorkingDirectory=%h/provenance/deploy
 ExecStartPre=-/bin/rm -f /srv/appsockets/provenance/main/app.sock
 ExecStartPre=-/usr/bin/docker compose -f compose.apphost.yaml down
-ExecStart=/usr/bin/docker compose -f compose.apphost.yaml up
+# --scale worker=N runs N ingest worker processes so ingest CPU can use more
+# than one core (each Node process is single-threaded). Tune N to the box's
+# fair share; each worker is capped at mem_limit in the compose file.
+ExecStart=/usr/bin/docker compose -f compose.apphost.yaml up --scale worker=2
 ExecStop=/usr/bin/docker compose -f compose.apphost.yaml down
 
 [Install]

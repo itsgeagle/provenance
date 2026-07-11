@@ -21,21 +21,30 @@ describe('parseMode', () => {
 describe('runMode', () => {
   function makeDeps() {
     const teardown = vi.fn(async () => {});
+    const stopBoss = vi.fn(async () => {});
     return {
       teardown,
+      stopBoss,
       deps: {
         startApi: vi.fn(),
         startWorker: vi.fn(async () => teardown),
+        stopBoss,
       },
     };
   }
 
-  it('api mode starts only the API and returns no teardown', async () => {
-    const { deps } = makeDeps();
+  // The API enqueues jobs via the lazily-started pg-boss singleton, so api mode
+  // must return a teardown that drains it on shutdown (stopBoss is a no-op if
+  // the boss was never started).
+  it('api mode starts only the API and returns a teardown that drains the boss', async () => {
+    const { deps, stopBoss, teardown } = makeDeps();
     const td = await runMode('api', deps);
     expect(deps.startApi).toHaveBeenCalledTimes(1);
     expect(deps.startWorker).not.toHaveBeenCalled();
-    expect(td).toBeNull();
+    expect(td).not.toBeNull();
+    expect(td).not.toBe(teardown); // not the worker teardown
+    await td!();
+    expect(stopBoss).toHaveBeenCalledTimes(1);
   });
 
   it('worker mode starts only the worker and returns its teardown', async () => {

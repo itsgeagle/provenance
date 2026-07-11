@@ -13,12 +13,16 @@
  * processes background jobs. Override with `npm run dev -- --mode=api` to run
  * the API alone.
  */
+import { hostname } from 'node:os';
 import { parseMode, runMode } from './run-mode.js';
 import { getNotifier } from './notify/notifier.js';
+import { startupEvent, shutdownEvent } from './notify/lifecycle.js';
 import { installCrashHandlers } from './notify/fatal.js';
 import { getConfig } from './config/index.js';
 
 const mode = parseMode(process.argv.slice(2));
+// Container hostname distinguishes scaled worker replicas in the alert feed.
+const host = hostname();
 
 // Last-resort safety net: notify + bounded flush before exiting on an
 // otherwise-unhandled crash. Installed before runMode() so it also covers
@@ -27,25 +31,20 @@ installCrashHandlers(getNotifier());
 
 runMode(mode)
   .then((teardown) => {
-    getNotifier().notify({
-      severity: 'info',
-      kind: 'app.startup',
-      title: 'Provenance started',
-      detail: {
-        sha: getConfig().GIT_SHA ?? 'unknown',
+    getNotifier().notify(
+      startupEvent({
         mode,
+        sha: getConfig().GIT_SHA,
         backend: getConfig().BLOB_STORAGE_BACKEND,
-      },
-    });
+        host,
+      }),
+    );
 
     if (teardown === null) return;
-    // Worker (or all) mode owns a pg-boss connection — drain it on shutdown.
+    // Every mode now returns a teardown (api drains its lazily-started pg-boss;
+    // worker/all drain the worker + pg-boss) — drain it on shutdown.
     const shutdown = async (signal: string) => {
-      getNotifier().notify({
-        severity: 'info',
-        kind: 'app.shutdown',
-        title: `Shutting down (${signal})`,
-      });
+      getNotifier().notify(shutdownEvent({ mode, signal, host }));
       // Bound the flush so a hung sink can't stall shutdown until SIGKILL
       // (mirrors handleFatal's bounded flush).
       await Promise.race([
