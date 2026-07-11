@@ -1,8 +1,9 @@
 /**
- * LocalShell — no-auth wrapper for the /local/* subtree.
+ * LocalShell — layout wrapper for the /local/* subtree.
  *
- * The /local routes are the v2 "drop a zip" standalone experience. They run
- * entirely in-browser — no server API calls, no authentication required.
+ * The /local routes are the v2 "drop a zip" standalone experience. The
+ * analysis itself runs entirely in-browser — no server API calls — but the
+ * subtree is staff-gated (see below), so it is not unauthenticated.
  *
  * /local is now staff-gated — see App.tsx, where the subtree is wrapped in
  * RequireAuth + RequireStaff (PRD §15 amended 2026-07-10).

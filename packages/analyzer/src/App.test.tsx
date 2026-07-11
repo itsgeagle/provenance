@@ -56,6 +56,8 @@ describe('App routing', () => {
     });
     // Anonymous → sign-in button, NOT redirected away to a protected page.
     expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
+    // Assert content unique to the landing page (LoginView has neither h2 nor this heading).
+    expect(screen.getByRole('heading', { level: 2, name: /what it does/i })).toBeInTheDocument();
   });
 
   it('redirects anonymous visitors from /local/load to the login page', async () => {
