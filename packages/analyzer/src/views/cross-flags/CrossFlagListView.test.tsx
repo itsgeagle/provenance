@@ -4,10 +4,12 @@
  * Tests:
  * 1. Renders list of cross-flags.
  * 2. Shows empty state when no flags.
- * 3. Clicking a row navigates to detail page.
- * 4. Applying heuristic_id filter triggers refetch with param.
- * 5. Applying severity_min filter triggers refetch.
- * 6. Load-more button fetches next page.
+ * 3. A cross-flag row is reachable as a keyboard-focusable link with the
+ *    correct href/accessible name (WCAG 2.1.1).
+ * 4. Clicking a row's link navigates to detail page.
+ * 5. Applying heuristic_id filter triggers refetch with param.
+ * 6. Applying severity_min filter triggers refetch.
+ * 7. Load-more button fetches next page.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -143,17 +145,23 @@ describe('CrossFlagListView', () => {
     });
   });
 
-  it('clicking a row navigates to detail page', async () => {
+  it('exposes a row as a keyboard-focusable link with the correct href', async () => {
     setupListHandler([makeCrossFlag()]);
     renderListView();
 
-    await waitFor(() => {
-      expect(
-        screen.getByTestId('cross-flag-row-cf000000-0000-0000-0000-000000000001'),
-      ).toBeInTheDocument();
-    });
+    const link = await screen.findByRole('link', { name: 'paste_shared_across_students' });
+    expect(link).toHaveAttribute(
+      'href',
+      `/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/cross-flags/cf000000-0000-0000-0000-000000000001`,
+    );
+  });
 
-    fireEvent.click(screen.getByTestId('cross-flag-row-cf000000-0000-0000-0000-000000000001'));
+  it('clicking a row link navigates to detail page', async () => {
+    setupListHandler([makeCrossFlag()]);
+    renderListView();
+
+    const link = await screen.findByRole('link', { name: 'paste_shared_across_students' });
+    fireEvent.click(link);
 
     await waitFor(() => {
       expect(screen.getByTestId('detail-page')).toBeInTheDocument();

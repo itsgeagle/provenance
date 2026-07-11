@@ -6,13 +6,14 @@
  * Features:
  * - Filters: heuristic_id, severity_min, submission_id.
  * - Cursor pagination via load-more button.
- * - Click row → navigate to /s/:courseSlug/:semesterSlug/cross-flags/:id
+ * - Row → navigate to /s/:courseSlug/:semesterSlug/cross-flags/:id via a
+ *   keyboard-reachable RowLink in the primary cell (WCAG 2.1.1).
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useCrossFlagList } from '../../api/queries.js';
 import { useActiveSemester } from '../../api/use-active-semester.js';
+import { RowLink } from '../../components/a11y/RowLink.js';
 import type { CrossFlagDetailItem } from '@provenance/shared/api-schemas';
 import type { CrossFlagFilters } from '../../api/queries.js';
 
@@ -41,8 +42,6 @@ function SeverityBadge({ severity }: { severity: string }) {
 // ---------------------------------------------------------------------------
 
 export function CrossFlagListView() {
-  const navigate = useNavigate();
-
   const { semesterId, basePath } = useActiveSemester();
 
   // Filters
@@ -80,10 +79,6 @@ export function CrossFlagListView() {
       setAllItems(prevItems);
       setActiveCursor(data.next_cursor);
     }
-  }
-
-  function handleRowClick(crossFlagId: string) {
-    void navigate(`${basePath}/cross-flags/${crossFlagId}`);
   }
 
   return (
@@ -179,11 +174,14 @@ export function CrossFlagListView() {
                 {displayItems.map((item) => (
                   <tr
                     key={item.id}
-                    className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
-                    onClick={() => handleRowClick(item.id)}
+                    className="border-b border-gray-100 hover:bg-gray-50"
                     data-testid={`cross-flag-row-${item.id}`}
                   >
-                    <td className="px-4 py-2 font-mono text-xs">{item.heuristic_id}</td>
+                    <td className="px-4 py-2 font-mono text-xs">
+                      <RowLink to={`${basePath}/cross-flags/${item.id}`} className="block">
+                        {item.heuristic_id}
+                      </RowLink>
+                    </td>
                     <td className="px-4 py-2">
                       <SeverityBadge severity={item.severity} />
                     </td>
