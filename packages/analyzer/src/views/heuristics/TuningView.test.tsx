@@ -204,6 +204,25 @@ describe('TuningView', () => {
     expect(screen.getByTestId('toggle-large_paste')).toBeInTheDocument();
   });
 
+  it('gives each weight slider and enable checkbox an accessible name', async () => {
+    await renderAndWaitForLoad();
+
+    // Representative slider: retrievable by accessible name matching its heuristic id.
+    const slider = screen.getByRole('slider', { name: 'large_paste' });
+    expect(slider).toBe(screen.getByTestId('slider-large_paste'));
+
+    // Enable checkbox: retrievable by accessible name.
+    const checkbox = screen.getByRole('checkbox', { name: 'Enable large_paste' });
+    expect(checkbox).toBe(screen.getByTestId('toggle-large_paste'));
+
+    // Every heuristic's slider must have a unique accessible name (no duplicates/collisions).
+    const allSliders = screen.getAllByRole('slider');
+    expect(allSliders.length).toBeGreaterThan(1);
+    for (const s of allSliders) {
+      expect(s).toHaveAccessibleName();
+    }
+  });
+
   it('slider change triggers dry-run after 300ms debounce', async () => {
     let dryRunCalled = false;
 

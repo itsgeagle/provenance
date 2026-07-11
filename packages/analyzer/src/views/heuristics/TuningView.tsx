@@ -267,7 +267,12 @@ export function TuningView() {
             return (
               <div key={id} className="px-4 py-3 border-b border-gray-100">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-gray-700 font-mono">{id}</span>
+                  <span
+                    id={`tuning-label-${id}`}
+                    className="text-xs font-medium text-gray-700 font-mono"
+                  >
+                    {id}
+                  </span>
                   <label className="flex items-center gap-1 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -275,6 +280,7 @@ export function TuningView() {
                       onChange={(e) => handleToggle(id, e.target.checked)}
                       className="h-3 w-3"
                       data-testid={`toggle-${id}`}
+                      aria-label={`Enable ${id}`}
                     />
                     <span className="text-xs text-gray-500">{flagCfg.enabled ? 'on' : 'off'}</span>
                   </label>
@@ -289,6 +295,8 @@ export function TuningView() {
                     onChange={(e) => handleWeight(id, parseFloat(e.target.value))}
                     className="flex-1 h-1"
                     data-testid={`slider-${id}`}
+                    aria-labelledby={`tuning-label-${id}`}
+                    aria-valuetext={`${flagCfg.weight.toFixed(1)} weight`}
                   />
                   <span className="text-xs text-gray-500 w-8 text-right">
                     {flagCfg.weight.toFixed(1)}
