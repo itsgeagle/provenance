@@ -51,7 +51,7 @@ export function HomeView() {
           data-testid="local-analysis-link"
           className="text-sm font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
         >
-          Local analysis →
+          Local analysis <span aria-hidden="true">→</span>
         </Link>
       </div>
       <ul
