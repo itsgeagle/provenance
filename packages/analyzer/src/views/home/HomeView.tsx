@@ -44,7 +44,16 @@ export function HomeView() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="mb-6 text-xl font-semibold text-gray-900">Your Semesters</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-gray-900">Your Semesters</h1>
+        <Link
+          to="/local/load"
+          data-testid="local-analysis-link"
+          className="text-sm font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+        >
+          Local analysis →
+        </Link>
+      </div>
       <ul
         className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white"
         data-testid="semester-list"

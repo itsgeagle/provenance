@@ -107,4 +107,21 @@ describe('HomeView', () => {
       expect(screen.getByText(/admin/i)).toBeInTheDocument();
     });
   });
+
+  it('shows a "Local analysis" link to /local/load on the populated dashboard', async () => {
+    renderHomeView();
+    await waitFor(() => {
+      expect(screen.getByTestId('local-analysis-link')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('local-analysis-link')).toHaveAttribute('href', '/local/load');
+  });
+
+  it('does NOT show the "Local analysis" link in the empty state', async () => {
+    mswServer.use(meNoSemestersHandler());
+    renderHomeView();
+    await waitFor(() => {
+      expect(screen.getByTestId('no-semesters-message')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('local-analysis-link')).not.toBeInTheDocument();
+  });
 });
