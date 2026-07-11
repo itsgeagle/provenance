@@ -108,6 +108,66 @@ describe('SemesterSettingsView', () => {
     expect(screen.getByTestId('save-settings-btn')).toBeDisabled();
   });
 
+  it('every field is retrievable by its label text', async () => {
+    mswServer.use(
+      semesterDetailHandler({
+        display_name: 'CS 61A Spring 2025',
+        filename_convention: '(?<sid>\\d+)_(?<assignment_id>hw\\d+)',
+      }),
+    );
+
+    renderSettingsView();
+
+    await waitFor(
+      () =>
+        expect((screen.getByTestId('display-name-input') as HTMLInputElement).value).toBe(
+          'CS 61A Spring 2025',
+        ),
+      { timeout: 3000 },
+    );
+
+    expect(screen.getByLabelText('Display Name')).toBe(screen.getByTestId('display-name-input'));
+    expect(screen.getByLabelText('Filename Convention (regex)')).toBe(
+      screen.getByTestId('filename-convention-input'),
+    );
+    expect(screen.getByLabelText('Blob Retention (days)')).toBe(
+      screen.getByTestId('blob-retention-input'),
+    );
+    expect(screen.getByLabelText('Derived Data Retention (days)')).toBe(
+      screen.getByTestId('derived-retention-input'),
+    );
+    expect(screen.getByLabelText('Live Tester')).toBe(screen.getByTestId('regex-sample-input'));
+  });
+
+  it('an errored field exposes aria-invalid and aria-describedby pointing at the error text', async () => {
+    mswServer.use(semesterDetailHandler({ filename_convention: '' }));
+
+    renderSettingsView();
+
+    await waitFor(
+      () => expect(screen.getByTestId('filename-convention-input')).toBeInTheDocument(),
+      { timeout: 3000 },
+    );
+
+    const input = screen.getByTestId('filename-convention-input');
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+    expect(input).not.toHaveAttribute('aria-describedby');
+
+    fireEvent.change(input, { target: { value: '(?<invalid' } });
+
+    await waitFor(() => expect(screen.getByTestId('regex-error')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+
+    const errorEl = screen.getByTestId('regex-error');
+    expect(errorEl.id).toBe(describedBy);
+    expect(errorEl.closest('[role="alert"]')).not.toBeNull();
+  });
+
   it('calls PATCH /semesters/:id on submit', async () => {
     mswServer.use(semesterDetailHandler({ display_name: 'Old Name' }));
 

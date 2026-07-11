@@ -13,6 +13,7 @@ import { useState, useEffect } from 'react';
 import { useSemester, useUpdateSemester } from '../../api/queries.js';
 import { useActiveSemester } from '../../api/use-active-semester.js';
 import { ApiError } from '../../api/client.js';
+import { ErrorRegion } from '../../components/a11y/ErrorRegion.js';
 
 // ---------------------------------------------------------------------------
 // Live regex tester
@@ -43,8 +44,11 @@ function RegexTester({ pattern }: RegexTesterProps) {
 
   return (
     <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-      <p className="mb-2 text-xs font-medium text-gray-600">Live Tester</p>
+      <label htmlFor="regex-tester-sample" className="mb-2 block text-xs font-medium text-gray-600">
+        Live Tester
+      </label>
       <input
+        id="regex-tester-sample"
         type="text"
         value={sample}
         onChange={(e) => setSample(e.target.value)}
@@ -152,8 +156,14 @@ export function SemesterSettingsView() {
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Display name */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+          <label
+            htmlFor="settings-display-name"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Display Name
+          </label>
           <input
+            id="settings-display-name"
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
@@ -164,7 +174,10 @@ export function SemesterSettingsView() {
 
         {/* Filename convention */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="settings-filename-convention"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Filename Convention (regex)
           </label>
           <p className="mb-1 text-xs text-gray-500">
@@ -173,18 +186,23 @@ export function SemesterSettingsView() {
             automatic matching.
           </p>
           <input
+            id="settings-filename-convention"
             type="text"
             value={filenameConvention}
             onChange={(e) => handleFilenameConventionChange(e.target.value)}
             className={`w-full rounded-md border px-3 py-2 text-sm font-mono ${
               regexError ? 'border-red-400' : 'border-gray-300'
             }`}
+            aria-invalid={regexError !== null}
+            aria-describedby={regexError ? 'settings-filename-convention-error' : undefined}
             data-testid="filename-convention-input"
           />
           {regexError && (
-            <p className="mt-1 text-xs text-red-600" data-testid="regex-error">
-              {regexError}
-            </p>
+            <ErrorRegion className="mt-1 text-xs text-red-600">
+              <p id="settings-filename-convention-error" data-testid="regex-error">
+                {regexError}
+              </p>
+            </ErrorRegion>
           )}
 
           {/* Live tester */}
@@ -193,10 +211,14 @@ export function SemesterSettingsView() {
 
         {/* Blob retention */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="settings-blob-retention"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Blob Retention (days)
           </label>
           <input
+            id="settings-blob-retention"
             type="number"
             min={1}
             max={3650}
@@ -209,10 +231,14 @@ export function SemesterSettingsView() {
 
         {/* Derived retention */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="settings-derived-retention"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Derived Data Retention (days)
           </label>
           <input
+            id="settings-derived-retention"
             type="number"
             min={1}
             max={3650}
