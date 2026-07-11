@@ -70,6 +70,7 @@ import { createRetentionSweepHandler } from './retention-sweep.js';
 import { createPurgeExpiredSessionsHandler } from './purge-expired-sessions.js';
 import { createPurgeExpiredExportsHandler } from './purge-expired-exports.js';
 import { createReapStaleUploadsHandler } from './reap-stale-uploads.js';
+import { createStorageQuotaCheckHandler } from './storage-quota-check.js';
 import { withFailureNotification } from '../notify/job-failure.js';
 import { getNotifier } from '../notify/notifier.js';
 
@@ -111,6 +112,7 @@ export async function startWorker(): Promise<() => Promise<void>> {
   await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_SESSIONS);
   await boss.createQueue(JOB_KINDS.PURGE_EXPIRED_EXPORTS);
   await boss.createQueue(JOB_KINDS.REAP_STALE_UPLOADS);
+  await boss.createQueue(JOB_KINDS.STORAGE_QUOTA_CHECK);
   logger.info('worker: ensured queues exist');
 
   // -------------------------------------------------------------------------
@@ -701,6 +703,18 @@ export async function startWorker(): Promise<() => Promise<void>> {
     },
   );
 
+  await boss.work(
+    JOB_KINDS.STORAGE_QUOTA_CHECK,
+    { batchSize: 1 },
+    createStorageQuotaCheckHandler({
+      root: cfg.BLOB_STORAGE_FS_ROOT ?? '',
+      quotaBytes: cfg.STORAGE_QUOTA_BYTES,
+      warnPct: cfg.STORAGE_QUOTA_WARN_PCT,
+      criticalPct: cfg.STORAGE_QUOTA_CRITICAL_PCT,
+      backend: cfg.BLOB_STORAGE_BACKEND,
+    }),
+  );
+
   // -------------------------------------------------------------------------
   // Register pg-boss scheduled (cron) jobs.
   //
@@ -724,6 +738,9 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
   // reap_stale_uploads — 4am UTC daily (fs backend only; no-op under s3).
   await boss.schedule(JOB_KINDS.REAP_STALE_UPLOADS, '0 4 * * *', {});
+
+  // storage_quota_check — every hour on the hour (fs backend only; no-op under s3).
+  await boss.schedule(JOB_KINDS.STORAGE_QUOTA_CHECK, '0 * * * *', {});
 
   logger.info(
     'worker started (phase 25: ingest + recompute + cross-flags + cron handlers registered)',
