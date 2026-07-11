@@ -8,6 +8,7 @@ import { requestId } from './middleware/request-id.js';
 import { errorFormatter } from './middleware/error.js';
 import { createMetricsRouter, metricsMiddleware } from './middleware/metrics.js';
 import { resolveListenTarget, prepareSocket, makeWorldWritable } from './listen.js';
+import { mountStatic } from './static.js';
 
 /**
  * Creates and returns the Hono application instance.
@@ -16,6 +17,7 @@ import { resolveListenTarget, prepareSocket, makeWorldWritable } from './listen.
  * Route layout:
  *   GET  /healthz        — liveness probe (root; not under /api/v1)
  *   *    /api/v1/**      — versioned API
+ *   *    /**             — same-origin SPA static assets + fallback (last)
  *
  * Pipeline (outermost to innermost):
  *   requestId        — UUID on every request/response; child logger binding
@@ -48,6 +50,10 @@ export function createApp(): Hono {
   app.route('/', createMetricsRouter());
 
   app.route('/api/v1', createV1App());
+
+  // Same-origin SPA serving — mounted LAST so it never shadows /healthz,
+  // /metrics, or /api/v1 (see api/static.ts for the prefix guard details).
+  mountStatic(app, { publicDir: getConfig().PUBLIC_DIR });
 
   return app;
 }
