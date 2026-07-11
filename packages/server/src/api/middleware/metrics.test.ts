@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createApp } from '../start.js';
-import { _resetMetricsForTest } from './metrics.js';
+import { _resetMetricsForTest, setStorageGauge } from './metrics.js';
 import { _resetConfigForTest, _setConfigForTest } from '../../config/index.js';
 import { _resetLoggerForTest } from '../../logging.js';
 import { parseEnv } from '../../config/env.js';
@@ -172,5 +172,48 @@ describe('/metrics — counter increments', () => {
     }
     // If no match, at least verify the body has counter lines (pattern may vary by route)
     expect(body).toContain('provenance_requests_total{');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4. Storage gauges
+// ---------------------------------------------------------------------------
+
+async function fetchMetricsBody(): Promise<string> {
+  process.env['METRICS_AUTH_TOKEN'] = 'test-metrics-token';
+  _setConfigForTest(parseEnv(makeTestEnv()));
+  const app = createApp();
+  const res = await app.fetch(
+    new Request('http://localhost/metrics', {
+      headers: { Authorization: 'Bearer test-metrics-token' },
+    }),
+  );
+  return res.text();
+}
+
+describe('/metrics — storage gauges', () => {
+  it('renders a valid Prometheus gauge block after setStorageGauge', async () => {
+    setStorageGauge(850, 1000);
+    const body = await fetchMetricsBody();
+
+    expect(body).toContain('# TYPE provenance_storage_used_bytes gauge');
+    expect(body).toContain('provenance_storage_used_bytes 850');
+    expect(body).toContain('# TYPE provenance_storage_quota_bytes gauge');
+    expect(body).toContain('provenance_storage_quota_bytes 1000');
+  });
+
+  it('_resetMetricsForTest clears the gauges (gauge lines gone after reset)', async () => {
+    setStorageGauge(850, 1000);
+    _resetMetricsForTest();
+    const body = await fetchMetricsBody();
+
+    expect(body).not.toContain('provenance_storage_used_bytes');
+    expect(body).not.toContain('provenance_storage_quota_bytes');
+  });
+
+  it('does not emit gauge lines when no gauge has been set', async () => {
+    // beforeEach already called _resetMetricsForTest(); no setStorageGauge here.
+    const body = await fetchMetricsBody();
+    expect(body).not.toContain('provenance_storage_used_bytes');
   });
 });

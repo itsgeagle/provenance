@@ -84,6 +84,52 @@ describe('runStorageQuotaCheck', () => {
     expect(notifier.events).toHaveLength(0);
   });
 
+  it('warns at exactly warnPct (pct === warnPct, boundary)', async () => {
+    const notifier = fakeNotifier();
+    const setGauge = vi.fn();
+    const measure = vi.fn(async () => 800);
+
+    const result = await runStorageQuotaCheck({
+      root: '/data',
+      quotaBytes: 1000,
+      warnPct: 80,
+      criticalPct: 90,
+      measure,
+      notifier,
+      setGauge,
+    });
+
+    expect(result).toEqual({ usedBytes: 800, pct: 80 });
+    expect(notifier.events).toHaveLength(1);
+    expect(notifier.events[0]).toMatchObject({
+      severity: 'warn',
+      kind: 'storage.quota_warn',
+    });
+  });
+
+  it('criticals at exactly criticalPct (pct === criticalPct, boundary)', async () => {
+    const notifier = fakeNotifier();
+    const setGauge = vi.fn();
+    const measure = vi.fn(async () => 900);
+
+    const result = await runStorageQuotaCheck({
+      root: '/data',
+      quotaBytes: 1000,
+      warnPct: 80,
+      criticalPct: 90,
+      measure,
+      notifier,
+      setGauge,
+    });
+
+    expect(result).toEqual({ usedBytes: 900, pct: 90 });
+    expect(notifier.events).toHaveLength(1);
+    expect(notifier.events[0]).toMatchObject({
+      severity: 'critical',
+      kind: 'storage.quota_critical',
+    });
+  });
+
   it('passes root through to measure', async () => {
     const notifier = fakeNotifier();
     const setGauge = vi.fn();

@@ -705,14 +705,21 @@ export async function startWorker(): Promise<() => Promise<void>> {
 
   await boss.work(
     JOB_KINDS.STORAGE_QUOTA_CHECK,
-    { batchSize: 1 },
-    createStorageQuotaCheckHandler({
-      root: cfg.BLOB_STORAGE_FS_ROOT ?? '',
-      quotaBytes: cfg.STORAGE_QUOTA_BYTES,
-      warnPct: cfg.STORAGE_QUOTA_WARN_PCT,
-      criticalPct: cfg.STORAGE_QUOTA_CRITICAL_PCT,
-      backend: cfg.BLOB_STORAGE_BACKEND,
-    }),
+    { batchSize: 1, includeMetadata: true },
+    async (jobs) => {
+      await withFailureNotification(
+        { kind: 'job.dead_letter', severity: 'warn', notifier: getNotifier() },
+        async () => {
+          await createStorageQuotaCheckHandler({
+            root: cfg.BLOB_STORAGE_FS_ROOT ?? '',
+            quotaBytes: cfg.STORAGE_QUOTA_BYTES,
+            warnPct: cfg.STORAGE_QUOTA_WARN_PCT,
+            criticalPct: cfg.STORAGE_QUOTA_CRITICAL_PCT,
+            backend: cfg.BLOB_STORAGE_BACKEND,
+          })();
+        },
+      )(jobs[0]!);
+    },
   );
 
   // -------------------------------------------------------------------------

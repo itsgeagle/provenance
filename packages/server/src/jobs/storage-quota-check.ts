@@ -13,8 +13,14 @@
  *   otherwise          -> no notification
  *
  * `dedupeKey` is fixed per level ('storage.quota_warn' / 'storage.quota_critical')
- * rather than per-check, so the notifier's throttle window collapses repeated
- * hourly firings into one alert per dedupe window instead of paging every hour.
+ * rather than per-check, giving each severity a stable identity in the
+ * notifier's throttle. Note the throttle window (ALERT_DEDUPE_WINDOW_SECONDS,
+ * default 300s) is shorter than this cron's cadence (hourly, 3600s), so the
+ * window has always elapsed by the next run: a still-breached threshold
+ * re-alerts every hour. That is intended — a recurring hourly reminder until
+ * the storage situation is fixed, not a one-shot page. The dedupeKey's job
+ * here is de-duping bursts (e.g. a manual re-run within the window), not
+ * suppressing the hourly reminder.
  *
  * No-op under the s3 backend: there is no local mount to statfs, and the
  * quota concern is entirely an fs-backend (NFS mount) problem.
