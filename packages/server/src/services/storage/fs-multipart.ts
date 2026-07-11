@@ -11,7 +11,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { once } from 'node:events';
 import { pipeline } from 'node:stream/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { StorageClient } from './client.js';
@@ -99,11 +98,18 @@ export async function fsCompleteMultipartUpload(
   const tmp = `${finalPath}.tmp-${randomUUID()}`;
   const out = createWriteStream(tmp);
   try {
-    for (const p of sorted) {
-      await pipeline(createReadStream(join(dir, `${p.partNumber}.part`)), out, { end: false });
-    }
-    out.end();
-    await once(out, 'finish');
+    // Concatenate parts through a SINGLE pipeline, feeding every part's read
+    // stream as one async source. Piping each part into a reused WriteStream
+    // with `{ end: false }` instead attaches pipeline's cleanup listeners to
+    // `out` once per part (they're only released when `out` closes), which
+    // tripped MaxListenersExceededWarning on large uploads (hundreds of parts).
+    // One source → listeners attached once; pipeline ends `out` on completion.
+    const parts$ = (async function* () {
+      for (const p of sorted) {
+        yield* createReadStream(join(dir, `${p.partNumber}.part`));
+      }
+    })();
+    await pipeline(parts$, out);
   } catch (err) {
     out.destroy();
     await rm(tmp, { force: true });

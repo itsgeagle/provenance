@@ -3,8 +3,12 @@ import { mkdtemp, rm, access, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  fsCreateMultipartUpload, fsUploadPart, fsListParts,
-  fsCompleteMultipartUpload, fsAbortMultipartUpload, stagingRootPath,
+  fsCreateMultipartUpload,
+  fsUploadPart,
+  fsListParts,
+  fsCompleteMultipartUpload,
+  fsAbortMultipartUpload,
+  stagingRootPath,
 } from './fs-multipart.js';
 import { fsGetBlob } from './fs-blobs.js';
 import type { StorageClient } from './client.js';
@@ -13,17 +17,35 @@ async function tmpClient(): Promise<Extract<StorageClient, { kind: 'fs' }>> {
   const rootDir = await mkdtemp(join(tmpdir(), 'prov-mp-'));
   return { kind: 'fs', rootDir, signingSecret: 's'.repeat(32), publicBaseUrl: 'http://x' };
 }
-function bytes(n: number, fill: number): Uint8Array { const b = new Uint8Array(n); b.fill(fill); return b; }
+function bytes(n: number, fill: number): Uint8Array {
+  const b = new Uint8Array(n);
+  b.fill(fill);
+  return b;
+}
 async function collect(s: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = []; const r = s.getReader();
-  for (;;) { const { done, value } = await r.read(); if (done) break; chunks.push(value); }
+  const chunks: Uint8Array[] = [];
+  const r = s.getReader();
+  for (;;) {
+    const { done, value } = await r.read();
+    if (done) break;
+    chunks.push(value);
+  }
   const total = chunks.reduce((a, c) => a + c.byteLength, 0);
-  const out = new Uint8Array(total); let o = 0;
-  for (const c of chunks) { out.set(c, o); o += c.byteLength; }
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.byteLength;
+  }
   return out;
 }
 async function exists(p: string): Promise<boolean> {
-  try { await access(p); return true; } catch { return false; }
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 describe('fs multipart round-trip', () => {
@@ -45,11 +67,46 @@ describe('fs multipart round-trip', () => {
         { partNumber: 2, etag: e2, size: 8 },
       ]);
       const got = await collect(await fsGetBlob(c, key));
-      const expected = new Uint8Array(16); expected.set(p1, 0); expected.set(p2, 8);
+      const expected = new Uint8Array(16);
+      expected.set(p1, 0);
+      expected.set(p2, 8);
       expect(got).toEqual(expected);
       // Staging removed after complete.
       expect(await exists(join(stagingRootPath(c.rootDir), uploadId))).toBe(false);
-    } finally { await rm(c.rootDir, { recursive: true, force: true }); }
+    } finally {
+      await rm(c.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('assembles many parts without leaking WriteStream listeners (>10 parts)', async () => {
+    const c = await tmpClient();
+    const warnings: string[] = [];
+    const onWarning = (w: Error): void => {
+      warnings.push(w.name);
+    };
+    process.on('warning', onWarning);
+    try {
+      const key = 'ingest-uploads/sem/big.zip';
+      const uploadId = await fsCreateMultipartUpload(c, key);
+      const N = 15; // > EventEmitter's default maxListeners (10)
+      const parts: { partNumber: number; etag: string; size: number }[] = [];
+      for (let i = 1; i <= N; i++) {
+        const etag = await fsUploadPart(c, key, uploadId, i, bytes(4, i));
+        parts.push({ partNumber: i, etag, size: 4 });
+      }
+      await fsCompleteMultipartUpload(c, key, uploadId, parts);
+      // process.emitWarning fires on the next tick; flush before asserting.
+      await new Promise((r) => setImmediate(r));
+
+      const got = await collect(await fsGetBlob(c, key));
+      const expected = new Uint8Array(N * 4);
+      for (let i = 1; i <= N; i++) expected.set(bytes(4, i), (i - 1) * 4);
+      expect(got).toEqual(expected);
+      expect(warnings).not.toContain('MaxListenersExceededWarning');
+    } finally {
+      process.off('warning', onWarning);
+      await rm(c.rootDir, { recursive: true, force: true });
+    }
   });
 
   it('listParts drives resume (only missing parts remain to send)', async () => {
@@ -62,7 +119,9 @@ describe('fs multipart round-trip', () => {
       const have = new Set((await fsListParts(c, key, uploadId)).map((p) => p.partNumber));
       const missing = [1, 2, 3].filter((n) => !have.has(n));
       expect(missing).toEqual([2]);
-    } finally { await rm(c.rootDir, { recursive: true, force: true }); }
+    } finally {
+      await rm(c.rootDir, { recursive: true, force: true });
+    }
   });
 
   it('sorts a COPY of the parts arg: descending arg still assembles ascending, arg unmutated', async () => {
@@ -82,11 +141,15 @@ describe('fs multipart round-trip', () => {
       ];
       await fsCompleteMultipartUpload(c, key, uploadId, parts);
       const got = await collect(await fsGetBlob(c, key));
-      const expected = new Uint8Array(16); expected.set(p1, 0); expected.set(p2, 8);
+      const expected = new Uint8Array(16);
+      expected.set(p1, 0);
+      expected.set(p2, 8);
       expect(got).toEqual(expected);
       // The caller's array must be untouched (proves the sort copied first).
       expect(parts.map((p) => p.partNumber)).toEqual([2, 1]);
-    } finally { await rm(c.rootDir, { recursive: true, force: true }); }
+    } finally {
+      await rm(c.rootDir, { recursive: true, force: true });
+    }
   });
 
   it('mid-assembly error leaves no final blob and no leftover .tmp- file', async () => {
@@ -108,7 +171,9 @@ describe('fs multipart round-trip', () => {
       // (c) No leftover `.tmp-` file in the destination's parent dir (rootDir).
       const siblings = await readdir(c.rootDir);
       expect(siblings.filter((n) => n.includes('.tmp-'))).toEqual([]);
-    } finally { await rm(c.rootDir, { recursive: true, force: true }); }
+    } finally {
+      await rm(c.rootDir, { recursive: true, force: true });
+    }
   });
 
   it('abort removes the staging dir and is idempotent', async () => {
@@ -119,6 +184,8 @@ describe('fs multipart round-trip', () => {
       await fsAbortMultipartUpload(c, 'k.zip', uploadId);
       expect(await exists(join(stagingRootPath(c.rootDir), uploadId))).toBe(false);
       await expect(fsAbortMultipartUpload(c, 'k.zip', uploadId)).resolves.toBeUndefined();
-    } finally { await rm(c.rootDir, { recursive: true, force: true }); }
+    } finally {
+      await rm(c.rootDir, { recursive: true, force: true });
+    }
   });
 });
