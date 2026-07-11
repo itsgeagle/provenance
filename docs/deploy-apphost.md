@@ -50,9 +50,12 @@ $EDITOR ~/provenance/deploy/.env
 Fill in every value in `deploy/.env` — `POSTGRES_PASSWORD`,
 `BLOB_URL_SIGNING_SECRET`, `AUTH_COOKIE_SIGNING_SECRET`,
 `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`, `AUTH_SUPERADMIN_EMAILS` — with real
-values before the first deploy. Leave `ALERT_EMAIL_RECIPIENTS` and
-`HEALTHCHECKS_URL` empty for now (see §6 and the IT coordination checklist
-in §5).
+values before the first deploy. **Confirm `AUTH_ALLOWED_HOSTED_DOMAINS` is
+`["berkeley.edu"]`** — this is the `hd`-claim check that keeps non-Berkeley
+Google accounts out of the analyzer; it defaults correctly but is worth
+verifying explicitly since it's the primary access control. Leave
+`ALERT_EMAIL_RECIPIENTS`, `SMTP_URL`/`SMTP_FROM`, and `HEALTHCHECKS_URL` empty
+for now (see §6 and the IT coordination checklist in §5).
 
 Create the directories the compose stack expects on the NFS mount and the
 apphost's socket directory (both are bind-mounted into the `app`/`pgdump`
