@@ -34,6 +34,9 @@
 
 import type { Hono } from 'hono';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { getLogger } from '../logging.js';
 
 const RESERVED_PREFIXES = ['/api', '/healthz', '/metrics'];
 
@@ -43,6 +46,18 @@ function isReservedPath(path: string): boolean {
 
 export function mountStatic(app: Hono, opts: { publicDir: string }): void {
   const { publicDir } = opts;
+
+  // If publicDir doesn't exist (e.g. dev/test without a built SPA — the
+  // default PUBLIC_DIR is `./public`, which only a prod Docker build
+  // populates), disable static serving entirely. Registering serveStatic
+  // against a missing root makes it synchronously console.error on every
+  // mount, which pollutes test output. Resolve the path first so a relative
+  // `./public` is checked against process.cwd() the same way serveStatic
+  // resolves it at request time.
+  if (!existsSync(resolve(publicDir))) {
+    getLogger().info({ publicDir }, 'SPA static serving disabled: PUBLIC_DIR not found');
+    return;
+  }
 
   const assetMiddleware = serveStatic({ root: publicDir });
   const indexMiddleware = serveStatic({ path: 'index.html', root: publicDir });

@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Hono } from 'hono';
+import { mountStatic } from './static.js';
 import { createApp } from './start.js';
 import { _resetConfigForTest, _setConfigForTest } from '../config/index.js';
 import { _resetLoggerForTest } from '../logging.js';
@@ -97,5 +99,24 @@ describe('same-origin SPA serving', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ status: 'ok' });
+  });
+
+  it('registers nothing (clean 404, no console.error) when publicDir is absent', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const app = new Hono();
+      const missingDir = join(publicDir, 'does-not-exist');
+      mountStatic(app, { publicDir: missingDir });
+
+      const res = await app.fetch(new Request('http://x/anything'));
+
+      // No static/SPA middleware registered → framework 404, not an error.
+      expect(res.status).toBe(404);
+      // serveStatic was never mounted, so it never console.error'd about a
+      // missing root path.
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
