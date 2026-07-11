@@ -46,7 +46,12 @@ runMode(mode)
         kind: 'app.shutdown',
         title: `Shutting down (${signal})`,
       });
-      await getNotifier().flush();
+      // Bound the flush so a hung sink can't stall shutdown until SIGKILL
+      // (mirrors handleFatal's bounded flush).
+      await Promise.race([
+        getNotifier().flush(),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
       await teardown();
       process.exit(0);
     };

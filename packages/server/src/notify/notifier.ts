@@ -49,10 +49,12 @@ export function createNotifier(deps: {
       const rendered = renderEvent(eventForSinks);
       for (const sink of deps.sinks) {
         if (!meets(e.severity, sink.minSeverity)) continue;
+        // Two isolation layers, both required — do not remove either:
+        //  - the try/catch catches a sink that violates its contract by throwing
+        //    SYNCHRONOUSLY (the throw happens while evaluating sink.send(), before
+        //    Promise.resolve() is ever reached);
+        //  - Promise.resolve(...).catch() catches a normal async REJECTION.
         try {
-          // Wrap in Promise.resolve() so a sink that violates its contract by
-          // throwing synchronously (instead of rejecting) is caught the same
-          // way as a normal async rejection.
           const p = Promise.resolve(sink.send(rendered)).catch((err: unknown) => {
             deps.logger.warn({ err, sink: sink.name }, 'notify sink failed');
           });

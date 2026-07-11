@@ -11,15 +11,22 @@ const API_PROXY_TARGET = process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:
 export default defineConfig({
   plugins: [
     react(),
-    // Bundle analysis: emits dist/.report.html when ANALYZE=1 is set, or always
-    // in CI / build mode. Reviewers can open this file to verify chunk separation
-    // (e.g. /local chunk does not pull cohort-only imports).
-    visualizer({
-      filename: 'dist/.report.html',
-      open: false,
-      gzipSize: true,
-      brotliSize: true,
-    }),
+    // Bundle analysis: emits dist/.report.html ONLY when ANALYZE=1 is set.
+    // It must NOT be emitted in a normal `vite build` — the production image
+    // copies dist/ into the server's public dir, and the report would then be
+    // served pre-auth at GET /.report.html, leaking the module graph. Run
+    // `ANALYZE=1 npm run build --workspace=packages/analyzer` to generate it
+    // locally to verify chunk separation (e.g. /local chunk stays lean).
+    ...(process.env.ANALYZE
+      ? [
+          visualizer({
+            filename: 'dist/.report.html',
+            open: false,
+            gzipSize: true,
+            brotliSize: true,
+          }),
+        ]
+      : []),
   ],
   base: './',
   server: {

@@ -57,6 +57,9 @@ COPY --from=build /app/packages/server/db ./packages/server/db
 COPY --from=build /app/packages/server/node_modules/drizzle-orm ./packages/server/node_modules/drizzle-orm
 # Analyzer static build served from PUBLIC_DIR
 COPY --from=build /app/packages/analyzer/dist ./packages/server/public
+# Defense in depth: never serve the bundle-analysis report pre-auth, even if an
+# image is built with ANALYZE=1 (the analyzer's vite config gates it off by default).
+RUN rm -f ./packages/server/public/.report.html
 ENV PUBLIC_DIR=/app/packages/server/public
 COPY deploy/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
