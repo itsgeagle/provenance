@@ -25,6 +25,7 @@ The accent brightens on dark surfaces for contrast; same hue family.
 | `provenance-mark-dark.svg`   | symbol, dark surface                                    |
 | `provenance-lockup.svg`      | symbol + wordmark, light surface                        |
 | `provenance-lockup-dark.svg` | symbol + wordmark, dark surface                         |
+| `og-card.svg`                | 1200×630 social-embed card (lockup centered on white)   |
 | `exports/favicon.svg`        | symbol, adapts to light/dark via `prefers-color-scheme` |
 
 The wordmark uses the analyzer's typeface — the Tailwind default system-sans
@@ -38,6 +39,7 @@ sans-serif`), weight 600. Because system fonts render per-machine, ship the
 | ----------------------------------------------------- | ----------------------------------------------------------- |
 | `exports/icon-128.png`                                | recorder VSIX icon → copied to `packages/recorder/icon.png` |
 | `exports/favicon.svg`, `exports/favicon-32.png`       | analyzer → `packages/analyzer/public/`                      |
+| `exports/og-image.png`                                | analyzer social embed → `packages/analyzer/public/` (`og:image` / `twitter:image` in `index.html`) |
 | `exports/lockup-light.png`, `exports/lockup-dark.png` | README header (`<picture>`)                                 |
 
 ## Regenerating exports
@@ -52,6 +54,9 @@ rsvg-convert -b white -w 128 -h 128 provenance-mark.svg -o exports/icon-128.png
 # Analyzer favicon PNG fallback (32×32)
 rsvg-convert -b white -w 32 -h 32 exports/favicon.svg -o exports/favicon-32.png
 
+# Analyzer social-embed card (1200×630, white background)
+rsvg-convert -b white -w 1200 -h 630 og-card.svg -o exports/og-image.png
+
 # README lockups
 rsvg-convert -b white    -w 1000 -h 256 provenance-lockup.svg      -o exports/lockup-light.png
 rsvg-convert -b "#0f1115" -w 1000 -h 256 provenance-lockup-dark.svg -o exports/lockup-dark.png
@@ -61,7 +66,7 @@ After regenerating, copy into place:
 
 ```sh
 cp exports/icon-128.png ../packages/recorder/icon.png
-cp exports/favicon.svg exports/favicon-32.png ../packages/analyzer/public/
+cp exports/favicon.svg exports/favicon-32.png exports/og-image.png ../packages/analyzer/public/
 ```
 
 ## Note for the production recorder build
