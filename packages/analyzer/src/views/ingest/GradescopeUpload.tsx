@@ -96,7 +96,7 @@ export function GradescopeUpload({ basePath, semesterId }: GradescopeUploadProps
         data-testid="gs-drop-zone"
         className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 transition-colors ${
           isDragOver
-            ? 'border-indigo-500 bg-indigo-50'
+            ? 'border-orange-500 bg-orange-50'
             : 'border-gray-300 bg-gray-50 hover:border-gray-400'
         }`}
         onDrop={handleDrop}
@@ -150,7 +150,7 @@ export function GradescopeUpload({ basePath, semesterId }: GradescopeUploadProps
           </div>
           <div className="h-2 w-full rounded-full bg-gray-200">
             <div
-              className="h-2 rounded-full bg-indigo-600 transition-all"
+              className="h-2 rounded-full bg-orange-700 transition-all"
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
@@ -186,7 +186,7 @@ export function GradescopeUpload({ basePath, semesterId }: GradescopeUploadProps
       <button
         type="submit"
         disabled={isPending || file === null || validationError !== null || !semesterId}
-        className="mt-4 rounded-md bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+        className="mt-4 rounded-md bg-orange-700 px-4 py-2 text-sm text-white hover:bg-orange-800 disabled:opacity-50"
         data-testid="gs-upload-button"
       >
         {isPending ? 'Uploading…' : 'Upload Gradescope export'}

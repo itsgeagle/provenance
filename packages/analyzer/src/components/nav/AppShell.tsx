@@ -34,7 +34,7 @@ function SemesterAdminNav() {
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `text-xs px-2 py-1 rounded transition-colors ${
       isActive
-        ? 'bg-indigo-100 text-indigo-700 font-medium'
+        ? 'bg-orange-100 text-orange-700 font-medium'
         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
     }`;
 
@@ -119,7 +119,7 @@ export function AppShell({ children }: AppShellProps) {
             {isSuperadmin && (
               <Link
                 to="/admin"
-                className="rounded-md border border-indigo-300 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                className="rounded-md border border-orange-300 bg-white px-3 py-1 text-xs font-medium text-orange-700 hover:bg-orange-50"
                 data-testid="admin-link"
               >
                 Admin

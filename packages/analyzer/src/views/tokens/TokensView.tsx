@@ -145,7 +145,7 @@ function SecretModal({ secret, onAcknowledge }: { secret: string; onAcknowledge:
           <button
             type="button"
             onClick={handleCopy}
-            className="shrink-0 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+            className="shrink-0 rounded bg-orange-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-800"
             data-testid="secret-copy"
           >
             {copied ? 'Copied' : 'Copy'}
@@ -168,7 +168,7 @@ function SecretModal({ secret, onAcknowledge }: { secret: string; onAcknowledge:
             type="button"
             disabled={!acknowledged}
             onClick={onAcknowledge}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="rounded bg-orange-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-800 disabled:opacity-50"
             data-testid="secret-ack-close"
           >
             Done
@@ -350,7 +350,7 @@ function CreateForm({ onCreated, onError }: CreateFormProps) {
       <button
         type="submit"
         disabled={!canSubmit}
-        className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+        className="rounded bg-orange-700 px-3 py-1.5 text-sm text-white hover:bg-orange-800 disabled:opacity-50"
         data-testid="create-token-submit"
       >
         {isPending ? 'Creating…' : 'Create token'}
@@ -394,7 +394,7 @@ export function TokensView() {
           href="/api/v1/docs"
           target="_blank"
           rel="noreferrer"
-          className="text-indigo-600 hover:underline"
+          className="text-orange-700 hover:underline"
         >
           API docs
         </a>{' '}

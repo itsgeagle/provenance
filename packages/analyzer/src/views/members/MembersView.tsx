@@ -160,7 +160,7 @@ export function MembersView() {
           <button
             type="submit"
             disabled={isInviting || inviteEmail === '' || !emailIsValid}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="rounded bg-orange-700 px-3 py-1.5 text-sm text-white hover:bg-orange-800 disabled:opacity-50"
             data-testid="invite-submit"
           >
             {isInviting ? 'Inviting…' : 'Invite'}
