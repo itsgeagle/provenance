@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+.git
+.superpowers
+*.md
+docs
+**/.env
+**/.report.html

@@ -22,6 +22,7 @@
  *   purge_expired_sessions — hourly cron
  *   retention_sweep       — daily cron
  *   reap_stale_uploads    — daily cron (fs backend only)
+ *   storage_quota_check   — hourly cron (fs backend only; statfs + notifier)
  *
  * Kinds are registered as a const so future phases can import and reference
  * them without string literals.
@@ -33,6 +34,7 @@
 import PgBoss from 'pg-boss';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logging.js';
+import { getNotifier } from '../notify/notifier.js';
 
 // ---------------------------------------------------------------------------
 // Job kind registry
@@ -56,6 +58,7 @@ export const JOB_KINDS = {
   PURGE_EXPIRED_SESSIONS: 'purge_expired_sessions',
   RETENTION_SWEEP: 'retention_sweep',
   REAP_STALE_UPLOADS: 'reap_stale_uploads',
+  STORAGE_QUOTA_CHECK: 'storage_quota_check',
 } as const;
 
 export type JobKind = (typeof JOB_KINDS)[keyof typeof JOB_KINDS];
@@ -94,6 +97,12 @@ export async function getBoss(): Promise<PgBoss> {
 
     boss.on('error', (err: unknown) => {
       logger.error({ err }, 'pg-boss error');
+      getNotifier().notify({
+        severity: 'critical',
+        kind: 'pgboss.error',
+        title: 'pg-boss error',
+        detail: { message: err instanceof Error ? err.message : String(err) },
+      });
     });
 
     await boss.start();

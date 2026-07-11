@@ -50,10 +50,14 @@ const _counters = new Map<string, number>();
 const HISTOGRAM_WINDOW = 1000; // keep last 1000 samples per label
 const _histograms = new Map<string, number[]>();
 
+/** Gauge: metric name (no labels) → current value */
+const _gauges = new Map<string, number>();
+
 /** @internal — exposed for test reset between test runs. */
 export function _resetMetricsForTest(): void {
   _counters.clear();
   _histograms.clear();
+  _gauges.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +96,19 @@ function recordHistogram(name: string, labels: Record<string, string>, valueMs: 
 }
 
 // ---------------------------------------------------------------------------
+// Gauge helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Sets a gauge to an absolute value. Unlike counters, gauges have no labels
+ * here — one value per metric name — since the only current gauges
+ * (storage used/quota bytes) are singleton, unlabeled values.
+ */
+function setGauge(name: string, value: number): void {
+  _gauges.set(name, value);
+}
+
+// ---------------------------------------------------------------------------
 // Public increment APIs (called from outside this module)
 // ---------------------------------------------------------------------------
 
@@ -109,6 +126,17 @@ export function recordIngestJobTerminal(status: string): void {
  */
 export function recordRecomputeJobTerminal(status: string): void {
   incrementCounter('provenance_recompute_jobs_total', { status });
+}
+
+/**
+ * Sets the storage-quota gauge pair. Called from the hourly
+ * storage-quota-check cron (`src/jobs/storage-quota-check.ts`) with the
+ * measured used-bytes and the configured quota, so `/metrics` always reflects
+ * the most recent check regardless of whether it triggered a notification.
+ */
+export function setStorageGauge(usedBytes: number, quotaBytes: number): void {
+  setGauge('provenance_storage_used_bytes', usedBytes);
+  setGauge('provenance_storage_quota_bytes', quotaBytes);
 }
 
 // ---------------------------------------------------------------------------
@@ -201,8 +229,25 @@ function renderMetrics(): string {
     lines.push(`provenance_request_duration_ms_count{${labelPart}} ${n}`);
   }
 
+  // --- Gauges ---
+  // Generic: emit HELP/TYPE/value for every gauge currently set. HELP text is
+  // looked up from a small known-name table; unknown names (shouldn't happen
+  // in practice — all gauges go through named setters below) fall back to a
+  // generic description rather than being dropped.
+  for (const [name, value] of _gauges) {
+    lines.push(`# HELP ${name} ${GAUGE_HELP[name] ?? name}`);
+    lines.push(`# TYPE ${name} gauge`);
+    lines.push(`${name} ${value}`);
+  }
+
   return lines.join('\n') + '\n';
 }
+
+/** HELP text for known gauges, keyed by metric name. */
+const GAUGE_HELP: Record<string, string> = {
+  provenance_storage_used_bytes: 'Bytes used on the storage backend',
+  provenance_storage_quota_bytes: 'Configured storage quota in bytes',
+};
 
 // ---------------------------------------------------------------------------
 // /metrics router factory
