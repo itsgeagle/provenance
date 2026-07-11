@@ -66,4 +66,14 @@ describe('LandingView', () => {
     });
     expect(screen.queryByRole('button', { name: /sign in with google/i })).not.toBeInTheDocument();
   });
+
+  it('offers a contact mailto link with a pre-filled subject', () => {
+    mswServer.use(meUnauthorizedHandler());
+    renderLanding();
+    const link = screen.getByRole('link', { name: /reach out/i });
+    expect(link).toHaveAttribute(
+      'href',
+      'mailto:aaryanm@berkeley.edu?subject=Question%20about%20Provenance',
+    );
+  });
 });
