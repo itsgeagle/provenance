@@ -140,15 +140,54 @@ comes back up.
 > — `env_file` injects it at runtime and overrides the baked value; an empty
 > line surfaces as `sha: ""` in the startup notification.
 
-### Scaling ingest workers
+### Scaling ingest throughput
 
-Ingest is CPU-bound on a single Node thread, so throughput scales with the
-number of worker **processes**, not with `INGEST_CONCURRENCY` inside one
-process. The systemd unit starts the stack with `--scale worker=2`; raise that
-number to give large imports more cores (each worker is capped at its
-`mem_limit`, so keep `N × worker mem_limit` within the box's fair share).
-Change the `--scale worker=N` value in `provenance.service`, then
-`systemctl --user daemon-reload && systemctl --user restart provenance`.
+A Gradescope import runs in two stages, and they scale by different knobs:
+
+1. **Staging** — a **single** `ingest_stage_upload` job (on one worker) unpacks
+   the export and, per bundle, rebuilds the flat zip, writes the blob, and
+   enqueues one `ingest_file` job. This is a serial front-end: if it enqueues
+   slowly, the processing workers starve (the tell: `docker stats` shows one
+   worker busy and the rest idle). `INGEST_STAGE_CONCURRENCY` overlaps the
+   per-bundle blob writes — the win on the NFS-backed `/data` mount, where write
+   latency, not CPU, is the serial cost. Default `1` (serial); higher runs the
+   independent per-bundle work (blob write + row insert + enqueue) concurrently.
+   Each in-flight stage briefly holds a DB connection, so keep
+   `INGEST_STAGE_CONCURRENCY + INGEST_CONCURRENCY` within `DATABASE_POOL_MAX`.
+2. **Processing** — `ingest_file` jobs, drained across workers. This is
+   CPU-bound on a single Node thread per worker, so throughput scales with the
+   number of worker **processes**, not with `INGEST_CONCURRENCY` inside one
+   process (that only overlaps I/O). Add processes with `--scale worker=N` in
+   `provenance.service`, then
+   `systemctl --user daemon-reload && systemctl --user restart provenance`.
+
+**Memory budget.** Each container is capped at its `mem_limit`, and the whole
+stack shares the box's ~16 GB fair share: `app` 3g + `postgres` 3g + `pgdump`
+0.5g leaves ~9.5 GB for workers, i.e. `N × worker mem_limit ≤ ~9.5g`. With the
+default 4g worker limit that is `--scale worker=2`. To run more workers, lower
+the worker `mem_limit` (and `NODE_OPTIONS=--max-old-space-size`) to fit — e.g.
+2g × 4 workers ≈ 8g. Note `mem_limit` is only enforced if rootless Docker has
+cgroup memory delegation (`docker info` — see the topology comment in
+`compose.apphost.yaml`); where it isn't, only the `NODE_OPTIONS` heap caps apply
+and actual per-worker usage (~0.5–1 GB) is well under the limit.
+
+**Recommended starting point on this box** (16 cores, NFS `/data`), set in the
+`worker` service env of `compose.apphost.yaml` unless noted:
+
+| Setting                    | Value   | Notes                                                                                                             |
+| -------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `INGEST_STAGE_CONCURRENCY` | `6`     | Overlaps staging's serial NFS blob writes.                                                                        |
+| `INGEST_CONCURRENCY`       | `6`     | Per-worker `ingest_file` batch; overlaps I/O, not CPU.                                                            |
+| `DATABASE_POOL_MAX`        | `16`    | Covers 6 + 6 + pg-boss polling. 4 workers × 16 = 64 < PG's 100.                                                   |
+| `UV_THREADPOOL_SIZE`       | `16`    | Concurrent NFS syscalls for the stage + ingest fs ops.                                                            |
+| `--scale worker=N`         | `2`–`4` | 2 is memory-safe at the 4g worker limit; 4 needs `mem_limit` unenforced or lowered to ~2g (`provenance.service`). |
+
+Verify with `docker stats` during an import: staging should now drive several
+concurrent blob writes and keep the processing workers busy. If instead every
+worker is pegged at ~100% CPU, you're processing-bound — add worker processes
+(within the memory budget); if one worker is pegged while staging, the zip
+_build_ is the limit (a single thread), which would need worker threads to
+parallelize further.
 
 ## 4. Restore drill
 
