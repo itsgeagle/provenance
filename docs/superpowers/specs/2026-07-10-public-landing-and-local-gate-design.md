@@ -15,11 +15,25 @@
    deliberately unauthenticated. On a public deployment that lets anyone —
    including students — run arbitrary bundles through the analyzer.
 
+### Authentication ≠ authorization
+
+`RequireAuth` only proves a valid session whose Google `hd` is `@berkeley.edu`
+— **every student has that**. So gating `/local` on `RequireAuth` alone would
+not keep students out; it would just make them sign in first. The real
+authorization boundary already exists and is already invite-only: **semester
+membership**. `GET /me` returns `{ user: { is_superadmin }, memberships: [...] }`.
+Admins invite staff to semesters; an uninvited student who signs in has
+`memberships: []` and only sees "Ask an admin to invite you." Students are not
+users of this system — they are subjects of submissions. Therefore
+**any membership ⇒ course staff**, and the gate must check *authorization*
+(`memberships.length > 0 || is_superadmin`), not mere authentication.
+
 ## Goals
 
 - A simple, public-facing landing page ("nicer front door") shown before the
   sign-in page, WCAG 2.1 AA compliant.
-- Gate `/local` behind sign-in so only authenticated staff can use the analyzer.
+- Gate `/local` so only **course staff** (any membership, or superadmin) can use
+  the analyzer — not any signed-in `@berkeley.edu` account.
 - Keep signed-in staff able to reach local mode from the dashboard.
 
 ## Non-goals
@@ -45,12 +59,30 @@ authentication. Called out here so review catches it.
 
 - Add public route: `<Route path="/" element={<LandingView />} />`. Replaces the
   current `/` → `/home` redirect. No `RequireAuth`.
-- Wrap the `/local` subtree in `RequireAuth`:
-  `element={<RequireAuth><LocalShell /></RequireAuth>}`. Anonymous visitors are
-  redirected to `/login?next=/local/…` by the existing guard.
+- Wrap the `/local` subtree in `RequireAuth` **+ `RequireStaff`**:
+  `element={<RequireAuth><RequireStaff><LocalShell /></RequireStaff></RequireAuth>}`.
+  Anonymous visitors → `/login?next=/local/…` (RequireAuth). Signed-in users with
+  no membership and no superadmin → `/home` (RequireStaff), where they see the
+  "Ask an admin to invite you" empty state.
 - `/login`, `/home`, `/s/*`, `/admin/*`, `/me/tokens`, and the `*` catch-all are
   unchanged. (`*` continues to point at `/home`; an authed user landing there
   sees the dashboard, an anon user bounces to login — existing behavior.)
+
+### 1a. `RequireStaff` guard (`src/auth/RequireStaff.tsx`)
+
+New route guard, mirroring `RequireSuperadmin`'s shape. Runs *below* `RequireAuth`
+(which has already proven a session):
+
+- reads `useMe()`;
+- while loading → centered "Loading…" placeholder;
+- if `data === undefined` (no principal) → `<Navigate to="/home" replace />`
+  (defensive; RequireAuth should have handled anon already);
+- if `memberships.length === 0 && !user.is_superadmin` →
+  `<Navigate to="/home" replace />` (no flash of local-mode chrome);
+- otherwise renders children.
+
+This is the reusable authorization boundary — "you are course staff somewhere."
+It is the same line that already governs which semesters a user can see.
 
 ### 2. `LandingView` (`src/views/landing/LandingView.tsx`)
 
@@ -104,9 +136,11 @@ local-mode banner copy so they no longer claim local mode is unauthenticated.
 ### 6. Dashboard `/local` entry (`src/views/home/HomeView.tsx`)
 
 Add a "Local analysis" link to `/local/load` in the dashboard header (next to the
-"Your Semesters" `h1`), so signed-in staff retain an entry point to local mode.
-Also surface it in the empty-state branch (a user with no memberships can still
-use local mode). Styled as an in-app link matching existing link treatment.
+"Your Semesters" `h1`), so staff retain an entry point to local mode. **Only on
+the populated (has-memberships) view** — do **not** show it in the empty-state
+branch, because a no-membership user is exactly the student we are keeping out of
+`/local` (and `RequireStaff` would bounce them anyway). Styled as an in-app link
+matching existing link treatment.
 
 ### 7. Accessibility (WCAG 2.1 AA — built in)
 
@@ -129,10 +163,11 @@ The landing page ships compliant from the start:
 | --- | --- | --- |
 | `LandingView` | Public explainer + auth-aware CTA | `useMe`, `GoogleSignInButton`, `react-router` `Link` |
 | `GoogleSignInButton` | Sign-in form + button + icon | `getBaseUrl()` |
+| `RequireStaff` | Authz guard: membership-or-superadmin | `useMe`, `react-router` `Navigate` |
 | `LoginView` (edited) | Sign-in card; error + `next` handling | `GoogleSignInButton` |
 | `LocalShell` (edited) | `/local` layout; comment/banner copy | — |
-| `HomeView` (edited) | Dashboard + local-analysis link | `react-router` `Link` |
-| `App` (edited) | Routes: public `/`, gated `/local` | `RequireAuth`, `LandingView` |
+| `HomeView` (edited) | Dashboard + local-analysis link (populated only) | `react-router` `Link` |
+| `App` (edited) | Routes: public `/`, staff-gated `/local` | `RequireAuth`, `RequireStaff`, `LandingView` |
 
 ## Testing
 
@@ -145,17 +180,22 @@ The landing page ships compliant from the start:
   - a11y smoke: single `h1`, a `main` landmark present.
 - **`GoogleSignInButton.test.tsx`** (new, or folded into `LoginView.test.tsx`):
   form action and `returnTo` encoding.
+- **`RequireStaff.test.tsx`** (new): member renders children; no-membership
+  non-superadmin redirects to `/home`; superadmin with no membership renders
+  children; loading shows the placeholder.
 - **Routing tests** (`App.test.tsx` / local route tests): `/` renders
   `LandingView` (no redirect); `/local/load` while anonymous redirects to
-  `/login?next=%2Flocal%2Fload`; authenticated `/local/load` still renders.
+  `/login?next=%2Flocal%2Fload`; signed-in **with membership** renders
+  `/local/load`; signed-in **without membership** redirects to `/home`.
 - **Existing `/local` tests**: update any that assumed no auth (provide the msw
-  `/me` handler or assert the redirect).
+  `/me` handler with a membership, or assert the redirect).
 - **`LoginView.test.tsx`**: still passes after the button extraction.
 
 ## Files
 
 - New: `src/views/landing/LandingView.tsx` (+ `.test.tsx`)
 - New: `src/components/GoogleSignInButton.tsx` (+ test or folded)
+- New: `src/auth/RequireStaff.tsx` (+ `.test.tsx`)
 - Edit: `src/App.tsx` (routes)
 - Edit: `src/views/login/LoginView.tsx` (use shared button)
 - Edit: `src/views/local/LocalShell.tsx` (comment + banner copy)
@@ -167,3 +207,7 @@ The landing page ships compliant from the start:
 - **§15 deviation** — documented above; requires a PRD amendment.
 - Offline/no-backend builds of `/local` will now fail the auth check (there is no
   `/me` to call). This is the accepted consequence of "gate everywhere."
+- **Authorization, not just authentication** — the gate is `RequireAuth` +
+  `RequireStaff`. Gating on `RequireAuth` alone would admit any signed-in
+  `@berkeley.edu` account (i.e. every student); `RequireStaff` enforces the
+  invite-only membership boundary that actually distinguishes staff.

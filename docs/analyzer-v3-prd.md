@@ -1724,11 +1724,13 @@ A `<RequireAuth>` wrapper at the route level redirects to `/login` on 401 from `
 
 ## 15. Standalone SPA (`/local`)
 
-- Reachable at `<PUBLIC_BASE_URL>/local`. Static assets, no auth, no API calls.
+- Reachable at `<PUBLIC_BASE_URL>/local`. Static assets, in-browser analysis (no API calls for the analysis itself).
+- **Staff-gated (amended 2026-07-10).** `/local` requires an authenticated principal who is course staff — i.e. has ≥1 semester membership, or is a superadmin. Enforced client-side by `RequireAuth` + `RequireStaff`. This supersedes the original "no auth" rule below: on the public hosted deployment, unauthenticated/unauthorized access would let any `@berkeley.edu` account (every student) run arbitrary bundles through the analyzer. Anonymous visitors are redirected to sign-in; signed-in non-staff are redirected to `/home`. See `docs/superpowers/specs/2026-07-10-public-landing-and-local-gate-design.md`.
+  - _Superseded original intent (kept for history):_ local mode was to be reachable with no auth and no API calls so instructors could run the analyzer offline without a deployed backend. The tool is now a required, department-hosted deployment, so the offline-no-backend path is no longer a supported goal.
 - Drop-a-zip UX is exactly v2's `LoadView`.
 - Per-submission views are the SAME components used by the cohort app, parameterized by `SubmissionDataProvider`. The `/local` route wires `InMemorySubmissionDataProvider`.
 - No nav chrome from the cohort app appears under `/local`.
-- The cohort app and `/local` ship in the same Vite build. Code is split by route to keep `/local` cold-loadable without auth assets.
+- The cohort app and `/local` ship in the same Vite build. Code is split by route to keep `/local` cold-loadable.
 
 ---
 
