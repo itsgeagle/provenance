@@ -27,11 +27,12 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import type { SubmissionRow } from '@provenance/shared/api-schemas';
 import type { CohortSort } from '../../api/queries.js';
 import { useActiveSemester } from '../../api/use-active-semester.js';
+import { RowLink } from '../../components/a11y/RowLink.js';
+import { SortableHeader, type SortDirection } from '../../components/a11y/SortableHeader.js';
 
 // ---------------------------------------------------------------------------
 // Severity helpers
@@ -102,6 +103,21 @@ const COLUMN_TO_SORT: Record<string, { asc: CohortSort; desc: CohortSort } | und
   ingested: { asc: 'ingested_desc', desc: 'ingested_desc' }, // only desc is valid
 };
 
+/**
+ * Current sort direction for a sortable column, derived from the sort
+ * value's own `_asc`/`_desc` suffix rather than from COLUMN_TO_SORT's
+ * asc/desc entries directly — for `assignment` and `ingested` those entries
+ * intentionally alias to the same single valid CohortSort value, so
+ * comparing against sortMap.asc/sortMap.desc in a fixed order would report
+ * the wrong direction for one of them.
+ */
+function getSortDirection(columnId: string, sort: CohortSort): SortDirection {
+  if (!(columnId in COLUMN_TO_SORT)) return null;
+  if (sort === `${columnId}_asc`) return 'asc';
+  if (sort === `${columnId}_desc`) return 'desc';
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Column helper
 // ---------------------------------------------------------------------------
@@ -129,7 +145,6 @@ export function CohortTable({
   onLoadMore,
   isLoadingMore,
 }: CohortTableProps) {
-  const navigate = useNavigate();
   const { basePath } = useActiveSemester();
 
   // Infinite-scroll sentinel: lives INSIDE the scrollable table container
@@ -163,12 +178,20 @@ export function CohortTable({
       ch.accessor((r) => r.student.display_name, {
         id: 'student',
         header: 'Student',
-        cell: (info) => (
-          <div>
-            <div className="text-sm font-medium text-gray-900">{info.getValue()}</div>
-            <div className="text-xs text-gray-500">{info.row.original.student.sid}</div>
-          </div>
-        ),
+        cell: (info) => {
+          const content = (
+            <div>
+              <div className="text-sm font-medium text-gray-900">{info.getValue()}</div>
+              <div className="text-xs text-gray-500">{info.row.original.student.sid}</div>
+            </div>
+          );
+          // basePath is only '' when courseSlug/semesterSlug are unresolved,
+          // which never happens while CohortTable is actually mounted (the
+          // parent CohortView doesn't render it until semesterId resolves).
+          // Fall back to plain (non-link) content rather than a broken href.
+          if (!basePath) return content;
+          return <RowLink to={`${basePath}/sub/${info.row.original.id}`}>{content}</RowLink>;
+        },
       }),
       ch.accessor((r) => r.assignment.label, {
         id: 'assignment',
@@ -198,6 +221,8 @@ export function CohortTable({
                       ? 'bg-yellow-400'
                       : 'bg-gray-300'
               }`}
+              role="img"
+              aria-label={`Max severity: ${info.row.original.score_max_severity}`}
               title={info.row.original.score_max_severity}
             />
           </div>
@@ -261,7 +286,7 @@ export function CohortTable({
         cell: (info) => <RecomputeBadge status={info.getValue()} />,
       }),
     ],
-    [],
+    [basePath],
   );
 
   const table = useReactTable({
@@ -297,11 +322,6 @@ export function CohortTable({
     onSortChange(isDescNow ? sortMap.asc : sortMap.desc);
   }
 
-  function handleRowClick(submissionId: string) {
-    if (!basePath) return;
-    void navigate(`${basePath}/sub/${submissionId}`);
-  }
-
   return (
     <div className="flex flex-col gap-2">
       <div
@@ -316,13 +336,21 @@ export function CohortTable({
               <tr key={hg.id}>
                 {hg.headers.map((header) => {
                   const isSortable = header.column.id in COLUMN_TO_SORT;
+                  if (isSortable) {
+                    return (
+                      <SortableHeader
+                        key={header.id}
+                        label={String(header.column.columnDef.header)}
+                        direction={getSortDirection(header.column.id, sort)}
+                        onSort={() => handleHeaderClick(header.column.id)}
+                        className="cursor-pointer select-none border-b border-gray-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 hover:bg-gray-100"
+                      />
+                    );
+                  }
                   return (
                     <th
                       key={header.id}
-                      className={`border-b border-gray-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600 ${
-                        isSortable ? 'cursor-pointer select-none hover:bg-gray-100' : ''
-                      }`}
-                      onClick={() => isSortable && handleHeaderClick(header.column.id)}
+                      className="border-b border-gray-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-600"
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
                     </th>
@@ -343,8 +371,7 @@ export function CohortTable({
               return (
                 <tr
                   key={row.id}
-                  className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
-                  onClick={() => handleRowClick(row.original.id)}
+                  className="border-b border-gray-100 hover:bg-gray-50"
                   data-testid={`cohort-row-${row.original.id}`}
                 >
                   {row.getVisibleCells().map((cell) => (
