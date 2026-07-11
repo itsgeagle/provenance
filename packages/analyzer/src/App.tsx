@@ -3,12 +3,13 @@
  *
  * Route structure (v3 + /local standalone v2 routes):
  *
- *   /                  → redirect to /home
+ *   /                  → public LandingView (no auth)
  *   /login             → LoginView (no auth required)
  *   /home              → RequireAuth + AppShell + HomeView
  *   /s/:courseSlug/:semesterSlug/* → cohort + drill-in views (Phases 21–24)
  *
- * Standalone /local subtree (v2 "drop a zip" UX — no auth required, §15):
+ * Standalone /local subtree (v2 "drop a zip" UX, §15 amended 2026-07-10 —
+ * now staff-gated behind RequireAuth + RequireStaff):
  *   /local/load                  → LoadView
  *   /local/overview              → OverviewView (guarded by RequireLocalBundle)
  *   /local/timeline              → TimelineView (guarded by RequireLocalBundle)
@@ -22,8 +23,9 @@
  *   /compare       → /local/compare
  *   /replay/:id    → /local/replay/:id  (handled client-side via layout redirect)
  *
- * The /local routes are wrapped in LocalShell (BundleProvider chrome + banner).
- * RequireAuth does NOT wrap /local routes.
+ * The /local routes are wrapped in LocalShell (BundleProvider chrome + banner),
+ * which is itself wrapped in RequireAuth + RequireStaff (see the /local route
+ * definition below).
  * <QueryClientProvider> is set up in main.tsx and wraps the entire app.
  */
 
@@ -35,6 +37,8 @@ import { HomeView } from './views/home/HomeView.js';
 import { AppShell } from './components/nav/AppShell.js';
 import { RequireAuth } from './auth/RequireAuth.js';
 import { RequireSuperadmin } from './auth/RequireSuperadmin.js';
+import { RequireStaff } from './auth/RequireStaff.js';
+import { LandingView } from './views/landing/LandingView.js';
 import {
   LocalShell,
   RequireLocalBundle,
@@ -112,7 +116,7 @@ const AdminAuditView = lazy(() =>
 );
 
 // ---------------------------------------------------------------------------
-// Lazy chunks: /local routes (v2 standalone, no auth)
+// Lazy chunks: /local routes (v2 standalone, staff-gated)
 // ---------------------------------------------------------------------------
 
 const LoadView = lazy(() =>
@@ -382,8 +386,17 @@ export function App() {
         />
 
         {/* ── /local subtree — standalone v2 "drop a zip" UX (PRD §15) ─── */}
-        {/* No authentication required. LocalShell provides BundleProvider.  */}
-        <Route path="/local" element={<LocalShell />}>
+        {/* Staff-gated: RequireAuth + RequireStaff wrap LocalShell (BundleProvider). */}
+        <Route
+          path="/local"
+          element={
+            <RequireAuth>
+              <RequireStaff>
+                <LocalShell />
+              </RequireStaff>
+            </RequireAuth>
+          }
+        >
           <Route path="load" element={<LoadView />} />
           <Route
             path="overview"
@@ -435,8 +448,8 @@ export function App() {
         <Route path="/compare" element={<Navigate to="/local/compare" replace />} />
         <Route path="/replay/:sessionId" element={<LegacyReplayRedirect />} />
 
-        {/* ── root redirect ──────────────────────────────────────────────── */}
-        <Route path="/" element={<Navigate to="/home" replace />} />
+        {/* ── public landing page ──────────────────────────────────────────── */}
+        <Route path="/" element={<LandingView />} />
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>
     </Suspense>

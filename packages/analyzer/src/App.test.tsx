@@ -48,15 +48,31 @@ function renderApp(initialPath: string) {
 // ---------------------------------------------------------------------------
 
 describe('App routing', () => {
-  it('redirects / to /home (unauthenticated → /login)', async () => {
-    // Unauthenticated: /me returns 401 → RequireAuth redirects to /login
+  it('renders the public landing page at / for anonymous visitors', async () => {
     mswServer.use(meUnauthorizedHandler());
-
     renderApp('/');
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: /provenance/i })).toBeInTheDocument();
+    });
+    // Anonymous → sign-in button, NOT redirected away to a protected page.
+    expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
+  });
 
-    // / → /home → RequireAuth(401) → /login
+  it('redirects anonymous visitors from /local/load to the login page', async () => {
+    mswServer.use(meUnauthorizedHandler());
+    renderApp('/local/load');
+    // RequireAuth bounces anon → /login, which shows the sign-in button and NOT the drop zone.
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('drop-zone')).not.toBeInTheDocument();
+  });
+
+  it('renders /local/load for an authenticated staff member', async () => {
+    // Default /me handler returns a user WITH a membership → RequireStaff passes.
+    renderApp('/local/load');
+    await waitFor(() => {
+      expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
     });
   });
 

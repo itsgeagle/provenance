@@ -4,8 +4,8 @@
  * The /local routes are the v2 "drop a zip" standalone experience. They run
  * entirely in-browser — no server API calls, no authentication required.
  *
- * PRD §15: the standalone local mode MUST be accessible without login so that
- * instructors can run the analyzer offline without a deployed backend.
+ * /local is now staff-gated — see App.tsx, where the subtree is wrapped in
+ * RequireAuth + RequireStaff (PRD §15 amended 2026-07-10).
  *
  * Layout:
  *   <LocalShell>
@@ -74,8 +74,8 @@ function LocalModeBanner() {
  *
  * Wraps all /local/* routes in <BundleProvider> so the existing v2 route
  * elements (LoadView, OverviewView, etc.) have access to BundleContext.
- * RequireAuth is NOT used here — see App.tsx where /local routes are mounted
- * outside the RequireAuth tree.
+ * Auth is enforced one level up in App.tsx (RequireAuth + RequireStaff wrap
+ * this subtree).
  */
 export function LocalShell() {
   return (
