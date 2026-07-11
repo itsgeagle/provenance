@@ -3,6 +3,7 @@ import type { Notifier, NotifyEvent, Sink } from './types.js';
 import { meets } from './severity.js';
 import { renderEvent } from './render.js';
 import { getLogger } from '../logging.js';
+import type { Throttler } from './throttle.js';
 
 const LEVEL: Record<NotifyEvent['severity'], 'info' | 'warn' | 'error'> = {
   info: 'info',
@@ -16,13 +17,31 @@ const LEVEL: Record<NotifyEvent['severity'], 'info' | 'warn' | 'error'> = {
  * `notify()` never throws and never blocks the caller: sink sends are
  * fire-and-forget, with failures caught and logged per-sink. `flush()` awaits
  * all in-flight sink sends.
+ *
+ * When `throttler` is supplied, repeated events sharing a key (`dedupeKey`,
+ * falling back to `kind`) within the throttle window are logged (the
+ * built-in log line is exempt from throttling) but not fanned out to push
+ * sinks. The first event admitted after a suppressed run carries a
+ * `suppressed_since_last` count in the detail sent to sinks.
  */
-export function createNotifier(deps: { sinks: Sink[]; logger: Logger }): Notifier {
+export function createNotifier(deps: {
+  sinks: Sink[];
+  logger: Logger;
+  throttler?: Throttler;
+}): Notifier {
   const inFlight = new Set<Promise<void>>();
   return {
     notify(e: NotifyEvent): void {
-      const rendered = renderEvent(e);
       deps.logger[LEVEL[e.severity]]({ kind: e.kind, ...e.detail }, e.title);
+
+      const { send, suppressed } = deps.throttler
+        ? deps.throttler.admit(e.dedupeKey ?? e.kind)
+        : { send: true, suppressed: 0 };
+      if (!send) return; // log-only: skip push sinks
+
+      const eventForSinks =
+        suppressed > 0 ? { ...e, detail: { ...e.detail, suppressed_since_last: suppressed } } : e;
+      const rendered = renderEvent(eventForSinks);
       for (const sink of deps.sinks) {
         if (!meets(e.severity, sink.minSeverity)) continue;
         try {
