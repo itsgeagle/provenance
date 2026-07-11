@@ -1,11 +1,13 @@
 import { Hono } from 'hono';
-import { serve } from '@hono/node-server';
+import { getRequestListener } from '@hono/node-server';
+import { createServer } from 'node:http';
 import { getConfig } from '../config/index.js';
 import { getLogger } from '../logging.js';
 import { createV1App } from './v1/index.js';
 import { requestId } from './middleware/request-id.js';
 import { errorFormatter } from './middleware/error.js';
 import { createMetricsRouter, metricsMiddleware } from './middleware/metrics.js';
+import { resolveListenTarget, prepareSocket, makeWorldWritable } from './listen.js';
 
 /**
  * Creates and returns the Hono application instance.
@@ -51,21 +53,31 @@ export function createApp(): Hono {
 }
 
 /**
- * Boots the HTTP server, listening on the env-configured port.
+ * Boots the HTTP server, listening on the env-configured target.
  * Called from the CLI entry point when running in `api` mode.
+ *
+ * When `SOCKET_PATH` is set, binds a Unix domain socket instead of a TCP
+ * port — the EECS apphost's nginx proxies to us over that socket (TLS
+ * terminates at the edge). The socket is made world-writable so nginx
+ * (running as a different user) can connect to it.
  */
 export function startApi(): void {
   const cfg = getConfig();
   const logger = getLogger();
   const app = createApp();
 
-  serve(
-    {
-      fetch: app.fetch,
-      port: cfg.PORT,
-    },
-    (info) => {
-      logger.info({ port: info.port }, 'Server listening');
-    },
-  );
+  const server = createServer(getRequestListener(app.fetch));
+  const target = resolveListenTarget(cfg);
+
+  if (target.kind === 'socket') {
+    prepareSocket(target.path);
+    server.listen(target.path, () => {
+      makeWorldWritable(target.path);
+      logger.info({ socket: target.path }, 'Server listening (unix socket)');
+    });
+  } else {
+    server.listen(target.port, () => {
+      logger.info({ port: target.port }, 'Server listening (tcp)');
+    });
+  }
 }
