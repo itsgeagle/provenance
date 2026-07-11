@@ -16,3 +16,6 @@ test-workspace/.provenance/
 
 # Generated large test fixtures (multi-GB, never committed)
 packages/server/scripts/fixtures/
+
+# IRB / research-ethics documents (consent forms, protocols, recruitment, interviews)
+irb/
