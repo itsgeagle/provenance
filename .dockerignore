@@ -4,3 +4,5 @@
 .superpowers
 *.md
 docs
+**/.env
+**/.report.html
