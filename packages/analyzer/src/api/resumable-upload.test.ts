@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { uploadGradescopeResumable } from './resumable-upload.js';
+import { uploadGradescopeResumable, UPLOAD_CHUNK_BYTES } from './resumable-upload.js';
 
 vi.mock('./client.js', () => ({ apiFetch: vi.fn() }));
 const { apiFetch } = (await import('./client.js')) as unknown as { apiFetch: Mock };
@@ -64,6 +64,22 @@ describe('uploadGradescopeResumable', () => {
     expect(progress.at(-1)).toBe(100);
     // Handle cleared after completion.
     expect(localStorage.getItem('prov-upload:sem-1:export.zip:25:1000')).toBeNull();
+  });
+
+  it('requests a chunk size under the apphost nginx body limit on create', async () => {
+    wireApiFetch();
+    await uploadGradescopeResumable('sem-1', makeFile(25));
+
+    const create = apiFetch.mock.calls.find(
+      (c) =>
+        (c[0] as string).endsWith('/ingest/uploads') && (c[1] as RequestInit)?.method === 'POST',
+    );
+    expect(create).toBeDefined();
+    const body = JSON.parse((create![1] as RequestInit).body as string);
+    expect(body.chunk_size).toBe(UPLOAD_CHUNK_BYTES);
+    // Must stay under the ~20 MiB nginx client_max_body_size and over the 5 MiB floor.
+    expect(UPLOAD_CHUNK_BYTES).toBeLessThan(20 * 1024 * 1024);
+    expect(UPLOAD_CHUNK_BYTES).toBeGreaterThanOrEqual(5 * 1024 * 1024);
   });
 
   it('resumes by skipping already-received parts', async () => {

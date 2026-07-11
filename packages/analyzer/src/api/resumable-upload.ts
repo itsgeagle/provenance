@@ -21,8 +21,28 @@ import {
   type GradescopeIngestResponse,
 } from '@provenance/shared/api-schemas';
 
-/** Files at/above this size use the resumable path. */
-export const RESUMABLE_THRESHOLD_BYTES = 1024 * 1024 * 1024; // 1 GiB
+/**
+ * Chunk size we ask the server for. The server's own default is 64 MiB, but the
+ * apphost deploy sits behind IT's nginx, whose `client_max_body_size` is ~20 MiB
+ * — a 64 MiB part PUT is rejected with 413 before it reaches the app. 16 MiB
+ * keeps each part comfortably under that limit (and over the 5 MiB multipart
+ * floor). Sent as the `chunk_size` hint on create; the server clamps it to
+ * [5 MiB, 512 MiB]. If nginx's limit is raised, this can go back up.
+ */
+export const UPLOAD_CHUNK_BYTES = 16 * 1024 * 1024; // 16 MiB
+
+/**
+ * Files at/above this size use the chunked/resumable path; smaller ones take the
+ * single-request path. Pinned to one chunk so that the same ~20 MiB nginx
+ * `client_max_body_size` that forces small chunks (see UPLOAD_CHUNK_BYTES) can
+ * never be tripped by a single-shot upload either: any file larger than one
+ * chunk is split into ≤16 MiB parts, and any file that still takes the
+ * single-request path is itself under 16 MiB. Without this, files between the
+ * nginx limit and the old 1 GiB threshold (a normal 50–500 MB export) would POST
+ * their whole body in one request and 413. Raise this once nginx's limit is
+ * lifted — the server streams single-shot uploads to disk and handles far larger.
+ */
+export const RESUMABLE_THRESHOLD_BYTES = UPLOAD_CHUNK_BYTES;
 
 const MAX_PART_ATTEMPTS = 4;
 
@@ -126,7 +146,11 @@ export async function uploadGradescopeResumable(
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, total_bytes: file.size }),
+        body: JSON.stringify({
+          filename: file.name,
+          total_bytes: file.size,
+          chunk_size: UPLOAD_CHUNK_BYTES,
+        }),
       },
       CreateUploadResponseSchema,
     );
