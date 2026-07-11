@@ -259,3 +259,29 @@ describe('BLOB_STORAGE_BACKEND', () => {
     ).toThrow();
   });
 });
+
+describe('alert config', () => {
+  it('applies defaults', () => {
+    const env = parseEnv(VALID_BASE);
+    expect(env.ALERT_WEBHOOK_MIN_SEVERITY).toBe('warn');
+    expect(env.ALERT_WEBHOOK_TIMEOUT_MS).toBe(5000);
+    expect(env.ALERT_EMAIL_RECIPIENTS).toEqual([]);
+    expect(env.ALERT_SMTP_MIN_SEVERITY).toBe('critical');
+    expect(env.ALERT_DEDUPE_WINDOW_SECONDS).toBe(300);
+    expect(env.ALERT_WEBHOOK_URL).toBeUndefined();
+  });
+
+  it('parses a webhook url + recipients array', () => {
+    const env = parseEnv({
+      ...VALID_BASE,
+      ALERT_WEBHOOK_URL: 'https://discord.test/hook',
+      ALERT_EMAIL_RECIPIENTS: '["a@berkeley.edu","b@berkeley.edu"]',
+    });
+    expect(env.ALERT_WEBHOOK_URL).toBe('https://discord.test/hook');
+    expect(env.ALERT_EMAIL_RECIPIENTS).toEqual(['a@berkeley.edu', 'b@berkeley.edu']);
+  });
+
+  it('rejects a bad severity', () => {
+    expect(() => parseEnv({ ...VALID_BASE, ALERT_WEBHOOK_MIN_SEVERITY: 'loud' })).toThrow();
+  });
+});

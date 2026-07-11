@@ -124,6 +124,15 @@ const rawEnvSchema = z.object({
    * Increase if the analyzer serves many concurrent file-replay requests.
    */
   RECONSTRUCTION_CACHE_SIZE: intStr(100),
+  // Operational notifications (docs/superpowers/specs/2026-07-10-operational-notifications-design.md).
+  ALERT_WEBHOOK_URL: z.string().url().optional(),
+  ALERT_WEBHOOK_MIN_SEVERITY: z.enum(['info', 'warn', 'critical']).default('warn'),
+  ALERT_WEBHOOK_TIMEOUT_MS: intStr(5000),
+  ALERT_EMAIL_RECIPIENTS: jsonStringArray.default('[]'),
+  ALERT_SMTP_MIN_SEVERITY: z.enum(['info', 'warn', 'critical']).default('critical'),
+  ALERT_DEDUPE_WINDOW_SECONDS: intStr(300),
+  // Build commit, surfaced in the app.startup notification (baked by the Dockerfile).
+  GIT_SHA: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
