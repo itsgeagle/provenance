@@ -10,16 +10,13 @@
 import type { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useMe } from '../api/queries.js';
+import { RouteLoading } from '../components/a11y/RouteLoading.js';
 
 export function RequireSuperadmin({ children }: { children: ReactNode }) {
   const { data, isLoading } = useMe();
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <span className="text-sm text-gray-400">Loading…</span>
-      </div>
-    );
+    return <RouteLoading />;
   }
 
   if (data === undefined || !data.user.is_superadmin) {

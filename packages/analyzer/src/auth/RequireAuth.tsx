@@ -14,6 +14,8 @@ import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useMe } from '../api/queries.js';
 import { UnauthorizedError } from '../api/client.js';
+import { RouteLoading } from '../components/a11y/RouteLoading.js';
+import { RouteError } from '../components/a11y/RouteError.js';
 
 interface RequireAuthProps {
   children: ReactNode;
@@ -24,11 +26,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
   const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <span className="text-sm text-gray-500">Loading…</span>
-      </div>
-    );
+    return <RouteLoading />;
   }
 
   if (error instanceof UnauthorizedError) {
@@ -38,11 +36,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
 
   if (error !== null) {
     // Non-401 error: show error UI, don't redirect to login.
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <span className="text-sm text-red-600">Failed to load. Please refresh.</span>
-      </div>
-    );
+    return <RouteError message="Failed to load. Please refresh." />;
   }
 
   if (!data) {
