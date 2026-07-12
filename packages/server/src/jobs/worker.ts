@@ -643,6 +643,10 @@ export async function startWorker(): Promise<() => Promise<void>> {
           },
         );
         logger.info({ ingestJobId: job.data.ingestJobId }, 'ingest_stage_upload: completed');
+        // Dev profiling (INGEST_PROFILE=1): staging runs on ONE process and may
+        // not be the process that later runs ingest_finalize, so dump the
+        // per-phase `stage:*` split here rather than relying on the finalize dump.
+        dumpProfile((msg) => logger.info({ profile: true }, msg));
       } catch (err) {
         const cause = err instanceof Error ? err.message : String(err);
         logger.error({ ingestJobId: job.data.ingestJobId, err }, 'ingest_stage_upload: failed');

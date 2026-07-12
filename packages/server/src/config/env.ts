@@ -108,13 +108,17 @@ const rawEnvSchema = z.object({
    */
   INGEST_CONCURRENCY: intStr(4),
   /**
-   * Number of bundles the staging step writes concurrently while unpacking a
-   * Gradescope export (blob write + `ingest_files` insert + enqueue per bundle).
-   * Default 1 = serial (unchanged). Staging is otherwise a single serial job, so
-   * on network/NFS-backed storage it starves the ingest workers; raising this
-   * overlaps the per-bundle blob writes so the workers stay fed. Each in-flight
-   * stage briefly holds a DB connection for its row insert, so keep
-   * INGEST_STAGE_CONCURRENCY + INGEST_CONCURRENCY within DATABASE_POOL_MAX.
+   * Bundle-staging concurrency while unpacking a Gradescope export. Governs BOTH
+   * the number of bundles staged concurrently (blob write + `ingest_files`
+   * insert + enqueue) AND, when > 1, the size of the worker-thread pool that
+   * rebuilds each bundle's ZIP. The rebuild (JSZip serialization) is ~80% of the
+   * per-bundle staging cost and is pure-JS main-thread work, so a single staging
+   * job was capped at one core no matter how many worker replicas ran; the pool
+   * spreads it across `INGEST_STAGE_CONCURRENCY` cores of the staging process.
+   * Default 1 = serial, in-process (unchanged; no threads spawned). Raise it
+   * toward the core count to speed big-export staging. Each in-flight stage
+   * briefly holds a DB connection for its row insert (the pool threads do not),
+   * so keep INGEST_STAGE_CONCURRENCY + INGEST_CONCURRENCY within DATABASE_POOL_MAX.
    */
   INGEST_STAGE_CONCURRENCY: intStr(1),
   /**

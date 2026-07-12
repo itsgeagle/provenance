@@ -76,9 +76,12 @@ services:
       # Overlaps NFS I/O latency within a worker; CPU throughput comes from
       # running more worker replicas, not from raising this.
       INGEST_CONCURRENCY: "6"
-      # Staging (unpack a Gradescope export -> stage each bundle -> enqueue) is a
-      # single serial job; on the NFS mount its per-bundle blob writes otherwise
-      # starve the ingest workers. Overlap them so the workers stay fed.
+      # Staging (unpack a Gradescope export -> rebuild + stage each bundle ->
+      # enqueue) runs as a single job on one process. The per-bundle ZIP rebuild
+      # is ~80% of the cost and is pure-JS main-thread work, so this also sizes a
+      # worker-thread pool that rebuilds bundles across this many cores (in
+      # addition to overlapping the per-bundle blob writes). Raise toward the core
+      # count to speed big exports; the staging process uses this many cores.
       INGEST_STAGE_CONCURRENCY: "6"
       # Headroom for INGEST_CONCURRENCY (6) + INGEST_STAGE_CONCURRENCY (6) + pg-boss
       # polling on the staging worker. 4 workers x 16 = 64 conns < postgres default 100.

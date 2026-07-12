@@ -27,14 +27,33 @@ import {
 } from './job-control.js';
 import { stageBlob } from './stage-blob.js';
 import { createBoundedRunner } from './bounded-runner.js';
+import { recordPhase } from '../../jobs/ingest-profile.js';
 import { upsertRosterFromSubmitters } from './gradescope/upsert-roster.js';
 import { openLocalExport } from './gradescope/stream-export.js';
+import { zipBundleEntries, type BundleEntry } from './gradescope/build-bundle-zip.js';
+import { createRebuildPool, type RebuildPool } from './gradescope/rebuild-pool.js';
 import { getBoss, JOB_KINDS } from '../../jobs/pg-boss.js';
 import type { StorageClient } from '../storage/client.js';
 
 export interface IngestLocalPathDeps {
   db: DrizzleDb;
   storageClient: StorageClient;
+}
+
+/**
+ * Estimate the byte size of the STORE (uncompressed) bundle ZIP for `entries`
+ * without serializing it: each entry contributes its data plus a local file
+ * header (30 B + name) and a central-directory record (46 B + name), and the
+ * archive has a 22 B end-of-central-directory record. Exact enough for the
+ * per-bundle size cap (which guards against pathologically large bundles).
+ */
+function estimateStoreZipSize(entries: BundleEntry[]): number {
+  let total = 22; // end of central directory record
+  for (const e of entries) {
+    const nameLen = Buffer.byteLength(e.name, 'utf8');
+    total += 30 + nameLen + e.data.length + (46 + nameLen);
+  }
+  return total;
 }
 
 export interface IngestLocalPathArgs {
@@ -107,6 +126,10 @@ export async function ingestLocalPath(
     return { ok: false, error: opened.error, detail: opened.detail };
   }
 
+  // Hoisted so the `finally` can dispose it; assigned once staging concurrency
+  // is known below.
+  let rebuildPool: RebuildPool | null = null;
+
   try {
     // Populate/upsert the roster from the metadata up front (add/update only).
     const roster = await upsertRosterFromSubmitters(db, semesterId, opened.rosterSubmitters);
@@ -128,18 +151,47 @@ export async function ingestLocalPath(
 
     // Stage bundles with bounded concurrency (default 1 = serial). The ordered
     // bookkeeping — job creation, the file-count cap, and the counters — stays
-    // on this serial producer path; only the independent per-bundle work (blob
-    // write + row insert + enqueue) runs in the pool.
-    const runner = createBoundedRunner(args.stageConcurrency ?? 1);
+    // on this serial producer path; only the independent per-bundle work (zip
+    // rebuild + blob write + row insert + enqueue) runs concurrently.
+    const stageConcurrency = args.stageConcurrency ?? 1;
+    const runner = createBoundedRunner(stageConcurrency);
+
+    // The expensive per-bundle step is the JSZip serialization. When staging
+    // concurrently (>1), offload it to a worker pool so rebuilds run across
+    // cores instead of serially on this thread; otherwise (serial / CLI / tests)
+    // do it in-process to avoid spawning worker threads. Both produce identical
+    // bytes, so the staged blob's sha256 (the dedup key) is unchanged.
+    rebuildPool = stageConcurrency > 1 ? createRebuildPool(stageConcurrency) : null;
+    const rebuild = (entries: BundleEntry[]): Promise<Uint8Array> =>
+      rebuildPool !== null
+        ? rebuildPool.zip(entries)
+        : zipBundleEntries(entries).then((ab) => new Uint8Array(ab));
 
     try {
-      for await (const sub of opened.submissions()) {
+      // Drive the generator by hand so we can time the SERIAL producer step
+      // (`stage:generate` = per-bundle yauzl-inflate + JSZip rebuild) apart from
+      // the concurrent per-bundle work in the runner. When INGEST_PROFILE is off
+      // every recordPhase is a no-op, so this loop is behaviorally identical to a
+      // plain `for await`. The generate span is the true single-thread staging
+      // wall; blob-write/db-enqueue overlap in the runner and thus over-count
+      // (see ingest-profile.ts) — read them as relative shape only.
+      const iterator = opened.submissions();
+      for (;;) {
+        const genStart = performance.now();
+        const next = await iterator.next();
+        recordPhase('stage:generate', performance.now() - genStart);
+        if (next.done === true) break;
+        const sub = next.value;
+
         if (sub.kind === 'skipped') {
           skipped.push({ folderKey: sub.folderKey, reason: sub.reason });
           continue;
         }
 
-        if (sub.bundleZip.byteLength > maxBundleBytes) {
+        // The rebuilt STORE zip is ~the sum of entry bytes plus small per-entry
+        // headers; estimate it here (cheap) to preserve the pre-count size cap
+        // without doing the actual (now-offloaded) serialization first.
+        if (estimateStoreZipSize(sub.entries) > maxBundleBytes) {
           skipped.push({ folderKey: sub.folderKey, reason: 'bundle_too_large' });
           continue;
         }
@@ -169,7 +221,12 @@ export async function ingestLocalPath(
         }
 
         bundlesProcessed++;
-        const { bundleZip, folderKey } = sub;
+        const { entries, folderKey } = sub;
+        // Rebuild the bundle ZIP once per bundle (offloaded to the pool), shared
+        // across its co-submitters. Kicked off here so it proceeds while we
+        // stream the next folders; the runner's backpressure bounds how far the
+        // producer runs ahead, so at most ~stageConcurrency rebuilds are pending.
+        const bundleZipPromise = rebuild(entries);
         for (const submitter of sub.submitters) {
           const fileId = crypto.randomUUID();
           const matchSid = submitter.sid;
@@ -180,10 +237,15 @@ export async function ingestLocalPath(
           // maybeEnqueueFinalize will not settle the job early. `submit` applies
           // backpressure once `stageConcurrency` stages are in flight.
           await runner.submit(async () => {
+            const bundleZip = await bundleZipPromise;
+            const blobStart = performance.now();
             const { blobSha256, sizeBytes } = await stageBlob(
               { storageClient },
               { jobId: activeJobId, ingestFileId: fileId, body: bundleZip },
             );
+            recordPhase('stage:blob_write', performance.now() - blobStart);
+
+            const enqueueStart = performance.now();
             await db.insert(ingest_files).values({
               id: fileId,
               ingest_job_id: activeJobId,
@@ -198,6 +260,7 @@ export async function ingestLocalPath(
               { ingestFileId: fileId, ingestJobId: activeJobId },
               { retryLimit: 3 },
             );
+            recordPhase('stage:db_enqueue', performance.now() - enqueueStart);
           });
         }
       }
@@ -228,6 +291,7 @@ export async function ingestLocalPath(
       skipped,
     };
   } finally {
+    if (rebuildPool !== null) await rebuildPool.dispose();
     await opened.close();
   }
 }

@@ -213,6 +213,8 @@ describe('ingestLocalPath (disk export → roster + worker)', () => {
           archivePath: zipPath,
           maxBundleBytes: cfg.INGEST_MAX_BUNDLE_BYTES,
           maxBatchFiles: cfg.INGEST_MAX_BATCH_FILES,
+          // Exercise the worker-pool rebuild path (concurrency > 1) end-to-end.
+          stageConcurrency: 4,
         },
       );
 

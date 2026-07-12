@@ -43,6 +43,16 @@ export type BuildBundleZipResult =
   /** The folder has no manifest.json — it is not a provenance bundle. */
   | { ok: false; reason: 'no_manifest' };
 
+/** One flat bundle-root entry, ready to be zipped. */
+export interface BundleEntry {
+  name: string;
+  data: Uint8Array;
+}
+
+export type SelectBundleEntriesResult =
+  | { ok: true; entries: BundleEntry[] }
+  | { ok: false; reason: 'no_manifest' };
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -103,9 +113,23 @@ function submissionPathsFromManifest(manifestJson: string): Set<string> {
 export async function buildBundleZipFromFiles(
   files: Map<string, Uint8Array>,
 ): Promise<BuildBundleZipResult> {
-  // Collect candidate entries: bundle-root path → bytes, dropping macOS junk.
-  // `.provenance/` prefixes are stripped so the resulting paths are
-  // bundle-root-relative.
+  const selected = selectBundleEntries(files);
+  if (!selected.ok) return selected;
+  return { ok: true, data: await zipBundleEntries(selected.entries) };
+}
+
+/**
+ * The cheap half of {@link buildBundleZipFromFiles}: apply the junk/whitelist
+ * selection and `.provenance/`-prefix normalization, returning the flat entries
+ * that make up the bundle — in the exact order they must be zipped. No ZIP work
+ * happens here, so this stays fast enough to run on the serial staging producer
+ * while the (expensive) {@link zipBundleEntries} step is offloaded to a worker.
+ *
+ * Entry order is significant: it is the order the entries are written into the
+ * ZIP, which fixes the archive's byte layout and therefore its sha256 (the
+ * Gradescope dedup key). Keep it identical to the historical single-pass order.
+ */
+export function selectBundleEntries(files: Map<string, Uint8Array>): SelectBundleEntriesResult {
   const candidates = new Map<string, Uint8Array>();
   let manifestJsonBytes: Uint8Array | null = null;
 
@@ -131,16 +155,26 @@ export async function buildBundleZipFromFiles(
 
   const submissionPaths = submissionPathsFromManifest(new TextDecoder().decode(manifestJsonBytes));
 
-  const out = new JSZip();
+  const entries: BundleEntry[] = [];
   for (const [bundlePath, bytes] of candidates) {
     if (!isProvenanceFile(bundlePath) && !submissionPaths.has(bundlePath)) {
       continue; // not a recognized bundle file — drop it
     }
-    out.file(bundlePath, bytes);
+    entries.push({ name: bundlePath, data: bytes });
   }
+  return { ok: true, entries };
+}
 
-  const data = await out.generateAsync({ type: 'arraybuffer' });
-  return { ok: true, data };
+/**
+ * The expensive half: serialize pre-selected entries into a flat STORE ZIP.
+ * Kept byte-identical to the historical `new JSZip(); file(...); generateAsync`
+ * path (same entries, same order) so the archive sha256 is unchanged — the
+ * `rebuild-pool` worker performs the exact same steps off-thread.
+ */
+export async function zipBundleEntries(entries: BundleEntry[]): Promise<ArrayBuffer> {
+  const out = new JSZip();
+  for (const e of entries) out.file(e.name, e.data);
+  return out.generateAsync({ type: 'arraybuffer' });
 }
 
 // ---------------------------------------------------------------------------

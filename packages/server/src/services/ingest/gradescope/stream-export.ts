@@ -22,7 +22,7 @@
 
 import yauzl from 'yauzl';
 import { parseSubmissionMetadata, type GradescopeSubmitter } from './parse-metadata.js';
-import { buildBundleZipFromFiles } from './build-bundle-zip.js';
+import { selectBundleEntries, type BundleEntry } from './build-bundle-zip.js';
 
 const METADATA_FILENAME = 'submission_metadata.yml';
 
@@ -30,13 +30,18 @@ const METADATA_FILENAME = 'submission_metadata.yml';
 // Types
 // ---------------------------------------------------------------------------
 
-/** One submission, streamed: either a rebuilt bundle or a skipped folder. */
+/**
+ * One submission, streamed: either the selected bundle entries (ready to zip)
+ * or a skipped folder. The expensive ZIP serialization is intentionally NOT done
+ * here — the caller offloads `zipBundleEntries` to a worker pool so rebuilds run
+ * in parallel rather than serially on this generator's thread.
+ */
 export type StreamedSubmission =
   | {
       kind: 'bundle';
       folderKey: string;
       submitters: GradescopeSubmitter[];
-      bundleZip: ArrayBuffer;
+      entries: BundleEntry[];
     }
   | {
       kind: 'skipped';
@@ -252,13 +257,13 @@ export async function openLocalExport(archivePath: string): Promise<OpenLocalExp
         files.set(rel, await readEntryBytes(zip, entry));
       }
 
-      const built = await buildBundleZipFromFiles(files);
-      if (!built.ok) {
+      const selected = selectBundleEntries(files);
+      if (!selected.ok) {
         yield {
           kind: 'skipped',
           folderKey: sub.folderKey,
           submitters: sub.submitters,
-          reason: built.reason,
+          reason: selected.reason,
         };
         continue;
       }
@@ -266,7 +271,7 @@ export async function openLocalExport(archivePath: string): Promise<OpenLocalExp
         kind: 'bundle',
         folderKey: sub.folderKey,
         submitters: sub.submitters,
-        bundleZip: built.data,
+        entries: selected.entries,
       };
     }
   }

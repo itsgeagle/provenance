@@ -14,6 +14,7 @@ import path from 'node:path';
 import JSZip from 'jszip';
 import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
 import { openLocalExport, type StreamedSubmission } from './stream-export.js';
+import { zipBundleEntries } from './build-bundle-zip.js';
 
 const PROVENANCE_FILE = /^(manifest\.json|manifest\.sig|session-.*\.slog(\.meta)?)$/;
 
@@ -119,10 +120,12 @@ describe('openLocalExport (streaming local-path reader)', () => {
     const pair = bundles.find((b) => b.folderKey === 'submission_pair');
     expect(pair?.submitters.map((s) => s.sid).sort()).toEqual(['222', '333']);
 
-    // Each bundle is a valid flat ZIP with a manifest at the root.
+    // Each bundle's selected entries zip into a valid flat ZIP with a manifest
+    // at the root (the caller offloads this zipBundleEntries step to a pool).
     for (const b of bundles) {
       if (b.kind !== 'bundle') continue;
-      const inner = await JSZip.loadAsync(b.bundleZip);
+      expect(b.entries.some((e) => e.name === 'manifest.json')).toBe(true);
+      const inner = await JSZip.loadAsync(await zipBundleEntries(b.entries));
       expect(inner.file('manifest.json')).not.toBeNull();
     }
 
