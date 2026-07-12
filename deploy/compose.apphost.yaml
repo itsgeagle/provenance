@@ -91,10 +91,12 @@ services:
       # addition to overlapping the per-bundle blob writes). Raise toward the core
       # count to speed big exports; the staging process uses this many cores.
       INGEST_STAGE_CONCURRENCY: "6"
-      # Headroom for INGEST_CONCURRENCY (2) + staging row-inserts + pg-boss polling.
-      # The staging rebuild-pool threads use NO DB connection. 8 workers x 6 = 48
+      # Peak conns held by ONE process: a replica runs staging AND analysis, so
+      # INGEST_CONCURRENCY (2 analysis txns) + up to INGEST_STAGE_CONCURRENCY (6
+      # concurrent staging row-inserts on the main thread) + pg-boss polling ~= 10.
+      # The staging rebuild-pool threads use NO DB connection. 8 workers x 10 = 80
       # conns < postgres default 100 (leaves room for the api + migrate roles).
-      DATABASE_POOL_MAX: "6"
+      DATABASE_POOL_MAX: "10"
     volumes:
       - /home/submit/provenance:/data
     depends_on:
