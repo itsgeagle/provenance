@@ -11,12 +11,18 @@
 #   migrate -> one-shot, runs DB migrations then exits 0. api + worker wait on it.
 #   app     -> HTTP API only (--mode=api), listens on the nginx-fronted socket.
 #   worker  -> pg-boss jobs + cron only (--mode=worker). Scale for ingest CPU:
-#              `docker compose ... up --scale worker=2` (the systemd unit does this).
-# Ingest is CPU-bound on a single Node thread, so throughput scales with worker
-# PROCESSES, not with INGEST_CONCURRENCY inside one process. See docs/admin-guide.md.
+#              `docker compose ... up --scale worker=8` (the systemd unit does this).
+# Analysis (ingest_file) is CPU-bound on a single Node thread, so its throughput
+# scales with worker PROCESSES, not with INGEST_CONCURRENCY inside one process.
+# Staging (ingest_stage_upload) rebuilds bundles on a worker_threads pool sized by
+# INGEST_STAGE_CONCURRENCY, so its throughput scales with that. On this 16-core
+# box, 8 replicas + a 6-thread staging pool peaks at ~13 cores during an import
+# burst (bursty, near-idle otherwise). See docs/admin-guide.md.
 #
 # Memory: mem_limit caps each container to a fair share of the shared apphost
-# box (~16 GB total for Provenance here). NODE_OPTIONS bounds V8's heap so a
+# box (~21 GB total for Provenance here: 8 workers x 2 GB + Postgres + api).
+# The cap is set by the staging replica's peak (main thread + INGEST_STAGE_
+# CONCURRENCY worker threads each holding one bundle). NODE_OPTIONS bounds V8's heap so a
 # process can't size itself against the box's full physical RAM. mem_limit
 # requires cgroup memory-controller delegation under rootless Docker; if
 # `docker info` reports no memory-limit support, only the NODE_OPTIONS caps
@@ -67,15 +73,17 @@ services:
     env_file: .env
     environment:
       BLOB_STORAGE_FS_ROOT: /data
-      # Ingest holds parsed bundles + the 16-entry bundle LRU in heap. Raise
-      # (and mem_limit below) if you routinely ingest very large bundles.
-      NODE_OPTIONS: "--max-old-space-size=3072"
+      # Bounds V8 heap under the 2 GB mem_limit, leaving ~500 MB for buffers and
+      # the staging pool's worker-thread heaps. Raise this (and mem_limit below)
+      # if you routinely ingest very large bundles.
+      NODE_OPTIONS: "--max-old-space-size=1536"
       # fs/NFS blob syscalls per ingest job (2 reads + 1 write + 1 delete,
       # full-bundle buffered) go through libuv's threadpool; lift it off 4.
       UV_THREADPOOL_SIZE: "16"
-      # Overlaps NFS I/O latency within a worker; CPU throughput comes from
-      # running more worker replicas, not from raising this.
-      INGEST_CONCURRENCY: "6"
+      # Analysis is CPU-bound and single-threaded, so this adds NO CPU parallelism
+      # (that comes from more worker replicas); 2 just overlaps the small NFS/DB
+      # I/O per file. Kept low to bound per-replica memory + DB connections.
+      INGEST_CONCURRENCY: "2"
       # Staging (unpack a Gradescope export -> rebuild + stage each bundle ->
       # enqueue) runs as a single job on one process. The per-bundle ZIP rebuild
       # is ~80% of the cost and is pure-JS main-thread work, so this also sizes a
@@ -83,9 +91,10 @@ services:
       # addition to overlapping the per-bundle blob writes). Raise toward the core
       # count to speed big exports; the staging process uses this many cores.
       INGEST_STAGE_CONCURRENCY: "6"
-      # Headroom for INGEST_CONCURRENCY (6) + INGEST_STAGE_CONCURRENCY (6) + pg-boss
-      # polling on the staging worker. 4 workers x 16 = 64 conns < postgres default 100.
-      DATABASE_POOL_MAX: "16"
+      # Headroom for INGEST_CONCURRENCY (2) + staging row-inserts + pg-boss polling.
+      # The staging rebuild-pool threads use NO DB connection. 8 workers x 6 = 48
+      # conns < postgres default 100 (leaves room for the api + migrate roles).
+      DATABASE_POOL_MAX: "6"
     volumes:
       - /home/submit/provenance:/data
     depends_on:
@@ -93,8 +102,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    mem_limit: 4g
-    memswap_limit: 4g
+    # 8 replicas x 2g = 16 GB workers; sized for the staging replica's peak (main
+    # thread + INGEST_STAGE_CONCURRENCY worker threads, each holding one bundle).
+    mem_limit: 2g
+    memswap_limit: 2g
     restart: unless-stopped
   postgres:
     image: postgres:16
