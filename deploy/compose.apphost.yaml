@@ -91,11 +91,13 @@ services:
       # addition to overlapping the per-bundle blob writes). Raise toward the core
       # count to speed big exports; the staging process uses this many cores.
       INGEST_STAGE_CONCURRENCY: "6"
-      # Peak conns held by ONE process: a replica runs staging AND analysis, so
-      # INGEST_CONCURRENCY (2 analysis txns) + up to INGEST_STAGE_CONCURRENCY (6
-      # concurrent staging row-inserts on the main thread) + pg-boss polling ~= 10.
-      # The staging rebuild-pool threads use NO DB connection. 8 workers x 10 = 80
-      # conns < postgres default 100 (leaves room for the api + migrate roles).
+      # The Drizzle pool. Peak conns held by ONE process from THIS pool: a replica
+      # runs staging AND analysis, so INGEST_CONCURRENCY (2 analysis txns) + up to
+      # INGEST_STAGE_CONCURRENCY (6 concurrent staging row-inserts on the main
+      # thread) ~= 8-10 (the staging rebuild-pool threads use NO DB connection).
+      # NOTE: pg-boss opens a SEPARATE ~10-conn pool per process on top of this, so
+      # real per-process peak is ~20; 8 workers + api ≈ 180 backends — that's why
+      # postgres.max_connections is raised to 250 above (default 100 was too low).
       DATABASE_POOL_MAX: "10"
     volumes:
       - /home/submit/provenance:/data
@@ -111,6 +113,17 @@ services:
     restart: unless-stopped
   postgres:
     image: postgres:16
+    # Each server process opens TWO independent pools: the Drizzle pool
+    # (DATABASE_POOL_MAX=10) AND pg-boss's own internal pool (~10). So 8 workers
+    # + the api ≈ (9 x ~20) ≈ 180 backends at peak — well over the built-in
+    # default of 100 ("too many clients already"). Raise the ceiling to 250
+    # (safe within this container's 3g mem_limit: idle backends are a few MB each,
+    # ~750 MB worst case + shared_buffers + work_mem). Only this self-hosted
+    # container is affected; it stays inside its own mem_limit.
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=250"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
