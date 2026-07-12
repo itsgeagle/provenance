@@ -503,7 +503,11 @@ export function createIngestRouter(): Hono {
           fileRows.map((r) => ({
             name: JOB_KINDS.INGEST_FILE,
             data: { ingestFileId: r.id, ingestJobId: jobId },
+            // Exponential backoff so a transient-error retry (connection
+            // exhaustion, brief PG restart) lands after the pressure clears.
             retryLimit: 3,
+            retryDelay: 10,
+            retryBackoff: true,
           })),
         );
       } catch (stagingErr) {

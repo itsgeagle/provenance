@@ -63,6 +63,7 @@ import { computeAndStoreStats } from '../services/ingest/stats.js';
 import { runAndStoreValidation } from '../services/ingest/validation.js';
 import { runAndStoreHeuristics } from '../services/heuristics/run-per-submission.js';
 import { withTransaction } from '../db/client.js';
+import { isTransientDbError } from '../db/transient-error.js';
 import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
 import { registerRecomputeHandlers } from './recompute.js';
 import { registerCrossFlagsHandler, enqueueCrossFlagsJob } from './recompute-cross-flags.js';
@@ -147,6 +148,10 @@ export async function startWorker(): Promise<() => Promise<void>> {
     logger.info({ ingestFileId, ingestJobId }, 'ingest_file: started');
 
     const handlerStart = performance.now();
+    // Once the submission is created, createSubmission has moved the bundle blob
+    // out of staging (the staging key is deleted), so a retry could no longer
+    // re-parse it. Only transient errors BEFORE this point are safe to retry.
+    let submissionCreated = false;
     try {
       // -----------------------------------------------------------------------
       // Look up the ingest_files row.
@@ -388,6 +393,8 @@ export async function startWorker(): Promise<() => Promise<void>> {
           },
         ),
       );
+      // Blob has been moved out of staging — past here a retry cannot re-parse.
+      submissionCreated = true;
 
       // The supersede loop runs OUTSIDE the transaction below.
       // Rationale: these are older submissions' ingest_files rows, possibly from
@@ -500,6 +507,18 @@ export async function startWorker(): Promise<() => Promise<void>> {
         'ingest_file: matched and submission created',
       );
     } catch (err) {
+      // Transient infra failure (connection-pool exhaustion, brief Postgres
+      // restart, dropped socket) that occurred BEFORE the submission was created:
+      // leave the file 'pending' and re-throw so pg-boss retries the job with
+      // backoff, instead of silently dropping the submission with a permanent
+      // 'failed'. Reprocessing is idempotent — the status guard at the top skips
+      // already-resolved files. Once submissionCreated is true the staging blob is
+      // gone, so we can't re-parse; fall through to mark-failed in that case.
+      if (!submissionCreated && isTransientDbError(err)) {
+        logger.warn({ ingestFileId, err }, 'ingest_file: transient error, will retry');
+        throw err;
+      }
+
       // Unhandled error — mark file as failed with the error detail.
       const cause = err instanceof Error ? err.message : String(err);
       logger.error({ ingestFileId, err }, 'ingest_file: unhandled error');

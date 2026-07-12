@@ -258,7 +258,10 @@ export async function ingestLocalPath(
             await boss.send(
               JOB_KINDS.INGEST_FILE,
               { ingestFileId: fileId, ingestJobId: activeJobId },
-              { retryLimit: 3 },
+              // Exponential backoff so a transient-error retry (e.g. connection
+              // exhaustion during a big import) lands after the pressure clears
+              // instead of hammering immediately. See isTransientDbError in worker.ts.
+              { retryLimit: 3, retryDelay: 10, retryBackoff: true },
             );
             recordPhase('stage:db_enqueue', performance.now() - enqueueStart);
           });
