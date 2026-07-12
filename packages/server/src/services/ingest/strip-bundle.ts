@@ -22,12 +22,16 @@
  *
  * Output is deterministic (stable entry order + fixed timestamps) so the stored
  * blob's sha256 is reproducible.
+ *
+ * DEFLATE is done with native `node:zlib` (see zip-writer.ts) rather than JSZip's
+ * pure-JS pako: it is faster and runs on the libuv threadpool, keeping the
+ * compression off the ingest main thread. DEFLATE is lossless, so the entries'
+ * decompressed bytes — including the signed manifest — are unchanged; the stored
+ * bundle stays signature- and chain-verifiable after a loader round-trip.
  */
 
 import JSZip from 'jszip';
-
-/** Fixed timestamp for every emitted entry — keeps output byte-deterministic. */
-const FIXED_ENTRY_DATE = new Date(0);
+import { writeDeflateZip, type ZipEntryInput } from './zip-writer.js';
 
 /** True for the entries that make up a provenance-only bundle. */
 export function isProvenanceEntry(name: string): boolean {
@@ -42,6 +46,10 @@ export function isProvenanceEntry(name: string): boolean {
 /**
  * Return a new ZIP containing only the provenance entries of `zipBytes`
  * (manifest.json, manifest.sig, *.slog, *.slog.meta). Source files are dropped.
+ *
+ * JSZip reads the input so entry bytes are extracted verbatim (source entries
+ * are never inflated — `.async` is only called on provenance entries); the
+ * output is (re)built with the native zlib writer.
  */
 export async function stripBundleSourceFiles(zipBytes: Uint8Array): Promise<Uint8Array> {
   const input = await JSZip.loadAsync(zipBytes);
@@ -49,18 +57,13 @@ export async function stripBundleSourceFiles(zipBytes: Uint8Array): Promise<Uint
   // Stable order for deterministic output.
   const names = Object.keys(input.files).sort();
 
-  const output = new JSZip();
+  const entries: ZipEntryInput[] = [];
   for (const name of names) {
     const entry = input.files[name];
     if (entry === undefined || entry.dir) continue;
     if (!isProvenanceEntry(name)) continue;
-    const bytes = await entry.async('uint8array');
-    output.file(name, bytes, { date: FIXED_ENTRY_DATE });
+    entries.push({ name, data: await entry.async('uint8array') });
   }
 
-  return output.generateAsync({
-    type: 'uint8array',
-    compression: 'DEFLATE',
-    compressionOptions: { level: 6 },
-  });
+  return writeDeflateZip(entries);
 }
