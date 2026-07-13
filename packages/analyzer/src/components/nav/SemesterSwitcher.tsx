@@ -53,7 +53,7 @@ export function SemesterSwitcher() {
     >
       {semesters.map((s) => (
         <option key={s.semester_id} value={s.semester_id}>
-          {s.course_slug} — {s.semester_slug}
+          {s.course_name} — {s.semester_display_name}
         </option>
       ))}
     </select>

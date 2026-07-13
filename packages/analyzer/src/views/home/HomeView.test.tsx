@@ -40,8 +40,8 @@ describe('HomeView', () => {
       expect(screen.getByTestId('semester-list')).toBeInTheDocument();
     });
 
-    // Default handler returns one semester: cs61a — sp25
-    expect(screen.getByText(/cs61a.*sp25/i)).toBeInTheDocument();
+    // Default handler returns one semester: CS 61A — Spring 2025
+    expect(screen.getByText(/CS 61A.*Spring 2025/i)).toBeInTheDocument();
   });
 
   it('renders a link to /s/:semesterSlug for each semester', async () => {
@@ -76,14 +76,18 @@ describe('HomeView', () => {
         {
           semester_id: '00000000-0000-0000-0000-000000000010',
           semester_slug: 'sp25',
+          semester_display_name: 'Spring 2025',
           course_slug: 'cs61a',
+          course_name: 'CS 61A',
           role: 'admin',
           granted_at: '2025-01-01T00:00:00.000Z',
         },
         {
           semester_id: '00000000-0000-0000-0000-000000000011',
           semester_slug: 'fa24',
+          semester_display_name: 'Fall 2024',
           course_slug: 'cs61a',
+          course_name: 'CS 61A',
           role: 'grader',
           granted_at: '2024-08-15T00:00:00.000Z',
         },

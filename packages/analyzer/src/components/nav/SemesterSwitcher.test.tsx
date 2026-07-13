@@ -19,7 +19,9 @@ import { SemesterSwitcher } from './SemesterSwitcher.js';
 const SP25_IN_CS61A: Membership = {
   semester_id: '00000000-0000-0000-0000-0000000000a1',
   semester_slug: 'sp25',
+  semester_display_name: 'Spring 2025',
   course_slug: 'cs61a',
+  course_name: 'CS 61A',
   role: 'admin',
   granted_at: '2025-01-01T00:00:00.000Z',
 };
@@ -27,7 +29,9 @@ const SP25_IN_CS61A: Membership = {
 const SP25_IN_CS61B: Membership = {
   semester_id: '00000000-0000-0000-0000-0000000000b1',
   semester_slug: 'sp25',
+  semester_display_name: 'Spring 2025',
   course_slug: 'cs61b',
+  course_name: 'CS 61B',
   role: 'grader',
   granted_at: '2025-01-01T00:00:00.000Z',
 };

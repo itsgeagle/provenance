@@ -325,7 +325,7 @@ function CreateForm({ onCreated, onError }: CreateFormProps) {
                   data-testid={`semester-checkbox-${m.semester_slug}`}
                 />
                 <span>
-                  {m.course_slug} · {m.semester_slug}{' '}
+                  {m.course_name} · {m.semester_display_name}{' '}
                   <span className="text-gray-400">({m.role})</span>
                 </span>
               </label>

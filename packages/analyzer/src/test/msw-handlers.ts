@@ -67,7 +67,9 @@ export const defaultUser = {
 export const defaultMembership = {
   semester_id: '00000000-0000-0000-0000-000000000010',
   semester_slug: 'sp25',
+  semester_display_name: 'Spring 2025',
   course_slug: 'cs61a',
+  course_name: 'CS 61A',
   role: 'admin' as const,
   granted_at: '2025-01-01T00:00:00.000Z',
 };

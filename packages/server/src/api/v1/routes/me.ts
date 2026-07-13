@@ -38,7 +38,9 @@ interface UserSummary {
 interface MembershipSummary {
   semester_id: string;
   semester_slug: string;
+  semester_display_name: string;
   course_slug: string;
+  course_name: string;
   role: 'admin' | 'grader';
   granted_at: string;
 }
@@ -136,7 +138,9 @@ export function createMeRouter(): Hono {
     const memberships: MembershipSummary[] = membershipRows.map((m) => ({
       semester_id: m.semester_id,
       semester_slug: m.semester_slug,
+      semester_display_name: m.semester_display_name,
       course_slug: m.course_slug,
+      course_name: m.course_name,
       role: m.role as 'admin' | 'grader',
       granted_at: m.granted_at.toISOString(),
     }));

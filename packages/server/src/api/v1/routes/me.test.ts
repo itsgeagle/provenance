@@ -338,7 +338,9 @@ describe('GET /me — authenticated', () => {
         const mem = body.memberships[0];
         expect(mem.semester_id).toBe(semester!.id);
         expect(mem.semester_slug).toBe('fa2024');
+        expect(mem.semester_display_name).toBe('Fall 2024');
         expect(mem.course_slug).toBe('cs61a');
+        expect(mem.course_name).toBe('CS 61A');
         expect(mem.role).toBe('grader');
         expect(mem.granted_at).toBeTruthy();
       } finally {

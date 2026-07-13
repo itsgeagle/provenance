@@ -500,7 +500,9 @@ export async function getUserMemberships(
   Array<{
     semester_id: string;
     semester_slug: string;
+    semester_display_name: string;
     course_slug: string;
+    course_name: string;
     role: string;
     granted_at: Date;
   }>
@@ -509,7 +511,9 @@ export async function getUserMemberships(
     .select({
       semester_id: memberships.semester_id,
       semester_slug: semesters.slug,
+      semester_display_name: semesters.display_name,
       course_slug: courses.slug,
+      course_name: courses.name,
       role: memberships.role,
       granted_at: memberships.granted_at,
     })

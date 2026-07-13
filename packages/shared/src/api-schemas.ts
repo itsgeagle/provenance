@@ -37,7 +37,9 @@ export type TokenScopes = z.infer<typeof TokenScopesSchema>;
 export const MembershipSchema = z.object({
   semester_id: z.string().uuid(),
   semester_slug: z.string(),
+  semester_display_name: z.string(),
   course_slug: z.string(),
+  course_name: z.string(),
   role: z.enum(['admin', 'grader']),
   granted_at: z.string().datetime(),
 });

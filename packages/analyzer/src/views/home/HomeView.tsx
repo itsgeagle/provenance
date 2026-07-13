@@ -70,7 +70,7 @@ export function HomeView() {
             >
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium text-foreground">
-                  {s.course_slug} — {s.semester_slug}
+                  {s.course_name} — {s.semester_display_name}
                 </span>
                 <Badge variant="secondary" className="mt-1.5 capitalize">
                   {s.role}
