@@ -467,8 +467,90 @@ describe('GET /google/callback — superadmin email (DB injected)', () => {
       }
     });
   });
-});
 
+  it('promotes an existing user to is_superadmin=true when added to the allowlist', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        // Pre-create the user as a non-superadmin (they logged in before
+        // their email was added to AUTH_SUPERADMIN_EMAILS).
+        await db
+          .insert(users)
+          .values({
+            google_subject: 'sub-superadmin',
+            email: 'superadmin@berkeley.edu',
+            display_name: 'Super Admin',
+            is_superadmin: false,
+          })
+          .returning();
+
+        const fake = new FakeGoogleOAuthClient({ state: 'st' });
+        fake.setClaims({
+          sub: 'sub-superadmin',
+          email: 'superadmin@berkeley.edu',
+          email_verified: true,
+          hd: 'berkeley.edu',
+          name: 'Super Admin',
+        });
+        const app = makeApp(fake);
+
+        const { oauthCookie } = await doStart(app, '/');
+        const res = await doCallback(app, oauthCookie, 'code', 'st');
+        expect(res.status).toBe(302);
+
+        const userRows = await db
+          .select()
+          .from(users)
+          .where(eq(users.google_subject, 'sub-superadmin'));
+        expect(userRows).toHaveLength(1);
+        expect(userRows[0]!.is_superadmin).toBe(true);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('demotes an existing superadmin removed from the allowlist on next login', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        // Pre-create a superadmin whose email is NOT in AUTH_SUPERADMIN_EMAILS.
+        await db
+          .insert(users)
+          .values({
+            google_subject: 'sub-former-superadmin',
+            email: 'former@berkeley.edu',
+            display_name: 'Former Admin',
+            is_superadmin: true,
+          })
+          .returning();
+
+        const fake = new FakeGoogleOAuthClient({ state: 'st' });
+        fake.setClaims({
+          sub: 'sub-former-superadmin',
+          email: 'former@berkeley.edu',
+          email_verified: true,
+          hd: 'berkeley.edu',
+          name: 'Former Admin',
+        });
+        const app = makeApp(fake);
+
+        const { oauthCookie } = await doStart(app, '/');
+        const res = await doCallback(app, oauthCookie, 'code', 'st');
+        expect(res.status).toBe(302);
+
+        const userRows = await db
+          .select()
+          .from(users)
+          .where(eq(users.google_subject, 'sub-former-superadmin'));
+        expect(userRows).toHaveLength(1);
+        expect(userRows[0]!.is_superadmin).toBe(false);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+});
 // ---------------------------------------------------------------------------
 // POST /logout
 // ---------------------------------------------------------------------------

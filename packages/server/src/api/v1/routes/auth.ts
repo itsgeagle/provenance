@@ -160,6 +160,14 @@ export function createAuthRouter(): Hono {
     let userId!: string;
     let activatedCount = 0;
 
+    // The superadmin allowlist is the sole source of truth for is_superadmin
+    // (nothing else ever sets it). Recompute it on every login so that adding
+    // or removing an email in AUTH_SUPERADMIN_EMAILS takes effect on the user's
+    // next login — not only when the user row is first created. Without this,
+    // an already-existing user promoted to the allowlist would stay a non-admin
+    // and be forced to be explicitly added to each course.
+    const isSuperadmin = cfg.AUTH_SUPERADMIN_EMAILS.includes(claims.email);
+
     await withTransaction(db, async (tx) => {
       const existingRows = await tx
         .select()
@@ -168,7 +176,7 @@ export function createAuthRouter(): Hono {
         .limit(1);
 
       if (existingRows.length > 0 && existingRows[0] !== undefined) {
-        // Found — update mutable fields.
+        // Found — update mutable fields, re-syncing is_superadmin from config.
         const existing = existingRows[0];
         userId = existing.id;
         await tx
@@ -177,11 +185,11 @@ export function createAuthRouter(): Hono {
             last_login_at: new Date(),
             display_name: claims.name ?? existing.display_name,
             email: claims.email,
+            is_superadmin: isSuperadmin,
           })
           .where(eq(users.id, userId));
       } else {
         // Not found — create a new user.
-        const isSuperadmin = cfg.AUTH_SUPERADMIN_EMAILS.includes(claims.email);
         const inserted = await tx
           .insert(users)
           .values({
