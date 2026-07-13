@@ -525,3 +525,43 @@ export async function getUserMemberships(
 
   return rows;
 }
+
+/**
+ * All semesters as synthetic admin memberships, for superadmins.
+ *
+ * Superadmins are not required to hold explicit memberships — they bypass every
+ * membership check in authorize() (step 5). But /me (and therefore the home
+ * screen tiles and the semester switcher, which are both driven off the
+ * memberships array) is membership-shaped. This returns every semester as an
+ * `admin`-role membership so a superadmin sees the full set of courses/
+ * semesters. `granted_at` is stubbed to the semester's created_at — no real
+ * grant exists — which also gives a stable, deterministic ordering.
+ *
+ * Returns the same row shape as getUserMemberships so callers are interchangeable.
+ */
+export async function getAllSemestersAsMemberships(db: DrizzleDb): Promise<
+  Array<{
+    semester_id: string;
+    semester_slug: string;
+    semester_display_name: string;
+    course_slug: string;
+    course_name: string;
+    role: string;
+    granted_at: Date;
+  }>
+> {
+  const rows = await db
+    .select({
+      semester_id: semesters.id,
+      semester_slug: semesters.slug,
+      semester_display_name: semesters.display_name,
+      course_slug: courses.slug,
+      course_name: courses.name,
+      granted_at: semesters.created_at,
+    })
+    .from(semesters)
+    .innerJoin(courses, eq(semesters.course_id, courses.id))
+    .orderBy(desc(semesters.created_at));
+
+  return rows.map((r) => ({ ...r, role: 'admin' }));
+}

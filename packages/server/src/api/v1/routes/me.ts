@@ -134,7 +134,18 @@ export function createMeRouter(): Hono {
     const viewAs = principal.principal_kind === 'session' ? principal.viewAs : undefined;
     const membershipsUserId = viewAs !== undefined ? viewAs.userId : user.id;
 
-    const membershipRows = await structureService.getUserMemberships(db, membershipsUserId);
+    // A superadmin holds no explicit memberships but has access to everything
+    // (authorize() step 5). Since the home screen and semester switcher are
+    // driven off this memberships array, synthesize one admin membership per
+    // semester so a superadmin sees all courses/semesters. Scoped to session
+    // principals not in view-as: view-as must reflect the target's real
+    // memberships, and API tokens keep their (scope-limited) real memberships.
+    const superadminSeesAll =
+      principal_kind === 'session' && viewAs === undefined && user.is_superadmin;
+
+    const membershipRows = superadminSeesAll
+      ? await structureService.getAllSemestersAsMemberships(db)
+      : await structureService.getUserMemberships(db, membershipsUserId);
     const memberships: MembershipSummary[] = membershipRows.map((m) => ({
       semester_id: m.semester_id,
       semester_slug: m.semester_slug,

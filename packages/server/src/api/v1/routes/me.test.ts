@@ -348,4 +348,104 @@ describe('GET /me — authenticated', () => {
       }
     });
   });
+
+  it('superadmin with no explicit memberships sees all semesters as admin', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        // Superadmin who is NOT a member of any semester.
+        const admin = await insertUser(db, {
+          email: 'admin@berkeley.edu',
+          is_superadmin: true,
+        });
+        const sessionId = await insertSession(db, admin.id);
+
+        // Two semesters across two courses; the superadmin has no membership rows.
+        const [courseA] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+        const [courseB] = await db
+          .insert(courses)
+          .values({ name: 'CS 61B', slug: 'cs61b' })
+          .returning();
+        await db.insert(semesters).values({
+          course_id: courseA!.id,
+          term: 'fa',
+          year: 2024,
+          slug: 'fa2024',
+          display_name: 'Fall 2024',
+          filename_convention: '(?<sid>[a-z0-9]+)_hw',
+        });
+        await db.insert(semesters).values({
+          course_id: courseB!.id,
+          term: 'sp',
+          year: 2025,
+          slug: 'sp2025',
+          display_name: 'Spring 2025',
+          filename_convention: '(?<sid>[a-z0-9]+)_hw',
+        });
+
+        const app = makeMeApp();
+        const res = await app.fetch(
+          new Request('http://localhost/', {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.user.is_superadmin).toBe(true);
+
+        // All semesters surface, each as an admin membership.
+        expect(body.memberships.length).toBe(2);
+        for (const mem of body.memberships) {
+          expect(mem.role).toBe('admin');
+          expect(mem.granted_at).toBeTruthy();
+        }
+        const slugs = body.memberships.map((m: { semester_slug: string }) => m.semester_slug);
+        expect(slugs).toContain('fa2024');
+        expect(slugs).toContain('sp2025');
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
+
+  it('non-superadmin with no memberships sees no semesters', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      try {
+        const user = await insertUser(db, { is_superadmin: false });
+        const sessionId = await insertSession(db, user.id);
+
+        // A semester exists, but the user is not a member of it.
+        const [course] = await db
+          .insert(courses)
+          .values({ name: 'CS 61A', slug: 'cs61a' })
+          .returning();
+        await db.insert(semesters).values({
+          course_id: course!.id,
+          term: 'fa',
+          year: 2024,
+          slug: 'fa2024',
+          display_name: 'Fall 2024',
+          filename_convention: '(?<sid>[a-z0-9]+)_hw',
+        });
+
+        const app = makeMeApp();
+        const res = await app.fetch(
+          new Request('http://localhost/', {
+            headers: { Cookie: `__Host-prov_sess=${sessionId}` },
+          }),
+        );
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.memberships).toEqual([]);
+      } finally {
+        _testDb = null;
+      }
+    });
+  });
 });
