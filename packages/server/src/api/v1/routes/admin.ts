@@ -167,7 +167,9 @@ export function createAdminRouter(): Hono {
         .select({
           semester_id: memberships.semester_id,
           semester_slug: semesters.slug,
+          semester_display_name: semesters.display_name,
           course_slug: courses.slug,
+          course_name: courses.name,
           role: memberships.role,
           granted_at: memberships.granted_at,
         })
@@ -190,7 +192,9 @@ export function createAdminRouter(): Hono {
         memberships: membershipRows.map((m) => ({
           semester_id: m.semester_id,
           semester_slug: m.semester_slug,
+          semester_display_name: m.semester_display_name,
           course_slug: m.course_slug,
+          course_name: m.course_name,
           role: m.role as 'admin' | 'grader',
           granted_at: m.granted_at.toISOString(),
         })),

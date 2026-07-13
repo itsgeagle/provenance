@@ -25,6 +25,7 @@ import { parseEnv } from '../../../config/env.js';
 import { createV1App } from '../index.js';
 import { users, sessions, audit_log, courses, semesters, memberships } from '../../../db/schema.js';
 import type { DrizzleDb } from '../../../db/client.js';
+import { AdminUserDetailResponseSchema } from '@provenance/shared/api-schemas';
 
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
@@ -229,6 +230,37 @@ describe('GET /admin/users/:id', () => {
       expect(body.user.email).toBe('target@berkeley.edu');
       expect(body.memberships).toHaveLength(1);
       expect(body.memberships[0]!.role).toBe('grader');
+    });
+  });
+
+  it('response satisfies the shared AdminUserDetailResponseSchema (memberships carry display names)', async () => {
+    await withTestDb(async (db) => {
+      _testDb = db;
+      _setConfigForTest(parseEnv(makeTestEnv()));
+
+      const sa = await seedUser(db, { isSuperadmin: true });
+      const sessionId = await seedSession(db, sa.id);
+      const target = await seedUser(db, { email: 'target@berkeley.edu' });
+      const { semester } = await seedCourseAndSemester(db);
+      await db.insert(memberships).values({
+        user_id: target.id,
+        semester_id: semester.id,
+        role: 'grader',
+        granted_by: sa.id,
+      });
+
+      const app = createV1App();
+      const res = await app.fetch(
+        new Request(`http://localhost/admin/users/${target.id}`, {
+          headers: cookieHeader(sessionId),
+        }),
+      );
+      expect(res.status).toBe(200);
+      // The analyzer validates this exact response with the shared schema; if
+      // the handler omits semester_display_name/course_name the parse throws
+      // and the UI shows "Failed to load user."
+      const parsed = AdminUserDetailResponseSchema.parse(await res.json());
+      expect(parsed.memberships[0]!.semester_display_name).toBe(semester.display_name);
     });
   });
 

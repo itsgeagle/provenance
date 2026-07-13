@@ -655,11 +655,21 @@ export const components = {
           type: 'array',
           items: {
             type: 'object',
-            required: ['semester_id', 'semester_slug', 'course_slug', 'role', 'granted_at'],
+            required: [
+              'semester_id',
+              'semester_slug',
+              'semester_display_name',
+              'course_slug',
+              'course_name',
+              'role',
+              'granted_at',
+            ],
             properties: {
               semester_id: { $ref: '#/components/schemas/UUID' },
               semester_slug: { type: 'string' },
+              semester_display_name: { type: 'string' },
               course_slug: { type: 'string' },
+              course_name: { type: 'string' },
               role: { $ref: '#/components/schemas/Role' },
               granted_at: { $ref: '#/components/schemas/ISODate' },
             },
