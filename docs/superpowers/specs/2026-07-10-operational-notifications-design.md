@@ -9,7 +9,7 @@
 Provenance is moving to a single-host deployment (EECS apphost) that protects
 academic-integrity evidence. When something important happens — a crash, a dead-lettered
 ingest job, the storage volume nearing its hard 1TB quota — the operator (Aaryan) needs to
-be *pushed* a message, not have to notice it in logs. There is no paid SMTP yet, and the
+be _pushed_ a message, not have to notice it in logs. There is no paid SMTP yet, and the
 apphost has no external alerting infrastructure we control.
 
 This feature adds a small **operational-notification subsystem**: a `notify()` façade that
@@ -37,15 +37,15 @@ type Severity = 'info' | 'warn' | 'critical';
 
 interface NotifyEvent {
   severity: Severity;
-  kind: string;         // stable machine key, e.g. 'app.startup', 'job.dead_letter'
-  title: string;        // one-line human summary
-  detail?: Record<string, unknown>;  // structured context (safe to serialize)
-  dedupeKey?: string;   // defaults to `kind`; collapses repeats within the window
+  kind: string; // stable machine key, e.g. 'app.startup', 'job.dead_letter'
+  title: string; // one-line human summary
+  detail?: Record<string, unknown>; // structured context (safe to serialize)
+  dedupeKey?: string; // defaults to `kind`; collapses repeats within the window
 }
 
 interface Notifier {
-  notify(event: NotifyEvent): void;  // fire-and-forget; never throws, never blocks
-  flush(): Promise<void>;            // best-effort drain (used on shutdown/crash)
+  notify(event: NotifyEvent): void; // fire-and-forget; never throws, never blocks
+  flush(): Promise<void>; // best-effort drain (used on shutdown/crash)
 }
 ```
 
@@ -88,13 +88,13 @@ bounded in-memory `Map` (LRU-capped so an unbounded key space can't leak).
 
 - `index.ts` installs `process.on('uncaughtException')` and `'unhandledRejection'`
   handlers that `notify({severity:'critical', kind:'process.crash', ...})`, `await
-  notifier.flush()` with a hard timeout, then exit non-zero. These augment (do not replace)
+notifier.flush()` with a hard timeout, then exit non-zero. These augment (do not replace)
   the existing `.catch` path.
 - `index.ts` emits `app.startup` (info: git SHA via `GIT_SHA` env baked at build, run mode,
   blob backend, which crons armed) after a successful boot, and `app.shutdown` (info:
   signal) inside the existing SIGTERM/SIGINT `shutdown()` before draining.
 - `worker.ts` hooks pg-boss's existing `boss.on('error')` → `notify({critical,
-  kind:'pgboss.error'})`.
+kind:'pgboss.error'})`.
 
 ### Job-failure notifications
 
@@ -107,30 +107,30 @@ on every transient retry.
 
 ## Config (env additions)
 
-| Var | Default | Meaning |
-|-----|---------|---------|
-| `ALERT_WEBHOOK_URL` | (unset) | Discord/Slack incoming webhook; unset → webhook sink off |
-| `ALERT_WEBHOOK_MIN_SEVERITY` | `warn` | Min severity for the webhook sink |
-| `ALERT_WEBHOOK_TIMEOUT_MS` | `5000` | Per-POST timeout |
-| `ALERT_EMAIL_RECIPIENTS` | `[]` | JSON array; empty → smtp sink off |
-| `ALERT_SMTP_MIN_SEVERITY` | `critical` | Min severity for the smtp sink |
-| `ALERT_DEDUPE_WINDOW_SECONDS` | `300` | Per-key suppression window |
-| `GIT_SHA` | (unset) | Build commit, surfaced in the startup event (baked by the Dockerfile) |
+| Var                           | Default    | Meaning                                                               |
+| ----------------------------- | ---------- | --------------------------------------------------------------------- |
+| `ALERT_WEBHOOK_URL`           | (unset)    | Discord/Slack incoming webhook; unset → webhook sink off              |
+| `ALERT_WEBHOOK_MIN_SEVERITY`  | `warn`     | Min severity for the webhook sink                                     |
+| `ALERT_WEBHOOK_TIMEOUT_MS`    | `5000`     | Per-POST timeout                                                      |
+| `ALERT_EMAIL_RECIPIENTS`      | `[]`       | JSON array; empty → smtp sink off                                     |
+| `ALERT_SMTP_MIN_SEVERITY`     | `critical` | Min severity for the smtp sink                                        |
+| `ALERT_DEDUPE_WINDOW_SECONDS` | `300`      | Per-key suppression window                                            |
+| `GIT_SHA`                     | (unset)    | Build commit, surfaced in the startup event (baked by the Dockerfile) |
 
 Existing `SMTP_URL`/`SMTP_FROM` are reused by the smtp sink.
 
 ## Event catalog (v1)
 
-| Severity | kind | Trigger |
-|----------|------|---------|
-| critical | `process.crash` | uncaughtException / unhandledRejection (before exit) |
-| critical | `pgboss.error` | pg-boss `error` event |
-| warn | `job.dead_letter` | a pg-boss job handler throws with retries exhausted |
-| info | `app.startup` | successful boot (sha, mode, backend, crons) |
-| info | `app.shutdown` | SIGTERM/SIGINT graceful shutdown |
+| Severity | kind              | Trigger                                              |
+| -------- | ----------------- | ---------------------------------------------------- |
+| critical | `process.crash`   | uncaughtException / unhandledRejection (before exit) |
+| critical | `pgboss.error`    | pg-boss `error` event                                |
+| warn     | `job.dead_letter` | a pg-boss job handler throws with retries exhausted  |
+| info     | `app.startup`     | successful boot (sha, mode, backend, crons)          |
+| info     | `app.shutdown`    | SIGTERM/SIGINT graceful shutdown                     |
 
 The **quota** (`storage.quota_*`) and **blob-write-failure** (`storage.write_failed`) events
-listed in the operator catalogue are emitted by the *deployment* feature's quota-check cron
+listed in the operator catalogue are emitted by the _deployment_ feature's quota-check cron
 and blob path, which call this `notify()`. They are documented here for completeness but
 implemented there.
 

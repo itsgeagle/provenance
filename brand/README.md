@@ -35,12 +35,12 @@ sans-serif`), weight 600. Because system fonts render per-machine, ship the
 
 ## Exports
 
-| File                                                  | Where it's wired                                            |
-| ----------------------------------------------------- | ----------------------------------------------------------- |
-| `exports/icon-128.png`                                | recorder VSIX icon → copied to `packages/recorder/icon.png` |
-| `exports/favicon.svg`, `exports/favicon-32.png`       | analyzer → `packages/analyzer/public/`                      |
+| File                                                  | Where it's wired                                                                                   |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `exports/icon-128.png`                                | recorder VSIX icon → copied to `packages/recorder/icon.png`                                        |
+| `exports/favicon.svg`, `exports/favicon-32.png`       | analyzer → `packages/analyzer/public/`                                                             |
 | `exports/og-image.png`                                | analyzer social embed → `packages/analyzer/public/` (`og:image` / `twitter:image` in `index.html`) |
-| `exports/lockup-light.png`, `exports/lockup-dark.png` | README header (`<picture>`)                                 |
+| `exports/lockup-light.png`, `exports/lockup-dark.png` | README header (`<picture>`)                                                                        |
 
 ## Regenerating exports
 

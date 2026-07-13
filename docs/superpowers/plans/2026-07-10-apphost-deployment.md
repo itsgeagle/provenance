@@ -60,26 +60,38 @@
 
 ```ts
 it('prefers socket when SOCKET_PATH set', () => {
-  expect(resolveListenTarget({ SOCKET_PATH: '/run/app.sock', PORT: 3000 }))
-    .toEqual({ kind: 'socket', path: '/run/app.sock' });
+  expect(resolveListenTarget({ SOCKET_PATH: '/run/app.sock', PORT: 3000 })).toEqual({
+    kind: 'socket',
+    path: '/run/app.sock',
+  });
 });
 it('falls back to tcp port when SOCKET_PATH unset', () => {
-  expect(resolveListenTarget({ SOCKET_PATH: undefined, PORT: 3000 }))
-    .toEqual({ kind: 'tcp', port: 3000 });
+  expect(resolveListenTarget({ SOCKET_PATH: undefined, PORT: 3000 })).toEqual({
+    kind: 'tcp',
+    port: 3000,
+  });
 });
 it('prepareSocket unlinks an existing socket file', () => {
   const unlinked: string[] = [];
-  prepareSocket('/run/app.sock', { existsSync: () => true, unlinkSync: (p: string) => unlinked.push(p) } as any);
+  prepareSocket('/run/app.sock', {
+    existsSync: () => true,
+    unlinkSync: (p: string) => unlinked.push(p),
+  } as any);
   expect(unlinked).toEqual(['/run/app.sock']);
 });
 it('prepareSocket is a no-op when no file exists', () => {
   const unlinked: string[] = [];
-  prepareSocket('/run/app.sock', { existsSync: () => false, unlinkSync: (p: string) => unlinked.push(p) } as any);
+  prepareSocket('/run/app.sock', {
+    existsSync: () => false,
+    unlinkSync: (p: string) => unlinked.push(p),
+  } as any);
   expect(unlinked).toEqual([]);
 });
 it('makeWorldWritable chmods 0o777', () => {
   const calls: Array<[string, number]> = [];
-  makeWorldWritable('/run/app.sock', { chmodSync: (p: string, m: number) => calls.push([p, m]) } as any);
+  makeWorldWritable('/run/app.sock', {
+    chmodSync: (p: string, m: number) => calls.push([p, m]),
+  } as any);
   expect(calls).toEqual([['/run/app.sock', 0o777]]);
 });
 ```
@@ -136,6 +148,7 @@ Keep `createApp()` unchanged. Confirm `getRequestListener` is exported by the in
 **Files:** Create `services/storage/usage.ts` (+test), `jobs/storage-quota-check.ts` (+test); Modify `jobs/pg-boss.ts`, `jobs/worker.ts`, `api/middleware/metrics.ts` (gauge).
 
 **Produces:**
+
 - `usage.ts`: `async function measureUsedBytes(root: string): Promise<number>` (default: `node:fs/promises` `statfs` → `(blocks - bavail) * bsize`; documented caveat that this is filesystem-level, to be swapped for a dir/quota measure if the fileserver quota isn't reflected). Kept injectable.
 - `storage-quota-check.ts`: `async function runStorageQuotaCheck(deps: { root: string; quotaBytes: number; warnPct: number; criticalPct: number; measure: (root: string) => Promise<number>; notifier: Notifier; setGauge: (used: number, quota: number) => void }): Promise<{ usedBytes: number; pct: number }>` — computes pct, sets the gauge, and notifies `storage.quota_critical` (≥crit) or `storage.quota_warn` (≥warn) with a stable `dedupeKey` per level. `createStorageQuotaCheckHandler(...)` pg-boss factory (no-op unless backend is fs).
 - `pg-boss.ts`: `JOB_KINDS.STORAGE_QUOTA_CHECK = 'storage_quota_check'`.
@@ -221,8 +234,8 @@ exec node /app/packages/server/dist/index.js --mode=all
 ```
 
 - [ ] **Step 4: Validate the build** — from repo root:
-  `docker build -f deploy/Dockerfile --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t provenance:local .`
-  Expected: build SUCCEEDS. If a COPY path is wrong, fix it and rebuild. Record the final image size and that it built.
+      `docker build -f deploy/Dockerfile --build-arg GIT_SHA=$(git rev-parse --short HEAD) -t provenance:local .`
+      Expected: build SUCCEEDS. If a COPY path is wrong, fix it and rebuild. Record the final image size and that it built.
 - [ ] **Step 5: Commit** — `feat(deploy): multi-stage Dockerfile + entrypoint (analyzer + server, migrate-on-start)`.
 
 ---
@@ -282,18 +295,18 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+      - '127.0.0.1:${POSTGRES_PORT:-5433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
   pgdump:
     image: postgres:16
-    entrypoint: ["/bin/sh", "/pg-dump-sidecar.sh"]
+    entrypoint: ['/bin/sh', '/pg-dump-sidecar.sh']
     environment:
       PGHOST: postgres
       PGUSER: ${POSTGRES_USER}

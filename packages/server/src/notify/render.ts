@@ -18,7 +18,10 @@ const EMOJI: Record<Severity, string> = { info: 'ℹ️', warn: '⚠️', critic
 export function renderEvent(e: NotifyEvent): RenderedEvent {
   const detailStr =
     e.detail && Object.keys(e.detail).length
-      ? '\n' + Object.entries(e.detail).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n')
+      ? '\n' +
+        Object.entries(e.detail)
+          .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+          .join('\n')
       : '';
   const text = `[${e.severity.toUpperCase()}] ${e.kind} — ${e.title}${detailStr}`;
   const discordContent = `${EMOJI[e.severity]} **[${e.severity.toUpperCase()}] ${e.title}**\n\`${e.kind}\`${detailStr}`;

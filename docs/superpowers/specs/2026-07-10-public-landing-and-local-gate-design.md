@@ -25,7 +25,7 @@ membership**. `GET /me` returns `{ user: { is_superadmin }, memberships: [...] }
 Admins invite staff to semesters; an uninvited student who signs in has
 `memberships: []` and only sees "Ask an admin to invite you." Students are not
 users of this system — they are subjects of submissions. Therefore
-**any membership ⇒ course staff**, and the gate must check *authorization*
+**any membership ⇒ course staff**, and the gate must check _authorization_
 (`memberships.length > 0 || is_superadmin`), not mere authentication.
 
 ## Goals
@@ -44,9 +44,9 @@ users of this system — they are subjects of submissions. Therefore
 
 ## PRD impact (surface, not bury)
 
-Analyzer PRD **§15** states: *"the standalone local mode MUST be accessible
+Analyzer PRD **§15** states: _"the standalone local mode MUST be accessible
 without login so that instructors can run the analyzer offline without a
-deployed backend."* Gating `/local` behind `RequireAuth` **deviates from §15**.
+deployed backend."_ Gating `/local` behind `RequireAuth` **deviates from §15**.
 
 This is an approved product-behavior change (the tool is now a required,
 department-hosted deployment; the offline-no-backend story is superseded).
@@ -70,7 +70,7 @@ authentication. Called out here so review catches it.
 
 ### 1a. `RequireStaff` guard (`src/auth/RequireStaff.tsx`)
 
-New route guard, mirroring `RequireSuperadmin`'s shape. Runs *below* `RequireAuth`
+New route guard, mirroring `RequireSuperadmin`'s shape. Runs _below_ `RequireAuth`
 (which has already proven a session):
 
 - reads `useMe()`;
@@ -91,11 +91,11 @@ A `<main>` landmark with a centered, `max-w-*` column. Sections:
 - **Hero** — `h1` "Provenance", a one-line tagline, a one-sentence description,
   and the primary CTA (see §3).
 - **"What it does"** (`h2`) — 3 short points:
-  - records the *process* of building an assignment, not just the final file;
+  - records the _process_ of building an assignment, not just the final file;
   - flags patterns worth a closer look (e.g. a finished function in one paste);
   - gives staff process-based evidence instead of guesswork.
 - **"Protects honest students"** (`h2`) — short paragraph: the two-sided goal of
-  curbing AI-related dishonesty *and* clearing honest students from false flags.
+  curbing AI-related dishonesty _and_ clearing honest students from false flags.
 - **"Integrity & privacy"** (`h2`) — brief bullets:
   - the recorder runs offline — no network calls during a session;
   - the protocol and extension source are public by design;
@@ -159,15 +159,15 @@ The landing page ships compliant from the start:
 
 ### 8. Components & interfaces
 
-| Unit | Purpose | Depends on |
-| --- | --- | --- |
-| `LandingView` | Public explainer + auth-aware CTA | `useMe`, `GoogleSignInButton`, `react-router` `Link` |
-| `GoogleSignInButton` | Sign-in form + button + icon | `getBaseUrl()` |
-| `RequireStaff` | Authz guard: membership-or-superadmin | `useMe`, `react-router` `Navigate` |
-| `LoginView` (edited) | Sign-in card; error + `next` handling | `GoogleSignInButton` |
-| `LocalShell` (edited) | `/local` layout; comment/banner copy | — |
-| `HomeView` (edited) | Dashboard + local-analysis link (populated only) | `react-router` `Link` |
-| `App` (edited) | Routes: public `/`, staff-gated `/local` | `RequireAuth`, `RequireStaff`, `LandingView` |
+| Unit                  | Purpose                                          | Depends on                                           |
+| --------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| `LandingView`         | Public explainer + auth-aware CTA                | `useMe`, `GoogleSignInButton`, `react-router` `Link` |
+| `GoogleSignInButton`  | Sign-in form + button + icon                     | `getBaseUrl()`                                       |
+| `RequireStaff`        | Authz guard: membership-or-superadmin            | `useMe`, `react-router` `Navigate`                   |
+| `LoginView` (edited)  | Sign-in card; error + `next` handling            | `GoogleSignInButton`                                 |
+| `LocalShell` (edited) | `/local` layout; comment/banner copy             | —                                                    |
+| `HomeView` (edited)   | Dashboard + local-analysis link (populated only) | `react-router` `Link`                                |
+| `App` (edited)        | Routes: public `/`, staff-gated `/local`         | `RequireAuth`, `RequireStaff`, `LandingView`         |
 
 ## Testing
 
@@ -176,7 +176,7 @@ The landing page ships compliant from the start:
   - signed-out: renders the sign-in form with action
     `…/auth/google/start?return_to=%2Fhome`;
   - signed-in (msw `/me` returns a user): renders an "Open dashboard" link to
-    `/home` and *not* the sign-in button;
+    `/home` and _not_ the sign-in button;
   - a11y smoke: single `h1`, a `main` landmark present.
 - **`GoogleSignInButton.test.tsx`** (new, or folded into `LoginView.test.tsx`):
   form action and `returnTo` encoding.

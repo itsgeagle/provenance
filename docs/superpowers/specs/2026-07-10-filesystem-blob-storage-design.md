@@ -34,12 +34,12 @@ cannot leak disk against a limited server quota.
 
 `config/env.ts` gains:
 
-| Var | Type | Notes |
-|-----|------|-------|
-| `BLOB_STORAGE_BACKEND` | `enum('s3','fs')` default `'s3'` | Selects the backend. |
-| `BLOB_STORAGE_FS_ROOT` | `string` optional | NFS mount dir, e.g. `/srv/provenance/blobs`. Required when backend is `fs`. |
-| `BLOB_URL_SIGNING_SECRET` | `string` min 32 optional | HMAC key for fs presigned URLs. Required when backend is `fs`. |
-| `BLOB_STORAGE_FS_STAGING_TTL_SECONDS` | int default `86400` | Max age of a multipart staging dir before the reaper reclaims it. |
+| Var                                   | Type                             | Notes                                                                       |
+| ------------------------------------- | -------------------------------- | --------------------------------------------------------------------------- |
+| `BLOB_STORAGE_BACKEND`                | `enum('s3','fs')` default `'s3'` | Selects the backend.                                                        |
+| `BLOB_STORAGE_FS_ROOT`                | `string` optional                | NFS mount dir, e.g. `/srv/provenance/blobs`. Required when backend is `fs`. |
+| `BLOB_URL_SIGNING_SECRET`             | `string` min 32 optional         | HMAC key for fs presigned URLs. Required when backend is `fs`.              |
+| `BLOB_STORAGE_FS_STAGING_TTL_SECONDS` | int default `86400`              | Max age of a multipart staging dir before the reaper reclaims it.           |
 
 The five existing `OBJECT_STORAGE_*` vars are relaxed from unconditionally-required to
 optional, and a `superRefine` enforces the conditional contract:
@@ -114,7 +114,7 @@ All ops resolve the on-disk path through a single safety gate.
 
 New route `api/v1/routes/blob-download.ts`.
 
-- **No session/token auth** — the HMAC token *is* the credential, matching S3 presigned
+- **No session/token auth** — the HMAC token _is_ the credential, matching S3 presigned
   semantics (the analyzer fetches the URL with no headers). This is the same exposure as
   an S3 presigned URL: unauthenticated read of one blob key for
   `BLOB_DOWNLOAD_URL_TTL_SECONDS` to whoever holds the URL. Bundles are provenance-only

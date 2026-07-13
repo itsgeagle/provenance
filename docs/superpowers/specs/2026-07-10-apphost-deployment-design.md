@@ -18,7 +18,7 @@ public `https://provenance.eecs.berkeley.edu`), storing bundles on the 1TB-quota
 - **Rootless Docker** (`inst-dockerd-rootless-setup.sh`). Bind mounts show host-owned files
   as `root` inside the container; **writing an NFS bind mount requires running as root
   inside the container**. Named volumes are recommended for persistent storage.
-- Startup is a **systemd *user* unit** (`ConditionPathExists=/etc/is-instapphost`,
+- Startup is a **systemd _user_ unit** (`ConditionPathExists=/etc/is-instapphost`,
   `Restart=always`, `docker compose up/down`).
 
 CI/CD is explicitly **out of scope** — GitHub's hosted runners can't reach `instapphost`, so
@@ -27,7 +27,7 @@ deploy is a documented manual runbook run on the host over SSH.
 ## Non-goals
 
 - No GitHub Actions / registry / image push. Build happens on the host (`docker compose
-  build`).
+build`).
 - Not migrating the app to the apphost MariaDB. Provenance is Postgres-specific; we
   self-host a Postgres container (see the Postgres-on-NFS risk below).
 - No TLS/reverse-proxy in our stack — IT's nginx owns TLS termination.
@@ -74,6 +74,7 @@ half-running app.
 ### 5. `deploy/compose.apphost.yaml`
 
 Three services:
+
 - **app** — built from the Dockerfile; `env_file: .env`; bind-mounts
   `/home/submit/provenance → /data` (so `BLOB_STORAGE_FS_ROOT=/data`) and
   `/srv/appsockets/provenance/main → /run/sockets` (so `SOCKET_PATH=/run/sockets/app.sock`);
@@ -127,14 +128,15 @@ mount + quota.
 ## Validation (what "deploy-ready" means here)
 
 Much of this can't run in CI (no apphost, no NFS, no systemd). Verifiable now:
+
 - Server code (socket serving, static SPA fallback, quota cron) has Vitest unit tests.
 - `docker build` of the image **succeeds locally** (Docker is available) — proves the
   multi-stage build and that the analyzer + server compile and assemble into the image.
 - `docker compose -f compose.apphost.yaml config` validates (structural parse).
 - The systemd unit + entrypoint are shellcheck-clean / structurally reviewed.
-The actual apphost bring-up is the manual runbook the operator runs over SSH — not something
-this repo can execute. The spec's bar is: every artifact exists, the image builds, code is
-tested, and the runbook is complete and accurate.
+  The actual apphost bring-up is the manual runbook the operator runs over SSH — not something
+  this repo can execute. The spec's bar is: every artifact exists, the image builds, code is
+  tested, and the runbook is complete and accurate.
 
 ## Risks / open coordination items (surfaced in the runbook)
 

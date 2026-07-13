@@ -30,14 +30,14 @@
 services:
   migrate:
     image: provenance-server:latest
-    command: ["migrate"]
+    command: ['migrate']
     env_file: .env
     depends_on:
       postgres:
         condition: service_healthy
     mem_limit: 512m
     memswap_limit: 512m
-    restart: "no"
+    restart: 'no'
   app:
     # Owns the image build; migrate + worker consume the same tag. A bare
     # `docker compose up` auto-builds this if the tag is missing.
@@ -47,15 +47,15 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
     image: provenance-server:latest
-    command: ["--mode=api"]
+    command: ['--mode=api']
     env_file: .env
     environment:
       SOCKET_PATH: /run/sockets/app.sock
       BLOB_STORAGE_FS_ROOT: /data
       # Bound V8 heap; API serves reads + reconstruction cache, lighter than ingest.
-      NODE_OPTIONS: "--max-old-space-size=2048"
+      NODE_OPTIONS: '--max-old-space-size=2048'
       # Blob downloads are fs reads through libuv's threadpool (default 4).
-      UV_THREADPOOL_SIZE: "8"
+      UV_THREADPOOL_SIZE: '8'
     volumes:
       - /home/submit/provenance:/data
       - /srv/appsockets/provenance/main:/run/sockets
@@ -69,28 +69,28 @@ services:
     restart: unless-stopped
   worker:
     image: provenance-server:latest
-    command: ["--mode=worker"]
+    command: ['--mode=worker']
     env_file: .env
     environment:
       BLOB_STORAGE_FS_ROOT: /data
       # Bounds V8 heap under the 2 GB mem_limit, leaving ~500 MB for buffers and
       # the staging pool's worker-thread heaps. Raise this (and mem_limit below)
       # if you routinely ingest very large bundles.
-      NODE_OPTIONS: "--max-old-space-size=1536"
+      NODE_OPTIONS: '--max-old-space-size=1536'
       # fs/NFS blob syscalls per ingest job (2 reads + 1 write + 1 delete,
       # full-bundle buffered) go through libuv's threadpool; lift it off 4.
-      UV_THREADPOOL_SIZE: "16"
+      UV_THREADPOOL_SIZE: '16'
       # Analysis is CPU-bound and single-threaded, so this adds NO CPU parallelism
       # (that comes from more worker replicas); 2 just overlaps the small NFS/DB
       # I/O per file. Kept low to bound per-replica memory + DB connections.
-      INGEST_CONCURRENCY: "2"
+      INGEST_CONCURRENCY: '2'
       # Staging (unpack a Gradescope export -> rebuild + stage each bundle ->
       # enqueue) runs as a single job on one process. The per-bundle ZIP rebuild
       # is ~80% of the cost and is pure-JS main-thread work, so this also sizes a
       # worker-thread pool that rebuilds bundles across this many cores (in
       # addition to overlapping the per-bundle blob writes). Raise toward the core
       # count to speed big exports; the staging process uses this many cores.
-      INGEST_STAGE_CONCURRENCY: "6"
+      INGEST_STAGE_CONCURRENCY: '6'
       # The Drizzle pool. Peak conns held by ONE process from THIS pool: a replica
       # runs staging AND analysis, so INGEST_CONCURRENCY (2 analysis txns) + up to
       # INGEST_STAGE_CONCURRENCY (6 concurrent staging row-inserts on the main
@@ -98,7 +98,7 @@ services:
       # NOTE: pg-boss opens a SEPARATE ~10-conn pool per process on top of this, so
       # real per-process peak is ~20; 8 workers + api ≈ 180 backends — that's why
       # postgres.max_connections is raised to 250 above (default 100 was too low).
-      DATABASE_POOL_MAX: "10"
+      DATABASE_POOL_MAX: '10'
     volumes:
       - /home/submit/provenance:/data
     depends_on:
@@ -121,19 +121,19 @@ services:
     # ~750 MB worst case + shared_buffers + work_mem). Only this self-hosted
     # container is affected; it stays inside its own mem_limit.
     command:
-      - "postgres"
-      - "-c"
-      - "max_connections=250"
+      - 'postgres'
+      - '-c'
+      - 'max_connections=250'
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+      - '127.0.0.1:${POSTGRES_PORT:-5433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER}']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -142,7 +142,7 @@ services:
     restart: unless-stopped
   pgdump:
     image: postgres:16
-    entrypoint: ["/bin/sh", "/pg-dump-sidecar.sh"]
+    entrypoint: ['/bin/sh', '/pg-dump-sidecar.sh']
     environment:
       PGHOST: postgres
       PGUSER: ${POSTGRES_USER}

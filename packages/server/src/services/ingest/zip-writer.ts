@@ -168,8 +168,7 @@ export async function writeDeflateZip(entries: ZipEntryInput[]): Promise<Uint8Ar
   edv.setUint16(20, 0, true); // comment length
 
   // Concatenate.
-  const total =
-    offset + centralSize + eocd.length;
+  const total = offset + centralSize + eocd.length;
   const out = new Uint8Array(total);
   let p = 0;
   for (const chunk of [...localChunks, ...centralChunks, eocd]) {

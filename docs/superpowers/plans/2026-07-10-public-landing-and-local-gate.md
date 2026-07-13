@@ -26,11 +26,13 @@
 Pull the Google sign-in form + button + icon out of `LoginView` into a reusable component, so `LandingView` (Task 3) can render the same button. Pure refactor — behavior unchanged.
 
 **Files:**
+
 - Create: `packages/analyzer/src/components/GoogleSignInButton.tsx`
 - Create: `packages/analyzer/src/components/GoogleSignInButton.test.tsx`
 - Modify: `packages/analyzer/src/views/login/LoginView.tsx`
 
 **Interfaces:**
+
 - Produces: `GoogleSignInButton({ returnTo }: { returnTo?: string })` — renders a `<form method="POST" action="{base}/auth/google/start?return_to={encoded}">` containing a submit `<button>` labelled "Sign in with Google". `returnTo` defaults to `/home`.
 
 - [ ] **Step 1: Write the failing test**
@@ -151,7 +153,7 @@ import { GoogleSignInButton } from '../../components/GoogleSignInButton.js';
 2. Replace the entire `<form method="POST" …> … </form>` block (the form containing the submit button and `<GoogleIcon />`) with:
 
 ```tsx
-        <GoogleSignInButton returnTo={returnTo} />
+<GoogleSignInButton returnTo={returnTo} />
 ```
 
 3. Delete the now-unused local `GoogleIcon` function at the bottom of the file.
@@ -179,13 +181,15 @@ git commit --no-gpg-sign -m "refactor(analyzer): extract shared GoogleSignInButt
 
 ### Task 2: `RequireStaff` authorization guard
 
-A route guard that renders children only for course staff — a principal with at least one membership, or a superadmin. Runs *below* `RequireAuth` (which has already proven a session). This is the boundary that keeps signed-in students out of `/local`.
+A route guard that renders children only for course staff — a principal with at least one membership, or a superadmin. Runs _below_ `RequireAuth` (which has already proven a session). This is the boundary that keeps signed-in students out of `/local`.
 
 **Files:**
+
 - Create: `packages/analyzer/src/auth/RequireStaff.tsx`
 - Create: `packages/analyzer/src/auth/RequireStaff.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `useMe()` from `../api/queries.js` → `{ data: { user: { is_superadmin: boolean }, memberships: unknown[] } | undefined, isLoading }`.
 - Produces: `RequireStaff({ children }: { children: ReactNode })` — renders `children` when `data.memberships.length > 0 || data.user.is_superadmin`; otherwise `<Navigate to="/home" replace />`; shows a "Loading…" placeholder while `isLoading`.
 
@@ -208,11 +212,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { http } from 'msw';
 import { mswServer } from '../test-setup.js';
-import {
-  meNoSemestersHandler,
-  defaultMeResponse,
-  defaultUser,
-} from '../test/msw-handlers.js';
+import { meNoSemestersHandler, defaultMeResponse, defaultUser } from '../test/msw-handlers.js';
 import { RequireStaff } from './RequireStaff.js';
 
 function makeQueryClient() {
@@ -346,10 +346,12 @@ git commit --no-gpg-sign -m "feat(analyzer): add RequireStaff authz guard (membe
 The public front door: a `<main>` with a hero, three explainer sections, and a CTA that is "Sign in with Google" when signed-out and "Open dashboard →" when signed-in. WCAG-2.1-AA.
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/landing/LandingView.tsx`
 - Create: `packages/analyzer/src/views/landing/LandingView.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `GoogleSignInButton` (Task 1); `useMe()` from `../../api/queries.js`.
 - Produces: `LandingView()` — default-exportless named component. Renders exactly one `<h1>` ("Provenance") and three `<h2>`s ("What it does", "Protects honest students", "Integrity & privacy"). When `useMe()` returns data, renders a `Link` to `/home` labelled "Open dashboard →"; otherwise renders `<GoogleSignInButton returnTo="/home" />`.
 
@@ -405,9 +407,7 @@ describe('LandingView', () => {
     expect(
       screen.getByRole('heading', { level: 2, name: /protects honest students/i }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { level: 2, name: /integrity/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: /integrity/i })).toBeInTheDocument();
   });
 
   it('shows the sign-in button when the visitor is not authenticated', async () => {
@@ -515,7 +515,9 @@ export function LandingView() {
         <section className="mt-12">
           <h2 className="text-xl font-semibold text-gray-900">Integrity &amp; privacy</h2>
           <ul className="mt-4 list-disc space-y-3 pl-5 text-sm text-gray-700">
-            <li>The recorder runs entirely offline — it makes no network calls during a session.</li>
+            <li>
+              The recorder runs entirely offline — it makes no network calls during a session.
+            </li>
             <li>
               The protocol and extension source are public by design; there is nothing hidden in how
               it works.
@@ -557,11 +559,13 @@ git commit --no-gpg-sign -m "feat(analyzer): add public LandingView with auth-aw
 Mount `LandingView` at `/` (replacing the redirect), wrap `/local` in `RequireAuth` + `RequireStaff`, update the now-inaccurate `App.test.tsx` root-redirect test, and correct the LocalShell comments that claim `/local` is unauthenticated.
 
 **Files:**
+
 - Modify: `packages/analyzer/src/App.tsx`
 - Modify: `packages/analyzer/src/App.test.tsx`
 - Modify: `packages/analyzer/src/views/local/LocalShell.tsx` (comments only)
 
 **Interfaces:**
+
 - Consumes: `LandingView` (Task 3), `RequireStaff` (Task 2), existing `RequireAuth`, `LocalShell`.
 
 - [ ] **Step 1: Update the routing tests first (they will fail)**
@@ -573,33 +577,33 @@ In `packages/analyzer/src/App.test.tsx`:
 2. Replace the first test — `it('redirects / to /home (unauthenticated → /login)', …)` — with these three tests:
 
 ```tsx
-  it('renders the public landing page at / for anonymous visitors', async () => {
-    mswServer.use(meUnauthorizedHandler());
-    renderApp('/');
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: /provenance/i })).toBeInTheDocument();
-    });
-    // Anonymous → sign-in button, NOT redirected away to a protected page.
+it('renders the public landing page at / for anonymous visitors', async () => {
+  mswServer.use(meUnauthorizedHandler());
+  renderApp('/');
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { level: 1, name: /provenance/i })).toBeInTheDocument();
+  });
+  // Anonymous → sign-in button, NOT redirected away to a protected page.
+  expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
+});
+
+it('redirects anonymous visitors from /local/load to the login page', async () => {
+  mswServer.use(meUnauthorizedHandler());
+  renderApp('/local/load');
+  // RequireAuth bounces anon → /login, which shows the sign-in button and NOT the drop zone.
+  await waitFor(() => {
     expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
   });
+  expect(screen.queryByTestId('drop-zone')).not.toBeInTheDocument();
+});
 
-  it('redirects anonymous visitors from /local/load to the login page', async () => {
-    mswServer.use(meUnauthorizedHandler());
-    renderApp('/local/load');
-    // RequireAuth bounces anon → /login, which shows the sign-in button and NOT the drop zone.
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId('drop-zone')).not.toBeInTheDocument();
+it('renders /local/load for an authenticated staff member', async () => {
+  // Default /me handler returns a user WITH a membership → RequireStaff passes.
+  renderApp('/local/load');
+  await waitFor(() => {
+    expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
   });
-
-  it('renders /local/load for an authenticated staff member', async () => {
-    // Default /me handler returns a user WITH a membership → RequireStaff passes.
-    renderApp('/local/load');
-    await waitFor(() => {
-      expect(screen.getByTestId('drop-zone')).toBeInTheDocument();
-    });
-  });
+});
 ```
 
 (The remaining local-route tests — `/load` redirect, `RequireLocalBundle` redirects, bundle-load navigation — are unchanged: they render under the default `/me` handler, which is a staff member, so they pass through the new gate.)
@@ -623,13 +627,13 @@ import { RequireStaff } from './auth/RequireStaff.js';
 2. Replace the root redirect route:
 
 ```tsx
-        <Route path="/" element={<Navigate to="/home" replace />} />
+<Route path="/" element={<Navigate to="/home" replace />} />
 ```
 
 with:
 
 ```tsx
-        <Route path="/" element={<LandingView />} />
+<Route path="/" element={<LandingView />} />
 ```
 
 3. Gate the `/local` subtree. Change the opening of the `/local` route from:
@@ -661,7 +665,7 @@ to:
 
 In `packages/analyzer/src/views/local/LocalShell.tsx`, update the two comments that now misstate the auth model:
 
-- In the file/section header comment, replace the sentence that says local mode requires *no authentication* (citing PRD §15) with: `/local is now staff-gated — see App.tsx, where the subtree is wrapped in RequireAuth + RequireStaff (PRD §15 amended 2026-07-10).`
+- In the file/section header comment, replace the sentence that says local mode requires _no authentication_ (citing PRD §15) with: `/local is now staff-gated — see App.tsx, where the subtree is wrapped in RequireAuth + RequireStaff (PRD §15 amended 2026-07-10).`
 - In the `LocalShell` function's doc comment, replace `RequireAuth is NOT used here — see App.tsx where /local routes are mounted outside the RequireAuth tree.` with `Auth is enforced one level up in App.tsx (RequireAuth + RequireStaff wrap this subtree).`
 
 (Do not change the `LocalModeBanner` copy — "no data leaves your browser" is still accurate.)
@@ -690,10 +694,12 @@ git commit --no-gpg-sign -m "feat(analyzer): serve public landing at /, gate /lo
 Give signed-in staff an entry point to `/local` from the dashboard header. It appears only on the populated (has-memberships) view — never in the empty state, since a no-membership user is exactly who we keep out of `/local`.
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/home/HomeView.tsx`
 - Modify: `packages/analyzer/src/views/home/HomeView.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `Link` from `react-router-dom` (already imported in `HomeView`).
 - Produces: a `Link` to `/local/load` with `data-testid="local-analysis-link"`, rendered in the populated dashboard header only.
 
@@ -702,22 +708,22 @@ Give signed-in staff an entry point to `/local` from the dashboard header. It ap
 Append two tests inside the `describe('HomeView', …)` block in `packages/analyzer/src/views/home/HomeView.test.tsx` (the file already imports `meNoSemestersHandler`):
 
 ```tsx
-  it('shows a "Local analysis" link to /local/load on the populated dashboard', async () => {
-    renderHomeView();
-    await waitFor(() => {
-      expect(screen.getByTestId('local-analysis-link')).toBeInTheDocument();
-    });
-    expect(screen.getByTestId('local-analysis-link')).toHaveAttribute('href', '/local/load');
+it('shows a "Local analysis" link to /local/load on the populated dashboard', async () => {
+  renderHomeView();
+  await waitFor(() => {
+    expect(screen.getByTestId('local-analysis-link')).toBeInTheDocument();
   });
+  expect(screen.getByTestId('local-analysis-link')).toHaveAttribute('href', '/local/load');
+});
 
-  it('does NOT show the "Local analysis" link in the empty state', async () => {
-    mswServer.use(meNoSemestersHandler());
-    renderHomeView();
-    await waitFor(() => {
-      expect(screen.getByTestId('no-semesters-message')).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId('local-analysis-link')).not.toBeInTheDocument();
+it('does NOT show the "Local analysis" link in the empty state', async () => {
+  mswServer.use(meNoSemestersHandler());
+  renderHomeView();
+  await waitFor(() => {
+    expect(screen.getByTestId('no-semesters-message')).toBeInTheDocument();
   });
+  expect(screen.queryByTestId('local-analysis-link')).not.toBeInTheDocument();
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -730,22 +736,22 @@ Expected: FAIL — no element with `data-testid="local-analysis-link"`.
 In `packages/analyzer/src/views/home/HomeView.tsx`, replace the populated-view header line:
 
 ```tsx
-      <h1 className="mb-6 text-xl font-semibold text-gray-900">Your Semesters</h1>
+<h1 className="mb-6 text-xl font-semibold text-gray-900">Your Semesters</h1>
 ```
 
 with a header row that keeps the `h1` and adds the link:
 
 ```tsx
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Your Semesters</h1>
-        <Link
-          to="/local/load"
-          data-testid="local-analysis-link"
-          className="text-sm font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-        >
-          Local analysis →
-        </Link>
-      </div>
+<div className="mb-6 flex items-center justify-between">
+  <h1 className="text-xl font-semibold text-gray-900">Your Semesters</h1>
+  <Link
+    to="/local/load"
+    data-testid="local-analysis-link"
+    className="text-sm font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+  >
+    Local analysis →
+  </Link>
+</div>
 ```
 
 (Do not touch the loading, error, or empty-state branches — they return early and must NOT render the link.)
@@ -799,6 +805,7 @@ Start the dev server (`npm run dev --workspace=packages/analyzer`) and verify: `
 ## Self-Review
 
 **Spec coverage:**
+
 - Public landing page (Explainer + door), 3 content blocks, no footer → Task 3. ✓
 - Auth-aware CTA (sign-in / open dashboard) → Task 3. ✓
 - Shared `GoogleSignInButton` → Task 1. ✓

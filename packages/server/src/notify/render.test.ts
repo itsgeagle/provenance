@@ -3,7 +3,11 @@ import { renderEvent } from './render.js';
 
 describe('renderEvent', () => {
   it('produces a Discord content string containing the severity token and title', () => {
-    const rendered = renderEvent({ severity: 'critical', kind: 'process.crash', title: 'Process crashed' });
+    const rendered = renderEvent({
+      severity: 'critical',
+      kind: 'process.crash',
+      title: 'Process crashed',
+    });
     expect(rendered.discordContent).toContain('CRITICAL');
     expect(rendered.discordContent).toContain('Process crashed');
   });
@@ -24,7 +28,12 @@ describe('renderEvent', () => {
   it('omits the detail block entirely when detail is absent or empty', () => {
     const noDetail = renderEvent({ severity: 'info', kind: 'app.startup', title: 'Started' });
     expect(noDetail.text).toBe('[INFO] app.startup — Started');
-    const emptyDetail = renderEvent({ severity: 'info', kind: 'app.startup', title: 'Started', detail: {} });
+    const emptyDetail = renderEvent({
+      severity: 'info',
+      kind: 'app.startup',
+      title: 'Started',
+      detail: {},
+    });
     expect(emptyDetail.text).toBe('[INFO] app.startup — Started');
   });
 });

@@ -55,7 +55,7 @@ than a silent no-op.
 Add alongside the existing assignment schemas:
 
 - `CreateAssignmentRequestSchema` = `{ assignment_id_str: string.min(1).max(200), label?:
-  string.max(200) }`.
+string.max(200) }`.
 - `CreateAssignmentResponseSchema` = `{ assignment: AssignmentSummarySchema }`.
 - Exported request/response TS types, mirroring `UpdateAssignmentRequest`/`Response`.
 
