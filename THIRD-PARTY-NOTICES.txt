@@ -1,68 +1,43 @@
 # Third-Party Notices
 
-Provenance is licensed under the Apache License, Version 2.0 (see [`LICENSE`](LICENSE) and
-[`NOTICE`](NOTICE)). Provenance's own source code redistributes a number of third-party
-open-source components as part of three **distributed artifacts**:
+Provenance is licensed under the Apache License, Version 2.0 (see [`LICENSE`](LICENSE)
+and [`NOTICE`](NOTICE)). It redistributes third-party open-source components in three
+distributed artifacts:
 
-- **Recorder** (`packages/recorder`) — packaged as a VSIX and installed into VS Code. It
-  bundles its own runtime dependencies.
-- **Analyzer** (`packages/analyzer`) — built by Vite into a static single-page app and
-  served to browsers. The production bundle includes React and the rest of its runtime
-  dependencies.
-- **Server** (`packages/server`) — run as a long-lived Node.js process. It ships its
-  runtime dependencies via `node_modules` (or an equivalent bundle) at deploy time.
+- **Recorder** (`packages/recorder`) — packaged as a VSIX, bundling its runtime dependencies.
+- **Analyzer** (`packages/analyzer`) — built by Vite into a static SPA that includes React
+  and its other runtime dependencies.
+- **Server** (`packages/server`) — a Node.js process that ships its runtime dependencies at
+  deploy time.
 
-Each of the above also pulls in code from this repo's internal, non-published libraries —
-`packages/log-core`, `packages/shared`, and `packages/analysis-core` — which are not
-separately listed because they are not independently distributed; their own third-party
-dependencies are folded into the artifact that bundles them (below).
+Each also pulls in the repo's internal libraries (`packages/log-core`, `packages/shared`,
+`packages/analysis-core`), which are not published separately; their dependencies are
+folded into the artifact that bundles them.
 
-## Scope and methodology
+The tables below list the full transitive set of production dependencies resolved for each
+artifact (`npm ls --workspace=packages/<name> --omit=dev --all`). Build/test-only
+`devDependencies` are excluded, as are optional dependencies that were never installed
+(e.g. the alternate database drivers `drizzle-orm` supports). Each license and copyright
+line comes from the installed package's `package.json` and its `LICENSE`/`NOTICE`/`COPYING`
+file where present. Full license text for each package is in its own
+`node_modules/<pkg>/LICENSE` or on [npmjs.com](https://www.npmjs.com/). None of the
+Apache-2.0 dependencies ship a `NOTICE` file.
 
-The lists below are the **full transitive set of production dependencies** actually
-resolved into `node_modules` for each distributed artifact — not just the packages
-listed directly in each package's `dependencies` — obtained via:
-
-```sh
-npm ls --workspace=packages/<recorder|analyzer|server> --omit=dev --all --json
-```
-
-`devDependencies` (build/test tooling such as `vitest`, `eslint`, `tsx`, `esbuild`,
-`vite`, `drizzle-kit`, `testcontainers`, `@vscode/vsce`, etc.) are **excluded** — none of
-that code ships inside the VSIX, the SPA bundle, or the deployed server process. Optional
-dependencies that `npm ls` lists but that were **not actually installed** on this machine
-(e.g. the ~50 alternate database drivers `drizzle-orm` supports as `optionalDependencies` —
-`mysql2`, `better-sqlite3`, `@vercel/postgres`, etc. — none of which this project uses)
-are also excluded; they carry no version because npm never resolved them, so there is
-nothing to redistribute.
-
-For every package below, the license identifier and copyright/author line were read
-directly from that package's installed `node_modules/<pkg>/package.json` (`license`
-field) and, where present, its shipped `LICENSE`/`NOTICE`/`COPYING` file — never
-invented or guessed. Rows marked **inferred** carry no `LICENSE` file or `author` field
-of their own; the copyright line shown was copied from a sibling package published from
-the same npm scope/monorepo (e.g. an unscoped `@radix-ui/*` helper package next to
-`@radix-ui/react-context`, which does ship a `LICENSE`). Rows marked **UNVERIFIED** could
-not be attributed to a specific copyright holder at all — see the per-section notes.
-
-Full license text for every package is available in its own `node_modules/<pkg>/LICENSE`
-(or equivalent) file, or from the package's entry on [npmjs.com](https://www.npmjs.com/).
-None of the Apache-2.0-licensed dependencies below ship a `NOTICE` file, so there is no
-additional NOTICE text to reproduce per the Apache License §4(d).
+Rows marked **inferred** ship no `LICENSE` or `author` of their own; the copyright shown
+was copied from a sibling package in the same npm scope that does ship one. Rows marked
+**UNVERIFIED** could not be attributed to a copyright holder — see the per-section notes.
 
 **Native platform binaries:** `@node-rs/argon2-<platform>` and `@node-rs/bcrypt-<platform>`
-are per-platform optional dependencies of `@node-rs/argon2` / `@node-rs/bcrypt`; npm
-installs only the one matching the build machine. This document was generated on
-`darwin-arm64` and lists the `-darwin-arm64` variants actually present; a Linux
-deployment (see `docs/admin-guide.md`) resolves the equivalent `-linux-x64-gnu` (or
-similar) package instead, under the identical license and copyright holder.
+are per-platform optional dependencies; npm installs only the one matching the build
+machine. This document was generated on `darwin-arm64` and lists the `-darwin-arm64`
+variants; a Linux deployment resolves the equivalent `-linux-x64-gnu` package under the
+same license and copyright holder.
 
 ---
 
 ## Recorder (`packages/recorder`) — VS Code extension
 
-17 third-party production dependencies (direct `dependencies` plus full transitive
-closure, via `@provenance/log-core`).
+17 third-party production dependencies (direct plus transitive, via `@provenance/log-core`).
 
 | Package | Version | License | Copyright | Notes |
 | --- | --- | --- | --- | --- |
@@ -85,23 +60,20 @@ closure, via `@provenance/log-core`).
 | util-deprecate | 1.0.2 | MIT | Nathan Rajlich \<nathan@tootallnate.net\> (http://n8.io/) |  |
 
 License breakdown: 13 MIT, 1 Apache-2.0, 1 ISC, 1 dual MIT/GPL-3.0-or-later (`jszip`,
-consumed here under its MIT option), 1 dual MIT/Zlib (`pako`).
+used here under its MIT option), 1 dual MIT/Zlib (`pako`).
 
-**`canonicalize@3.0.0` (Apache-2.0) — copyright holder not verifiable.** Its shipped
-`LICENSE` file is the unfilled Apache License 2.0 template (the copyright line still
-reads the literal placeholder `Copyright [yyyy] [name of copyright owner]`), and
-`package.json` has no `author` field. The package (`log-core`'s dependency) is
-`erdtman/canonicalize` per its `repository`/`homepage` field, but that is a GitHub
-handle, not a confirmed legal copyright holder — not asserted here. The Apache-2.0
-license text itself is included verbatim in the installed package and is not in
-question; only the "who holds the copyright" line is unfilled upstream.
+`canonicalize@3.0.0` (Apache-2.0): its shipped `LICENSE` is the unfilled Apache 2.0
+template (copyright line still reads `Copyright [yyyy] [name of copyright owner]`) and
+`package.json` has no `author`. The `repository` field points to `erdtman/canonicalize`,
+a GitHub handle rather than a confirmed legal copyright holder. The Apache-2.0 license
+text itself ships verbatim; only the copyright holder is unfilled upstream.
 
 ---
 
 ## Analyzer (`packages/analyzer`) — web SPA
 
-160 third-party production dependencies (direct `dependencies` plus full transitive
-closure, via `@provenance/analysis-core`, `@provenance/log-core`, and `@provenance/shared`).
+160 third-party production dependencies (direct plus transitive, via
+`@provenance/analysis-core`, `@provenance/log-core`, and `@provenance/shared`).
 
 | Package | Version | License | Copyright | Notes |
 | --- | --- | --- | --- | --- |
@@ -267,27 +239,25 @@ closure, via `@provenance/analysis-core`, `@provenance/log-core`, and `@provenan
 | zod | 3.25.76 | MIT | Colin McDonnell \<zod@colinhacks.com\> |  |
 
 License breakdown: 135 MIT, 13 ISC, 3 BSD-3-Clause, 2 Apache-2.0, 2 dual MIT/Zlib
-(`pako`), 1 dual MPL-2.0/Apache-2.0 (`dompurify`, consumed here under its Apache-2.0
-option), 1 dual MIT/GPL-3.0-or-later (`jszip`), 1 `0BSD` (`tslib`), 1 MIT+ISC
-(`victory-vendor`, a vendored bundle of separately-licensed D3 modules), 1
-MIT-with-alternate-file (`rgbcolor`, whose `package.json` license field is literally
-`"MIT OR SEE LICENSE IN FEEL-FREE.md"` — consumed here under its MIT option).
+(`pako`), 1 dual MPL-2.0/Apache-2.0 (`dompurify`, used here under its Apache-2.0 option),
+1 dual MIT/GPL-3.0-or-later (`jszip`), 1 `0BSD` (`tslib`), 1 MIT+ISC (`victory-vendor`, a
+vendored bundle of D3 modules), 1 MIT-with-alternate-file (`rgbcolor`, whose license field
+is `"MIT OR SEE LICENSE IN FEEL-FREE.md"`, used here under its MIT option).
 
 `canonicalize@3.0.0` has the same unverifiable-copyright situation described in the
-Recorder section above.
+Recorder section.
 
-`@radix-ui/*` rows marked **inferred**: 12 of the 33 Radix packages pulled in here ship
-no `LICENSE` file of their own. Their copyright was taken from a sibling package
-(`@radix-ui/react-context@1.1.3`, nested under `react-progress`) that does ship one and
-is published from the same `@radix-ui` npm scope/monorepo, under the same MIT license.
+`@radix-ui/*` rows marked **inferred**: 12 of the 33 Radix packages here ship no `LICENSE`
+of their own; their copyright was taken from `@radix-ui/react-context@1.1.3`, published
+from the same `@radix-ui` scope under the same MIT license.
 
 ---
 
 ## Server (`packages/server`) — Node API service
 
-141 third-party production dependencies (direct `dependencies` plus full transitive
-closure, via `@provenance/analysis-core` and `@provenance/log-core`). Generated on
-`darwin-arm64`; see the native-binary note above for `@node-rs/*`.
+141 third-party production dependencies (direct plus transitive, via
+`@provenance/analysis-core` and `@provenance/log-core`). Generated on `darwin-arm64`; see
+the native-binary note above for `@node-rs/*`.
 
 | Package | Version | License | Copyright | Notes |
 | --- | --- | --- | --- | --- |
@@ -435,24 +405,17 @@ closure, via `@provenance/analysis-core` and `@provenance/log-core`). Generated 
 
 License breakdown: 98 MIT, 32 ISC, 3 Apache-2.0, 2 BSD-3-Clause, 1 BSD-2-Clause, 1 dual
 MIT/GPL-3.0-or-later (`jszip`), 1 `MIT-0` (`nodemailer`), 1 dual MIT/Zlib (`pako`), 1
-`Unlicense` (`postgres`), 1 dual MIT/CC0-1.0 (`type-fest`, a transitive dep of
-`serialize-error`, used here under its MIT option).
+`Unlicense` (`postgres`), 1 dual MIT/CC0-1.0 (`type-fest`, used here under its MIT option).
 
 `canonicalize@3.0.0` has the same unverifiable-copyright situation described in the
-Recorder section above. `@hono/zod-openapi` and `@hono/zod-validator` ship no `LICENSE`
-file of their own; their copyright line was taken from the sibling `@hono/node-server`
-package (same `@hono` npm scope/monorepo, same MIT license).
-`@node-rs/argon2-darwin-arm64` similarly ships no `LICENSE` of its own; taken from the
-sibling `@node-rs/argon2` package (same `@node-rs` scope, same MIT license, same
-author).
+Recorder section. `@hono/zod-openapi` and `@hono/zod-validator` ship no `LICENSE` of their
+own; their copyright was taken from the sibling `@hono/node-server` package (same `@hono`
+scope, same MIT license). `@node-rs/argon2-darwin-arm64` likewise ships no `LICENSE`;
+taken from `@node-rs/argon2` (same scope, license, and author).
 
 **Excluded (not installed, not distributed):** `drizzle-orm` declares ~50
-`optionalDependencies` for database drivers it can integrate with
-(`@aws-sdk/client-rds-data`, `@cloudflare/workers-types`, `@electric-sql/pglite`,
-`@libsql/client`, `@neondatabase/serverless`, `@op-engineering/op-sqlite`,
-`@opentelemetry/api`, `@planetscale/database`, `@prisma/client`,
-`@tidbcloud/serverless`, `@upstash/redis`, `@vercel/postgres`, `@xata.io/client`,
-`better-sqlite3`, `bun-types`, `expo-sqlite`, `gel`, `knex`, `kysely`, `mysql2`,
-`sql.js`, `sqlite3`, and their respective `@types/*` packages). None of these resolved
-to an installed package — this project uses the `postgres` and `pg` drivers only — so
-none of them are redistributed and none appear in the table above.
+`optionalDependencies` for database drivers it can integrate with (`@aws-sdk/client-rds-data`,
+`@cloudflare/workers-types`, `@electric-sql/pglite`, `@libsql/client`,
+`@neondatabase/serverless`, `@planetscale/database`, `@prisma/client`, `@vercel/postgres`,
+`better-sqlite3`, `mysql2`, `sql.js`, `sqlite3`, and others). This project uses the
+`postgres` and `pg` drivers only, so none of the others are installed or redistributed.

@@ -31,5 +31,6 @@
   "devDependencies": {
     "@types/diff": "^7.0.2",
     "jsdom": "^25.0.1"
-  }
+  },
+  "license": "Apache-2.0"
 }

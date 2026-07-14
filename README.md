@@ -257,7 +257,7 @@ Provenance is licensed under the [Apache License, Version 2.0](LICENSE). See [`N
 
 The recorder VSIX, the analyzer SPA bundle, and the deployed server each redistribute a
 number of third-party open-source packages. Their licenses and copyright notices are
-listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+listed in [`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt).
 
 ## Trademarks & third-party services
 
