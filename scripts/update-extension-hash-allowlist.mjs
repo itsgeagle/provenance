@@ -7,12 +7,20 @@
  * The allowlist is consulted by the `extension_hash_mismatch` heuristic. Any
  * bundle whose `manifest.extension_hash` is NOT in the list gets flagged.
  *
- * IMPORTANT: this script produces the hash that an installed VSIX reports at
- * seal time — i.e. the hash over the **bundled** `dist/` (single
+ * IMPORTANT: this script's *build* modes (--keypair / --no-build / bare run)
+ * only automate the VS Code recorder — they produce the hash that an installed
+ * VSIX reports at seal time, i.e. the hash over the **bundled** `dist/` (single
  * `extension.js` + sourcemap), NOT the hash of a `tsc`-emitted dev-install
  * `dist/` (many .js / .d.ts files). Those are structurally different and a
  * dev-install hash will never appear in a real student submission. Prior
  * versions of this script hashed the tsc output by mistake.
+ *
+ * The JetBrains recorder is a separate repo with its own JVM/Gradle toolchain
+ * (this monorepo has none), so its hash is NOT built here. Compute it there with
+ * `./gradlew :recorder:computeExtensionHash` (or `:recorder:buildProd` for a
+ * release) and add the value via `--hash <hex>` below. Both producers hash the
+ * same thing — a SHA-256 over the installed distribution file tree — so a
+ * JetBrains hash is a first-class allowlist entry, just sourced manually.
  *
  * USAGE
  *   # Bundle with the current source key (dev key when nothing is overridden)

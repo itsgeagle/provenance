@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "known-good-extension-hashes",
-  "description": "Course-maintained allowlist of known-good Provenance recorder extension hashes. The extension_hash_mismatch heuristic flags any bundle whose manifest.extension_hash is NOT in this list. Operational note: update this list each time a new recorder .vsix is published. The actual hash is the SHA-256 of the built .vsix file (64-char lowercase hex), as emitted by the recorder into bundle.manifest.extension_hash at seal time. PLACEHOLDER_EXTENSION_HASH must be replaced with the real hash before deployment.",
+  "description": "Course-maintained allowlist of known-good Provenance recorder extension hashes. The extension_hash_mismatch heuristic flags any bundle whose manifest.extension_hash is NOT in this list. Operational note: update this list each time a new recorder build is published. The actual hash is a SHA-256 over the recorder's installed distribution file tree (64-char lowercase hex) -- computed by walking sorted relative paths and hashing <path>\\0<bytes> per file -- as emitted by the recorder into bundle.manifest.extension_hash at seal time. Producer-agnostic: any recorder implementation (VS Code .vsix, JetBrains plugin .zip, ...) that reproduces this exact algorithm can appear here. PLACEHOLDER_EXTENSION_HASH must be replaced with the real hash before deployment.",
   "hashes": [
     "eb452af1aca3234fcdd23708e491d18b37ae26e2c46df893f787cf2fd9a13932",
     "522c15ef2316f57cfcc66a4c09ecc66efd6fd8ce6b443f5200aca45bc9079d62",
@@ -11,6 +11,7 @@
     "bf56f91ad99daf7d9ec87b05ca3e1c9b9b980a911379e021902f3d3e9c6bf6b6",
     "1b521a92e604ff4ba18b36d2f91397b6c59f1a1a4d45f5dd24810bec0a4861d0",
     "fae9fdaf802ff721ad51c2d437522bdfa02ea5d58e24fb7f88ac2f7dd8f4c4a9",
-    "f055716557fe1bdb91372c14c02955a6cc4b3aec069764336d6706c160e93537"
+    "f055716557fe1bdb91372c14c02955a6cc4b3aec069764336d6706c160e93537",
+    "01178711a069426bd3f399ca749a0774fad0d957936ec5ddc8201df776d6a7b0"
   ]
 }
