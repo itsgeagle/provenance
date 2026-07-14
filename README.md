@@ -250,3 +250,28 @@ This runs the same `build:prod` pipeline as above (you can re-use the same keypa
 Other modes: `--show` (print current list), `--no-build` (hash an already-bundled `dist/`), `--hash <hex>` / `--remove <hex>` (manual entries), `--clear`.
 
 See [`docs/recorder.md`](docs/recorder.md) for the full security model and what the recorder defends against.
+
+## License
+
+Provenance is licensed under the [Apache License, Version 2.0](LICENSE). See [`NOTICE`](NOTICE).
+
+The recorder VSIX, the analyzer SPA bundle, and the deployed server each redistribute a
+number of third-party open-source packages. Their licenses and copyright notices are
+listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+
+## Trademarks & third-party services
+
+Provenance is an independent project and is not affiliated with, endorsed by, or
+sponsored by Microsoft, Google, or Turnitin.
+
+- **Visual Studio Code** is a trademark of Microsoft Corporation. The recorder
+  (`packages/recorder`) is a VS Code extension; it is not produced or endorsed by
+  Microsoft.
+- **Google** and the Google logo are trademarks of Google LLC. The analyzer and server
+  use "Sign in with Google" (Google OAuth) for authentication; Provenance is not
+  produced or endorsed by Google.
+- **Gradescope** is a trademark of Turnitin, LLC. The server includes an optional
+  ingest path for Gradescope autograder exports (`packages/server/src/services/ingest/gradescope/`);
+  Provenance is not produced or endorsed by Turnitin.
+
+All other trademarks are the property of their respective owners.
