@@ -6,6 +6,15 @@
   "icon": "icon.png",
   "private": true,
   "publisher": "itsgeagle",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ProvenanceTools/provenance.git",
+    "directory": "packages/recorder"
+  },
+  "homepage": "https://github.com/ProvenanceTools/provenance",
+  "bugs": {
+    "url": "https://github.com/ProvenanceTools/provenance/issues"
+  },
   "type": "module",
   "engines": {
     "vscode": "^1.100.0"

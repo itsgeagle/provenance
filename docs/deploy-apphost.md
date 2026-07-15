@@ -35,7 +35,7 @@ source ~/.bashrc
 Clone the repo:
 
 ```sh
-git clone https://github.com/itsgeagle/provenance.git ~/provenance
+git clone https://github.com/ProvenanceTools/provenance.git ~/provenance
 ```
 
 Create the deploy env file from the checked-in template and lock it down
