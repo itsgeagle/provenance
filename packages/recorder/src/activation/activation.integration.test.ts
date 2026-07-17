@@ -10,15 +10,17 @@
  * separately from the VS Code wiring."
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import * as vscode from 'vscode';
 import * as ed from '@noble/ed25519';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { FixedClock, parseEntries, validateChain, canonicalize } from '@provenance/log-core';
 import type { Manifest } from '@provenance/log-core';
-import { activateImpl } from '../extension.js';
+import { activateImpl, fallbackActivationMessage } from '../extension.js';
+import type { ActivationError } from './manifest-loader.js';
 
 // ---------------------------------------------------------------------------
 // Helpers: test keypair + manifest
@@ -242,6 +244,57 @@ describe('activateImpl — integration', () => {
     expect(chainResult.ok).toBe(true);
   });
 
+  it('registers a fallback stub command when the manifest is missing', async () => {
+    const { pubkeyHex } = await generateTestKeypair();
+    // No .provenance-manifest on disk — the recorder must not activate, but it
+    // should still register a stub for provenance.prepareSubmissionBundle so the
+    // palette entry explains itself instead of throwing "command not found".
+
+    const registerSpy = vi.spyOn(vscode.commands, 'registerCommand');
+    const warnSpy = vi
+      .spyOn(vscode.window, 'showWarningMessage')
+      .mockResolvedValue(undefined as never);
+
+    try {
+      const disposables: import('vscode').Disposable[] = [];
+      const result = await activateImpl({
+        workspaceFolder: makeWorkspaceFolder(workspaceDir),
+        extension: makeExtension(),
+        vscodeVersion: '1.97.0',
+        platform: 'darwin-arm64',
+        pubkeyHex,
+        provenanceDirOverride: provenanceDir,
+        clock: new FixedClock(0, new Date('2026-01-01T00:00:00.000Z')),
+        disposables,
+      });
+
+      // Recorder stays inactive (no session), but a stub is registered + tracked.
+      expect(result).toBeNull();
+      expect(disposables).toHaveLength(1);
+
+      const stubCall = registerSpy.mock.calls.find(
+        ([id]) => id === 'provenance.prepareSubmissionBundle',
+      );
+      expect(stubCall).toBeDefined();
+
+      // The stub must not have created the .provenance dir (PRD §4.1: does nothing).
+      const provExists = await fs
+        .access(provenanceDir)
+        .then(() => true)
+        .catch(() => false);
+      expect(provExists).toBe(false);
+
+      // Invoking the stub explains the situation instead of failing silently.
+      const handler = stubCall![1] as () => unknown;
+      await handler();
+      expect(warnSpy).toHaveBeenCalledOnce();
+      expect(String(warnSpy.mock.calls[0]?.[0])).toContain('.provenance-manifest');
+    } finally {
+      registerSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   it('returns null when signature is invalid (signed by different keypair)', async () => {
     // Arrange: create a manifest signed with keypair A, but pass pubkey B to activateImpl.
     const { privkeyHex: privkeyA } = await generateTestKeypair();
@@ -289,4 +342,45 @@ describe('activateImpl — integration', () => {
       .catch(() => false);
     expect(provExists).toBe(false);
   });
+});
+
+// ---------------------------------------------------------------------------
+// fallbackActivationMessage — pure guidance-text mapping
+// ---------------------------------------------------------------------------
+
+describe('fallbackActivationMessage', () => {
+  const cases: Array<{ error: ActivationError; expects: string[] }> = [
+    {
+      error: { kind: 'no_manifest_file' },
+      expects: ['No Provenance assignment', '.provenance-manifest'],
+    },
+    {
+      error: { kind: 'no_workspace' },
+      expects: ['No Provenance assignment', '.provenance-manifest'],
+    },
+    {
+      error: { kind: 'manifest_signature_invalid' },
+      expects: ['could not be verified', 'course staff'],
+    },
+    {
+      error: { kind: 'manifest_parse_error', detail: 'bad' },
+      expects: ['could not be verified', 'course staff'],
+    },
+    {
+      error: { kind: 'manifest_read_error', message: 'EACCES: denied' },
+      expects: ['could not read', 'EACCES: denied'],
+    },
+  ];
+
+  for (const { error, expects } of cases) {
+    it(`explains "${error.kind}" and never says "command not found"`, () => {
+      const msg = fallbackActivationMessage(error);
+      expect(msg).not.toContain('command not found');
+      // Always tells the student recording did not happen.
+      expect(msg.toLowerCase()).toContain('recording');
+      for (const fragment of expects) {
+        expect(msg).toContain(fragment);
+      }
+    });
+  }
 });

@@ -22,6 +22,7 @@ import {
 } from '@provenance/log-core';
 import type { HashedEnvelope } from '@provenance/log-core';
 import { loadAndVerifyManifest } from './activation/manifest-loader.js';
+import type { ActivationError } from './activation/manifest-loader.js';
 import { createRecordingStatusBar } from './activation/status-bar.js';
 import { buildRecorderContext } from './session/recorder-context.js';
 import { createSessionHost } from './session/session-host.js';
@@ -112,6 +113,59 @@ type ActiveSession = {
 let activeSession: ActiveSession | null = null;
 
 // ---------------------------------------------------------------------------
+// Inactive-workspace fallback
+// ---------------------------------------------------------------------------
+
+/**
+ * Human-readable guidance shown when a student runs "Prepare Submission Bundle"
+ * in a folder where the recorder did not activate. Turns VS Code's opaque
+ * "command not found" into an actionable message, tailored to why activation was
+ * skipped. Pure so the wording is unit-testable without the VS Code runtime.
+ *
+ * PRD §4.1 still holds: the recorder does nothing on activation for these cases.
+ * This text is only surfaced in reaction to an explicit command invocation.
+ */
+export function fallbackActivationMessage(error: ActivationError): string {
+  switch (error.kind) {
+    case 'no_manifest_file':
+    case 'no_workspace':
+      return (
+        'No Provenance assignment was detected in this folder, so recording was ' +
+        'not active and no session was captured. Open the assignment folder that ' +
+        'contains a ".provenance-manifest" file (the one distributed by your course) ' +
+        'and try again.'
+      );
+    case 'manifest_signature_invalid':
+    case 'manifest_parse_error':
+      return (
+        'This folder\'s ".provenance-manifest" could not be verified, so Provenance ' +
+        'recording did not start and no session was captured. Re-download the ' +
+        'assignment from your course; if the problem persists, contact course staff.'
+      );
+    case 'manifest_read_error':
+      return (
+        'Provenance could not read the ".provenance-manifest" in this folder, so ' +
+        `recording did not start and no session was captured (${error.message}). ` +
+        'Re-download the assignment; if the problem persists, contact course staff.'
+      );
+  }
+}
+
+/**
+ * Register a no-op stub for `provenance.prepareSubmissionBundle` in a workspace
+ * where the recorder is inactive, so the palette command explains itself instead
+ * of throwing "command not found". The stub only shows a message when invoked; it
+ * creates no files and records nothing. The disposable is tracked for teardown.
+ */
+function registerInactiveStub(disposables: vscode.Disposable[], error: ActivationError): void {
+  const message = fallbackActivationMessage(error);
+  const stub = vscode.commands.registerCommand('provenance.prepareSubmissionBundle', () => {
+    void vscode.window.showWarningMessage(message);
+  });
+  disposables.push(stub);
+}
+
+// ---------------------------------------------------------------------------
 // activateImpl — testable core
 // ---------------------------------------------------------------------------
 
@@ -136,8 +190,15 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     const manifestResult = await loadAndVerifyManifest(workspaceFolder, deps.pubkeyHex);
     if (!manifestResult.ok) {
       // PRD §4.1: "If the signature doesn't verify, the extension does nothing."
-      // Not an error from the user's perspective; silent exit.
+      // Not an error from the user's perspective; silent exit — no session, no files.
       console.error(`[provenance] activation skipped: ${manifestResult.error.kind}`);
+      // ...but VS Code statically contributes the "Prepare Submission Bundle" palette
+      // entry. Without a registered handler it fails with an opaque "command not found"
+      // when a student runs it here (e.g. they opened just the assignment file, not the
+      // folder holding `.provenance-manifest`). Register a lightweight stub that only
+      // reacts to that explicit invocation and explains what to do. It records nothing
+      // and creates no files, so the "does nothing" guarantee above still holds.
+      registerInactiveStub(disposables, manifestResult.error);
       return null;
     }
     manifest = manifestResult.value;

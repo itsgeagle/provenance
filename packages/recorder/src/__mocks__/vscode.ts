@@ -42,6 +42,8 @@ export const window = {
   activeTextEditor: undefined as undefined,
   // Window state: always focused in unit tests.
   state: { focused: true },
+  // Notification surface used by the seal command and the inactive-workspace stub.
+  showWarningMessage: (_message: string, ..._items: unknown[]) => Promise.resolve(undefined),
 };
 
 export const workspace = {
