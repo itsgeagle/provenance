@@ -22,6 +22,11 @@
  * same thing — a SHA-256 over the installed distribution file tree — so a
  * JetBrains hash is a first-class allowlist entry, just sourced manually.
  *
+ * Same story for the Neovim recorder (provnvim): it's a separate repo, and
+ * for a Neovim plugin the installed `lua/` source tree IS the distribution
+ * (no build step). Its hash is computed in that repo via the recorder's
+ * `compute_installed()` and added here the same way, via `--hash <hex>`.
+ *
  * USAGE
  *   # Bundle with the current source key (dev key when nothing is overridden)
  *   # and add that hash. Useful for local dev only — emits a warning that the
