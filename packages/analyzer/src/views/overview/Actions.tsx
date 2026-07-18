@@ -8,9 +8,10 @@
  *   - "Export Findings (Markdown)" — Phase 8, wired via <ExportMarkdownButton />.
  *   - "Export Findings (PDF)" — Phase 19, wired via <ExportPdfButton />.
  *
- * The replay button defaults to the first (chronologically earliest) session
- * in the bundle. Multi-session bundles can switch sessions from the replay
- * route itself; the overview action is the entry point.
+ * The replay button opens the first (chronologically earliest) session in the
+ * bundle. For multi-session bundles, the overview's SummaryStatsPanel lists
+ * every session for direct entry, and the replay header carries a session
+ * switcher; this button is just the default entry point.
  */
 
 import { useNavigate } from 'react-router-dom';

@@ -8,6 +8,8 @@
  */
 
 import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { computeStats } from '@provenance/analysis-core/index/stats.js';
 import { formatDuration } from '../../lib/format.js';
@@ -20,9 +22,16 @@ interface SummaryStatsPanelProps {
 }
 
 export function SummaryStatsPanel({ index, bundle }: SummaryStatsPanelProps) {
+  const navigate = useNavigate();
   const stats = useMemo(() => computeStats(index), [index]);
 
   const files = Array.from(stats.perFile.values());
+
+  // Sessions in the bundle's chronological order (loader sorts oldest → newest).
+  // Only surfaced as a list when there's more than one — a single session is
+  // already covered by the "View Replay" action.
+  const sessions = bundle.sessions;
+  const multipleSessions = sessions.length > 1;
 
   // LOC approximation:
   //   "added" ≈ chars_typed + chars_pasted (characters that entered the file).
@@ -56,6 +65,46 @@ export function SummaryStatsPanel({ index, bundle }: SummaryStatsPanelProps) {
             testId="stat-idle-time"
           />
         </div>
+
+        {/* Session list — only when the bundle has more than one session, so a
+            reviewer who finishes one session sees the others and can jump in. */}
+        {multipleSessions && (
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Sessions ({sessions.length})
+            </p>
+            <div className="space-y-1" data-testid="session-list">
+              {sessions.map((s, i) => {
+                const eventCount = index.bySessionId.get(s.sessionId)?.length ?? 0;
+                const startWall = s.firstEvent?.wall ?? null;
+                return (
+                  <button
+                    key={s.sessionId}
+                    type="button"
+                    onClick={() => navigate(`/local/replay/${s.sessionId}`)}
+                    className="flex w-full items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-left text-sm transition-colors hover:bg-accent/50 focus:outline-none focus:ring-2 focus:ring-ring"
+                    data-testid={`session-row-${s.sessionId}`}
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="font-medium">Session {i + 1}</span>
+                      {startWall !== null && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {new Date(startWall).toLocaleString()}
+                        </span>
+                      )}
+                    </span>
+                    <span className="ml-4 flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
+                      <span>
+                        {eventCount.toLocaleString()} event{eventCount !== 1 ? 's' : ''}
+                      </span>
+                      <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* LOC approximation */}
         <div className="rounded-md border px-4 py-3">

@@ -71,9 +71,10 @@ import {
 interface ReplayHeaderProps {
   sessionId: string;
   sourceFilename: string;
+  index: EventIndex;
 }
 
-function ReplayHeader({ sessionId, sourceFilename }: ReplayHeaderProps) {
+function ReplayHeader({ sessionId, sourceFilename, index }: ReplayHeaderProps) {
   const navigate = useNavigate();
 
   const handleBack = () => {
@@ -84,6 +85,18 @@ function ReplayHeader({ sessionId, sourceFilename }: ReplayHeaderProps) {
       void navigate('/local/overview');
     }
   };
+
+  // Session ids in the bundle's chronological order (bySessionId is built from
+  // wall-sorted events, so its key order is oldest → newest).
+  const sessionIds = useMemo(() => [...index.bySessionId.keys()], [index]);
+  const total = sessionIds.length;
+  const ordinal = sessionIds.indexOf(sessionId) + 1;
+
+  // Switch sessions by navigating to the sibling replay route. A fresh path
+  // (no ?event) starts the new session at its beginning.
+  function handleSessionChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    void navigate(`/local/replay/${e.target.value}`);
+  }
 
   const label = `${sourceFilename} · ${sessionId.slice(0, 8)}…`;
 
@@ -104,12 +117,45 @@ function ReplayHeader({ sessionId, sourceFilename }: ReplayHeaderProps) {
         Back
       </button>
       <span className="mx-2 h-4 border-l" aria-hidden="true" />
-      <span
-        className="min-w-0 truncate text-xs text-muted-foreground"
-        title={`Session: ${sessionId} · Bundle: ${sourceFilename}`}
-      >
-        {label}
-      </span>
+      {total > 1 ? (
+        <div className="flex min-w-0 items-center gap-2" data-testid="replay-session-switcher">
+          <select
+            aria-label="Session"
+            value={sessionId}
+            onChange={handleSessionChange}
+            className="rounded-md border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            data-testid="replay-session-select"
+          >
+            {sessionIds.map((id, i) => {
+              const startWall = index.bySessionId.get(id)?.[0]?.wall ?? null;
+              const when = startWall !== null ? ` · ${new Date(startWall).toLocaleString()}` : '';
+              return (
+                <option key={id} value={id}>
+                  {`Session ${i + 1} of ${total}${when}`}
+                </option>
+              );
+            })}
+          </select>
+          <span
+            className="min-w-0 truncate text-xs text-muted-foreground"
+            title={`Session: ${sessionId} · Bundle: ${sourceFilename}`}
+          >
+            {sourceFilename}
+          </span>
+        </div>
+      ) : (
+        <span
+          className="min-w-0 truncate text-xs text-muted-foreground"
+          title={`Session: ${sessionId} · Bundle: ${sourceFilename}`}
+        >
+          {label}
+        </span>
+      )}
+      {ordinal > 0 && total > 1 && (
+        <span className="ml-auto shrink-0 text-xs font-medium text-muted-foreground tabular-nums">
+          {ordinal} / {total}
+        </span>
+      )}
     </div>
   );
 }
@@ -418,8 +464,10 @@ export function ReplayInner({
 
   return (
     <div className="flex flex-col h-full" data-testid="replay-view">
-      {/* Back button + session context — only shown in the /local route. */}
-      {showHeader && <ReplayHeader sessionId={sessionId} sourceFilename={sourceFilename} />}
+      {/* Back button + session context + switcher — only shown in the /local route. */}
+      {showHeader && (
+        <ReplayHeader sessionId={sessionId} sourceFilename={sourceFilename} index={index} />
+      )}
 
       {/* File tabs row */}
       <div className="px-4 pt-3 pb-1 border-b bg-background shrink-0">

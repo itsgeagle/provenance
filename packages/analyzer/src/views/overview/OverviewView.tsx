@@ -22,13 +22,16 @@ import { collectActiveExtensions } from '../../extensions/collect-active-extensi
 import { ActiveExtensionsCard } from '../../extensions/ActiveExtensionsCard.js';
 
 export function OverviewView() {
-  const { bundles, index, validationReport, flags } = useBundle();
+  const { bundles, selectedBundleId, index, validationReport, flags } = useBundle();
 
   if (!index || !validationReport || bundles.length === 0) {
     return null;
   }
 
-  const bundle = bundles[0]!;
+  // `index` is derived from selectedBundleId, so the summary bundle must match
+  // it — otherwise, with multiple bundles loaded, the stats panel would show
+  // bundles[0]'s manifest/sessions against a different bundle's index.
+  const bundle = bundles.find((b) => b.id === selectedBundleId) ?? bundles[0]!;
 
   const activeExtensions = collectActiveExtensions(
     index.byKind.get('ext.snapshot') ?? [],

@@ -126,4 +126,24 @@ describe('OverviewView', () => {
     renderView();
     expect(screen.getByTestId('stat-assignment').textContent).toBe('hw1');
   });
+
+  it('summarizes the bundle matching selectedBundleId, not always bundles[0]', () => {
+    const first = makeMinimalBundle();
+    const second: typeof first = {
+      ...first,
+      id: 'bundle-2',
+      manifest: { ...first.manifest, assignment_id: 'hw2' },
+    };
+    mockUseBundle.mockReturnValue({
+      bundles: [first, second],
+      selectedBundleId: 'bundle-2',
+      index: makeMinimalIndex(),
+      validationReport: fixtureReport,
+      flags: fixtureFlags,
+    });
+
+    renderView();
+    // Without the selectedBundleId fix this would read the first bundle → 'hw1'.
+    expect(screen.getByTestId('stat-assignment').textContent).toBe('hw2');
+  });
 });

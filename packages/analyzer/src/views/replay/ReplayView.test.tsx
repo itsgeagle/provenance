@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ReplayView } from './ReplayView.js';
 import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
@@ -306,6 +306,55 @@ describe('ReplayView', () => {
       await waitFor(() => {
         expect(screen.getByTestId('replay-header')).toBeDefined();
       });
+    });
+  });
+
+  describe('session switcher (multi-session bundles)', () => {
+    beforeEach(() => {
+      // Two sessions; sess1 sorts first (lower globalIdx → earlier in bySessionId).
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'hw.py'),
+        makeDocChangeEvent(1, 'sess2', 'hw.py'),
+      ]);
+    });
+
+    it('renders the session switcher with one option per session', async () => {
+      renderReplayView('sess1');
+      await waitFor(() => {
+        expect(screen.getByTestId('replay-session-switcher')).toBeDefined();
+      });
+      const options = screen.getAllByRole('option');
+      expect(options).toHaveLength(2);
+      expect(options[0]!.textContent).toContain('Session 1 of 2');
+      expect(options[1]!.textContent).toContain('Session 2 of 2');
+    });
+
+    it('reflects the active session as the selected option', async () => {
+      renderReplayView('sess2');
+      await waitFor(() => {
+        const select = screen.getByTestId('replay-session-select') as HTMLSelectElement;
+        expect(select.value).toBe('sess2');
+      });
+    });
+
+    it('changing the switcher navigates to the other session', async () => {
+      renderReplayView('sess1');
+      const select = (await screen.findByTestId('replay-session-select')) as HTMLSelectElement;
+      expect(select.value).toBe('sess1');
+      fireEvent.change(select, { target: { value: 'sess2' } });
+      await waitFor(() => {
+        const next = screen.getByTestId('replay-session-select') as HTMLSelectElement;
+        expect(next.value).toBe('sess2');
+      });
+    });
+
+    it('does not render the switcher for a single-session bundle', async () => {
+      mockIndex.current = buildIndex([makeDocChangeEvent(0, 'sess1', 'hw.py')]);
+      renderReplayView('sess1');
+      await waitFor(() => {
+        expect(screen.getByTestId('replay-view')).toBeDefined();
+      });
+      expect(screen.queryByTestId('replay-session-switcher')).toBeNull();
     });
   });
 
