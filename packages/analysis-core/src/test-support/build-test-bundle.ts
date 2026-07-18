@@ -81,6 +81,10 @@ export type BuildBundleOpts = {
     eventCount?: number;
     /** Optional explicit wall timestamps for events (starting from session.start). */
     walls?: string[];
+    /** Override session.start.data.machine_id (host identity). Defaults to 'test-machine'. */
+    machineId?: string;
+    /** Override session.start.data.recorder.extension_id (recorder identity). Defaults to 'provenance.recorder'. */
+    extensionId?: string;
     /**
      * If true, append a doc.save event at the end whose sha256 matches the
      * in-memory content built by the doc.change events. Used for check 7 tests.
@@ -192,6 +196,8 @@ async function buildSession(opts: {
   semester: string;
   appendDocSave?: boolean;
   events?: EventSpec[];
+  machineId?: string;
+  extensionId?: string;
 }): Promise<{ slogText: string; metaJson: string }> {
   const {
     sessionId,
@@ -203,6 +209,8 @@ async function buildSession(opts: {
     semester,
     appendDocSave,
     events: explicitEvents,
+    machineId,
+    extensionId,
   } = opts;
 
   const lines: string[] = [];
@@ -220,9 +228,9 @@ async function buildSession(opts: {
       prev_session_id: null as string | null,
       assignment: { id: assignmentId, semester },
       manifest_sig: 'placeholder-sig',
-      machine_id: 'test-machine',
+      machine_id: machineId ?? 'test-machine',
       vscode: { version: '1.90.0', commit: '', platform: 'darwin' },
-      recorder: { version: '0.0.1', extension_id: 'provenance.recorder' },
+      recorder: { version: '0.0.1', extension_id: extensionId ?? 'provenance.recorder' },
       session_pubkey: pubkeyHex,
     },
   };
@@ -373,6 +381,8 @@ export async function buildTestBundle(opts?: BuildBundleOpts): Promise<BuiltBund
       semester,
       ...(spec.appendDocSave !== undefined ? { appendDocSave: spec.appendDocSave } : {}),
       ...(spec.events !== undefined ? { events: spec.events } : {}),
+      ...(spec.machineId !== undefined ? { machineId: spec.machineId } : {}),
+      ...(spec.extensionId !== undefined ? { extensionId: spec.extensionId } : {}),
     });
 
     sessions.push({

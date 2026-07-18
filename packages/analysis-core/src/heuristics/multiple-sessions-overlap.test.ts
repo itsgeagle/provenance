@@ -91,17 +91,20 @@ describe('multiple_sessions_overlap — negative', () => {
 // ---------------------------------------------------------------------------
 
 describe('multiple_sessions_overlap — positive', () => {
-  it('flags two sessions with overlapping wall-time ranges', async () => {
+  it('flags two sessions with overlapping wall-time ranges (different hosts)', async () => {
     // Session A: [0, 20min]; Session B: [10, 30min] → overlap at [10, 20]
+    // Distinct machine_ids → a real cross-host "stitched together" signal.
     const { index, bundle } = await buildAndIndex({
       sessions: [
         {
+          machineId: 'machine-a',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(20), t: 1_200_000 },
           ],
           walls: [wallAt(0)],
         },
         {
+          machineId: 'machine-b',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
           ],
@@ -124,10 +127,12 @@ describe('multiple_sessions_overlap — positive', () => {
       sessions: [
         {
           // No session.end → open-ended
+          machineId: 'machine-a',
           events: [],
           walls: [wallAt(0)],
         },
         {
+          machineId: 'machine-b',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(20), t: 600_000 },
           ],
@@ -146,10 +151,12 @@ describe('multiple_sessions_overlap — positive', () => {
     const { index, bundle } = await buildAndIndex({
       sessions: [
         {
+          machineId: 'machine-a',
           events: [],
           walls: [wallAt(0)],
         },
         {
+          machineId: 'machine-b',
           events: [],
           walls: [wallAt(10)],
         },
@@ -171,12 +178,14 @@ describe('multiple_sessions_overlap — positive', () => {
     const { index, bundle } = await buildAndIndex({
       sessions: [
         {
+          machineId: 'machine-a',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(20), t: 1_200_000 },
           ],
           walls: [wallAt(0)],
         },
         {
+          machineId: 'machine-b',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
           ],
@@ -190,22 +199,25 @@ describe('multiple_sessions_overlap — positive', () => {
   });
 
   it('emits N*(N-1)/2 flags for N mutually overlapping sessions', async () => {
-    // Three sessions that all overlap
+    // Three sessions that all overlap, each on a distinct host → all pairs flagged.
     const { index, bundle } = await buildAndIndex({
       sessions: [
         {
+          machineId: 'machine-a',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_800_000 },
           ],
           walls: [wallAt(0)],
         },
         {
+          machineId: 'machine-b',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
           ],
           walls: [wallAt(10)],
         },
         {
+          machineId: 'machine-c',
           events: [
             { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 600_000 },
           ],
@@ -219,5 +231,179 @@ describe('multiple_sessions_overlap — positive', () => {
     // All IDs should be unique
     const ids = flags.map((f) => f.id);
     expect(new Set(ids).size).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent same-host / same-recorder narrowing
+//
+// Multiple editor instances on one machine with one recorder (e.g. two Neovim
+// instances on the same workspace in two terminals/tmux panes) genuinely
+// overlap in wall-time but are honest concurrent editing, not forgery. Such
+// overlaps are suppressed. Overlaps across different hosts OR different
+// recorders remain flagged as a real two-machine / forgery signal.
+// ---------------------------------------------------------------------------
+
+describe('multiple_sessions_overlap — concurrent same-host same-recorder', () => {
+  it('does NOT flag overlapping sessions from the same host and same recorder', async () => {
+    // Both sessions overlap [10, 20], same machine_id + same extension_id.
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(20), t: 1_200_000 },
+          ],
+          walls: [wallAt(0)],
+        },
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
+          ],
+          walls: [wallAt(10)],
+        },
+      ],
+    });
+    const flags = multipleSessionsOverlapHeuristic.run(index, bundle, defaultConfig);
+    expect(flags).toHaveLength(0);
+  });
+
+  it('does NOT flag two overlapping OPEN sessions from the same host and recorder', async () => {
+    // Two concurrent Neovim instances still alive → both open-ended, same identity.
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [],
+          walls: [wallAt(0)],
+        },
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [],
+          walls: [wallAt(10)],
+        },
+      ],
+    });
+    const flags = multipleSessionsOverlapHeuristic.run(index, bundle, defaultConfig);
+    expect(flags).toHaveLength(0);
+  });
+
+  it('still flags overlapping sessions from the same host but DIFFERENT recorders', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(20), t: 1_200_000 },
+          ],
+          walls: [wallAt(0)],
+        },
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.vscode',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
+          ],
+          walls: [wallAt(10)],
+        },
+      ],
+    });
+    const flags = multipleSessionsOverlapHeuristic.run(index, bundle, defaultConfig);
+    expect(flags).toHaveLength(1);
+  });
+
+  it('still flags overlapping sessions from DIFFERENT hosts but the same recorder', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(20), t: 1_200_000 },
+          ],
+          walls: [wallAt(0)],
+        },
+        {
+          machineId: 'laptop-2',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
+          ],
+          walls: [wallAt(10)],
+        },
+      ],
+    });
+    const flags = multipleSessionsOverlapHeuristic.run(index, bundle, defaultConfig);
+    expect(flags).toHaveLength(1);
+  });
+
+  it('mixed hosts: suppresses the same-host pair but flags cross-host pairs', async () => {
+    // Sessions A and B are the same host+recorder (concurrent Neovim); C is a
+    // different host. All three overlap. Expect only the A–C and B–C pairs to
+    // flag (2 flags), and the A–B pair to be suppressed.
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_800_000 },
+          ],
+          walls: [wallAt(0)],
+        },
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
+          ],
+          walls: [wallAt(10)],
+        },
+        {
+          machineId: 'laptop-2',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 600_000 },
+          ],
+          walls: [wallAt(20)],
+        },
+      ],
+    });
+    const flags = multipleSessionsOverlapHeuristic.run(index, bundle, defaultConfig);
+    expect(flags).toHaveLength(2);
+  });
+
+  it('flags a same-host overlap when one session is missing recorder identity', async () => {
+    // Defensive: if identity can't be confirmed on both sides, we do NOT
+    // suppress — the anti-cheat-preserving default. Here both use the default
+    // machine_id but session B carries a blank extension_id.
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          machineId: 'laptop-1',
+          extensionId: 'provenance.recorder.nvim',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(20), t: 1_200_000 },
+          ],
+          walls: [wallAt(0)],
+        },
+        {
+          machineId: 'laptop-1',
+          extensionId: '',
+          events: [
+            { kind: 'session.end', data: { reason: 'deactivate' }, wall: wallAt(30), t: 1_200_000 },
+          ],
+          walls: [wallAt(10)],
+        },
+      ],
+    });
+    const flags = multipleSessionsOverlapHeuristic.run(index, bundle, defaultConfig);
+    expect(flags).toHaveLength(1);
   });
 });
