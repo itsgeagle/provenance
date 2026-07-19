@@ -23,6 +23,8 @@ import {
   DEFAULT_COURSE_SLUG,
   DEFAULT_SEMESTER_ID,
   DEFAULT_SEMESTER_SLUG,
+  defaultMembership,
+  meWithMembershipsHandler,
 } from '../../test/msw-handlers.js';
 
 // ---------------------------------------------------------------------------
@@ -68,30 +70,7 @@ function setupListHandler(items: object[] = [], nextCursor: string | null = null
     http.get(`/api/v1/semesters/${DEFAULT_SEMESTER_ID}/cross-flags`, () =>
       HttpResponse.json({ items, next_cursor: nextCursor }),
     ),
-    http.get('/api/v1/me', () =>
-      HttpResponse.json({
-        principal_kind: 'session',
-        user: {
-          id: '00000000-0000-0000-0000-000000000001',
-          email: 'ta@berkeley.edu',
-          display_name: 'Test TA',
-          is_superadmin: false,
-          protected: false,
-          created_at: '2025-01-01T00:00:00.000Z',
-          last_login_at: null,
-        },
-        memberships: [
-          {
-            semester_id: DEFAULT_SEMESTER_ID,
-            semester_slug: DEFAULT_SEMESTER_SLUG,
-            course_slug: 'cs61a',
-            role: 'admin',
-            granted_at: '2025-01-01T00:00:00.000Z',
-          },
-        ],
-        view_as: null,
-      }),
-    ),
+    meWithMembershipsHandler([defaultMembership]),
   );
 }
 
