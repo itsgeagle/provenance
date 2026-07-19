@@ -39,6 +39,12 @@ vi.mock('../../data/useFullEventIndex.js', () => ({
   useFullEventIndex: () => mockIndexResult.value,
 }));
 
+// Mock Monaco so the reconstructed file content is assertable via data-value
+// (mirrors views/replay/ReplayView.test.tsx).
+vi.mock('@monaco-editor/react', () => ({
+  default: ({ value }: { value: string }) => <div data-testid="monaco-editor" data-value={value} />,
+}));
+
 function makeQueryResult<T>(data: T): UseQueryResult<T> {
   return {
     data,
@@ -235,6 +241,120 @@ describe('Replay tab (v3)', () => {
     renderReplay(makeProvider());
     await waitFor(() => {
       expect(screen.getByTestId('replay-session-missing')).toBeInTheDocument();
+    });
+  });
+
+  it('reconstructs the SECOND session’s own content in the full (server-backed) view', async () => {
+    // Regression: the full analyzer view feeds the same ReplayInner/engine a
+    // multi-session index. sess-2's events carry higher true globalIdx values
+    // than their session-local positions. The pre-fix engine treated the
+    // playhead as a session-local index and truncated reconstruction to the
+    // first session, so every later session showed empty/first-session content.
+    const wallBase = 1_700_000_000_000;
+    const rows: ServerEventRow[] = [
+      // sess-1 (earlier wall → lower globalIdx: 0,1,2)
+      {
+        seq: 0,
+        session_id: 'sess-1',
+        t: 0,
+        wall: new Date(wallBase).toISOString(),
+        kind: 'session.start',
+        payload: {},
+      },
+      {
+        seq: 1,
+        session_id: 'sess-1',
+        t: 100,
+        wall: new Date(wallBase + 100).toISOString(),
+        kind: 'doc.open',
+        payload: { path: 'hw1.py', content: '' },
+      },
+      {
+        seq: 2,
+        session_id: 'sess-1',
+        t: 200,
+        wall: new Date(wallBase + 200).toISOString(),
+        kind: 'doc.change',
+        payload: {
+          path: 'hw1.py',
+          source: 'typed',
+          deltas: [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              text: 'hello',
+            },
+          ],
+        },
+      },
+      // sess-2 (later wall → higher globalIdx: 3,4,5)
+      {
+        seq: 0,
+        session_id: 'sess-2',
+        t: 0,
+        wall: new Date(wallBase + 1000).toISOString(),
+        kind: 'session.start',
+        payload: {},
+      },
+      {
+        seq: 1,
+        session_id: 'sess-2',
+        t: 100,
+        wall: new Date(wallBase + 1100).toISOString(),
+        kind: 'doc.open',
+        payload: { path: 'part2.py', content: '' },
+      },
+      {
+        seq: 2,
+        session_id: 'sess-2',
+        t: 200,
+        wall: new Date(wallBase + 1200).toISOString(),
+        kind: 'doc.change',
+        payload: {
+          path: 'part2.py',
+          source: 'typed',
+          deltas: [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              text: 'world',
+            },
+          ],
+        },
+      },
+    ];
+    mockIndexResult.value = makeQueryResult(buildIndexFromEventRows(rows));
+
+    const provider = makeProvider();
+    const twoSessionProvider: SubmissionDataProvider = {
+      ...provider,
+      useSummary: () =>
+        makeQueryResult({
+          ...(provider.useSummary().data as SubmissionSummary),
+          session_ids: ['sess-1', 'sess-2'],
+        }),
+    };
+
+    // ?session=sess-2 picks the later session; ?event=5 seeks to its doc.change
+    // (true globalIdx 5). part2.py must reconstruct to 'world'.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/s/cs61a/fa26/sub/test-sub-id?session=sess-2&event=5']}>
+          <Routes>
+            <Route
+              path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
+              element={
+                <SubmissionDataContext.Provider value={twoSessionProvider}>
+                  <Replay />
+                </SubmissionDataContext.Provider>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('world');
     });
   });
 });

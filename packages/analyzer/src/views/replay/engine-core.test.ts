@@ -289,6 +289,60 @@ describe('createEngine', () => {
     });
   });
 
+  describe('multi-session (non-zero globalIdx offset)', () => {
+    // Two sessions in one bundle. sess1 edits hw.py at globalIdx 0..2; sess2
+    // edits a distinct file p2.py at globalIdx 3..5. A session's events carry
+    // their true whole-bundle globalIdx — for sess2 those are 3,4,5, NOT the
+    // 0,1,2 array positions. The engine must key reconstruction off the true
+    // globalIdx; otherwise replaying sess2 truncates to sess1's early state.
+    function buildTwoSessionIndex(): EventIndex {
+      return buildIndex([
+        makeDocChangeEvent(0, 'hw.py', 'a', 'sess1'),
+        makeDocChangeEvent(1, 'hw.py', 'b', 'sess1'),
+        makeDocChangeEvent(2, 'hw.py', 'c', 'sess1'),
+        makeDocChangeEvent(3, 'p2.py', 'x', 'sess2'),
+        makeDocChangeEvent(4, 'p2.py', 'y', 'sess2'),
+        makeDocChangeEvent(5, 'p2.py', 'z', 'sess2'),
+      ]);
+    }
+
+    it('lists only the second session files', () => {
+      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
+      expect(engine.getFiles()).toEqual(['p2.py']);
+    });
+
+    it('seek to the last sess2 event reconstructs full sess2 content', () => {
+      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
+      const state = engine.seek(5);
+      expect(state.currentGlobalIdx).toBe(5);
+      // events 3,4,5 each insert one char at pos 0 → 'zyx'
+      expect(engine.getFileStates().get('p2.py')?.content).toBe('zyx');
+    });
+
+    it('seek to the first sess2 event reconstructs only that event', () => {
+      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
+      const state = engine.seek(3);
+      expect(state.currentGlobalIdx).toBe(3);
+      expect(engine.getFileStates().get('p2.py')?.content).toBe('x');
+    });
+
+    it('step from -1 advances to the first sess2 event (globalIdx 3)', () => {
+      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
+      const state = engine.step(1);
+      expect(state.currentGlobalIdx).toBe(3);
+      expect(engine.getFileStates().get('p2.py')?.content).toBe('x');
+    });
+
+    it('tick plays sess2 events in order using true globalIdx', () => {
+      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
+      // sess2 events are at t = globalIdx*100 → 300, 400, 500. virtualT starts
+      // at the first event's t (300). Advance to cover all three.
+      const state = engine.tick(1000);
+      expect(state.currentGlobalIdx).toBe(5);
+      expect(engine.getFileStates().get('p2.py')?.content).toBe('zyx');
+    });
+  });
+
   describe('empty session', () => {
     it('handles session with no events gracefully', () => {
       const index = buildIndex([]);

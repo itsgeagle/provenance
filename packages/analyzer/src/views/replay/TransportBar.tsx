@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/tooltip.js';
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 import type { ReplayState } from './engine-core.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -32,8 +33,13 @@ import type { ReplayState } from './engine-core.js';
 
 type TransportBarProps = {
   state: ReplayState;
-  /** Total number of events in the session (slider max). */
-  eventCount: number;
+  /**
+   * The session's events, in chronological order. Used to translate between the
+   * scrub slider's session-local position and each event's true whole-bundle
+   * `globalIdx` — `state.currentGlobalIdx` is a true globalIdx, which for any
+   * session after the first does not equal its array position.
+   */
+  events: readonly IndexedEvent[];
   onPlay(): void;
   onPause(): void;
   onStep(n: number): void;
@@ -46,17 +52,23 @@ type TransportBarProps = {
 
 export function TransportBar({
   state,
-  eventCount,
+  events,
   onPlay,
   onPause,
   onStep,
   onSeek,
 }: TransportBarProps) {
-  // Slider value: 0-based position, where -1 (before any event) maps to 0
-  // and events[N] maps to N+1. We display in 1-based for readability but
-  // convert back to globalIdx for the engine.
+  const eventCount = events.length;
+
+  // The slider operates in session-local position space [0, eventCount-1].
+  // state.currentGlobalIdx is a true whole-bundle globalIdx, so map it back to
+  // the position of the matching session event (-1 before the first event).
   const sliderMax = Math.max(0, eventCount - 1);
-  const sliderValue = Math.max(0, state.currentGlobalIdx);
+  const currentPos =
+    state.currentGlobalIdx < 0
+      ? -1
+      : events.findIndex((e) => e.globalIdx === state.currentGlobalIdx);
+  const sliderValue = Math.max(0, currentPos);
 
   // requestAnimationFrame throttle for scrub.
   const rafRef = useRef<number | null>(null);
@@ -64,8 +76,11 @@ export function TransportBar({
 
   const handleSliderChange = useCallback(
     (values: number[]) => {
-      const newIdx = values[0] ?? 0;
-      pendingSeekRef.current = newIdx;
+      // Slider yields a session-local position; convert to the event's true
+      // globalIdx before handing it to the engine's seek().
+      const newPos = values[0] ?? 0;
+      const target = events[newPos]?.globalIdx ?? -1;
+      pendingSeekRef.current = target;
       if (rafRef.current === null) {
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null;
@@ -76,20 +91,20 @@ export function TransportBar({
         });
       }
     },
-    [onSeek],
+    [onSeek, events],
   );
 
   const isPlaying = state.status === 'playing';
-  const atStart = state.currentGlobalIdx < 0;
-  const atEnd = state.currentGlobalIdx >= sliderMax;
+  const atStart = currentPos < 0;
+  const atEnd = currentPos >= sliderMax;
 
   // Display: "event N of M" or "— of M" before first event.
   const eventLabel =
     eventCount === 0
       ? 'No events'
-      : state.currentGlobalIdx < 0
+      : currentPos < 0
         ? `— of ${eventCount}`
-        : `${state.currentGlobalIdx + 1} of ${eventCount}`;
+        : `${currentPos + 1} of ${eventCount}`;
 
   return (
     <TooltipProvider delayDuration={400}>

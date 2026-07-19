@@ -528,7 +528,7 @@ export function ReplayInner({
           <div className="flex-1">
             <TransportBar
               state={state}
-              eventCount={eventCount}
+              events={sessionEvents}
               onPlay={handlePlay}
               onPause={pause}
               onStep={step}

@@ -348,6 +348,26 @@ describe('ReplayView', () => {
       });
     });
 
+    it('reconstructs the SECOND session’s own content, not the first session’s', async () => {
+      // Regression: sess2 edits a distinct file at globalIdx 2,3 (its array
+      // positions are 0,1). The engine must cut reconstruction at the TRUE
+      // globalIdx; the pre-fix engine treated currentGlobalIdx as a session-
+      // local position and truncated to the first session's early state,
+      // showing empty/first-session content for every later session.
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'hw.py'), // 'A' → hw.py
+        makeDocChangeEvent(1, 'sess1', 'hw.py'), // 'B' → hw.py
+        makeDocChangeEvent(2, 'sess2', 'part2.py'), // 'C' → part2.py
+        makeDocChangeEvent(3, 'sess2', 'part2.py'), // 'D' → part2.py
+      ]);
+      // ?event=3 seeks to true globalIdx 3 (the last sess2 event). Each insert
+      // is at pos 0, so part2.py reconstructs to 'DC'.
+      renderReplayView('sess2', '?event=3');
+      await waitFor(() => {
+        expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('DC');
+      });
+    });
+
     it('does not render the switcher for a single-session bundle', async () => {
       mockIndex.current = buildIndex([makeDocChangeEvent(0, 'sess1', 'hw.py')]);
       renderReplayView('sess1');

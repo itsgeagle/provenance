@@ -134,6 +134,18 @@ type Checkpoint = Map<string, FileReplayState>;
 type InternalState = {
   state: ReplayState;
   fileStates: Map<string, FileReplayState>;
+  /**
+   * Cursor into `events` as an array position (0-based), where -1 means
+   * "before the first event". This is the engine's internal playhead.
+   *
+   * It is NOT the same as `state.currentGlobalIdx`: session events carry their
+   * true whole-bundle `globalIdx`, which for any session after the first is far
+   * larger than its array position. `state.currentGlobalIdx` is derived as
+   * `events[pos].globalIdx` (or -1), so all consumers — and the whole-bundle
+   * `reconstructFileWithProvenance` cut — see the true globalIdx, while
+   * step/tick/scrub navigate by array position.
+   */
+  pos: number;
   /** events[] for this session (ordered by globalIdx). */
   events: readonly IndexedEvent[];
   /** Files under review (derived from events; computed once). */
@@ -271,6 +283,7 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
   const internal: InternalState = {
     state: { ...initialState },
     fileStates: new Map(files.map((f) => [f, emptyFileState()])),
+    pos: -1,
     events: sessionEvents,
     files,
     checkpoints: new Map<number, Checkpoint>([
@@ -280,20 +293,55 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
   };
 
   // ---------------------------------------------------------------------------
-  // Seek implementation
+  // Navigation helpers
   // ---------------------------------------------------------------------------
 
-  function seekTo(globalIdx: number): ReplayState {
-    const maxIdx = internal.events.length - 1;
-    const clamped = clamp(globalIdx, maxIdx);
+  /** The true whole-bundle globalIdx of the event at array position `pos`. */
+  function globalIdxAtPos(pos: number): number {
+    return pos < 0 ? -1 : (internal.events[pos]?.globalIdx ?? -1);
+  }
 
-    // upToGlobalIdx (exclusive) = clamped + 1.
-    // If clamped = -1 (before any event), upToGlobalIdx = 0 → no events applied.
-    const upTo = clamped + 1;
+  /**
+   * The array position whose event we should be "at" for a requested true
+   * globalIdx `g`: the last session event with `globalIdx <= g`, or -1 when `g`
+   * precedes the first event. Session events are ordered ascending by globalIdx,
+   * so a linear scan suffices (and mirrors EventSidebar's globalIdx→listIdx scan).
+   */
+  function posForGlobalIdx(g: number): number {
+    let pos = -1;
+    for (let i = 0; i < internal.events.length; i++) {
+      if (internal.events[i]!.globalIdx <= g) {
+        pos = i;
+      } else {
+        break;
+      }
+    }
+    return pos;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Seek implementation — navigate to array position `pos`.
+  //
+  // `pos` is a session-local array index (-1 = before any event). It is clamped
+  // to [-1, events.length - 1]. Reconstruction is cut at the event's TRUE
+  // globalIdx (+1, exclusive) because reconstructFileWithProvenance walks the
+  // whole-bundle byFile stream; and `state.currentGlobalIdx` exposes that same
+  // true globalIdx to all consumers.
+  // ---------------------------------------------------------------------------
+
+  function seekToPos(pos: number): ReplayState {
+    const maxIdx = internal.events.length - 1;
+    const clamped = clamp(pos, maxIdx);
+    const globalIdx = globalIdxAtPos(clamped);
+
+    // upToGlobalIdx (exclusive) = current event's true globalIdx + 1.
+    // If clamped = -1 (before any event), upTo = 0 → no events applied.
+    const upTo = clamped === -1 ? 0 : globalIdx + 1;
 
     // Warm the checkpoint below this position so future adjacent seeks can
-    // short-circuit. (The warmup itself calls reconstructFileWithProvenance.)
-    const checkpointFloor = Math.floor(clamped / CHECKPOINT_EVERY) * CHECKPOINT_EVERY;
+    // short-circuit. Keyed by the true-globalIdx cut so the cache boundaries
+    // align with the reconstruction the seek performs.
+    const checkpointFloor = Math.floor(Math.max(0, upTo - 1) / CHECKPOINT_EVERY) * CHECKPOINT_EVERY;
     // Skip warmup for the implicit-empty checkpoint at 0.
     if (checkpointFloor >= CHECKPOINT_EVERY) {
       ensureCheckpoint(internal, checkpointFloor);
@@ -312,10 +360,11 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
         ? (internal.events[0]?.t ?? 0)
         : (internal.events[clamped]?.t ?? internal.state.virtualT);
 
+    internal.pos = clamped;
     internal.fileStates = newFileStates;
     internal.state = {
       ...internal.state,
-      currentGlobalIdx: clamped,
+      currentGlobalIdx: globalIdx,
       virtualT: targetVirtualT,
     };
 
@@ -344,12 +393,16 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
     },
 
     step(n = 1) {
-      const target = internal.state.currentGlobalIdx + n;
-      return seekTo(target);
+      // Step by `n` events in the session (array-position space), not in
+      // globalIdx space — the next event may be many globalIdx away.
+      return seekToPos(internal.pos + n);
     },
 
     seek(globalIdx) {
-      return seekTo(globalIdx);
+      // `globalIdx` is a true whole-bundle index (sidebar rows, jump targets,
+      // and the scrub slider all pass true globalIdx values). Map it onto the
+      // session event it lands on.
+      return seekToPos(posForGlobalIdx(globalIdx));
     },
 
     setPlaying() {
@@ -373,7 +426,7 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
       }
 
       const newVirtualT = internal.state.virtualT + virtualDeltaMs;
-      const currentIdx = internal.state.currentGlobalIdx;
+      const currentIdx = internal.pos;
       const maxIdx = internal.events.length - 1;
 
       // If already at the end, just update virtualT.
@@ -384,6 +437,7 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
 
       // Find the last event whose t <= newVirtualT, starting after currentIdx.
       // All events with t in (currentVirtualT, newVirtualT] are applied.
+      // Indices here are array positions into the session's events.
       let targetIdx = currentIdx;
       for (let i = currentIdx + 1; i <= maxIdx; i++) {
         const eventT = internal.events[i]!.t ?? 0;
@@ -396,10 +450,10 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
 
       if (targetIdx !== currentIdx) {
         // We have new events to apply — seek to the last one in the window.
-        // seekTo also syncs virtualT to the event's t, but we want virtualT to
-        // reflect the full advance (including idle time beyond the last event).
-        // So we call seekTo and then overwrite virtualT.
-        seekTo(targetIdx);
+        // seekToPos also syncs virtualT to the event's t, but we want virtualT
+        // to reflect the full advance (including idle time beyond the last
+        // event). So we call seekToPos and then overwrite virtualT.
+        seekToPos(targetIdx);
         internal.state = { ...internal.state, virtualT: newVirtualT };
       } else {
         // No events fell in the window (idle gap): just advance virtualT.
