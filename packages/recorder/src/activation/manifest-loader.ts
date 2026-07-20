@@ -4,7 +4,6 @@
  * PRD §4.1: "If the signature doesn't verify, the extension does nothing."
  */
 
-import * as vscode from 'vscode';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { parseManifest, verifyManifest } from '@provenance/log-core';
@@ -38,15 +37,18 @@ export const MANIFEST_FILE_NAMES = ['.provenance-manifest', 'provenance-manifest
  * Accepts either `.provenance-manifest` (canonical) or `provenance-manifest`, preferring the
  * former when both are present.
  *
- * @param workspaceFolder  The VS Code workspace folder to look in.
+ * @param workspaceFolder  The workspace folder (or folder-like directory) to look in.
  * @param pubkeyHex        Optional override for the course public key (used in tests).
  *                         Defaults to COURSE_PUBLIC_KEY_HEX.
  *
  * On any error, returns a Result<never, ActivationError> describing what went wrong.
  * Callers should silently exit on any error (PRD §4.1).
  */
+/** Minimal structural type — a vscode.WorkspaceFolder already satisfies this. */
+export type FolderLike = { uri: { fsPath: string } };
+
 export async function loadAndVerifyManifest(
-  workspaceFolder: vscode.WorkspaceFolder,
+  workspaceFolder: FolderLike,
   pubkeyHex: string = COURSE_PUBLIC_KEY_HEX,
 ): Promise<Result<Manifest, ActivationError>> {
   // Step 1: Read the file. Try each candidate name in precedence order; only
