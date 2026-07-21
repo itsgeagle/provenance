@@ -1,33 +1,37 @@
 /**
- * Timeline.test.tsx — accessibility regression test for the Timeline tab's
- * async loading/error states (WCAG 4.1.3 Status Messages).
+ * Timeline.test.tsx — the submission Timeline tab.
  *
- * Full behavioral coverage of filtering/event rendering lives elsewhere; this
- * file focuses on the loading/error regions introduced in Task 14.
+ * Covers two things:
+ *  1. Accessibility of the async loading/error states (WCAG 4.1.3 Status
+ *     Messages) — loading announced via role=status, errors via role=alert.
+ *     These assertions predate the TimelineInner rewrite and are preserved.
+ *  2. That the tab renders the FULL event stream. It previously sliced to the
+ *     first 500 rows of a limit=2000 query and gave no indication that
+ *     anything had been dropped.
  */
 
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useSearchParams } from 'react-router-dom';
 import type { UseQueryResult } from '@tanstack/react-query';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import {
+  buildIndexFromEventRows,
+  type ServerEventRow,
+} from '@provenance/analysis-core/index/build-index.js';
 
-import { SubmissionDataContext } from '../../data/SubmissionDataProvider.js';
-import type {
-  SubmissionDataProvider,
-  ValidationResults,
-  FileListResult,
-  FileContentResult,
-  FileProvenanceResult,
-  SubmissionStats,
-  SubmittedFileListResult,
-  SubmittedFileContentResult,
-} from '../../data/SubmissionDataProvider.js';
-import type { SubmissionSummary, FlagRow, EventRow } from '@provenance/shared/api-schemas';
+// useFullEventIndex is a module-level hook (not part of SubmissionDataProvider),
+// so it is mocked at the module seam.
+const mockUseFullEventIndex = vi.fn<() => UseQueryResult<EventIndex>>();
+vi.mock('../../data/useFullEventIndex.js', () => ({
+  useFullEventIndex: () => mockUseFullEventIndex(),
+}));
+
 import { Timeline } from './Timeline.js';
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Query-result helpers
 // ---------------------------------------------------------------------------
 
 function makeQueryResult<T>(data: T): UseQueryResult<T> {
@@ -56,72 +60,62 @@ function makeLoadingResult<T>(): UseQueryResult<T> {
   } as unknown as UseQueryResult<T>;
 }
 
-function makeErrorResult<T>(): UseQueryResult<T> {
+function makeErrorResult<T>(error: Error): UseQueryResult<T> {
   return {
     data: undefined,
     isLoading: false,
     isError: true,
     isPending: false,
     isSuccess: false,
-    error: new Error('boom'),
+    error,
     status: 'error',
     fetchStatus: 'idle',
   } as unknown as UseQueryResult<T>;
 }
 
-const DUMMY_SUMMARY: SubmissionSummary = {
-  id: 'test',
-  student: { sid: 'test', display_name: 'Test' },
-  assignment: { assignment_id_str: 'hw1', label: 'HW1' },
-  version_index: 1,
-  score_total: 0,
-  score_max_severity: null,
-  validation_status: 'pass',
-  validation_overall_detail: null,
-  heuristic_config_version: 1,
-  flag_count: 0,
-  ingested_at: '2025-01-01T00:00:00.000Z',
-};
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
 
-const DUMMY_VALIDATION: ValidationResults = { overall: 'pass', checks: [] };
-
-function makeProvider(eventsResult: UseQueryResult<EventRow[]>): SubmissionDataProvider {
-  return {
-    useSummary: () => makeQueryResult(DUMMY_SUMMARY),
-    useEvents: () => eventsResult,
-    useEvent: () => makeQueryResult(null),
-    useFlags: () => makeQueryResult([] as FlagRow[]),
-    useStats: () =>
-      makeQueryResult({
-        per_file: [],
-        aggregate: { total_events: 0, total_saves: 0, total_sessions: 0, total_wall_ms: 0 },
-      } as SubmissionStats),
-    useValidation: () => makeQueryResult(DUMMY_VALIDATION),
-    useFiles: () => makeQueryResult({ files: [] } as FileListResult),
-    useFileContent: () =>
-      makeQueryResult({ content: '', at_seq: 0, computed_at_ms: 0 } as FileContentResult),
-    useFileProvenance: () =>
-      makeQueryResult({ length: 0, provenance: [], at_seq: 0 } as FileProvenanceResult),
-    useSubmittedFiles: () =>
-      makeQueryResult({ available: true, files: [] } as SubmittedFileListResult),
-    useSubmittedFileContent: (_path: string) =>
-      makeQueryResult({
-        path: '',
-        content: '',
-        status: 'missing',
-        verdict: 'unknown',
-      } as SubmittedFileContentResult),
-  };
+function rows(count: number, sessionId = 'sess-a'): ServerEventRow[] {
+  return Array.from({ length: count }, (_, i) => ({
+    seq: i,
+    kind: 'doc.change',
+    t: i * 10,
+    wall: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, i)).toISOString(),
+    session_id: sessionId,
+    payload: { path: 'hw1.py', deltas: [] },
+  }));
 }
 
-function renderTimeline(provider: SubmissionDataProvider) {
+function indexOf(count: number): EventIndex {
+  return buildIndexFromEventRows(rows(count));
+}
+
+/** Surfaces the current search params so tests can assert on navigation. */
+function SearchParamProbe() {
+  const [params] = useSearchParams();
+  return <div data-testid="search-params">{params.toString()}</div>;
+}
+
+function renderTimeline() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
-        <SubmissionDataContext.Provider value={provider}>
-          <Timeline />
-        </SubmissionDataContext.Provider>
+      <MemoryRouter initialEntries={['/submissions/sub-1?tab=timeline']}>
+        <div style={{ height: '600px', width: '800px' }}>
+          <Routes>
+            <Route
+              path="/submissions/:submissionId"
+              element={
+                <>
+                  <Timeline />
+                  <SearchParamProbe />
+                </>
+              }
+            />
+          </Routes>
+        </div>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -132,17 +126,9 @@ function renderTimeline(provider: SubmissionDataProvider) {
 // ---------------------------------------------------------------------------
 
 describe('Timeline tab', () => {
-  it('renders the event list once loaded', () => {
-    const provider = makeProvider(makeQueryResult([] as EventRow[]));
-    renderTimeline(provider);
-
-    expect(screen.getByTestId('submission-timeline')).toBeInTheDocument();
-    expect(screen.getByTestId('timeline-empty')).toBeInTheDocument();
-  });
-
   it('shows loading state announced via role=status', () => {
-    const provider = makeProvider(makeLoadingResult<EventRow[]>());
-    renderTimeline(provider);
+    mockUseFullEventIndex.mockReturnValue(makeLoadingResult<EventIndex>());
+    renderTimeline();
 
     const loadingEl = screen.getByTestId('timeline-loading');
     expect(loadingEl).toBeInTheDocument();
@@ -150,11 +136,57 @@ describe('Timeline tab', () => {
   });
 
   it('shows error state announced via role=alert', () => {
-    const provider = makeProvider(makeErrorResult<EventRow[]>());
-    renderTimeline(provider);
+    mockUseFullEventIndex.mockReturnValue(makeErrorResult<EventIndex>(new Error('boom')));
+    renderTimeline();
 
     const errorEl = screen.getByTestId('timeline-error');
     expect(errorEl).toBeInTheDocument();
     expect(errorEl.closest('[role="alert"]')).not.toBeNull();
+  });
+
+  it('surfaces the event-ceiling failure instead of silently truncating', () => {
+    mockUseFullEventIndex.mockReturnValue(
+      makeErrorResult<EventIndex>(
+        new Error('Refusing to load >200000 events for replay (got 200001).'),
+      ),
+    );
+    renderTimeline();
+
+    expect(screen.getByTestId('timeline-error')).toHaveTextContent('Refusing to load');
+  });
+
+  it('renders the empty state when the submission has no events', () => {
+    mockUseFullEventIndex.mockReturnValue(makeQueryResult(indexOf(0)));
+    renderTimeline();
+
+    expect(screen.getByTestId('timeline-empty')).toBeInTheDocument();
+  });
+
+  it('counts every event, not just the first 500', () => {
+    mockUseFullEventIndex.mockReturnValue(makeQueryResult(indexOf(600)));
+    renderTimeline();
+
+    expect(screen.getByTestId('event-count-label')).toHaveTextContent('600 events');
+  });
+
+  it('renders the full event browser, not the old flat list', () => {
+    mockUseFullEventIndex.mockReturnValue(makeQueryResult(indexOf(5)));
+    renderTimeline();
+
+    // Filter bar + detail pane are what the old bespoke list lacked.
+    expect(screen.getByTestId('filter-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('timeline-grid')).toBeInTheDocument();
+  });
+
+  it('navigates to the replay tab at the clicked event', () => {
+    mockUseFullEventIndex.mockReturnValue(makeQueryResult(indexOf(5)));
+    renderTimeline();
+
+    fireEvent.click(screen.getByTestId('replay-btn-3'));
+
+    const params = new URLSearchParams(screen.getByTestId('search-params').textContent ?? '');
+    expect(params.get('tab')).toBe('replay');
+    expect(params.get('event')).toBe('3');
+    expect(params.get('session')).toBe('sess-a');
   });
 });
