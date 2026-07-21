@@ -1043,3 +1043,78 @@ describe('reconstructFileWithProvenance — paste_likely doc.change attribution'
     expect(state.kindByGlobalIdx.get(docChange.globalIdx)).toBe('typed');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Over-cap paste recovery — must mirror reconstruct-file.ts exactly.
+// See that file's test of the same name for the field case this comes from.
+// ---------------------------------------------------------------------------
+
+describe('reconstructFileWithProvenance — over-cap paste recovery', () => {
+  const BIG = Array.from({ length: 60 }, (_, i) => `line ${i}: ${'x'.repeat(40)}`).join('\n');
+  const path = '/src/big.py';
+
+  const bundleWith = (pasteOverrides: Record<string, unknown> = {}) =>
+    buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path, content: BIG, sha256: sha256Hex(BIG), line_count: 60 },
+            },
+            { kind: 'doc.save', data: { path, sha256: sha256Hex(BIG) } },
+            {
+              kind: 'doc.change',
+              data: {
+                path,
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 0 },
+                      end: { line: 100000, character: 0 },
+                    },
+                    text: '',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'paste',
+              data: {
+                path,
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                length: new TextEncoder().encode(BIG).length,
+                sha256: sha256Hex(BIG),
+                content_head: BIG.slice(0, 512),
+                content_tail: BIG.slice(-512),
+                ...pasteOverrides,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+  it('recovers the text and attributes every recovered character to the paste', async () => {
+    const { zipBuffer } = await bundleWith();
+    const index = buildIndex(await loadBundleFrom(zipBuffer));
+    const state = reconstructFileWithProvenance(index, path);
+
+    expect(state.content).toBe(BIG);
+    const paste = index.byFile.get(path)!.find((e) => e.kind === 'paste')!;
+    expect(state.kindByGlobalIdx.get(paste.globalIdx)).toBe('paste');
+    expect(state.provenance).toHaveLength(BIG.length);
+    expect([...new Set(state.provenance)]).toEqual([paste.globalIdx]);
+  });
+
+  it('stays in lockstep with the base replay, recovered or not', async () => {
+    for (const overrides of [{}, { content_head: 'Z'.repeat(512) }]) {
+      const { zipBuffer } = await bundleWith(overrides);
+      const index = buildIndex(await loadBundleFrom(zipBuffer));
+      expect(reconstructFileWithProvenance(index, path).content).toBe(
+        reconstructFile(index, path).content,
+      );
+    }
+  });
+});

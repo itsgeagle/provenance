@@ -12,6 +12,7 @@
  *   without rewriting the event-dispatch switch.
  */
 
+import { sha256Hex } from '@provenance/log-core';
 import type { DocChangeDelta, Range } from '@provenance/log-core';
 import type { EventIndex, IndexedEvent } from './event-index.js';
 
@@ -82,6 +83,16 @@ export type ReconstructResult = {
    * to see which ones were suppressed and why. See `isSelfInflictedSave`.
    */
   suppressedExternalChanges: number[];
+  /**
+   * globalIdx of each over-cap `paste` whose text was recovered from an earlier
+   * reconstructed state via its recorded sha256. See `resolveOverCapPaste`.
+   *
+   * These events still appear in `taintReasons` — the recorder did drop the
+   * bytes, and staff must be able to see where. They just no longer set
+   * `tainted`, because the recovered text is verified against the recorded
+   * hash rather than guessed.
+   */
+  recoveredPastes: number[];
 };
 
 // ---------------------------------------------------------------------------
@@ -269,19 +280,112 @@ function applyDocChangeBuf(buf: ContentBuf, payload: unknown): void {
 /**
  * Apply a paste payload to `buf` (in-place analogue of applyPaste). Returns
  * `false` for large pastes with no inline `content` — caller taints.
+ *
+ * `overrideText` supplies the pasted text for an over-cap paste whose bytes were
+ * recovered out of band (see `resolveOverCapPaste`); the payload's range is still
+ * what decides where it lands.
  */
-function applyPasteBuf(buf: ContentBuf, payload: unknown): boolean {
+function applyPasteBuf(buf: ContentBuf, payload: unknown, overrideText?: string): boolean {
   if (typeof payload !== 'object' || payload === null) return false;
   const p = payload as Record<string, unknown>;
-  if (typeof p['content'] !== 'string') return false;
+  const text = overrideText ?? (typeof p['content'] === 'string' ? p['content'] : undefined);
+  if (text === undefined) return false;
   const rangeRaw = p['range'];
   if (typeof rangeRaw !== 'object' || rangeRaw === null) return false;
   const range = rangeRaw as Range;
-  const text = p['content'] as string;
   const start = clampPos(buf.cells, range.start.line, range.start.character);
   const end = clampPos(buf.cells, range.end.line, range.end.character);
   spliceCells(buf, start, end, text);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Over-cap paste recovery
+// ---------------------------------------------------------------------------
+//
+// `paste.sha256` is the hash of the PASTED TEXT (recorder
+// `events/paste-payload.ts`), not of the resulting document. When the text was
+// over the recorder's inline cap only head/tail survive, so the paste cannot be
+// applied and the file drifts until the next `doc.open` re-anchors it. For a
+// paste late in a session that is the whole rest of the session.
+//
+// But a student who selects-all and pastes back a blob they already had is
+// pasting text the replay has ALREADY reproduced byte-for-byte, and the recorded
+// sha256 identifies it exactly. So it is recoverable without guessing — the hash
+// arbitrates, the same way the signed manifest hash arbitrates elsewhere.
+//
+// Deliberately NOT extended to `fs.external_change.new_hash`. That hash
+// describes the file ON DISK, which routinely differs from the in-memory
+// document; reseeding the buffer from a disk state we happened to hold earlier
+// rewinds it to stale content. Measured on submission 418831297: applying this
+// lookup to external changes as well drove save-checkpoint agreement from 80.1%
+// down to 1.5% and broke the manifest match. Keep it to pastes.
+
+/**
+ * The sha256 of every paste in this file's stream that cannot be applied from
+ * its own payload. Empty for the overwhelming majority of files, which is what
+ * makes the blob bookkeeping below free in the common case.
+ */
+export function collectOverCapPasteHashes(fileEvents: ReadonlyArray<IndexedEvent>): Set<string> {
+  const wanted = new Set<string>();
+  for (const e of fileEvents) {
+    if (e.kind !== 'paste') continue;
+    const p = e.payload as Record<string, unknown> | null;
+    if (typeof p?.['content'] === 'string') continue; // inline — replayable as-is
+    const hash = p?.['sha256'];
+    if (typeof hash === 'string' && hash.length > 0) wanted.add(hash);
+  }
+  return wanted;
+}
+
+/**
+ * Remember `content` as the preimage of `hash`, but only if it actually hashes
+ * to it.
+ *
+ * The verification is the whole point: a `doc.save`'s recorded sha256 describes
+ * what the recorder wrote to disk, and our buffer occasionally disagrees with it
+ * (the recorder's save hash can lag the document by an edit). Storing an
+ * unverified snapshot would hand a later paste the wrong bytes silently.
+ */
+export function rememberBlob(
+  store: Map<string, string>,
+  wanted: ReadonlySet<string>,
+  hash: unknown,
+  content: string,
+): void {
+  if (typeof hash !== 'string' || !wanted.has(hash) || store.has(hash)) return;
+  if (sha256Hex(content) !== hash) return;
+  store.set(hash, content);
+}
+
+/**
+ * The text of an over-cap paste, if a previously reconstructed state proves it.
+ *
+ * `store` only ever holds sha256-verified blobs, so the hash match alone is
+ * sound. The recorded head/tail and byte length are checked on top of it as
+ * independent cross-checks — cheap, and they make a mis-keyed store entry fail
+ * loudly (as a non-recovery) instead of substituting wrong content.
+ */
+export function resolveOverCapPaste(payload: unknown, store: Map<string, string>): string | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  const hash = p['sha256'];
+  if (typeof hash !== 'string') return null;
+  const candidate = store.get(hash);
+  if (candidate === undefined) return null;
+
+  const head = p['content_head'];
+  if (typeof head === 'string' && !candidate.startsWith(head)) return null;
+  const tail = p['content_tail'];
+  if (typeof tail === 'string' && !candidate.endsWith(tail)) return null;
+  // `length` is UTF-8 bytes (recorder uses Buffer.byteLength); TextEncoder is
+  // the isomorphic equivalent — no node:buffer import, per the analysis-core
+  // import boundary.
+  const length = p['length'];
+  if (typeof length === 'number' && new TextEncoder().encode(candidate).length !== length) {
+    return null;
+  }
+  return candidate;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,8 +507,15 @@ export function reconstructFile(
   let tainted = false;
   const taintReasons: TaintEntry[] = [];
   const suppressedExternalChanges: number[] = [];
+  const recoveredPastes: number[] = [];
 
   const fileEvents = index.byFile.get(filePath) ?? [];
+
+  // Over-cap paste recovery. `wantedPasteHashes` is empty for almost every
+  // file, and everything below is gated on it being non-empty, so files without
+  // an unapplicable paste pay only this one scan.
+  const wantedPasteHashes = collectOverCapPasteHashes(fileEvents);
+  const blobByHash = new Map<string, string>();
 
   for (let i = 0; i < fileEvents.length; i++) {
     const e = fileEvents[i]!;
@@ -421,6 +532,12 @@ export function reconstructFile(
         // recover initial content and reconstruction starts from ''.
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
+          // Ground truth read from disk. Through recorder 1.1.x the doc.open cap
+          // was already 64 KB while the paste cap was 4 KB, so a doc.open is
+          // frequently the only surviving preimage of an over-cap paste.
+          if (wantedPasteHashes.size > 0) {
+            rememberBlob(blobByHash, wantedPasteHashes, sha256Hex(p['content']), p['content']);
+          }
           buf.cells = splitCells(p['content']);
           // D2: a doc.open that carries content is ground truth straight from
           // disk, so it re-anchors the replay and CLEARS any prior taint. Taint
@@ -446,14 +563,25 @@ export function reconstructFile(
         break;
 
       case 'paste': {
-        const applied = applyPasteBuf(buf, e.payload);
-        if (!applied) {
-          // Large paste over the recorder's inline cap: we can't know what landed,
-          // so mark the reconstruction unreliable — but keep the surrounding
-          // content rather than discarding it.
-          tainted = true;
-          taintReasons.push({ globalIdx: e.globalIdx, reason: 'large_paste' });
+        if (applyPasteBuf(buf, e.payload)) break; // inline — replayable as-is
+
+        // Over the recorder's inline cap, but the recorded sha256 may still
+        // identify text we have already reconstructed.
+        let recovered = false;
+        if (wantedPasteHashes.size > 0) {
+          const text = resolveOverCapPaste(e.payload, blobByHash);
+          if (text !== null && applyPasteBuf(buf, e.payload, text)) recovered = true;
         }
+        if (recovered) {
+          recoveredPastes.push(e.globalIdx);
+        } else {
+          // We can't know what landed, so mark the reconstruction unreliable —
+          // but keep the surrounding content rather than discarding it.
+          tainted = true;
+        }
+        // Either way the recorder dropped these bytes, and that stays visible to
+        // staff even when we recovered them out of band.
+        taintReasons.push({ globalIdx: e.globalIdx, reason: 'large_paste' });
         break;
       }
 
@@ -507,6 +635,12 @@ export function reconstructFile(
         const p = e.payload as Record<string, unknown> | null;
         const sha256 = typeof p?.['sha256'] === 'string' ? p['sha256'] : '';
         hashBySaveSeq.set(`${e.sessionId}:${e.seq}`, sha256);
+        // A save whose recorded hash some over-cap paste is looking for: our
+        // buffer is a candidate preimage. `rememberBlob` verifies before storing,
+        // and the join only happens for the handful of hashes actually wanted.
+        if (wantedPasteHashes.has(sha256) && !blobByHash.has(sha256)) {
+          rememberBlob(blobByHash, wantedPasteHashes, sha256, buf.cells.join(''));
+        }
         break;
       }
 
@@ -522,6 +656,7 @@ export function reconstructFile(
     tainted,
     taintReasons,
     suppressedExternalChanges,
+    recoveredPastes,
   };
   if (upToGlobalIdx === undefined) {
     let perIndex = finalReconstructionCache.get(index);

@@ -986,6 +986,213 @@ describe('reconstructFile — taint: large paste', () => {
 });
 
 // ---------------------------------------------------------------------------
+// reconstructFile — over-cap paste recovery
+//
+// Field case (submission 418831297, session 1bcfc6aa, globalIdx 7131): the
+// student selected all and pasted the file back over itself. The paste was
+// 14 539 B against a 4 KB inline cap, so only head/tail were recorded and the
+// replay could not apply it. With no later `doc.open` in that session, the file
+// stayed empty for the remaining 5 300 events — 270 consecutive save
+// checkpoints failed.
+//
+// The pasted text was byte-identical to a document state the replay had already
+// reproduced, and `paste.sha256` identifies it exactly, so it is recoverable
+// without guessing. These tests pin that, and pin that the head/tail gate is
+// load-bearing rather than decorative.
+// ---------------------------------------------------------------------------
+
+/** A multi-line blob long enough that head/tail (512 chars) are partial slices. */
+const BIG = Array.from({ length: 60 }, (_, i) => `line ${i}: ${'x'.repeat(40)}`).join('\n');
+
+/** A doc.change that deletes the whole document (end position clamps to EOF). */
+const deleteAll = (path: string) => ({
+  kind: 'doc.change',
+  data: {
+    path,
+    deltas: [
+      {
+        range: { start: { line: 0, character: 0 }, end: { line: 100000, character: 0 } },
+        text: '',
+      },
+    ],
+    source: 'typed',
+  },
+});
+
+/** An over-cap paste payload: hash + head/tail only, no inline `content`. */
+const overCapPaste = (path: string, text: string, overrides: Record<string, unknown> = {}) => ({
+  kind: 'paste',
+  data: {
+    path,
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+    length: new TextEncoder().encode(text).length,
+    sha256: sha256Hex(text),
+    content_head: text.slice(0, 512),
+    content_tail: text.slice(-512),
+    ...overrides,
+  },
+});
+
+describe('reconstructFile — over-cap paste recovery', () => {
+  it('recovers an over-cap paste whose text matches an earlier reconstructed state', async () => {
+    const path = '/src/big.py';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path, content: BIG, sha256: sha256Hex(BIG), line_count: 60 },
+            },
+            { kind: 'doc.save', data: { path, sha256: sha256Hex(BIG) } },
+            deleteAll(path),
+            overCapPaste(path, BIG),
+            { kind: 'doc.save', data: { path, sha256: sha256Hex(BIG) } },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, path);
+
+    expect(recon.content).toBe(BIG);
+    // Recovery is verified against the recorded sha256, so the result is ground
+    // truth -- the reconstruction is trustworthy again.
+    expect(recon.tainted).toBe(false);
+    // ...but the gap still happened and staff must still see it.
+    expect(recon.taintReasons.map((t) => t.reason)).toEqual(['large_paste']);
+    const paste = index.byFile.get(path)!.find((e) => e.kind === 'paste')!;
+    expect(recon.recoveredPastes).toEqual([paste.globalIdx]);
+  });
+
+  it('splices the recovered text into the paste range rather than replacing the document', async () => {
+    const path = '/src/big.py';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path, content: BIG, sha256: sha256Hex(BIG), line_count: 60 },
+            },
+            { kind: 'doc.save', data: { path, sha256: sha256Hex(BIG) } },
+            deleteAll(path),
+            {
+              kind: 'doc.change',
+              data: {
+                path,
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'AB',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            overCapPaste(path, BIG, {
+              range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
+            }),
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, path);
+
+    expect(recon.content).toBe(`A${BIG}B`);
+  });
+
+  it('refuses to recover when the recorded head/tail disagree with the candidate', async () => {
+    const path = '/src/big.py';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path, content: BIG, sha256: sha256Hex(BIG), line_count: 60 },
+            },
+            { kind: 'doc.save', data: { path, sha256: sha256Hex(BIG) } },
+            deleteAll(path),
+            // sha256 still matches the stored blob, but the head does not. The
+            // hash alone would accept this; the cross-check must reject it.
+            overCapPaste(path, BIG, { content_head: 'Z'.repeat(512) }),
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, path);
+
+    expect(recon.content).toBe('');
+    expect(recon.tainted).toBe(true);
+    expect(recon.recoveredPastes).toEqual([]);
+  });
+
+  it('leaves the file tainted when no earlier state matches the paste hash', async () => {
+    const path = '/src/big.py';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path, content: BIG, sha256: sha256Hex(BIG), line_count: 60 },
+            },
+            overCapPaste(path, `${BIG}never-reconstructed`),
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, path);
+
+    // Unknown text: keep the surrounding content, mark it unreliable.
+    expect(recon.content).toBe(BIG);
+    expect(recon.tainted).toBe(true);
+    expect(recon.recoveredPastes).toEqual([]);
+  });
+
+  it('does not remember a blob whose recorded save hash disagrees with our model', async () => {
+    const path = '/src/big.py';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: { path, content: 'seed\n', sha256: sha256Hex('seed\n'), line_count: 2 },
+            },
+            // The recorder claims the file on disk hashes to sha256Hex(BIG), but
+            // our reconstruction holds 'seed\n'. Storing our buffer under that
+            // hash would hand the paste the wrong bytes.
+            { kind: 'doc.save', data: { path, sha256: sha256Hex(BIG) } },
+            overCapPaste(path, BIG),
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, path);
+
+    expect(recon.content).toBe('seed\n');
+    expect(recon.tainted).toBe(true);
+    expect(recon.recoveredPastes).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // reconstructFile — exit gate: sha256 match against fixture saves
 // ---------------------------------------------------------------------------
 

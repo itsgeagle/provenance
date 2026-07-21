@@ -33,7 +33,13 @@
 
 import { diffLines } from 'diff';
 import type { DocChangeDelta, Range } from '@provenance/log-core';
-import { isSelfInflictedSave } from './reconstruct-file.js';
+import { sha256Hex } from '@provenance/log-core';
+import {
+  isSelfInflictedSave,
+  collectOverCapPasteHashes,
+  rememberBlob,
+  resolveOverCapPaste,
+} from './reconstruct-file.js';
 import type { EventIndex } from './event-index.js';
 
 // ---------------------------------------------------------------------------
@@ -277,15 +283,20 @@ function applyDocChangeBuf(buf: ReplayBuf, payload: unknown, globalIdx: number):
  * the inline `content` field — caller clears content + provenance for parity
  * with v1's taint reset.
  */
-function applyPasteBuf(buf: ReplayBuf, payload: unknown, globalIdx: number): boolean {
+function applyPasteBuf(
+  buf: ReplayBuf,
+  payload: unknown,
+  globalIdx: number,
+  overrideText?: string,
+): boolean {
   if (typeof payload !== 'object' || payload === null) return false;
   const p = payload as Record<string, unknown>;
 
-  if (typeof p['content'] !== 'string') return false;
+  const text = overrideText ?? (typeof p['content'] === 'string' ? p['content'] : undefined);
+  if (text === undefined) return false;
   const rangeRaw = p['range'];
   if (typeof rangeRaw !== 'object' || rangeRaw === null) return false;
   const range = rangeRaw as Range;
-  const text = p['content'] as string;
 
   const start = clampPos(buf.cells, range.start.line, range.start.character);
   const end = clampPos(buf.cells, range.end.line, range.end.character);
@@ -349,6 +360,11 @@ export function reconstructFileWithProvenance(
 
   const fileEvents = index.byFile.get(filePath) ?? [];
 
+  // Over-cap paste recovery, mirroring reconstruct-file.ts. Empty for almost
+  // every file, and everything below is gated on it being non-empty.
+  const wantedPasteHashes = collectOverCapPasteHashes(fileEvents);
+  const blobByHash = new Map<string, string>();
+
   for (let i = 0; i < fileEvents.length; i++) {
     const e = fileEvents[i]!;
     if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
@@ -368,6 +384,12 @@ export function reconstructFileWithProvenance(
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
           const initialText = p['content'];
+          // Ground truth read from disk, and often the only surviving preimage
+          // of an over-cap paste (the doc.open cap has always been 64 KB, while
+          // the paste cap was 4 KB through recorder 1.1.x).
+          if (wantedPasteHashes.size > 0) {
+            rememberBlob(blobByHash, wantedPasteHashes, sha256Hex(initialText), initialText);
+          }
           const seedProv = new Array<number>(initialText.length).fill(e.globalIdx);
           const seeded = splitCellsWithProv(initialText, seedProv);
           buf.cells = seeded.cells;
@@ -409,16 +431,27 @@ export function reconstructFileWithProvenance(
       }
 
       case 'paste': {
-        const applied = applyPasteBuf(buf, e.payload, e.globalIdx);
+        let applied = applyPasteBuf(buf, e.payload, e.globalIdx);
+        if (!applied && wantedPasteHashes.size > 0) {
+          // Over the recorder's inline cap, but the recorded sha256 may still
+          // identify text we have already reconstructed. Shares the resolver
+          // with the base replay so the two agree (pinned in lockstep by
+          // reconstruct-line-index.fuzz.test.ts).
+          const recovered = resolveOverCapPaste(e.payload, blobByHash);
+          if (recovered !== null && applyPasteBuf(buf, e.payload, e.globalIdx, recovered)) {
+            applied = true;
+          }
+        }
         if (applied) {
+          // Recovered characters were genuinely pasted, so they are attributed
+          // to the paste event exactly as an inline paste would be.
           kindByGlobalIdx.set(e.globalIdx, 'paste');
         } else {
-          // Large paste over the recorder's inline cap: we can't know what
-          // landed, so keep the surrounding content and provenance rather than
-          // discarding them ('' is never the true content). Not attributed in
-          // kindByGlobalIdx — there are no characters to attribute. Matches the
-          // base replay in reconstruct-file.ts (pinned in lockstep by
-          // reconstruct-line-index.fuzz.test.ts).
+          // Large paste over the recorder's inline cap that we could not
+          // recover: we can't know what landed, so keep the surrounding content
+          // and provenance rather than discarding them ('' is never the true
+          // content). Not attributed in kindByGlobalIdx — there are no
+          // characters to attribute.
         }
         break;
       }
@@ -508,6 +541,9 @@ export function reconstructFileWithProvenance(
         const p = e.payload as Record<string, unknown> | null;
         const sha256 = typeof p?.['sha256'] === 'string' ? p['sha256'] : '';
         hashBySaveSeq.set(`${e.sessionId}:${e.seq}`, sha256);
+        if (wantedPasteHashes.has(sha256) && !blobByHash.has(sha256)) {
+          rememberBlob(blobByHash, wantedPasteHashes, sha256, buf.cells.join(''));
+        }
         break;
       }
 
