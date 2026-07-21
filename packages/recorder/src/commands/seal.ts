@@ -27,7 +27,6 @@
  *   - Atomic writes for manifest.json and manifest.sig prevent partial state.
  */
 
-import * as vscode from 'vscode';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -55,8 +54,8 @@ export type SealResult =
   | { kind: 'write_error'; message: string };
 
 export type SealDeps = {
-  /** Workspace folder (for output path + .provenance/ location). */
-  workspaceFolder: vscode.WorkspaceFolder;
+  /** Assignment root directory (for output path + .provenance/ location). */
+  assignmentRoot: string;
   /** Path to .provenance/ (allows override in tests). */
   provenanceDir: string;
   /** Assignment id + semester from the loaded manifest. */
@@ -70,7 +69,7 @@ export type SealDeps = {
   sessionPubkeyHex: string;
   /** Computes a sha256 of the recorder's own dist/ directory. */
   computeExtensionHash: () => Promise<string>;
-  /** Output directory for the resulting .zip. Defaults to workspaceFolder.uri.fsPath. */
+  /** Output directory for the resulting .zip. Defaults to assignmentRoot. */
   outputDir?: string;
   /** Now (for the zip filename timestamp). */
   now: () => Date;
@@ -172,7 +171,7 @@ function filenameTimestamp(date: Date): string {
  */
 export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   const {
-    workspaceFolder,
+    assignmentRoot,
     provenanceDir,
     assignmentId,
     semester,
@@ -256,7 +255,7 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   }
 
   // Step 3: Read reviewed files (workspace-relative; resolved against the workspace root).
-  const workspaceRoot = workspaceFolder.uri.fsPath;
+  const workspaceRoot = assignmentRoot;
   const reviewedFiles: ReviewedFile[] = [];
   for (const rel of filesUnderReview) {
     reviewedFiles.push(await readReviewedFile(workspaceRoot, rel));
@@ -367,7 +366,7 @@ export async function sealBundle(deps: SealDeps): Promise<SealResult> {
   // Step 7: Write the ZIP.
   const ts = filenameTimestamp(now());
   const zipFilename = `${assignmentId}-bundle-${ts}.zip`;
-  const resolvedOutputDir = outputDir ?? workspaceFolder.uri.fsPath;
+  const resolvedOutputDir = outputDir ?? assignmentRoot;
   const bundlePath = path.join(resolvedOutputDir, zipFilename);
 
   try {

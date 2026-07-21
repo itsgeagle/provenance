@@ -41,6 +41,7 @@ type GitAPI = {
 };
 
 type GitRepository = {
+  rootUri: { fsPath: string };
   state: {
     HEAD?: { commit?: string };
     onDidChange: (handler: () => void) => vscode.Disposable;
@@ -56,6 +57,12 @@ export type GitWiringDeps = {
   getGitExtension: () => vscode.Extension<unknown> | undefined;
   /** If present, markGit() is called after each emitted git.event. */
   explanationTagger?: ExplanationTagger;
+  /**
+   * Ownership filter: returns true if the given absolute fsPath belongs to THIS
+   * session's assignment root. Gates git.event emission by the repository's
+   * rootUri. Defaults to "always owned" when omitted.
+   */
+  isOwnedByThisRoot?: (fsPath: string) => boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -64,6 +71,7 @@ export type GitWiringDeps = {
 
 export function startGitWiring(deps: GitWiringDeps): vscode.Disposable {
   const { emit, getGitExtension, explanationTagger } = deps;
+  const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
 
   const gitExtension = getGitExtension();
   if (gitExtension === undefined) {
@@ -112,6 +120,10 @@ export function startGitWiring(deps: GitWiringDeps): vscode.Disposable {
 
         const prev = lastCommit.get(repo);
         lastCommit.set(repo, commit_sha);
+
+        if (!isOwnedByThisRoot(repo.rootUri.fsPath)) {
+          return;
+        }
 
         // Only emit if we actually have a commit sha (or if it changed from something).
         // Even for non-commit operations (branch switch, index change) we emit with the

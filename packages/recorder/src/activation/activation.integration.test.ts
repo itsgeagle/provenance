@@ -21,6 +21,8 @@ import { FixedClock, parseEntries, validateChain, canonicalize } from '@provenan
 import type { Manifest } from '@provenance/log-core';
 import { activateImpl, fallbackActivationMessage } from '../extension.js';
 import type { ActivationError } from './manifest-loader.js';
+import { discoverManifests } from './manifest-discovery.js';
+import { startSession, SessionRegistry } from '../session/session-registry.js';
 
 // ---------------------------------------------------------------------------
 // Helpers: test keypair + manifest
@@ -383,4 +385,130 @@ describe('fallbackActivationMessage', () => {
       }
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// multi-session discovery — discoverManifests + startSession + SessionRegistry
+// composed the same way activate() composes them in extension.ts. activate()
+// itself isn't unit-testable without a real Extension Host (no seam to inject
+// discoverManifests/findFiles into the module-level function), so these cases
+// test the composition directly, mirroring the rest of this file's approach.
+// ---------------------------------------------------------------------------
+
+describe('multi-session discovery (nested manifests)', () => {
+  let tmpDir: string;
+  let workspaceDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'provenance-multi-'));
+    workspaceDir = path.join(tmpDir, 'workspace');
+    await fs.mkdir(workspaceDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('two nested manifests under one opened folder yield two independent sessions', async () => {
+    const { pubkeyHex, privkeyHex } = await generateTestKeypair();
+    const catsFields = {
+      assignment_id: 'cats',
+      semester: 'fa26',
+      issued_at: '2026-01-01T00:00:00Z',
+      files_under_review: ['hw.py'],
+    };
+    const hogFields = {
+      assignment_id: 'hog',
+      semester: 'fa26',
+      issued_at: '2026-01-01T00:00:00Z',
+      files_under_review: ['hw.py'],
+    };
+    const catsSig = await signManifest(catsFields, privkeyHex);
+    const hogSig = await signManifest(hogFields, privkeyHex);
+
+    const catsDir = path.join(workspaceDir, 'cats');
+    const hogDir = path.join(workspaceDir, 'hog');
+    await fs.mkdir(catsDir, { recursive: true });
+    await fs.mkdir(hogDir, { recursive: true });
+    await fs.writeFile(
+      path.join(catsDir, '.provenance-manifest'),
+      JSON.stringify({ ...catsFields, sig: catsSig }),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(hogDir, '.provenance-manifest'),
+      JSON.stringify({ ...hogFields, sig: hogSig }),
+      'utf8',
+    );
+
+    const { found, skipped } = await discoverManifests({
+      workspaceFolders: [{ uri: { fsPath: workspaceDir } }],
+      findFiles: async () => [
+        { fsPath: path.join(catsDir, '.provenance-manifest') },
+        { fsPath: path.join(hogDir, '.provenance-manifest') },
+      ],
+      pubkeyHex,
+    });
+
+    expect(skipped).toEqual([]);
+    expect(found.map((f) => f.root).sort()).toEqual([catsDir, hogDir].sort());
+
+    const clock = new FixedClock(0, new Date('2026-01-01T00:00:00.000Z'));
+    const registry = new SessionRegistry();
+    for (const { root, manifest } of found) {
+      const session = await startSession({
+        assignmentRoot: root,
+        manifest,
+        extension: makeExtension(),
+        vscodeVersion: '1.97.0',
+        platform: 'darwin-arm64',
+        clock,
+      });
+      registry.add(session);
+    }
+
+    expect(registry.all()).toHaveLength(2);
+    expect(registry.resolveForPath(path.join(catsDir, 'x.py'))?.assignmentRoot).toBe(catsDir);
+    expect(registry.resolveForPath(path.join(hogDir, 'y.py'))?.assignmentRoot).toBe(hogDir);
+    expect(registry.resolveForPath(path.join(workspaceDir, 'notes.md'))).toBeUndefined();
+
+    await registry.disposeAll();
+  });
+
+  it('a manifest at the opened root still yields exactly one session (regression)', async () => {
+    const { pubkeyHex, privkeyHex } = await generateTestKeypair();
+    const fields = {
+      assignment_id: 'hw03',
+      semester: 'fa26',
+      issued_at: '2026-01-01T00:00:00Z',
+      files_under_review: ['hw.py'],
+    };
+    const sig = await signManifest(fields, privkeyHex);
+    await fs.writeFile(
+      path.join(workspaceDir, '.provenance-manifest'),
+      JSON.stringify({ ...fields, sig }),
+      'utf8',
+    );
+
+    const { found, skipped } = await discoverManifests({
+      workspaceFolders: [{ uri: { fsPath: workspaceDir } }],
+      findFiles: async () => [{ fsPath: path.join(workspaceDir, '.provenance-manifest') }],
+      pubkeyHex,
+    });
+
+    expect(skipped).toEqual([]);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.root).toBe(workspaceDir);
+  });
+
+  it('a folder with no manifest anywhere yields no sessions', async () => {
+    const { pubkeyHex } = await generateTestKeypair();
+    const { found, skipped } = await discoverManifests({
+      workspaceFolders: [{ uri: { fsPath: workspaceDir } }],
+      findFiles: async () => [],
+      pubkeyHex,
+    });
+    expect(found).toEqual([]);
+    expect(skipped).toEqual([]);
+  });
 });

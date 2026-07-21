@@ -121,11 +121,7 @@ async function buildDeps(
   filesUnderReview: readonly string[] = [],
 ): Promise<SealDeps> {
   return {
-    workspaceFolder: {
-      uri: { fsPath: outputDir } as import('vscode').Uri,
-      name: 'test-workspace',
-      index: 0,
-    } as import('vscode').WorkspaceFolder,
+    assignmentRoot: outputDir,
     provenanceDir,
     assignmentId: TEST_ASSIGNMENT_ID,
     semester: TEST_SEMESTER,
@@ -160,11 +156,7 @@ async function makeWorkspaceWithValidSession(): Promise<{
   await fsPromises.writeFile(slogPath, slogContent, 'utf8');
 
   const deps: SealDeps = {
-    workspaceFolder: {
-      uri: { fsPath: outputDir } as import('vscode').Uri,
-      name: 'test-workspace',
-      index: 0,
-    } as import('vscode').WorkspaceFolder,
+    assignmentRoot: outputDir,
     provenanceDir,
     assignmentId: TEST_ASSIGNMENT_ID,
     semester: TEST_SEMESTER,

@@ -21,8 +21,8 @@
   },
   "main": "./dist/extension.js",
   "activationEvents": [
-    "workspaceContains:.provenance-manifest",
-    "workspaceContains:provenance-manifest"
+    "workspaceContains:**/.provenance-manifest",
+    "workspaceContains:**/provenance-manifest"
   ],
   "contributes": {
     "commands": [
