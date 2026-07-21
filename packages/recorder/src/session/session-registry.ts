@@ -372,6 +372,7 @@ export async function startSession(deps: StartSessionDeps): Promise<ActiveSessio
     registry: expectedContentRegistry,
     emit: (data) => sessionHost.emit('fs.external_change', data),
     getLastDocChangeAt: (p) => docWiring.getLastDocChangeAt(p),
+    getLastSaveAt: (p) => docWiring.getLastSaveAt(p),
     getNow: () => clock.now(),
     readFile: prodReadFile,
     explanationTagger,

@@ -105,6 +105,7 @@ describe('startFsWatcher', () => {
       registry,
       emit: vi.fn(),
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(''),
     });
@@ -122,6 +123,7 @@ describe('startFsWatcher', () => {
       registry,
       emit: vi.fn(),
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(''),
     });
@@ -147,6 +149,7 @@ describe('startFsWatcher', () => {
       emit,
       // Last doc.change was 100ms ago; tolerance is default 250ms → within tolerance
       getLastDocChangeAt: () => now - 100,
+      getLastSaveAt: () => -Infinity,
       getNow: () => now,
       readFile: vi.fn().mockResolvedValue('different content on disk'),
       recentDocChangeToleranceMs: 250,
@@ -178,6 +181,7 @@ describe('startFsWatcher', () => {
       emit,
       // Last doc.change was 5 seconds ago — way outside tolerance
       getLastDocChangeAt: () => now - 5000,
+      getLastSaveAt: () => -Infinity,
       getNow: () => now,
       readFile: vi.fn().mockResolvedValue(newContent),
       recentDocChangeToleranceMs: 250,
@@ -208,6 +212,154 @@ describe('startFsWatcher', () => {
     expect(payload.new_content_size).toBe(newContent.length);
   });
 
+  it('does NOT emit when change is within tolerance of the last doc.save', async () => {
+    capturedWatchers.length = 0;
+    const registry = makeRegistry(['hw.py']);
+    registry.getOrCreate('hw.py', 'original content');
+
+    const emit = vi.fn();
+    const now = 10000;
+
+    startFsWatcher({
+      assignmentRoot: '/workspace',
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      // Last doc.change is ancient (VS Code's autosave delay defaults to 1000ms,
+      // so a doc.change-anchored window never covers the editor's own save)...
+      getLastDocChangeAt: () => now - 5000,
+      // ...but the save itself was 100ms ago, inside the 250ms tolerance.
+      getLastSaveAt: () => now - 100,
+      getNow: () => now,
+      readFile: vi.fn().mockResolvedValue('different content on disk'),
+      recentDocChangeToleranceMs: 250,
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    watcher?.changeHandler?.({ fsPath: '/workspace/hw.py' });
+
+    await flushPromises();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Watcher race: a doc.change lands during the watcher's async disk read.
+  //
+  // Same defect class as the save path: the comparison used to pin the expected
+  // hash BEFORE the read (in the name of avoiding TOCTOU), which guaranteed a
+  // mismatch whenever the model moved on during the read — and the reset that
+  // followed rolled the model backwards onto the stale snapshot.
+  //
+  // The seam is the injected `readFile`: a deferred promise lets a delta be
+  // applied to the model before the read resolves.
+  // -------------------------------------------------------------------------
+
+  /** A promise whose resolution is controlled by the caller. */
+  function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  const RACE_BASE = 'def foo(): pass\n';
+  const RACE_ADVANCED = `${RACE_BASE}x`;
+  /** The interleaved keystroke: append 'x' at the end of RACE_BASE. */
+  const RACE_KEYSTROKE = {
+    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
+    text: 'x',
+  };
+
+  function startRaceHarness(readFile: () => Promise<string>) {
+    capturedWatchers.length = 0;
+    const registry = makeRegistry(['hw.py']);
+    registry.getOrCreate('hw.py', RACE_BASE);
+    const emit = vi.fn();
+    const now = 10000;
+
+    startFsWatcher({
+      assignmentRoot: '/workspace',
+      filesUnderReview: ['hw.py'],
+      registry,
+      emit,
+      // Well outside the timing tolerance on both anchors, so only the
+      // recent-state ring can suppress the event.
+      getLastDocChangeAt: () => now - 5000,
+      getLastSaveAt: () => now - 5000,
+      getNow: () => now,
+      readFile: vi.fn(readFile),
+      recentDocChangeToleranceMs: 250,
+    });
+
+    const watcher = getWatchers().find(
+      (w) => (w.pattern as { pattern: string }).pattern === 'hw.py',
+    );
+    return { registry, emit, fire: () => watcher?.changeHandler?.({ fsPath: '/workspace/hw.py' }) };
+  }
+
+  it('T1: doc.change during the watcher disk read emits nothing and does not roll the model back', async () => {
+    const read = deferred<string>();
+    const { registry, emit, fire } = startRaceHarness(() => read.promise);
+
+    fire();
+
+    // A keystroke advances the model while the read is still in flight.
+    registry.get('hw.py')!.applyDelta(RACE_KEYSTROKE);
+    expect(registry.get('hw.py')!.content).toBe(RACE_ADVANCED);
+
+    // The read resolves with the PRE-keystroke disk snapshot.
+    read.resolve(RACE_BASE);
+    await flushPromises();
+
+    expect(emit).not.toHaveBeenCalled();
+    expect(registry.get('hw.py')!.content).toBe(RACE_ADVANCED);
+    expect(registry.get('hw.py')!.hash).toBe(sha256Hex(RACE_ADVANCED));
+  });
+
+  it('T2: a genuine external write during the watcher read is still reported exactly once', async () => {
+    const externalContent = 'import os\nos.system("rm -rf /")\n'; // never a buffer state
+    const read = deferred<string>();
+    const { registry, emit, fire } = startRaceHarness(() => read.promise);
+
+    fire();
+    registry.get('hw.py')!.applyDelta(RACE_KEYSTROKE);
+
+    read.resolve(externalContent);
+    await flushPromises();
+
+    expect(emit).toHaveBeenCalledOnce();
+    const payload = emit.mock.calls[0]![0] as { old_hash: string; new_hash: string };
+    // old_hash is the live model at compare time (post-keystroke), new_hash is disk.
+    expect(payload.old_hash).toBe(sha256Hex(RACE_ADVANCED));
+    expect(payload.new_hash).toBe(sha256Hex(externalContent));
+    expect(registry.get('hw.py')!.content).toBe(externalContent);
+  });
+
+  it('T3: the tolerated watcher race does not self-perpetuate on the next event', async () => {
+    const reads = [deferred<string>(), deferred<string>()];
+    let readIndex = 0;
+    const { registry, emit, fire } = startRaceHarness(() => reads[readIndex++]!.promise);
+
+    // --- T1 again: watcher event, interleaved keystroke, stale snapshot resolves.
+    fire();
+    registry.get('hw.py')!.applyDelta(RACE_KEYSTROKE);
+    reads[0]!.resolve(RACE_BASE);
+    await flushPromises();
+    expect(emit).not.toHaveBeenCalled();
+
+    // --- Second watcher event, no interleaved edit; disk holds the advanced content.
+    fire();
+    reads[1]!.resolve(RACE_ADVANCED);
+    await flushPromises();
+
+    // Before the fix this was the mirrored second event of the pair.
+    expect(emit).not.toHaveBeenCalled();
+    expect(registry.get('hw.py')!.content).toBe(RACE_ADVANCED);
+  });
+
   it('resets registry expected content after emitting', async () => {
     capturedWatchers.length = 0;
     const originalContent = 'original';
@@ -223,6 +375,7 @@ describe('startFsWatcher', () => {
       registry,
       emit: vi.fn(),
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => now,
       readFile: vi.fn().mockResolvedValue(newContent),
     });
@@ -254,6 +407,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 10000,
       readFile: vi.fn().mockResolvedValue('some content'),
     });
@@ -281,6 +435,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 10000,
       // Returns the same content — no real change
       readFile: vi.fn().mockResolvedValue(content),
@@ -315,6 +470,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => now,
       readFile: vi.fn().mockResolvedValue(newContent),
       explanationTagger: tagger,
@@ -350,6 +506,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => now,
       readFile: vi.fn().mockResolvedValue(newContent),
       explanationTagger: tagger,
@@ -382,6 +539,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(newContent),
     });
@@ -425,6 +583,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(content),
     });
@@ -452,6 +611,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(disk),
     });
@@ -481,6 +641,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(''),
     });
@@ -520,6 +681,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile: vi.fn().mockResolvedValue(''),
     });
@@ -556,6 +718,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 1000,
       readFile,
     });
@@ -599,6 +762,7 @@ describe('startFsWatcher', () => {
       registry,
       emit,
       getLastDocChangeAt: () => -Infinity,
+      getLastSaveAt: () => -Infinity,
       getNow: () => 10_000,
       readFile: vi.fn().mockResolvedValue(newContent),
     });

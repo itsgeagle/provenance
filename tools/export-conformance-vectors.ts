@@ -15,16 +15,34 @@
  * fixtures byte-for-byte — the drift check that proves this export is faithful to the
  * hand-authored originals.
  *
+ * Two independent vector families, selected by flag:
+ *
+ *   --out           log-core FORMAT vectors: hash chain, ed25519, session key, manifests,
+ *                   checkpoint, golden bundle. Consumed by JetBrains `core/` and by the
+ *                   Neovim `tests/conformance/fixtures/`.
+ *   --recorder-out  recorder PAYLOAD-BUILDER vectors: the paste and fs.external_change
+ *                   inline-content builders. These pin the inline/truncate cap (64 KB of
+ *                   UTF-8) and the deliberate unit mismatch between the byte-based gate
+ *                   and the code-unit-based head/tail slice.
+ *
+ * At least one flag is required; both may be given. Directories are created if missing
+ * and same-named files are overwritten — this script owns those contents.
+ *
  * USAGE
  *   node --experimental-strip-types tools/export-conformance-vectors.ts --out <dir>
  *
- * Example (writing directly into the sibling repo on this machine):
+ * Examples (writing directly into the sibling repos on this machine):
  *   node --experimental-strip-types tools/export-conformance-vectors.ts \
  *     --out ../provenance-jetbrains-recorder/core/src/test/resources/conformance
  *
- * The --out directory is required (no hard-coded cross-repo default), is created if
- * missing, and its same-named files are overwritten — this script owns those contents.
- * Requires `npm run build --workspace=packages/log-core` (and analysis-core) first.
+ *   node --experimental-strip-types tools/export-conformance-vectors.ts \
+ *     --recorder-out ../provenance-jetbrains-recorder/recorder/src/test/resources/conformance
+ *
+ *   node --experimental-strip-types tools/export-conformance-vectors.ts \
+ *     --out ../provenance-neovim-recorder/tests/conformance/fixtures \
+ *     --recorder-out ../provenance-neovim-recorder/tests/conformance/fixtures
+ *
+ * Requires `npm run build` for log-core, analysis-core, and (for --recorder-out) recorder.
  */
 
 import * as fs from 'node:fs';
@@ -42,6 +60,11 @@ import {
   signCheckpoint,
 } from '@provenance/log-core';
 import { buildTestBundle } from '@provenance/analysis-core/test-support/build-test-bundle.js';
+// The recorder's SHIPPED builders, from its build output — deriving the vectors
+// from the real code is the whole point. Requires
+// `npm run build --workspace=packages/recorder` first.
+import { buildExternalChangeContent } from '../packages/recorder/dist/events/external-change-content.js';
+import { buildPastePayload } from '../packages/recorder/dist/events/paste-payload.js';
 
 // Wire sha512 for @noble/ed25519 (same pattern as log-core's own callers).
 ed.hashes.sha512 = sha512;
@@ -53,21 +76,140 @@ const fromHex = (h: string): Uint8Array => new Uint8Array(Buffer.from(h, 'hex'))
 const seed = (n: number): Uint8Array => new Uint8Array(32).fill(n);
 const pub = async (priv: Uint8Array): Promise<string> => toHex(await ed.getPublicKeyAsync(priv));
 
-function parseArgs(argv: string[]): { out: string } {
-  const idx = argv.indexOf('--out');
-  if (idx === -1 || !argv[idx + 1]) {
-    console.error('usage: export-conformance-vectors.ts --out <dir>');
+function parseArgs(argv: string[]): { out: string | null; recorderOut: string | null } {
+  const flag = (name: string): string | null => {
+    const idx = argv.indexOf(name);
+    if (idx === -1) return null;
+    const value = argv[idx + 1];
+    if (!value) {
+      console.error(`${name} requires a directory argument`);
+      process.exit(1);
+    }
+    return value;
+  };
+
+  const out = flag('--out');
+  const recorderOut = flag('--recorder-out');
+
+  if (out === null && recorderOut === null) {
+    console.error(
+      'usage: export-conformance-vectors.ts [--out <dir>] [--recorder-out <dir>]\n' +
+        '  --out           log-core format vectors (hash chain, ed25519, manifests, golden bundle)\n' +
+        '  --recorder-out  recorder payload-builder vectors (paste + fs.external_change content)\n' +
+        'At least one is required; both may be given.',
+    );
     process.exit(1);
   }
-  return { out: argv[idx + 1]! };
+  return { out, recorderOut };
 }
 
 function writeJson(outDir: string, name: string, value: unknown): void {
   fs.writeFileSync(path.join(outDir, name), JSON.stringify(value, null, 2) + '\n');
 }
 
+// ---------------------------------------------------------------------------
+// Recorder payload-builder vectors
+// ---------------------------------------------------------------------------
+
+/**
+ * Inputs for the recorder's two content builders. These are the cross-language
+ * contract: all three recorders must produce byte-identical payloads for them.
+ *
+ * Two independent things are being pinned, and the emoji/€ cases exist because
+ * only multi-byte text can tell them apart:
+ *
+ *   1. THE GATE VALUE. Inline vs truncate is decided on UTF-8 BYTE length
+ *      against MAX_INLINE_BYTES (64 KB, raised from 4 KB). The 8 KB case sits
+ *      between the old and new caps and expects INLINE, so an implementation
+ *      still using 4096 fails it immediately.
+ *   2. THE UNIT MISMATCH. The gate is bytes, but the head/tail SLICE is UTF-16
+ *      code units, so truncation can never split a codepoint. An implementation
+ *      that measures the gate in characters, or slices by bytes, fails here.
+ *
+ * '😀' is 4 UTF-8 bytes / 2 UTF-16 code units; '€' is 3 bytes / 1 code unit.
+ * Both are included because they fail differently under a byte/char mixup.
+ *
+ * Size note: the at-boundary cases are inherently ~64 KB of input each, which
+ * is why this list is deliberately short. Every large case earns its place.
+ */
+function recorderContentInputs(): Array<{ note: string; input: string }> {
+  const EMOJI = '😀'; // 4 UTF-8 bytes, 2 UTF-16 code units
+  const EURO = '€'; // 3 UTF-8 bytes, 1 UTF-16 code unit
+  const CAP = 64 * 1024;
+
+  return [
+    { note: 'ascii, small: inlined', input: 'hello world' },
+    { note: 'empty string: inlined as ""', input: '' },
+    {
+      note: 'multibyte, small: inlined; size is UTF-8 bytes, not codepoints',
+      input: '日本語のテキストです。これはテストです。',
+    },
+    {
+      note: 'multibyte, 8 KB: between the old 4 KB cap and the new 64 KB cap, so this INLINES. An implementation still gated at 4096 truncates here and fails.',
+      input: EMOJI.repeat(2048), // 8192 bytes, 4096 code units
+    },
+    {
+      note: 'multibyte, EXACTLY at the 64 KB cap in bytes (boundary inclusive → inlines). Only 32768 code units, so a char-based gate would also inline — the next case is what separates them.',
+      input: EMOJI.repeat(CAP / 4), // 65536 bytes, 32768 code units
+    },
+    {
+      note: 'multibyte, ONE codepoint past the cap in bytes → truncates. Still only 32770 code units, far under 65536, so a char-based gate wrongly inlines and fails.',
+      input: EMOJI.repeat(CAP / 4 + 1), // 65540 bytes, 32770 code units
+    },
+    {
+      note: '3-byte characters past the cap, with distinct head/tail markers: pins that the slice is by code unit and that head/tail are taken from the right ends.',
+      input: `HEAD-${EURO.repeat(CAP / 3)}-TAIL`, // > 64 KB, 1 code unit per char
+    },
+  ];
+}
+
+/**
+ * Emit the recorder payload-builder conformance fixtures.
+ *
+ * Both files are arrays of { note, input, expected }. `expected` omits fields
+ * the builder leaves undefined, so a consumer comparing all fields (including
+ * absent ones) sees null/nil on both sides.
+ *
+ * Deterministic by construction: fixed inputs, no clock, no randomness, no
+ * iteration over unordered collections. Running this twice produces identical
+ * bytes.
+ */
+function writeRecorderVectors(outDir: string): void {
+  const inputs = recorderContentInputs();
+
+  writeJson(
+    outDir,
+    'external-change-content.json',
+    inputs.map(({ note, input }) => ({
+      note,
+      input,
+      expected: buildExternalChangeContent(input),
+    })),
+  );
+
+  writeJson(
+    outDir,
+    'paste-payload.json',
+    inputs.map(({ note, input }) => ({
+      note,
+      input,
+      expected: buildPastePayload(input),
+    })),
+  );
+}
+
 async function main(): Promise<void> {
-  const { out } = parseArgs(process.argv.slice(2));
+  const { out, recorderOut } = parseArgs(process.argv.slice(2));
+
+  if (recorderOut !== null) {
+    const recorderDir = path.resolve(recorderOut);
+    fs.mkdirSync(recorderDir, { recursive: true });
+    writeRecorderVectors(recorderDir);
+    console.log(`Wrote recorder payload vectors to ${recorderDir}`);
+  }
+
+  if (out === null) return;
+
   const outDir = path.resolve(out);
   fs.mkdirSync(outDir, { recursive: true });
 

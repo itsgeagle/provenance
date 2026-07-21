@@ -98,6 +98,7 @@ vi.mock('vscode', () => ({
 
 import { startDocWiring } from './doc-wiring.js';
 import { ExpectedContentRegistry } from '../state/expected-content-registry.js';
+import { MAX_INLINE_BYTES } from '../events/inline-content-limits.js';
 import type { WorkspaceLike } from '../events/doc-events.js';
 import { sha256Hex } from '@provenance/log-core';
 
@@ -657,6 +658,112 @@ describe('startDocWiring', () => {
     expect((payload.deltas as unknown[]).length).toBe(2);
   });
 
+  // -------------------------------------------------------------------------
+  // Size gate on paste routing (PRD §4.3).
+  //
+  // A `paste` payload above MAX_INLINE_BYTES carries only head/tail, so the
+  // analyzer's applyPaste returns applied:false and reconstruction for that file
+  // dies from that point. Such an insert must route to doc.change instead, whose
+  // deltas always replay. Nothing is lost: analysis-core treats a doc.change with
+  // source='paste_likely' as a candidate paste, so the paste heuristics still see it.
+  //
+  // Field instance: one submission with zero genuine external-change gaps still
+  // reconstructed at 1/266 save checkpoints, killed outright by a single large paste.
+  // -------------------------------------------------------------------------
+
+  function startPasteRoutingHarness() {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+    return emitters;
+  }
+
+  /** Fire one single-range insert of `text` at an empty range. */
+  function fireSingleRangePaste(text: string) {
+    changeSub.handler!(
+      fakeChangeEvent('src/foo.py', [{ startLine: 0, startChar: 0, endLine: 0, endChar: 0, text }]),
+    );
+  }
+
+  it('single-range paste just UNDER the cap: emits paste with full inline content', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = 'a'.repeat(MAX_INLINE_BYTES - 1);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    const payload = emitters.emitPaste.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.content).toBe(text); // replayable: full text present
+    expect(payload.length).toBe(MAX_INLINE_BYTES - 1);
+  });
+
+  it('single-range paste exactly AT the cap: still emits paste (boundary inclusive)', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = 'a'.repeat(MAX_INLINE_BYTES);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    expect((emitters.emitPaste.mock.calls[0]![0] as Record<string, unknown>).content).toBe(text);
+  });
+
+  it('single-range paste just OVER the cap: emits doc.change carrying the FULL text', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = 'a'.repeat(MAX_INLINE_BYTES + 1);
+
+    fireSingleRangePaste(text);
+
+    // Must NOT be a paste — that payload would be truncated and unreplayable.
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+
+    const payload = emitters.emitDocChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.source).toBe('paste_likely'); // the field analysis-core keys off
+    // The whole point: the text survives in full, so the replay can apply it.
+    const deltas = payload.deltas as Array<{ text: string }>;
+    expect(deltas.length).toBe(1);
+    expect(deltas[0]!.text).toBe(text);
+    expect(deltas[0]!.text.length).toBe(MAX_INLINE_BYTES + 1);
+  });
+
+  it('the size gate is on UTF-8 bytes, not string length', () => {
+    const emitters = startPasteRoutingHarness();
+    // 16385 emoji = 65540 UTF-8 bytes (over the cap) but only 32770 UTF-16 code
+    // units — well under MAX_INLINE_BYTES as a string length, so a `.length`-based
+    // gate would wrongly emit an unreplayable paste here.
+    const text = '😀'.repeat(MAX_INLINE_BYTES / 4 + 1);
+    expect(Buffer.byteLength(text, 'utf8')).toBe(MAX_INLINE_BYTES + 4);
+    expect(text.length).toBeLessThan(MAX_INLINE_BYTES);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+    const payload = emitters.emitDocChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.source).toBe('paste_likely');
+    expect((payload.deltas as Array<{ text: string }>)[0]!.text).toBe(text);
+  });
+
+  it('multi-byte paste under the cap in bytes still emits paste', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = '😀'.repeat(MAX_INLINE_BYTES / 4); // exactly at the cap in bytes
+    expect(Buffer.byteLength(text, 'utf8')).toBe(MAX_INLINE_BYTES);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect((emitters.emitPaste.mock.calls[0]![0] as Record<string, unknown>).content).toBe(text);
+  });
+
   it('large-insert counter increments on paste_likely, not on typed', () => {
     setMockWindowState({ focused: true });
     const registry = new ExpectedContentRegistry([]);
@@ -823,6 +930,126 @@ describe('startDocWiring', () => {
     const ec = registry.get('src/foo.py');
     expect(ec?.content).toBe(onDiskContent);
     expect(ec?.hash).toBe(sha256Hex(onDiskContent));
+  });
+
+  // -------------------------------------------------------------------------
+  // Save-time race: keystroke lands during the async disk read (PRD §4.5)
+  //
+  // The save handler reads disk asynchronously. A keystroke arriving inside that
+  // gap advances the expected-content model past the snapshot being read, so a
+  // naive hash compare reports the student's own save as an external write — and
+  // the reset that followed rolled the model backwards onto the stale snapshot,
+  // guaranteeing the next save mismatched too (the mirrored-pair bug).
+  //
+  // The seam is the injected `readFile`: these tests hand it a deferred promise
+  // so the change event can be delivered before the read resolves.
+  // -------------------------------------------------------------------------
+
+  /** A promise whose resolution is controlled by the caller. */
+  function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  const RACE_BASE = 'def foo(): pass\n';
+  /** Delta appending 'x' at the end of RACE_BASE — the interleaved keystroke. */
+  const RACE_KEYSTROKE = { startLine: 1, startChar: 0, endLine: 1, endChar: 0, text: 'x' };
+  const RACE_ADVANCED = `${RACE_BASE}x`;
+
+  function startRaceHarness(readFile: () => Promise<string>) {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+      readFile: vi.fn(readFile),
+    });
+
+    const doc = fakeDoc({ path: 'src/foo.py', text: RACE_BASE, lineCount: 2 });
+    openSub.handler!(doc);
+    return { registry, emitters, doc };
+  }
+
+  it('T1: keystroke during the save-time disk read emits NO fs.external_change and does not roll the model back', async () => {
+    const read = deferred<string>();
+    const { registry, emitters, doc } = startRaceHarness(() => read.promise);
+
+    // Save fires; the disk read is now in flight and has NOT resolved.
+    saveSub.handler!(doc);
+
+    // The student types one more character before the read completes.
+    changeSub.handler!(fakeChangeEvent('src/foo.py', [RACE_KEYSTROKE]));
+    expect(registry.get('src/foo.py')?.content).toBe(RACE_ADVANCED);
+
+    // The read now resolves with the PRE-keystroke disk snapshot.
+    read.resolve(RACE_BASE);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The write was ours — nothing external happened.
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+
+    // And the model must still reflect the live buffer, NOT the stale snapshot.
+    const ec = registry.get('src/foo.py');
+    expect(ec?.content).toBe(RACE_ADVANCED);
+    expect(ec?.hash).toBe(sha256Hex(RACE_ADVANCED));
+
+    // doc.save is still emitted exactly once.
+    expect(emitters.emitDocSave).toHaveBeenCalledOnce();
+  });
+
+  it('T2: a genuine external write during the save-time read is still reported exactly once', async () => {
+    const externalContent = 'import os\nos.system("rm -rf /")\n'; // never a buffer state
+    const read = deferred<string>();
+    const { registry, emitters, doc } = startRaceHarness(() => read.promise);
+
+    saveSub.handler!(doc);
+    changeSub.handler!(fakeChangeEvent('src/foo.py', [RACE_KEYSTROKE]));
+
+    read.resolve(externalContent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(emitters.emitFsExternalChange).toHaveBeenCalledOnce();
+    const payload = emitters.emitFsExternalChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.path).toBe('src/foo.py');
+    expect(payload.operation).toBe('modify');
+    // old_hash is the live model at compare time (post-keystroke), new_hash is disk.
+    expect(payload.old_hash).toBe(sha256Hex(RACE_ADVANCED));
+    expect(payload.new_hash).toBe(sha256Hex(externalContent));
+
+    // Model reseeded to disk reality so subsequent edits chain from it.
+    const ec = registry.get('src/foo.py');
+    expect(ec?.content).toBe(externalContent);
+  });
+
+  it('T3: the tolerated race does not self-perpetuate — the next clean save is also silent', async () => {
+    const reads = [deferred<string>(), deferred<string>()];
+    let readIndex = 0;
+    const { registry, emitters, doc } = startRaceHarness(() => reads[readIndex++]!.promise);
+
+    // --- T1 over again: save, interleaved keystroke, stale snapshot resolves.
+    saveSub.handler!(doc);
+    changeSub.handler!(fakeChangeEvent('src/foo.py', [RACE_KEYSTROKE]));
+    reads[0]!.resolve(RACE_BASE);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+
+    // --- Second save, no interleaved edit. Disk now holds the advanced content.
+    saveSub.handler!(doc);
+    reads[1]!.resolve(RACE_ADVANCED);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Before the fix this was the mirrored second event of the pair.
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+    expect(emitters.emitDocSave).toHaveBeenCalledTimes(2);
+    expect(registry.get('src/foo.py')?.content).toBe(RACE_ADVANCED);
   });
 
   // -------------------------------------------------------------------------

@@ -3,14 +3,18 @@
  * fields on FsExternalChangePayload.
  *
  * Mirrors the paste-payload truncation pattern (PRD §4.3 last paragraph):
- * inline the full text up to 4 KB, otherwise store head + tail + size.
- * Lets the analyzer reseed reconstruction after an external write so the
+ * inline the full text up to MAX_INLINE_BYTES, otherwise store head + tail +
+ * size. Lets the analyzer reseed reconstruction after an external write so the
  * replay UI can show the post-change file (PRD §4.5 / §7.2).
  *
- * Constants intentionally match paste-payload.ts so a future refactor can
- * unify them; we don't share imports today because the paste helper also
- * computes `length` + `sha256` (which fs.external_change already has).
+ * The caps now live in inline-content-limits.ts, shared with paste-payload.ts
+ * and doc-events.ts; they are re-exported here so existing importers (and the
+ * tests that pin the boundary) keep working.
  */
+
+import { MAX_INLINE_BYTES, HEAD_TAIL_BYTES } from './inline-content-limits.js';
+
+export { MAX_INLINE_BYTES, HEAD_TAIL_BYTES };
 
 export type ExternalChangeContentFields = {
   new_content_size: number;
@@ -21,9 +25,6 @@ export type ExternalChangeContentFields = {
   /** Last HEAD_TAIL_BYTES chars if size > MAX_INLINE_BYTES. */
   new_content_tail?: string;
 };
-
-export const MAX_INLINE_BYTES = 4096;
-export const HEAD_TAIL_BYTES = 512;
 
 /**
  * Build the content fields for an fs.external_change payload.
