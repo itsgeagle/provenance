@@ -208,7 +208,8 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
   // recompute_submission handler (includeMetadata: true for retryCount access)
   //
   // 1. Idempotency check: if submission already recomputed for this configVersion,
-  //    skip all work and return without incrementing progress_done (I-Quality-1).
+  //    skip all work. Still counts toward progress_done UNLESS this is a retry of
+  //    this same job (which already counted) — see the branch for why.
   // 2. Read the target config.
   // 3. Call recomputeSubmission (writes flags + score).
   // 4. Increment progress_done.
@@ -252,9 +253,32 @@ export async function registerRecomputeHandlers(boss: PgBoss): Promise<void> {
         subCheck?.heuristic_config_version === configVersion
       ) {
         logger.info(
-          { recomputeJobId, submissionId, configVersion },
+          { recomputeJobId, submissionId, configVersion, retryCount: job.retryCount },
           'recompute_submission: already fresh for this config version — skipping (idempotent)',
         );
+
+        // Two different situations reach this branch, and they need opposite
+        // handling (I-Quality-1 originally covered only the first):
+        //
+        //  a) retryCount > 0 — pg-boss retried THIS job after an attempt that
+        //     already succeeded and already incremented progress_done. Counting
+        //     again would overshoot progress_total. Return without incrementing.
+        //
+        //  b) retryCount === 0 — a DIFFERENT recompute run already made this
+        //     submission fresh (e.g. committing a heuristic config auto-enqueues
+        //     a recompute, and an explicit POST .../recompute then enqueues a
+        //     second one). There is no work to do, but this job's unit of work
+        //     IS complete. Returning without incrementing left progress_done at
+        //     0 forever, so recompute_finalize was never dispatched and the job
+        //     sat in 'running' permanently despite every child having finished.
+        if (job.retryCount === 0) {
+          await db.execute(sql`
+            UPDATE recompute_jobs
+            SET progress_done = progress_done + 1
+            WHERE id = ${recomputeJobId}
+          `);
+          await maybeEnqueueRecomputeFinalize(boss, db, recomputeJobId);
+        }
         return;
       }
 
