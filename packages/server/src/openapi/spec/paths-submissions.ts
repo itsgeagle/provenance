@@ -509,7 +509,28 @@ export const submissionsPaths = {
             'application/json': {
               schema: {
                 type: 'object',
-                properties: { recompute_job_id: { $ref: '#/components/schemas/UUID' } },
+                // The handler returns the full job row under `recompute_job`
+                // (see heuristic-config.ts, POST .../recompute). This previously
+                // documented a flat `recompute_job_id`, which no code path has
+                // ever returned -- clients written against the spec read
+                // undefined and then polled a malformed job id.
+                properties: {
+                  recompute_job: {
+                    type: 'object',
+                    properties: {
+                      id: { $ref: '#/components/schemas/UUID' },
+                      semester_id: { $ref: '#/components/schemas/UUID' },
+                      target_config_id: { $ref: '#/components/schemas/UUID' },
+                      status: {
+                        type: 'string',
+                        enum: ['queued', 'running', 'succeeded', 'partial', 'failed', 'cancelled'],
+                      },
+                      progress_total: { type: 'integer' },
+                      progress_done: { type: 'integer' },
+                      progress_failed: { type: 'integer' },
+                    },
+                  },
+                },
               },
             },
           },

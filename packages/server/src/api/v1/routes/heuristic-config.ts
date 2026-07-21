@@ -72,6 +72,9 @@ import { getBoss, JOB_KINDS } from '../../../jobs/pg-boss.js';
 import type { RecomputeSemesterPayload } from '../../../jobs/recompute.js';
 import { recompute_jobs } from '../../../db/schema.js';
 
+/** Canonical UUID form, for path-param validation. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ---------------------------------------------------------------------------
 // Router factory
 // ---------------------------------------------------------------------------
@@ -434,6 +437,14 @@ export function createHeuristicConfigRouter(): Hono {
     async (c) => {
       const semesterId = c.req.param('semesterId')!;
       const jobId = c.req.param('jobId')!;
+
+      // Validate before it reaches Postgres. A non-UUID lands in `WHERE id = $1`
+      // on a uuid column, which throws and surfaces as a 500 -- a client passing
+      // a bad id should get a 400, not look like a server fault.
+      if (!UUID_RE.test(jobId)) {
+        throw Errors.validation([{ path: 'jobId', message: 'jobId must be a UUID' }]);
+      }
+
       const db = getDb();
 
       const rows = await db
