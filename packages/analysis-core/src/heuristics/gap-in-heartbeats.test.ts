@@ -88,6 +88,38 @@ describe('gap_in_heartbeats — negative', () => {
     expect(flags).toHaveLength(0);
   });
 
+  it('produces no flags when a gap contains zero events of any kind (machine suspend)', async () => {
+    // Regression test (2026-07 suspend-aware revision): a large wall-clock gap
+    // between two heartbeats with NO other events recorded in between is the
+    // signature of machine sleep (OS suspends the extension host — no timers
+    // fire, so nothing is written — but the extension is never deactivated,
+    // so no session.end is written either). This must not be flagged.
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'session.heartbeat',
+              data: { focused: true, active_file: null, idle_since_ms: 0 },
+              wall: wallPlusMinutes(BASE_MS, 0),
+              t: 1000,
+            },
+            {
+              kind: 'session.heartbeat',
+              data: { focused: true, active_file: null, idle_since_ms: 0 },
+              wall: wallPlusMinutes(BASE_MS, 10),
+              t: 601_000,
+            },
+          ],
+        },
+      ],
+    });
+    // testConfig: threshold=2min; gap is 10min but nothing else was recorded
+    // in the gap → not flagged.
+    const flags = gapInHeartbeatsHeuristic.run(index, bundle, testConfig);
+    expect(flags).toHaveLength(0);
+  });
+
   it('produces no flags when a session.end exists between the gapped heartbeats', async () => {
     // Large gap but with a session.end between the two heartbeats → expected
     const { index, bundle } = await buildAndIndex({
@@ -127,7 +159,7 @@ describe('gap_in_heartbeats — negative', () => {
 // ---------------------------------------------------------------------------
 
 describe('gap_in_heartbeats — positive', () => {
-  it('flags a gap > threshold with no session.end between heartbeats', async () => {
+  it('flags a gap > threshold with an intervening event and no session.end between heartbeats', async () => {
     const { index, bundle } = await buildAndIndex({
       sessions: [
         {
@@ -137,6 +169,15 @@ describe('gap_in_heartbeats — positive', () => {
               data: { focused: true, active_file: null, idle_since_ms: 0 },
               wall: wallPlusMinutes(BASE_MS, 0),
               t: 1000,
+            },
+            // Any event (not just heartbeats) recorded inside the gap proves
+            // the recorder process was alive — this is what distinguishes a
+            // stalled/tampered recorder from a machine-sleep gap.
+            {
+              kind: 'ext.snapshot',
+              data: { extensions: [] },
+              wall: wallPlusMinutes(BASE_MS, 5),
+              t: 301_000,
             },
             {
               kind: 'session.heartbeat',
@@ -148,7 +189,7 @@ describe('gap_in_heartbeats — positive', () => {
         },
       ],
     });
-    // testConfig: threshold=2min; gap is 10min → flag
+    // testConfig: threshold=2min; gap is 10min with an intervening event → flag
     const flags = gapInHeartbeatsHeuristic.run(index, bundle, testConfig);
     expect(flags).toHaveLength(1);
     expect(flags[0]!.heuristic).toBe('gap_in_heartbeats');
@@ -169,11 +210,25 @@ describe('gap_in_heartbeats — positive', () => {
               wall: wallPlusMinutes(BASE_MS, 0),
               t: 1000,
             },
+            // Intervening event in gap 1 (0min → 10min).
+            {
+              kind: 'ext.snapshot',
+              data: { extensions: [] },
+              wall: wallPlusMinutes(BASE_MS, 5),
+              t: 301_000,
+            },
             {
               kind: 'session.heartbeat',
               data: { focused: true, active_file: null, idle_since_ms: 0 },
               wall: wallPlusMinutes(BASE_MS, 10),
               t: 601_000,
+            },
+            // Intervening event in gap 2 (10min → 25min).
+            {
+              kind: 'ext.snapshot',
+              data: { extensions: [] },
+              wall: wallPlusMinutes(BASE_MS, 15),
+              t: 901_000,
             },
             {
               kind: 'session.heartbeat',
@@ -185,7 +240,7 @@ describe('gap_in_heartbeats — positive', () => {
         },
       ],
     });
-    // Two consecutive 10-min and 15-min gaps → two flags
+    // Two consecutive 10-min and 15-min gaps, each with an intervening event → two flags
     const flags = gapInHeartbeatsHeuristic.run(index, bundle, testConfig);
     expect(flags).toHaveLength(2);
   });
@@ -200,6 +255,12 @@ describe('gap_in_heartbeats — positive', () => {
               data: { focused: true, active_file: null, idle_since_ms: 0 },
               wall: wallPlusMinutes(BASE_MS, 0),
               t: 1000,
+            },
+            {
+              kind: 'ext.snapshot',
+              data: { extensions: [] },
+              wall: wallPlusMinutes(BASE_MS, 5),
+              t: 301_000,
             },
             {
               kind: 'session.heartbeat',
