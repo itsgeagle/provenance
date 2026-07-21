@@ -98,6 +98,7 @@ vi.mock('vscode', () => ({
 
 import { startDocWiring } from './doc-wiring.js';
 import { ExpectedContentRegistry } from '../state/expected-content-registry.js';
+import { MAX_INLINE_BYTES } from '../events/inline-content-limits.js';
 import type { WorkspaceLike } from '../events/doc-events.js';
 import { sha256Hex } from '@provenance/log-core';
 
@@ -655,6 +656,112 @@ describe('startDocWiring', () => {
     expect(payload.source).toBe('paste_likely');
     expect(Array.isArray(payload.deltas)).toBe(true);
     expect((payload.deltas as unknown[]).length).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Size gate on paste routing (PRD §4.3).
+  //
+  // A `paste` payload above MAX_INLINE_BYTES carries only head/tail, so the
+  // analyzer's applyPaste returns applied:false and reconstruction for that file
+  // dies from that point. Such an insert must route to doc.change instead, whose
+  // deltas always replay. Nothing is lost: analysis-core treats a doc.change with
+  // source='paste_likely' as a candidate paste, so the paste heuristics still see it.
+  //
+  // Field instance: one submission with zero genuine external-change gaps still
+  // reconstructed at 1/266 save checkpoints, killed outright by a single large paste.
+  // -------------------------------------------------------------------------
+
+  function startPasteRoutingHarness() {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+    });
+    return emitters;
+  }
+
+  /** Fire one single-range insert of `text` at an empty range. */
+  function fireSingleRangePaste(text: string) {
+    changeSub.handler!(
+      fakeChangeEvent('src/foo.py', [{ startLine: 0, startChar: 0, endLine: 0, endChar: 0, text }]),
+    );
+  }
+
+  it('single-range paste just UNDER the cap: emits paste with full inline content', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = 'a'.repeat(MAX_INLINE_BYTES - 1);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    const payload = emitters.emitPaste.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.content).toBe(text); // replayable: full text present
+    expect(payload.length).toBe(MAX_INLINE_BYTES - 1);
+  });
+
+  it('single-range paste exactly AT the cap: still emits paste (boundary inclusive)', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = 'a'.repeat(MAX_INLINE_BYTES);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect(emitters.emitDocChange).not.toHaveBeenCalled();
+    expect((emitters.emitPaste.mock.calls[0]![0] as Record<string, unknown>).content).toBe(text);
+  });
+
+  it('single-range paste just OVER the cap: emits doc.change carrying the FULL text', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = 'a'.repeat(MAX_INLINE_BYTES + 1);
+
+    fireSingleRangePaste(text);
+
+    // Must NOT be a paste — that payload would be truncated and unreplayable.
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+
+    const payload = emitters.emitDocChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.source).toBe('paste_likely'); // the field analysis-core keys off
+    // The whole point: the text survives in full, so the replay can apply it.
+    const deltas = payload.deltas as Array<{ text: string }>;
+    expect(deltas.length).toBe(1);
+    expect(deltas[0]!.text).toBe(text);
+    expect(deltas[0]!.text.length).toBe(MAX_INLINE_BYTES + 1);
+  });
+
+  it('the size gate is on UTF-8 bytes, not string length', () => {
+    const emitters = startPasteRoutingHarness();
+    // 16385 emoji = 65540 UTF-8 bytes (over the cap) but only 32770 UTF-16 code
+    // units — well under MAX_INLINE_BYTES as a string length, so a `.length`-based
+    // gate would wrongly emit an unreplayable paste here.
+    const text = '😀'.repeat(MAX_INLINE_BYTES / 4 + 1);
+    expect(Buffer.byteLength(text, 'utf8')).toBe(MAX_INLINE_BYTES + 4);
+    expect(text.length).toBeLessThan(MAX_INLINE_BYTES);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).not.toHaveBeenCalled();
+    expect(emitters.emitDocChange).toHaveBeenCalledOnce();
+    const payload = emitters.emitDocChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.source).toBe('paste_likely');
+    expect((payload.deltas as Array<{ text: string }>)[0]!.text).toBe(text);
+  });
+
+  it('multi-byte paste under the cap in bytes still emits paste', () => {
+    const emitters = startPasteRoutingHarness();
+    const text = '😀'.repeat(MAX_INLINE_BYTES / 4); // exactly at the cap in bytes
+    expect(Buffer.byteLength(text, 'utf8')).toBe(MAX_INLINE_BYTES);
+
+    fireSingleRangePaste(text);
+
+    expect(emitters.emitPaste).toHaveBeenCalledOnce();
+    expect((emitters.emitPaste.mock.calls[0]![0] as Record<string, unknown>).content).toBe(text);
   });
 
   it('large-insert counter increments on paste_likely, not on typed', () => {

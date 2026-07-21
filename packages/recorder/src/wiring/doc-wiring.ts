@@ -36,6 +36,7 @@ import {
 } from '../events/doc-events.js';
 import { classifyChange } from '../events/paste-classifier.js';
 import { buildPastePayload } from '../events/paste-payload.js';
+import { MAX_INLINE_BYTES } from '../events/inline-content-limits.js';
 import { ExpectedContentRegistry } from '../state/expected-content-registry.js';
 import type { PasteIntercept } from './paste-command-intercept.js';
 import { compareSavedContent } from '../events/external-change-detector.js';
@@ -383,33 +384,51 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
       // both produce a 'paste' event. The reconciler (signal 3) handles discrepancy tracking.
       void isConfirmed; // intentionally unused in v1 per PRD analysis in task spec
 
-      // Two emit paths:
+      // Two emit paths. The governing rule: NEVER emit a `paste` event the
+      // analyzer cannot replay. A `paste` whose payload lost its content is
+      // strictly worse than a `doc.change` that kept it — `applyPaste` returns
+      // `applied: false` and reconstruction for that file dies from that point
+      // on, while the deltas on a `doc.change` always replay faithfully.
       //
-      // (a) Single delta with empty range — classical paste shape. Emit a
-      //     `paste` event; analyzer reconstructs the file by inserting the
-      //     pasted text at the recorded range.
+      // (a) `paste` — a single delta with an empty range, whose text is small
+      //     enough to be inlined. Both conditions are required, for the two
+      //     independent reasons a paste can fail to replay:
       //
-      // (b) Anything else (multi-delta WorkspaceEdit, large replacement of
-      //     existing content) — emit `doc.change` with source='paste_likely'
-      //     so the analyzer can apply the deltas faithfully (preserves
-      //     reconstruction). The `source` field marks it as suspicious for
-      //     downstream heuristics. We cannot route these through `paste`
-      //     because PastePayload carries a single range/text, while the
-      //     event in question may span multiple disjoint ranges that
-      //     applyPaste cannot reproduce.
+      //       SHAPE. PastePayload carries exactly one range + one text, so a
+      //       multi-delta WorkspaceEdit spanning disjoint ranges cannot be
+      //       expressed without collapsing them — `applyPaste` cannot reproduce
+      //       it.
+      //
+      //       SIZE. `buildPastePayload` only inlines up to MAX_INLINE_BYTES;
+      //       past that it truncates to a head/tail preview (paste-payload.ts).
+      //       A `paste` built from truncated content is unreplayable for the
+      //       same reason. This condition is read from the shared constant, not
+      //       hardcoded, so it tracks the cap forever — raising the cap narrows
+      //       this hole but only the gate closes it.
+      //
+      // (b) Anything else — emit `doc.change` with source='paste_likely' so the
+      //     analyzer applies the deltas faithfully (preserves reconstruction).
+      //     Nothing is lost by doing so: analysis-core's `iterateCandidatePastes`
+      //     treats a `doc.change` with source='paste_likely'/'paste_confirmed'
+      //     as a candidate paste, so every paste heuristic still sees it.
+      //
+      // Byte length, not string length — matching the unit the cap itself uses.
+      // A multi-byte codepoint counts as more than one byte.
+      const pasteDelta = deltas.length === 1 ? deltas[0]! : null;
       const isSinglePasteShaped =
-        deltas.length === 1 &&
-        deltas[0]!.range.start.line === deltas[0]!.range.end.line &&
-        deltas[0]!.range.start.character === deltas[0]!.range.end.character;
+        pasteDelta !== null &&
+        pasteDelta.range.start.line === pasteDelta.range.end.line &&
+        pasteDelta.range.start.character === pasteDelta.range.end.character;
+      const isInlineable =
+        pasteDelta !== null && Buffer.byteLength(pasteDelta.text, 'utf8') <= MAX_INLINE_BYTES;
 
-      if (isSinglePasteShaped) {
-        const delta = deltas[0]!;
-        const fields = buildPastePayload(delta.text);
-        const pastePayload = transformPaste(relativePath, delta.range, fields);
+      if (isSinglePasteShaped && isInlineable) {
+        const fields = buildPastePayload(pasteDelta.text);
+        const pastePayload = transformPaste(relativePath, pasteDelta.range, fields);
         emitPaste(pastePayload);
       } else {
-        // Bulk insertion that isn't a clean single-range paste: emit as
-        // doc.change with paste_likely source so reconstruction stays
+        // Not replayable as a `paste` (wrong shape, or too large to inline):
+        // emit as doc.change with paste_likely source so reconstruction stays
         // faithful and heuristics can still see the signal.
         const payload = transformDocChange(event, workspace);
         payload.source = 'paste_likely';
