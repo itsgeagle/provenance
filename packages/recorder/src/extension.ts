@@ -340,34 +340,39 @@ async function rescan(
   extensionDistPath: string,
   extension: vscode.Extension<unknown>,
 ): Promise<void> {
-  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
-  const currentRoots = workspaceFolders.map((f) => f.uri.fsPath);
+  try {
+    const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+    const currentRoots = workspaceFolders.map((f) => f.uri.fsPath);
 
-  // Stop sessions whose root left the workspace.
-  await registry.pruneToRoots(currentRoots);
+    // Stop sessions whose root left the workspace.
+    await registry.pruneToRoots(currentRoots);
 
-  // Start sessions for any newly-discovered root not already active.
-  const { found } = await discoverManifests({
-    workspaceFolders,
-    findFiles: (include, exclude) => Promise.resolve(vscode.workspace.findFiles(include, exclude)),
-  });
-  const allRoots = found.map((f) => f.root);
-
-  for (const { root, manifest } of found) {
-    if (registry.get(root) !== undefined) continue;
-    const session = await startSession({
-      assignmentRoot: root,
-      manifest,
-      extension,
-      vscodeVersion: vscode.version,
-      platform: `${process.platform}-${process.arch}`,
-      clock: new SystemClock(),
-      extensionDistPath,
-      isOwnedByThisRoot: (fsPath: string) => resolveOwnerRoot(fsPath, allRoots) === root,
+    // Start sessions for any newly-discovered root not already active.
+    const { found } = await discoverManifests({
+      workspaceFolders,
+      findFiles: (include, exclude) =>
+        Promise.resolve(vscode.workspace.findFiles(include, exclude)),
     });
-    context.subscriptions.push(...session.ownDisposables);
-    session.ownDisposables.length = 0;
-    registry.add(session);
+    const allRoots = found.map((f) => f.root);
+
+    for (const { root, manifest } of found) {
+      if (registry.get(root) !== undefined) continue;
+      const session = await startSession({
+        assignmentRoot: root,
+        manifest,
+        extension,
+        vscodeVersion: vscode.version,
+        platform: `${process.platform}-${process.arch}`,
+        clock: new SystemClock(),
+        extensionDistPath,
+        isOwnedByThisRoot: (fsPath: string) => resolveOwnerRoot(fsPath, allRoots) === root,
+      });
+      context.subscriptions.push(...session.ownDisposables);
+      session.ownDisposables.length = 0;
+      registry.add(session);
+    }
+  } catch (e) {
+    console.error('[provenance] unexpected error during workspace-folder rescan:', e);
   }
 }
 
