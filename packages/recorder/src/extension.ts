@@ -10,41 +10,15 @@
  */
 
 import * as vscode from 'vscode';
-import * as fsPromises from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import {
-  SystemClock,
-  generateSessionKeypair,
-  encryptSessionPrivkey,
-  signCheckpoint,
-} from '@provenance/log-core';
-import type { HashedEnvelope } from '@provenance/log-core';
+import { SystemClock } from '@provenance/log-core';
 import { loadAndVerifyManifest } from './activation/manifest-loader.js';
 import type { ActivationError } from './activation/manifest-loader.js';
 import { createRecordingStatusBar } from './activation/status-bar.js';
-import { buildRecorderContext } from './session/recorder-context.js';
-import { createSessionHost } from './session/session-host.js';
-import { SessionWriter } from './io/session-writer.js';
-import { MetaWriter } from './io/meta-writer.js';
-import { startHeartbeat } from './events/heartbeat.js';
-import { startClockWatcher } from './events/clock-watcher.js';
-import { startDocWiring } from './wiring/doc-wiring.js';
-import { startPasteIntercept } from './wiring/paste-command-intercept.js';
-import { startPasteReconciler } from './events/paste-reconciler.js';
-import { startFsWatcher } from './wiring/fs-watcher.js';
-import { ExplanationTagger } from './events/explanation-tags.js';
-import { ExpectedContentRegistry } from './state/expected-content-registry.js';
-import { startTerminalWiring } from './wiring/terminal-wiring.js';
-import { startExtensionSnapshot } from './wiring/extension-snapshot.js';
-import { startExtensionActivation } from './wiring/extension-activation.js';
-import { startGitWiring } from './wiring/git-wiring.js';
-import { recoverPreviousSession } from './startup/chain-recovery.js';
 import { sealBundle } from './commands/seal.js';
 import { computeExtensionHash } from './commands/extension-hash.js';
-import { DiskFullHandler } from './failure/disk-full-handler.js';
-import type { LargeInsertCounter } from './wiring/doc-wiring.js';
+import { startSession } from './session/session-registry.js';
+import type { ActiveSession, HeartbeatVscodeDeps } from './session/session-registry.js';
 import type { Manifest } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
@@ -85,30 +59,9 @@ export type ActivateDeps = {
   extensionDistPath?: string;
 };
 
-/**
- * VS Code-specific subscriptions needed by the heartbeat.
- * Extracted so tests can stub them without touching the real vscode API.
- */
-export type HeartbeatVscodeDeps = {
-  windowState: { focused: boolean };
-  activeTextEditor: () => string | null;
-  onDidChangeFocus: (handler: () => void) => vscode.Disposable;
-  onDidChangeActiveTextEditor: (handler: () => void) => vscode.Disposable;
-  onDidChangeTextDocument: (handler: () => void) => vscode.Disposable;
-};
-
 // ---------------------------------------------------------------------------
 // Shared session state (scoped to the activation lifetime)
 // ---------------------------------------------------------------------------
-
-type ActiveSession = {
-  slogPath: string;
-  writer: SessionWriter;
-  metaWriter: MetaWriter;
-  sessionHost: ReturnType<typeof createSessionHost>;
-  /** Most recent checkpoint write chain. deactivate() awaits this so the final checkpoint isn't lost. */
-  getPendingCheckpoint: () => Promise<void>;
-};
 
 let activeSession: ActiveSession | null = null;
 
@@ -204,320 +157,41 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     manifest = manifestResult.value;
   }
 
-  // Step 2: Mount the status bar.
+  // Step 2: Mount the status bar. extension.ts owns the single global status bar;
+  // startSession() does not mount its own (its createStatusBar dep is left unset).
   if (deps.createStatusBar !== undefined) {
     deps.createStatusBar(disposables);
   } else {
     createRecordingStatusBar(disposables);
   }
 
-  // Step 3a: Determine .provenance/ dir early (needed by chain recovery + session writer).
-  const provenanceDir =
-    deps.provenanceDirOverride ?? path.join(workspaceFolder.uri.fsPath, '.provenance');
-  await fsPromises.mkdir(provenanceDir, { recursive: true });
-
-  // Step 3b: Chain recovery — inspect the provenanceDir for a previous session.
-  // PRD §4.8: on extension crash → set prev_session_id. On corrupt log → quarantine.
-  const recovery = await recoverPreviousSession({
-    provenanceDir,
-    readSlogFile: async (p) => {
-      try {
-        const text = await fsPromises.readFile(p, 'utf8');
-        return { ok: true, text };
-      } catch (e) {
-        const code = (e as NodeJS.ErrnoException).code;
-        return { ok: false, reason: code === 'ENOENT' ? 'not_found' : 'read_error' };
-      }
-    },
-    rename: fsPromises.rename,
-    listSlogFiles: async (dir) => {
-      try {
-        const entries = await fsPromises.readdir(dir);
-        return entries.filter((f) => f.endsWith('.slog'));
-      } catch {
-        return [];
-      }
-    },
-    now: () => new Date(),
-  });
-
-  // Determine prev_session_id from recovery result.
-  // Only set for dangling sessions (crashes) — not for cleanly ended sessions.
-  const prevSessionId: string | null =
-    recovery.kind === 'previous_session_dangling' ? recovery.prevSessionId : null;
-
-  // Step 3c: Generate the session keypair (Phase 9).
-  const keypair = await generateSessionKeypair();
-
-  // Step 3d: Build recorder context (generates sessionId, machineId, etc.).
-  const recorderContext = buildRecorderContext({
+  // Step 3: Delegate the per-assignment-root session lifecycle to startSession().
+  // For the single-root case, the assignment root IS the opened workspace folder,
+  // so this preserves today's behavior exactly.
+  const session = await startSession({
+    assignmentRoot: workspaceFolder.uri.fsPath,
     manifest,
-    prevSessionId,
     extension,
     vscodeVersion,
     platform,
-    sessionPubkeyHex: keypair.publicKeyHex,
-  });
-
-  // Step 4: Open a SessionWriter (.provenance/ dir already created in Step 3a).
-  const slogPath = path.join(provenanceDir, `session-${randomUUID()}.slog`);
-
-  // Phase 11: DiskFullHandler — intercepts write errors, switches to ring buffer on ENOSPC.
-  // Constructed before the writer so we can pass handleWriteError as the onError hook.
-  // onDegraded emits recorder.degraded through the sessionHost; that event re-enters
-  // enqueue() which accepts it (CRITICAL_KINDS) — no infinite loop.
-  // handleWriteError is idempotent, so the second call from that re-entry is a no-op.
-  //
-  // sessionHostEmit is a forward reference populated in Step 5 after sessionHost is created.
-  // It is guaranteed to be set before any write error can occur (the writer isn't used
-  // until session.start is emitted in Step 6).
-  let sessionHostEmit: ((kind: 'recorder.degraded', data: { reason: string }) => void) | null =
-    null;
-
-  const diskFullHandler = new DiskFullHandler({
-    onDegraded: (data) => {
-      // Emit through sessionHost — this will call the onEntry callback below, which
-      // will route back through diskFullHandler.enqueue(). The entry is critical and
-      // gets stored in the ring. The writer.append() call is skipped because degraded=true.
-      sessionHostEmit?.('recorder.degraded', { reason: data.reason });
-    },
-    notify: (msg) => {
-      void vscode.window.showErrorMessage(msg);
-    },
-  });
-
-  const writer = await SessionWriter.open({
-    slogPath,
     clock,
-    onError: (e) => diskFullHandler.handleWriteError(e),
-  });
-
-  // Step 4b: Encrypt the private key and create the MetaWriter.
-  // Encrypt under the manifest sig so it can't be recovered without the course manifest.
-  const encryptedPrivkey = await encryptSessionPrivkey(
-    keypair.privateKey,
-    manifest.sig,
-    recorderContext.session_id,
-  );
-  const metaPath = `${slogPath}.meta`;
-  const metaWriter = await MetaWriter.create({
-    metaPath,
-    sessionId: recorderContext.session_id,
-    sessionPubkeyHex: keypair.publicKeyHex,
-    encryptedPrivkey,
-  });
-
-  // Step 5: Create the session host.
-  // Hook checkpoints: every CHECKPOINT_INTERVAL entries, sign + write.
-  // Fire-and-forget on the append path; tracked via pendingCheckpoint so deactivate()
-  // can drain the last in-flight sign before closing the meta file.
-  const CHECKPOINT_INTERVAL = 100;
-  let entryCountSinceLastCheckpoint = 0;
-  let pendingCheckpoint: Promise<void> = Promise.resolve();
-
-  const sessionHost = createSessionHost({
-    sessionId: recorderContext.session_id,
-    clock,
-    onEntry: (entry: HashedEnvelope) => {
-      // Phase 11: route through disk-full handler.
-      // If degraded: critical entries go to the ring; non-critical are dropped.
-      // If not degraded: write to disk as normal.
-      if (diskFullHandler.degraded) {
-        diskFullHandler.enqueue(entry);
-        return;
-      }
-
-      writer.append(entry);
-      entryCountSinceLastCheckpoint++;
-      if (entryCountSinceLastCheckpoint >= CHECKPOINT_INTERVAL) {
-        entryCountSinceLastCheckpoint = 0;
-        // Chain onto pendingCheckpoint so deactivate() awaits the most recent one,
-        // and so concurrent checkpoint writes are serialized.
-        pendingCheckpoint = pendingCheckpoint
-          .then(() => signCheckpoint(entry.seq, entry.hash, keypair.privateKey))
-          .then((cp) => metaWriter.appendCheckpoint(cp))
-          .catch((e: unknown) => {
-            console.error('[provenance] checkpoint sign/write error:', e);
-          });
-      }
-    },
-  });
-
-  // Populate the forward reference for onDegraded so it can emit through sessionHost.
-  sessionHostEmit = (kind, data) => sessionHost.emit(kind, data);
-
-  // Step 6: Emit session.start.
-  sessionHost.emit('session.start', recorderContext);
-
-  // Step 6b: If we recovered from corruption, emit the recovery event now (after session.start).
-  if (recovery.kind === 'previous_session_corrupt') {
-    sessionHost.emit('recorder.recovered_from_corruption', {
-      quarantined_path: recovery.quarantinedPath,
-    });
-  }
-
-  // Step 7: Start heartbeat (PRD §4.2: session.heartbeat every 30s).
-  const hbDeps = deps.heartbeatDeps ?? defaultHeartbeatDeps();
-  const heartbeat = startHeartbeat({
-    ...hbDeps,
-    getNow: () => clock.now(),
-    emit: (data) => sessionHost.emit('session.heartbeat', data),
-  });
-  disposables.push(heartbeat);
-
-  // Step 8: Start clock-skew watcher (PRD §4.2: clock.skew on wall drift).
-  const clockWatcher = startClockWatcher({
-    getMonotonicMs: () => clock.now(),
-    getWallMs: () => Date.now(),
-    emit: (data) => sessionHost.emit('clock.skew', data),
-  });
-  disposables.push(clockWatcher);
-
-  // Step 9: Start paste intercept command (PRD §4.3 signal 2).
-  const pasteIntercept = startPasteIntercept({
-    registerCommand: (id, handler) => vscode.commands.registerCommand(id, handler),
-    executeCommand: (id, ...args) => vscode.commands.executeCommand(id, ...args),
-    getNow: () => clock.now(),
-  });
-  disposables.push(pasteIntercept.disposable);
-
-  // Step 10: Large-insert counter shared between doc-wiring and the reconciler.
-  let _largeInsertCount = 0;
-  const largeInsertCounter: LargeInsertCounter = {
-    increment() {
-      _largeInsertCount++;
-    },
-    count() {
-      return _largeInsertCount;
-    },
-  };
-
-  // Step 11: Start doc-event wiring (PRD §4.2 + §4.3 paste detection + Phase 7).
-  const expectedContentRegistry = new ExpectedContentRegistry(manifest.files_under_review);
-
-  // Phase 7: ExplanationTagger for formatter/git explanation of external changes.
-  // Phase 8 will hook markFormatter()/markGit() calls into terminal/git events.
-  const explanationTagger = new ExplanationTagger({ getNow: () => clock.now() });
-
-  // Production readFile: resolve relative path against workspace root + read UTF-8.
-  const workspaceRoot = workspaceFolder.uri.fsPath;
-  const prodReadFile = (relativePath: string): Promise<string> =>
-    fsPromises.readFile(path.join(workspaceRoot, relativePath), 'utf8');
-  // Sync read for the reload-from-disk discriminator (doc-wiring.ts). Only invoked on the
-  // first content change after a buffer goes clean, never on the keystroke firehose.
-  const prodReadFileSync = (relativePath: string): string =>
-    readFileSync(path.join(workspaceRoot, relativePath), 'utf8');
-
-  const docWiring = startDocWiring({
-    workspace: { asRelativePath: vscode.workspace.asRelativePath.bind(vscode.workspace) },
-    emitDocOpen: (data) => sessionHost.emit('doc.open', data),
-    emitDocChange: (data) => sessionHost.emit('doc.change', data),
-    emitDocSave: (data) => sessionHost.emit('doc.save', data),
-    emitDocClose: (data) => sessionHost.emit('doc.close', data),
-    emitPaste: (data) => sessionHost.emit('paste', data),
-    emitSelectionChange: (data) => sessionHost.emit('selection.change', data),
-    emitFocusChange: (data) => sessionHost.emit('focus.change', data),
-    emitFsExternalChange: (data) => sessionHost.emit('fs.external_change', data),
-    filesUnderReview: manifest.files_under_review,
-    provenanceDir,
-    expectedContent: expectedContentRegistry,
-    pasteIntercept,
-    largeInsertCounter,
-    getNow: () => clock.now(),
-    readFile: prodReadFile,
-    readFileSync: prodReadFileSync,
-    explanationTagger,
-  });
-  disposables.push(docWiring);
-
-  // Step 11b: Start FileSystemWatcher for external changes (PRD §4.5 — "file edited
-  // while VS Code unfocused" path). Must come after docWiring so getLastDocChangeAt works.
-  const fsWatcher = startFsWatcher({
-    workspaceFolder,
-    filesUnderReview: manifest.files_under_review,
-    registry: expectedContentRegistry,
-    emit: (data) => sessionHost.emit('fs.external_change', data),
-    getLastDocChangeAt: (p) => docWiring.getLastDocChangeAt(p),
-    getNow: () => clock.now(),
-    readFile: prodReadFile,
-    explanationTagger,
-  });
-  disposables.push(fsWatcher);
-
-  // Step 12: Start paste reconciler (PRD §4.3 signal 3).
-  const reconciler = startPasteReconciler({
-    emit: (data) => sessionHost.emit('paste.anomaly', data),
-    getInterceptedCount: () => pasteIntercept.interceptCount,
-    getLargeInsertCount: () => largeInsertCounter.count(),
-  });
-  disposables.push(reconciler);
-
-  // Step 13: Terminal wiring (PRD §4.2 + §4.4).
-  // The onDidStartTerminalShellExecution / onDidEndTerminalShellExecution APIs are
-  // VS Code 1.93+ additions. We cast window to check for their presence at runtime,
-  // and only pass them if they exist. exactOptionalPropertyTypes requires we not pass
-  // `undefined` for optional properties — so we build the object conditionally.
-  type VscodeWindowExt = typeof vscode.window & {
-    onDidStartTerminalShellExecution?: (
-      h: (e: import('vscode').TerminalShellExecutionStartEvent) => void,
-    ) => import('vscode').Disposable;
-    onDidEndTerminalShellExecution?: (
-      h: (e: import('vscode').TerminalShellExecutionEndEvent) => void,
-    ) => import('vscode').Disposable;
-  };
-  const windowExt = vscode.window as VscodeWindowExt;
-  const terminalWiringDeps = {
-    emitTerminalOpen: (d: { terminal_id: string; shell: string; shell_integration: boolean }) =>
-      sessionHost.emit('terminal.open', d),
-    emitTerminalCommand: (d: { terminal_id: string; command: string; exit_code?: number }) =>
-      sessionHost.emit('terminal.command', d),
-    onDidOpenTerminal: (h: (t: import('vscode').Terminal) => void) =>
-      vscode.window.onDidOpenTerminal(h),
-    onDidCloseTerminal: (h: (t: import('vscode').Terminal) => void) =>
-      vscode.window.onDidCloseTerminal(h),
-    ...(windowExt.onDidStartTerminalShellExecution !== undefined
-      ? {
-          onDidStartTerminalShellExecution: (
-            h: (e: import('vscode').TerminalShellExecutionStartEvent) => void,
-          ) => windowExt.onDidStartTerminalShellExecution!(h),
-        }
+    ...(deps.provenanceDirOverride !== undefined
+      ? { provenanceDirOverride: deps.provenanceDirOverride }
       : {}),
-    ...(windowExt.onDidEndTerminalShellExecution !== undefined
-      ? {
-          onDidEndTerminalShellExecution: (
-            h: (e: import('vscode').TerminalShellExecutionEndEvent) => void,
-          ) => windowExt.onDidEndTerminalShellExecution!(h),
-        }
-      : {}),
-  };
-  const terminalWiring = startTerminalWiring(terminalWiringDeps);
-  disposables.push(terminalWiring);
-
-  // Step 14: Extension snapshot (PRD §4.2 — ext.snapshot every 5 min + at start).
-  const snap = startExtensionSnapshot({
-    emit: (d) => sessionHost.emit('ext.snapshot', d),
-    getExtensions: () => vscode.extensions.all,
+    ...(deps.heartbeatDeps !== undefined ? { heartbeatDeps: deps.heartbeatDeps } : {}),
+    ...(deps.extensionDistPath !== undefined ? { extensionDistPath: deps.extensionDistPath } : {}),
   });
-  disposables.push(snap);
 
-  // Step 15: Extension activation poller (PRD §4.2 — ext.activate).
-  const extAct = startExtensionActivation({
-    emit: (d) => sessionHost.emit('ext.activate', d),
-    getExtensions: () => vscode.extensions.all,
-  });
-  disposables.push(extAct);
+  // Hand this session's subscriptions to VS Code's context.subscriptions so they are
+  // disposed in LIFO order BEFORE deactivate() runs — matching the historical teardown
+  // ordering. Emptying ownDisposables afterward prevents session.dispose() from
+  // double-disposing them.
+  disposables.push(...session.ownDisposables);
+  session.ownDisposables.length = 0;
 
-  // Step 16: Git wiring (PRD §4.2 — git.event; also feeds explanationTagger for §4.5).
-  const gitW = startGitWiring({
-    emit: (d) => sessionHost.emit('git.event', d),
-    getGitExtension: () => vscode.extensions.getExtension('vscode.git'),
-    explanationTagger,
-  });
-  disposables.push(gitW);
-
-  // Step 17: Register the "Prepare Submission Bundle" command (PRD §4.6 + §5.3).
-  // The extensionDistPath for extension-hash is derived from context.extensionPath in production;
-  // tests inject an override via deps.extensionDistPath.
+  // Step 4: Register the "Prepare Submission Bundle" command (PRD §4.6 + §5.3).
+  // The extensionDistPath for extension-hash is derived from context.extensionPath in
+  // production; tests inject an override via deps.extensionDistPath.
   const extensionDistPath = deps.extensionDistPath ?? path.join(extension.extensionPath, 'dist');
 
   const sealCmd = vscode.commands.registerCommand(
@@ -528,12 +202,12 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
 
       const result = await sealBundle({
         workspaceFolder,
-        provenanceDir,
-        assignmentId: manifest.assignment_id,
-        semester: manifest.semester,
-        filesUnderReview: manifest.files_under_review,
-        sessionPrivkey: keypair.privateKey,
-        sessionPubkeyHex: keypair.publicKeyHex,
+        provenanceDir: session.provenanceDir,
+        assignmentId: session.manifest.assignment_id,
+        semester: session.manifest.semester,
+        filesUnderReview: session.manifest.files_under_review,
+        sessionPrivkey: session.sessionKeypair.privateKey,
+        sessionPubkeyHex: session.sessionKeypair.publicKeyHex,
         computeExtensionHash: () => computeExtensionHash(extensionDistPath),
         now: () => new Date(),
       });
@@ -556,38 +230,8 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
   );
   disposables.push(sealCmd);
 
-  // VS Code disposes context.subscriptions in LIFO order. We pushed the status bar disposable
-  // (Step 2), then heartbeat (Step 7), then clock watcher (Step 8), then doc wiring (Step 9).
-  // On teardown: doc wiring disposes first, then clock watcher, heartbeat, status bar.
-  // After all subscriptions are disposed, deactivate() runs and is awaited,
-  // ensuring session.end is emitted and the writer flushes.
-
-  // Store the active session so deactivate() can access it.
-  activeSession = {
-    slogPath,
-    writer,
-    metaWriter,
-    sessionHost,
-    getPendingCheckpoint: () => pendingCheckpoint,
-  };
-  return activeSession;
-}
-
-// ---------------------------------------------------------------------------
-// Production heartbeat deps
-// ---------------------------------------------------------------------------
-
-function defaultHeartbeatDeps(): HeartbeatVscodeDeps {
-  return {
-    windowState: vscode.window.state,
-    activeTextEditor: () => {
-      const editor = vscode.window.activeTextEditor;
-      return editor ? vscode.workspace.asRelativePath(editor.document.uri) : null;
-    },
-    onDidChangeFocus: (h) => vscode.window.onDidChangeWindowState(h),
-    onDidChangeActiveTextEditor: (h) => vscode.window.onDidChangeActiveTextEditor(h),
-    onDidChangeTextDocument: (h) => vscode.workspace.onDidChangeTextDocument(h),
-  };
+  activeSession = session;
+  return session;
 }
 
 // ---------------------------------------------------------------------------
@@ -655,42 +299,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export async function deactivate(): Promise<void> {
   // VS Code awaits a Thenable<void> returned from deactivate().
-  // This guarantees the writer's pending entries are flushed before shutdown.
+  // session.dispose() emits session.end, flushes the writer, drains the pending
+  // checkpoint, and disposes the metaWriter (its ownDisposables were already handed
+  // to context.subscriptions in activateImpl and disposed by VS Code before now).
   if (activeSession === null) {
     return;
   }
-
   const session = activeSession;
   activeSession = null;
-
-  // Emit session.end event.
-  try {
-    session.sessionHost.emit('session.end', { reason: 'deactivate' });
-  } catch {
-    // Ignore — best effort.
-  }
-
-  // Flush pending entries and close the file handle. Await this to ensure
-  // the writer is fully disposed before VS Code shuts down.
-  try {
-    await session.writer.dispose();
-  } catch {
-    // Ignore — best effort.
-  }
-
-  // Drain any in-flight checkpoint sign+write before closing the meta file.
-  // Without this, a checkpoint that was kicked off in the last 100 entries can
-  // race and never land in the .meta file.
-  try {
-    await session.getPendingCheckpoint();
-  } catch {
-    // Ignore — best effort.
-  }
-
-  // Dispose the meta writer (no-op today; here for symmetry and future proofing).
-  try {
-    await session.metaWriter.dispose();
-  } catch {
-    // Ignore — best effort.
-  }
+  await session.dispose();
 }

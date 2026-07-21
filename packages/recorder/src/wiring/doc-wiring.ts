@@ -97,6 +97,12 @@ export type DocWiringDeps = {
   readFileSync: (relativePath: string) => string;
   /** Optional explanation tagger (Phase 8 will hook formatters/git into it). */
   explanationTagger?: ExplanationTagger;
+  /**
+   * Ownership filter: returns true if the given absolute fsPath belongs to THIS
+   * session's assignment root. Accepted but currently ignored — a later task
+   * wires the filtering behavior; today doc-wiring records regardless.
+   */
+  isOwnedByThisRoot?: (fsPath: string) => boolean;
 };
 
 // ---------------------------------------------------------------------------

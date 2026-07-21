@@ -56,6 +56,12 @@ export type GitWiringDeps = {
   getGitExtension: () => vscode.Extension<unknown> | undefined;
   /** If present, markGit() is called after each emitted git.event. */
   explanationTagger?: ExplanationTagger;
+  /**
+   * Ownership filter: returns true if the given absolute fsPath belongs to THIS
+   * session's assignment root. Accepted but currently ignored — a later task
+   * wires the filtering behavior.
+   */
+  isOwnedByThisRoot?: (fsPath: string) => boolean;
 };
 
 // ---------------------------------------------------------------------------

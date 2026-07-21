@@ -37,6 +37,12 @@ export type TerminalWiringDeps = {
   onDidEndTerminalShellExecution?: (
     h: (e: vscode.TerminalShellExecutionEndEvent) => void,
   ) => vscode.Disposable;
+  /**
+   * Ownership filter: returns true if the given absolute fsPath belongs to THIS
+   * session's assignment root. Accepted but currently ignored — a later task
+   * wires the filtering behavior.
+   */
+  isOwnedByThisRoot?: (fsPath: string) => boolean;
 };
 
 // ---------------------------------------------------------------------------
