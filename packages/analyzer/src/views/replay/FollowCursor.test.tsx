@@ -94,4 +94,72 @@ describe('FollowCursor', () => {
     render(<FollowCursor editor={ed} selection={null} content="x" />);
     expect(ed.revealPositionInCenterIfOutsideViewport).not.toHaveBeenCalled();
   });
+
+  it('reveals the external change instead of the caret while one holds the viewport', () => {
+    const ed = fakeEditor();
+    render(
+      <FollowCursor
+        editor={ed}
+        selection={cursorAt(9, 2)}
+        externalChange={{ lineNumber: 300, column: 1 }}
+        content="x"
+      />,
+    );
+    expect(ed.revealPositionInCenterIfOutsideViewport.mock.calls[0]![0]).toEqual({
+      lineNumber: 300,
+      column: 1,
+    });
+  });
+
+  it('returns to the caret when the external change stops holding the viewport', () => {
+    // The jump-and-return: the reveal is driven by whichever target is active,
+    // so dropping back to the caret is itself a target change and re-reveals.
+    const ed = fakeEditor();
+    const selection = cursorAt(9, 2);
+    const { rerender } = render(
+      <FollowCursor
+        editor={ed}
+        selection={selection}
+        externalChange={{ lineNumber: 300, column: 1 }}
+        content="x"
+      />,
+    );
+    rerender(<FollowCursor editor={ed} selection={selection} externalChange={null} content="x" />);
+
+    expect(ed.revealPositionInCenterIfOutsideViewport).toHaveBeenCalledTimes(2);
+    expect(ed.revealPositionInCenterIfOutsideViewport.mock.calls[1]![0]).toEqual({
+      lineNumber: 10,
+      column: 3,
+    });
+  });
+
+  it('reveals the external change even when there is no caret yet', () => {
+    // An external write can land before the student has moved the cursor in
+    // this file — there is still something worth looking at.
+    const ed = fakeEditor();
+    render(
+      <FollowCursor
+        editor={ed}
+        selection={null}
+        externalChange={{ lineNumber: 12, column: 4 }}
+        content="x"
+      />,
+    );
+    expect(ed.revealPositionInCenterIfOutsideViewport).toHaveBeenCalledTimes(1);
+    expect(ed.revealPositionInCenterIfOutsideViewport.mock.calls[0]![0]).toEqual({
+      lineNumber: 12,
+      column: 4,
+    });
+  });
+
+  it('does not re-reveal when the caret lands on the same coordinates', () => {
+    // A fresh selection object each render must not fight a reviewer who has
+    // scrolled away while paused.
+    const ed = fakeEditor();
+    const { rerender } = render(
+      <FollowCursor editor={ed} selection={cursorAt(9, 2)} content="x" />,
+    );
+    rerender(<FollowCursor editor={ed} selection={cursorAt(9, 2)} content="x" />);
+    expect(ed.revealPositionInCenterIfOutsideViewport).toHaveBeenCalledTimes(1);
+  });
 });

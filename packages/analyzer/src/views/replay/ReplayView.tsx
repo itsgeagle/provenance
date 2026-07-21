@@ -55,6 +55,7 @@ import { currentFocusAwaySpan, currentEditedFile } from './focus-and-follow.js';
 import { CursorMarker } from './CursorMarker.js';
 import { FollowCursor } from './FollowCursor.js';
 import { currentSelection } from './cursor-position.js';
+import { currentExternalChange, externalChangePosition } from './external-change-focus.js';
 import {
   findNextPaste,
   findNextExternalChange,
@@ -255,6 +256,18 @@ export function ReplayInner({
   const cursorSelection = useMemo(
     () => currentSelection(bundleEvents, state.currentGlobalIdx, resolvedFile),
     [bundleEvents, state.currentGlobalIdx, resolvedFile],
+  );
+
+  // An fs.external_change holding the viewport, and where to look for it. Null
+  // whenever no external change is in force or the bundle never recorded the
+  // post-change bytes — either way the viewport just follows the caret.
+  const heldByExternalChange = useMemo(
+    () => currentExternalChange(bundleEvents, state.currentGlobalIdx, resolvedFile),
+    [bundleEvents, state.currentGlobalIdx, resolvedFile],
+  );
+  const externalChangeFocus = useMemo(
+    () => externalChangePosition(activeFileState, heldByExternalChange),
+    [activeFileState, heldByExternalChange],
   );
 
   // ---------------------------------------------------------------------------
@@ -492,7 +505,12 @@ export function ReplayInner({
               {/* Student cursor / selection marker at the playhead. */}
               <CursorMarker editor={monacoEditor} selection={cursorSelection} />
               {/* Scroll the editor to keep that marker in view as replay plays. */}
-              <FollowCursor editor={monacoEditor} selection={cursorSelection} content={content} />
+              <FollowCursor
+                editor={monacoEditor}
+                selection={cursorSelection}
+                externalChange={externalChangeFocus}
+                content={content}
+              />
               <LineHoverProvider
                 editor={monacoEditor}
                 monaco={monacoInstance}
