@@ -23,12 +23,12 @@
 
 ## Plan-level decisions (spec left these open; locked here)
 
-1. **`loadAndVerifyManifest`'s parameter type is widened, not replaced.** Its first parameter changes from `vscode.WorkspaceFolder` to the minimal structural type `{ uri: { fsPath: string } }`. A `WorkspaceFolder` already satisfies this shape, so every existing call site keeps compiling unchanged (TypeScript structural typing — this is a type *widening*, not a breaking change). Discovery then calls it with `{ uri: { fsPath: candidateDir } }` for any nested directory.
+1. **`loadAndVerifyManifest`'s parameter type is widened, not replaced.** Its first parameter changes from `vscode.WorkspaceFolder` to the minimal structural type `{ uri: { fsPath: string } }`. A `WorkspaceFolder` already satisfies this shape, so every existing call site keeps compiling unchanged (TypeScript structural typing — this is a type _widening_, not a breaking change). Discovery then calls it with `{ uri: { fsPath: candidateDir } }` for any nested directory.
 2. **Ownership routing is pure and centralized in one new module** (`session/session-router.ts`), exporting `resolveOwnerRoot(filePath: string, assignmentRoots: readonly string[]): string | null`. This is unit-tested in total isolation from VS Code. Every wiring module (doc, fs-watcher via its base path, terminal, git) is handed a per-session `isOwnedByThisRoot(path: string): boolean` predicate that the caller (session-registry / extension.ts) builds by calling `resolveOwnerRoot(path, allRoots) === thisSessionsRoot`.
 3. **Uniform "N instances, each self-filters" architecture across doc/terminal/git wiring**, matching the spec's existing "each `ActiveSession` bundles ... its own fs-watchers" design (spec §2). Concretely: `startDocWiring`, `startFsWatcher`, `startTerminalWiring`, and `startGitWiring` are each still instantiated **once per session** (as today, for one session), but each now takes an `isOwnedByThisRoot` predicate and drops events that fail it. VS Code delivers the same underlying event (e.g. `onDidOpenTerminal`) to every registered listener regardless of how many extensions/instances subscribed, so N per-session instances subscribing to the same global VS Code event and self-filtering is correct and requires no new central dispatcher. This keeps every wiring module's existing shape and public API almost unchanged (additive parameter only), which is the smallest possible diff. The alternative (one shared listener + central dispatch table) would be a larger, riskier rewrite of already-tested modules for no behavioral benefit at the session counts this feature targets (a handful of concurrently open assignments, not thousands).
-4. **Assignment-relative paths, not `vscode.workspace.asRelativePath`.** Today, `workspaceFolder` and "assignment root" are always the same directory, so `vscode.workspace.asRelativePath(uri)` (which resolves relative to whichever *opened* workspace folder contains the file) happens to already produce assignment-root-relative paths. Once a workspace folder can contain **multiple** nested assignment roots, `asRelativePath` would return paths relative to the outer opened folder (e.g. `cats/hw.py`), not the assignment root (`hw.py`) that `files_under_review` entries, `.slog` path fields, and the analyzer's bundle contract all assume. This plan introduces a small pure helper, `makeAssignmentRelativePath(assignmentRoot: string): (fsPath: string) => string`, computed via `node:path.relative`, and threads it through the existing `WorkspaceLike` seam (`doc-events.ts`'s `{ asRelativePath }` interface is unchanged in shape — only the *production implementation* passed to it changes, per session). This preserves the log format's existing path semantics unchanged for the regression case (workspace folder == assignment root ⇒ `path.relative(root, fsPath)` and `vscode.workspace.asRelativePath` agree) while making the nested case correct.
+4. **Assignment-relative paths, not `vscode.workspace.asRelativePath`.** Today, `workspaceFolder` and "assignment root" are always the same directory, so `vscode.workspace.asRelativePath(uri)` (which resolves relative to whichever _opened_ workspace folder contains the file) happens to already produce assignment-root-relative paths. Once a workspace folder can contain **multiple** nested assignment roots, `asRelativePath` would return paths relative to the outer opened folder (e.g. `cats/hw.py`), not the assignment root (`hw.py`) that `files_under_review` entries, `.slog` path fields, and the analyzer's bundle contract all assume. This plan introduces a small pure helper, `makeAssignmentRelativePath(assignmentRoot: string): (fsPath: string) => string`, computed via `node:path.relative`, and threads it through the existing `WorkspaceLike` seam (`doc-events.ts`'s `{ asRelativePath }` interface is unchanged in shape — only the _production implementation_ passed to it changes, per session). This preserves the log format's existing path semantics unchanged for the regression case (workspace folder == assignment root ⇒ `path.relative(root, fsPath)` and `vscode.workspace.asRelativePath` agree) while making the nested case correct.
 5. **Status bar stays global, not per-session.** The spec does not ask for per-assignment status bar UI, and multiplying it is pure scope creep. One status bar item is still mounted once per extension activation (as today); it is not touched by this plan beyond continuing to be created once regardless of session count.
-6. **`sealBundle`'s `workspaceFolder: vscode.WorkspaceFolder` parameter is renamed to `assignmentRoot: string`.** The function only ever reads `.uri.fsPath` off it (for resolving `filesUnderReview` and as the default output directory) — never anything else on the `WorkspaceFolder` shape. Renaming to a plain string is a mechanical, compatible simplification and correctly scopes sealing to the *assignment* root (which, in the nested case, is a subdirectory of the opened workspace folder) rather than the outer opened folder.
+6. **`sealBundle`'s `workspaceFolder: vscode.WorkspaceFolder` parameter is renamed to `assignmentRoot: string`.** The function only ever reads `.uri.fsPath` off it (for resolving `filesUnderReview` and as the default output directory) — never anything else on the `WorkspaceFolder` shape. Renaming to a plain string is a mechanical, compatible simplification and correctly scopes sealing to the _assignment_ root (which, in the nested case, is a subdirectory of the opened workspace folder) rather than the outer opened folder.
 7. **Workspace-folder-change reactivity is scoped narrowly.** The spec's Design §1 mentions re-scanning on `workspace.onDidChangeWorkspaceFolders` and starting/stopping sessions "best-effort." The six numbered acceptance-criteria groups do not test this path directly. This plan implements: on a workspace-folder-added event, re-run discovery and start sessions for any newly-discovered, previously-unknown roots; on a workspace-folder-removed event, dispose any `ActiveSession` whose `assignmentRoot` is no longer contained by any currently-open workspace folder. Both are folded into Task 6 (the registry/wiring task) rather than a separate task, since they reuse Task 6's own `SessionRegistry` methods directly.
 
 ---
@@ -66,11 +66,13 @@
 ## Task 1: Widen `loadAndVerifyManifest` + add `discoverManifests()`
 
 **Files:**
+
 - Modify: `packages/recorder/src/activation/manifest-loader.ts:48-51` (signature only)
 - Create: `packages/recorder/src/activation/manifest-discovery.ts`
 - Test: `packages/recorder/src/activation/manifest-discovery.test.ts`
 
 **Interfaces:**
+
 - Consumes: `loadAndVerifyManifest` (widened), `MANIFEST_FILE_NAMES`, `ActivationError`, `Manifest`, `Result` from `@provenance/log-core`.
 - Produces:
   - `export type DiscoveredManifest = { root: string; manifest: Manifest }`
@@ -130,7 +132,12 @@ async function generateTestKeypair(): Promise<{ pubkeyHex: string; privkeyHex: s
 
 async function writeSignedManifest(
   dir: string,
-  fields: { assignment_id: string; semester: string; issued_at: string; files_under_review: string[] },
+  fields: {
+    assignment_id: string;
+    semester: string;
+    issued_at: string;
+    files_under_review: string[];
+  },
   privkeyHex: string,
 ): Promise<void> {
   const payload = canonicalize(fields);
@@ -162,13 +169,23 @@ describe('discoverManifests', () => {
     const hogDir = path.join(tmpDir, 'hog');
     await writeSignedManifest(
       catsDir,
-      { assignment_id: 'cats', semester: 'fa26', issued_at: '2026-01-01T00:00:00Z', files_under_review: ['hw.py'] },
+      {
+        assignment_id: 'cats',
+        semester: 'fa26',
+        issued_at: '2026-01-01T00:00:00Z',
+        files_under_review: ['hw.py'],
+      },
       privkeyHex,
     );
     await writeSignedManifest(
       hogDir,
       // signed with a DIFFERENT key than pubkeyHex below — verification must fail for this one
-      { assignment_id: 'hog', semester: 'fa26', issued_at: '2026-01-01T00:00:00Z', files_under_review: ['hw.py'] },
+      {
+        assignment_id: 'hog',
+        semester: 'fa26',
+        issued_at: '2026-01-01T00:00:00Z',
+        files_under_review: ['hw.py'],
+      },
       wrongPrivkey,
     );
 
@@ -199,7 +216,12 @@ describe('discoverManifests', () => {
     const { pubkeyHex, privkeyHex } = await generateTestKeypair();
     await writeSignedManifest(
       tmpDir,
-      { assignment_id: 'hw03', semester: 'fa26', issued_at: '2026-01-01T00:00:00Z', files_under_review: ['hw.py'] },
+      {
+        assignment_id: 'hw03',
+        semester: 'fa26',
+        issued_at: '2026-01-01T00:00:00Z',
+        files_under_review: ['hw.py'],
+      },
       privkeyHex,
     );
     const result = await discoverManifests({
@@ -340,10 +362,12 @@ git commit --no-gpg-sign -m "feat(recorder): discover nested .provenance-manifes
 ## Task 2: Pure nearest-ancestor ownership resolver
 
 **Files:**
+
 - Create: `packages/recorder/src/session/session-router.ts`
 - Test: `packages/recorder/src/session/session-router.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing (pure, `node:path` only).
 - Produces: `export function resolveOwnerRoot(filePath: string, assignmentRoots: readonly string[]): string | null` — used by Tasks 4-8 to build each session's `isOwnedByThisRoot` predicate.
 
@@ -436,7 +460,8 @@ export function resolveOwnerRoot(
 
   for (const root of assignmentRoots) {
     const rel = path.relative(root, filePath);
-    const isInside = rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
+    const isInside =
+      rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
     if (!isInside) continue;
 
     if (best === null || root.length > best.length) {
@@ -470,10 +495,12 @@ git commit --no-gpg-sign -m "feat(recorder): add nearest-ancestor session owners
 ## Task 3: Assignment-relative path helper
 
 **Files:**
+
 - Create: `packages/recorder/src/session/assignment-relative-path.ts`
 - Test: `packages/recorder/src/session/assignment-relative-path.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing (pure, `node:path` only).
 - Produces: `export function makeAssignmentRelativePath(assignmentRoot: string): (fsPath: string) => string` — returns a function matching the shape doc-events.ts's `WorkspaceLike['asRelativePath']` needs (modulo the `vscode.Uri` vs plain string argument, reconciled in Task 4).
 
@@ -538,12 +565,11 @@ Create `packages/recorder/src/session/assignment-relative-path.ts`:
 
 import * as path from 'node:path';
 
-export function makeAssignmentRelativePath(
-  assignmentRoot: string,
-): (fsPath: string) => string {
+export function makeAssignmentRelativePath(assignmentRoot: string): (fsPath: string) => string {
   return (fsPath: string): string => {
     const rel = path.relative(assignmentRoot, fsPath);
-    const isInside = rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
+    const isInside =
+      rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
     return isInside ? rel : fsPath;
   };
 }
@@ -573,14 +599,17 @@ git commit --no-gpg-sign -m "feat(recorder): add assignment-root-relative path h
 This is the highest-risk task: the ~400-line body of `activateImpl` (currently `packages/recorder/src/extension.ts:179-574`) must move into a standalone, reusable function parameterized on an assignment root, **without changing observable behavior for the existing single-root case**. Get this exactly right before Task 5 adds multi-session orchestration on top — that separation is deliberate so a reviewer can verify "pure refactor, no behavior change" before "new behavior" is layered on.
 
 **Files:**
+
 - Create: `packages/recorder/src/session/session-registry.ts` (add `ActiveSession` type + `startSession()` only in this task — the `SessionRegistry` class itself is Task 5)
 - Modify: `packages/recorder/src/extension.ts` (delete the extracted body; `activateImpl` becomes a thin wrapper: verify manifest for the single workspace folder as before, call `startSession()`, keep `activeSession`/`deactivate()` exactly as they are today)
 - Test: `packages/recorder/src/session/session-registry.test.ts` (new — the moved logic's happy-path + chain-recovery + disk-full-degraded coverage, adapted from what `activation.integration.test.ts` exercises today)
 - Do NOT modify `packages/recorder/src/activation/activation.integration.test.ts` in this task — it must keep passing unmodified against the still-present `activateImpl`/`activate()`/`deactivate()` exports, proving the extraction is behavior-preserving. (Task 5 will update it for multi-session discovery.)
 
 **Interfaces:**
+
 - Consumes: everything `activateImpl` already consumes today (see `packages/recorder/src/extension.ts:1-49` imports) — no new imports beyond `path` (already imported) and the modules already used inside `activateImpl`.
 - Produces:
+
   ```ts
   export type ActiveSession = {
     assignmentRoot: string;
@@ -614,6 +643,7 @@ This is the highest-risk task: the ~400-line body of `activateImpl` (currently `
 
   export async function startSession(deps: StartSessionDeps): Promise<ActiveSession>;
   ```
+
   Task 5 consumes `ActiveSession` and `startSession` directly; Tasks 6-8 consume the `isOwnedByThisRoot` deps field.
 
 - [ ] **Step 1: Write the failing test for the extracted function**
@@ -644,9 +674,12 @@ function makeExtension(): import('vscode').Extension<unknown> {
   };
 }
 
-async function signedManifest(
-  fields: { assignment_id: string; semester: string; issued_at: string; files_under_review: string[] },
-): Promise<Manifest> {
+async function signedManifest(fields: {
+  assignment_id: string;
+  semester: string;
+  issued_at: string;
+  files_under_review: string[];
+}): Promise<Manifest> {
   const secretKey = ed.utils.randomSecretKey();
   const payload = canonicalize(fields);
   const sig = await ed.signAsync(new TextEncoder().encode(payload), secretKey);
@@ -1333,14 +1366,17 @@ git commit --no-gpg-sign -m "refactor(recorder): extract per-assignment-root ses
 ## Task 5: `SessionRegistry` + multi-session discovery wiring in `extension.ts`
 
 **Files:**
+
 - Modify: `packages/recorder/src/session/session-registry.ts` (add `SessionRegistry` class)
 - Modify: `packages/recorder/src/extension.ts` (rewrite `activate()` to discover N manifests and start N sessions via `SessionRegistry`; `deactivate()` disposes all)
 - Test: `packages/recorder/src/session/session-registry.test.ts` (append `SessionRegistry` cases)
 - Modify: `packages/recorder/src/activation/activation.integration.test.ts` (add multi-session discovery cases; this is where acceptance criteria #1 and #6 get their end-to-end coverage)
 
 **Interfaces:**
+
 - Consumes: `startSession`, `ActiveSession` (Task 4); `discoverManifests` (Task 1); `resolveOwnerRoot` (Task 2).
 - Produces:
+
   ```ts
   export class SessionRegistry {
     constructor();
@@ -1568,7 +1604,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         clock: new SystemClock(),
         extensionDistPath,
         isOwnedByThisRoot: (fsPath: string) =>
-          resolveOwnerRoot(fsPath, found.map((f) => f.root)) === root,
+          resolveOwnerRoot(
+            fsPath,
+            found.map((f) => f.root),
+          ) === root,
       });
       context.subscriptions.push(...session.ownDisposables);
       session.ownDisposables.length = 0;
@@ -1821,10 +1860,12 @@ git commit --no-gpg-sign -m "feat(recorder): wire multi-session discovery throug
 ## Task 6: Doc-wiring ownership filter + assignment-relative paths
 
 **Files:**
+
 - Modify: `packages/recorder/src/wiring/doc-wiring.ts`
 - Test: `packages/recorder/src/wiring/doc-wiring.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isOwnedByThisRoot?: (fsPath: string) => boolean` field already added to `DocWiringDeps` as a compile-time stub in Task 4.
 - Produces: `isRecordable()` now additionally requires ownership; unowned files never reach any emit callback.
 
@@ -1892,20 +1933,20 @@ In `packages/recorder/src/wiring/doc-wiring.ts`, add to `DocWiringDeps` (this fi
 Destructure it in `startDocWiring` (near the other destructured deps, line ~123-141):
 
 ```ts
-  const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
+const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
 ```
 
 Modify `isRecordable` (lines 205-211) to additionally check ownership:
 
 ```ts
-  function isRecordable(uri: { fsPath: string; scheme: string }): boolean {
-    if (uri.scheme !== 'file') return false;
-    const rel = workspace.asRelativePath(uri as import('vscode').Uri);
-    if (rel === uri.fsPath) return false;
-    if (isProvenanceArtifact(uri.fsPath, rel)) return false;
-    if (!isOwnedByThisRoot(uri.fsPath)) return false;
-    return true;
-  }
+function isRecordable(uri: { fsPath: string; scheme: string }): boolean {
+  if (uri.scheme !== 'file') return false;
+  const rel = workspace.asRelativePath(uri as import('vscode').Uri);
+  if (rel === uri.fsPath) return false;
+  if (isProvenanceArtifact(uri.fsPath, rel)) return false;
+  if (!isOwnedByThisRoot(uri.fsPath)) return false;
+  return true;
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1930,10 +1971,12 @@ git commit --no-gpg-sign -m "feat(recorder): gate doc-wiring events on assignmen
 ## Task 7: fs-watcher — assignmentRoot base path (mechanical — `haiku` OK)
 
 **Files:**
+
 - Modify: `packages/recorder/src/wiring/fs-watcher.ts`
 - Test: `packages/recorder/src/wiring/fs-watcher.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `FsWatcherDeps.workspaceFolder: vscode.WorkspaceFolder` → `FsWatcherDeps.assignmentRoot: string`; the caller (`session-registry.ts`, Task 4) currently passes a cast `{ uri: { fsPath: assignmentRoot } } as vscode.WorkspaceFolder` — this task removes that cast.
 
@@ -1967,7 +2010,7 @@ export type FsWatcherDeps = {
 Update destructuring (line 72-81) to use `assignmentRoot` instead of `workspaceFolder`, and change the `RelativePattern` construction (line 87):
 
 ```ts
-    const pattern = new vscode.RelativePattern(assignmentRoot, relativePath);
+const pattern = new vscode.RelativePattern(assignmentRoot, relativePath);
 ```
 
 (`vscode.RelativePattern`'s constructor accepts `base: WorkspaceFolder | Uri | string`, so a plain string root works unchanged.)
@@ -2008,10 +2051,12 @@ git commit --no-gpg-sign -m "refactor(recorder): scope fs-watcher RelativePatter
 ## Task 8: seal.ts — assignmentRoot param rename (mechanical — `haiku` OK)
 
 **Files:**
+
 - Modify: `packages/recorder/src/commands/seal.ts`
 - Test: `packages/recorder/src/commands/seal.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing new.
 - Produces: `SealDeps.workspaceFolder: vscode.WorkspaceFolder` → `SealDeps.assignmentRoot: string`. (Already called with the new shape by Task 4's/5's `sealBundle({...})` call sites in `extension.ts` — this task makes `seal.ts` itself match.)
 
@@ -2046,20 +2091,25 @@ export type SealDeps = {
 Update `sealBundle`'s destructuring (lines 174-184) and body: replace `workspaceFolder` with `assignmentRoot`, and change:
 
 ```ts
-  const workspaceRoot = workspaceFolder.uri.fsPath;
+const workspaceRoot = workspaceFolder.uri.fsPath;
 ```
+
 to
+
 ```ts
-  const workspaceRoot = assignmentRoot;
+const workspaceRoot = assignmentRoot;
 ```
 
 and:
+
 ```ts
-  const resolvedOutputDir = outputDir ?? workspaceFolder.uri.fsPath;
+const resolvedOutputDir = outputDir ?? workspaceFolder.uri.fsPath;
 ```
+
 to
+
 ```ts
-  const resolvedOutputDir = outputDir ?? assignmentRoot;
+const resolvedOutputDir = outputDir ?? assignmentRoot;
 ```
 
 Remove the now-unused `import * as vscode from 'vscode';` at the top of the file if nothing else in `seal.ts` references `vscode` after this change (grep the file for `vscode\.` first to confirm).
@@ -2086,14 +2136,16 @@ git commit --no-gpg-sign -m "refactor(recorder): rename sealBundle's workspaceFo
 ## Task 9: Terminal cwd resolution + ownership routing
 
 **Files:**
+
 - Modify: `packages/recorder/src/wiring/terminal-wiring.ts`
 - Test: `packages/recorder/src/wiring/terminal-wiring.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isOwnedByThisRoot?: (fsPath: string) => boolean` field already stubbed onto `TerminalWiringDeps` in Task 4.
 - Produces: terminal.open / terminal.command are only emitted when the terminal's resolved cwd is owned by this session; both events are dropped (not just command) when cwd can't be determined at all and no fallback resolves — matching the spec's "route by cwd; drop if no owner."
 
-**Design note (locked from research during planning):** `vscode.Terminal` exposes two cwd sources: `terminal.creationOptions` (a `TerminalOptions | ExtensionTerminalOptions` union) may have a static `cwd?: string | Uri` set at creation time (often `undefined`, defaulting to the workspace root VS Code picked); `terminal.shellIntegration?.cwd` (a `Uri | undefined`) is live-updated by shell integration and reflects the terminal's *actual current* working directory (accounts for `cd` commands), when shell integration is available (VS Code 1.93+, same feature gate already used for `onDidStartTerminalShellExecution`). Resolution order: prefer `shellIntegration.cwd` (most accurate, most likely to exist by the time a command runs); fall back to `creationOptions.cwd` (resolve if it's a `Uri`, use directly if it's a `string`); if neither exists, treat cwd as unknown and drop the event (spec: "if no assignment root owns it, drop").
+**Design note (locked from research during planning):** `vscode.Terminal` exposes two cwd sources: `terminal.creationOptions` (a `TerminalOptions | ExtensionTerminalOptions` union) may have a static `cwd?: string | Uri` set at creation time (often `undefined`, defaulting to the workspace root VS Code picked); `terminal.shellIntegration?.cwd` (a `Uri | undefined`) is live-updated by shell integration and reflects the terminal's _actual current_ working directory (accounts for `cd` commands), when shell integration is available (VS Code 1.93+, same feature gate already used for `onDidStartTerminalShellExecution`). Resolution order: prefer `shellIntegration.cwd` (most accurate, most likely to exist by the time a command runs); fall back to `creationOptions.cwd` (resolve if it's a `Uri`, use directly if it's a `string`); if neither exists, treat cwd as unknown and drop the event (spec: "if no assignment root owns it, drop").
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2101,7 +2153,10 @@ Read `packages/recorder/src/wiring/terminal-wiring.test.ts` fully first to reuse
 
 ```ts
 describe('cwd-based ownership routing', () => {
-  function makeTerminal(opts: { cwd?: string; shellIntegrationCwd?: string }): import('vscode').Terminal {
+  function makeTerminal(opts: {
+    cwd?: string;
+    shellIntegrationCwd?: string;
+  }): import('vscode').Terminal {
     return {
       creationOptions: opts.cwd !== undefined ? { cwd: opts.cwd } : {},
       shellIntegration:
@@ -2235,54 +2290,54 @@ function resolveTerminalCwd(terminal: vscode.Terminal): string | undefined {
 In `startTerminalWiring`, destructure `isOwnedByThisRoot` (default `() => true`) and gate both subscriptions:
 
 ```ts
-  const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
+const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
 
-  function isTerminalOwned(terminal: vscode.Terminal): boolean {
-    const cwd = resolveTerminalCwd(terminal);
-    return cwd !== undefined && isOwnedByThisRoot(cwd);
-  }
+function isTerminalOwned(terminal: vscode.Terminal): boolean {
+  const cwd = resolveTerminalCwd(terminal);
+  return cwd !== undefined && isOwnedByThisRoot(cwd);
+}
 ```
 
 Update the `openSub` handler (line 76-83):
 
 ```ts
-  const openSub = onDidOpenTerminal((terminal) => {
-    if (!isTerminalOwned(terminal)) return;
-    const terminal_id = assignId(terminal);
-    const creationOptions = terminal.creationOptions as { shellPath?: string } | undefined;
-    const shell = creationOptions?.shellPath ?? 'unknown';
-    const shell_integration = terminal.shellIntegration !== undefined;
+const openSub = onDidOpenTerminal((terminal) => {
+  if (!isTerminalOwned(terminal)) return;
+  const terminal_id = assignId(terminal);
+  const creationOptions = terminal.creationOptions as { shellPath?: string } | undefined;
+  const shell = creationOptions?.shellPath ?? 'unknown';
+  const shell_integration = terminal.shellIntegration !== undefined;
 
-    emitTerminalOpen({ terminal_id, shell, shell_integration });
-  });
+  emitTerminalOpen({ terminal_id, shell, shell_integration });
+});
 ```
 
 Update the `startSub`/`endSub` handlers (lines 99-123) to check ownership via `event.terminal`:
 
 ```ts
-    const startSub = onDidStartTerminalShellExecution((event) => {
-      if (!isTerminalOwned(event.terminal)) return;
-      const terminal_id = assignId(event.terminal);
-      const commandLine = event.execution.commandLine;
-      const command = commandLine?.value ?? '';
-      pendingExecutions.set(event.execution, { terminal_id, command });
-    });
+const startSub = onDidStartTerminalShellExecution((event) => {
+  if (!isTerminalOwned(event.terminal)) return;
+  const terminal_id = assignId(event.terminal);
+  const commandLine = event.execution.commandLine;
+  const command = commandLine?.value ?? '';
+  pendingExecutions.set(event.execution, { terminal_id, command });
+});
 
-    const endSub = onDidEndTerminalShellExecution((event) => {
-      const pending = pendingExecutions.get(event.execution);
-      if (pending === undefined) {
-        return;
-      }
-      pendingExecutions.delete(event.execution);
-      if (!isTerminalOwned(event.terminal)) return;
+const endSub = onDidEndTerminalShellExecution((event) => {
+  const pending = pendingExecutions.get(event.execution);
+  if (pending === undefined) {
+    return;
+  }
+  pendingExecutions.delete(event.execution);
+  if (!isTerminalOwned(event.terminal)) return;
 
-      const exit_code = event.exitCode;
-      emitTerminalCommand({
-        terminal_id: pending.terminal_id,
-        command: pending.command,
-        ...(exit_code !== undefined ? { exit_code } : {}),
-      });
-    });
+  const exit_code = event.exitCode;
+  emitTerminalCommand({
+    terminal_id: pending.terminal_id,
+    command: pending.command,
+    ...(exit_code !== undefined ? { exit_code } : {}),
+  });
+});
 ```
 
 Note the ownership check in `endSub` runs AFTER deleting `pendingExecutions` (to avoid a permanent leak of pending entries for unowned terminals) but BEFORE emitting — so an unowned terminal's command is silently dropped without ever leaking the pending-map entry.
@@ -2309,10 +2364,12 @@ git commit --no-gpg-sign -m "feat(recorder): route terminal events by cwd owners
 ## Task 10: Git rootUri routing
 
 **Files:**
+
 - Modify: `packages/recorder/src/wiring/git-wiring.ts`
 - Test: `packages/recorder/src/wiring/git-wiring.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isOwnedByThisRoot?: (fsPath: string) => boolean` field already stubbed onto `GitWiringDeps` in Task 4.
 - Produces: `git.event` is only emitted when the repository's `rootUri.fsPath` is owned by this session.
 
@@ -2336,10 +2393,13 @@ describe('rootUri-based ownership routing', () => {
         },
       },
     };
-    return { repo, fireChange: (commit?: string) => {
-      if (commit !== undefined) repo.state.HEAD = { commit };
-      changeHandler?.();
-    } };
+    return {
+      repo,
+      fireChange: (commit?: string) => {
+        if (commit !== undefined) repo.state.HEAD = { commit };
+        changeHandler?.();
+      },
+    };
   }
 
   it('emits git.event when the repo rootUri is owned', () => {
@@ -2349,7 +2409,9 @@ describe('rootUri-based ownership routing', () => {
       emit,
       getGitExtension: () =>
         ({
-          exports: { getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }) },
+          exports: {
+            getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }),
+          },
         }) as unknown as import('vscode').Extension<unknown>,
       isOwnedByThisRoot: (fsPath) => fsPath === '/ws/cats',
     });
@@ -2364,7 +2426,9 @@ describe('rootUri-based ownership routing', () => {
       emit,
       getGitExtension: () =>
         ({
-          exports: { getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }) },
+          exports: {
+            getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }),
+          },
         }) as unknown as import('vscode').Extension<unknown>,
       isOwnedByThisRoot: (fsPath) => fsPath === '/ws/cats',
     });
@@ -2379,7 +2443,9 @@ describe('rootUri-based ownership routing', () => {
       emit,
       getGitExtension: () =>
         ({
-          exports: { getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }) },
+          exports: {
+            getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }),
+          },
         }) as unknown as import('vscode').Extension<unknown>,
     });
     fireChange('def');
@@ -2417,49 +2483,49 @@ Add to `GitWiringDeps` (this field is already stubbed by Task 4 — confirm/add)
 In `startGitWiring`, destructure `isOwnedByThisRoot` (default `() => true`) and guard the emit inside `watchRepo`'s `onDidChange` handler (lines 104-128):
 
 ```ts
-  const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
+const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
 
-  function watchRepo(repo: GitRepository): void {
-    let current: string | undefined;
-    try {
-      current = repo.state.HEAD?.commit;
-    } catch (e) {
-      console.warn('[provenance] git wiring: failed to read repo HEAD:', e);
-    }
-    lastCommit.set(repo, current);
-
-    let sub: vscode.Disposable;
-    try {
-      sub = repo.state.onDidChange(() => {
-        if (!isOwnedByThisRoot(repo.rootUri.fsPath)) {
-          return;
-        }
-
-        let commit_sha: string | undefined;
-        try {
-          commit_sha = repo.state.HEAD?.commit;
-        } catch (e) {
-          console.warn('[provenance] git wiring: failed to read HEAD on state change:', e);
-        }
-
-        const prev = lastCommit.get(repo);
-        lastCommit.set(repo, commit_sha);
-
-        emit({
-          operation: 'state_change',
-          ...(commit_sha !== undefined ? { commit_sha } : {}),
-        });
-
-        explanationTagger?.markGit();
-
-        void prev;
-      });
-    } catch (e) {
-      console.warn('[provenance] git wiring: failed to subscribe to repo state:', e);
-      return;
-    }
-    disposables.push(sub);
+function watchRepo(repo: GitRepository): void {
+  let current: string | undefined;
+  try {
+    current = repo.state.HEAD?.commit;
+  } catch (e) {
+    console.warn('[provenance] git wiring: failed to read repo HEAD:', e);
   }
+  lastCommit.set(repo, current);
+
+  let sub: vscode.Disposable;
+  try {
+    sub = repo.state.onDidChange(() => {
+      if (!isOwnedByThisRoot(repo.rootUri.fsPath)) {
+        return;
+      }
+
+      let commit_sha: string | undefined;
+      try {
+        commit_sha = repo.state.HEAD?.commit;
+      } catch (e) {
+        console.warn('[provenance] git wiring: failed to read HEAD on state change:', e);
+      }
+
+      const prev = lastCommit.get(repo);
+      lastCommit.set(repo, commit_sha);
+
+      emit({
+        operation: 'state_change',
+        ...(commit_sha !== undefined ? { commit_sha } : {}),
+      });
+
+      explanationTagger?.markGit();
+
+      void prev;
+    });
+  } catch (e) {
+    console.warn('[provenance] git wiring: failed to subscribe to repo state:', e);
+    return;
+  }
+  disposables.push(sub);
+}
 ```
 
 Note `lastCommit.set(repo, current)` still runs unconditionally at watch-start regardless of ownership (harmless bookkeeping, keeps the map consistent if ownership recalculates later); only the actual `emit(...)` + `explanationTagger?.markGit()` are gated.
@@ -2486,19 +2552,25 @@ git commit --no-gpg-sign -m "feat(recorder): route git events by repository root
 ## Task 11: Seal-time QuickPick selector
 
 **Files:**
+
 - Create: `packages/recorder/src/commands/seal-selector.ts`
 - Test: `packages/recorder/src/commands/seal-selector.test.ts`
 - Modify: `packages/recorder/src/extension.ts` (`registerSealCommand`, replacing Task 5's `sessions[0]!` stub)
 
 **Interfaces:**
+
 - Consumes: `ActiveSession` (Task 4/5).
 - Produces:
+
   ```ts
   export type SealQuickPickItem = { label: string; description: string; session: ActiveSession };
   export function buildSealQuickPickItems(sessions: readonly ActiveSession[]): SealQuickPickItem[];
   export async function chooseSessionForSeal(
     sessions: readonly ActiveSession[],
-    showQuickPick: (items: SealQuickPickItem[], opts: { placeHolder: string }) => Promise<SealQuickPickItem | undefined>,
+    showQuickPick: (
+      items: SealQuickPickItem[],
+      opts: { placeHolder: string },
+    ) => Promise<SealQuickPickItem | undefined>,
     activeEditorPath?: string,
   ): Promise<ActiveSession | undefined>;
   ```
@@ -2515,16 +2587,33 @@ import { buildSealQuickPickItems, chooseSessionForSeal } from './seal-selector.j
 function fakeSession(root: string, assignmentId: string): ActiveSession {
   return {
     assignmentRoot: root,
-    manifest: { assignment_id: assignmentId, semester: 'fa26', issued_at: '', files_under_review: [], sig: '' },
+    manifest: {
+      assignment_id: assignmentId,
+      semester: 'fa26',
+      issued_at: '',
+      files_under_review: [],
+      sig: '',
+    },
   } as unknown as ActiveSession;
 }
 
 describe('buildSealQuickPickItems', () => {
   it('labels each item by assignment_id and describes it by folder', () => {
-    const items = buildSealQuickPickItems([fakeSession('/ws/cats', 'cats'), fakeSession('/ws/hog', 'hog')]);
+    const items = buildSealQuickPickItems([
+      fakeSession('/ws/cats', 'cats'),
+      fakeSession('/ws/hog', 'hog'),
+    ]);
     expect(items).toEqual([
-      { label: 'cats', description: '/ws/cats', session: expect.objectContaining({ assignmentRoot: '/ws/cats' }) },
-      { label: 'hog', description: '/ws/hog', session: expect.objectContaining({ assignmentRoot: '/ws/hog' }) },
+      {
+        label: 'cats',
+        description: '/ws/cats',
+        session: expect.objectContaining({ assignmentRoot: '/ws/cats' }),
+      },
+      {
+        label: 'hog',
+        description: '/ws/hog',
+        session: expect.objectContaining({ assignmentRoot: '/ws/hog' }),
+      },
     ]);
   });
 });
@@ -2568,10 +2657,12 @@ describe('chooseSessionForSeal', () => {
     const cats = fakeSession('/ws/cats', 'cats');
     const hog = fakeSession('/ws/hog', 'hog');
     let placeHolderSeen = '';
-    const showQuickPick = vi.fn(async (items: { session: ActiveSession }[], opts: { placeHolder: string }) => {
-      placeHolderSeen = opts.placeHolder;
-      return items[0];
-    });
+    const showQuickPick = vi.fn(
+      async (items: { session: ActiveSession }[], opts: { placeHolder: string }) => {
+        placeHolderSeen = opts.placeHolder;
+        return items[0];
+      },
+    );
     await chooseSessionForSeal([cats, hog], showQuickPick, '/ws/hog/y.py');
     // The active-editor's owning session (hog) should be sorted first so it's the default highlight.
     const itemsPassed = showQuickPick.mock.calls[0]?.[0] as { session: ActiveSession }[];
@@ -2607,9 +2698,7 @@ export type SealQuickPickItem = {
   session: ActiveSession;
 };
 
-export function buildSealQuickPickItems(
-  sessions: readonly ActiveSession[],
-): SealQuickPickItem[] {
+export function buildSealQuickPickItems(sessions: readonly ActiveSession[]): SealQuickPickItem[] {
   return sessions.map((session) => ({
     label: session.manifest.assignment_id,
     description: session.assignmentRoot,
@@ -2673,20 +2762,20 @@ Expected: PASS (6 tests).
 Replace the `const chosen = sessions[0]!;` stub line from Task 5 in `packages/recorder/src/extension.ts`'s `registerSealCommand` with:
 
 ```ts
-      const activeEditorPath = vscode.window.activeTextEditor?.document.uri.fsPath;
-      const chosen = await chooseSessionForSeal(
-        sessions,
-        (items, opts) => Promise.resolve(vscode.window.showQuickPick(items, opts)),
-        activeEditorPath,
-      );
-      if (chosen === undefined) {
-        if (sessions.length > 1) {
-          // User dismissed the QuickPick — no message needed, they cancelled deliberately.
-          return;
-        }
-        void vscode.window.showWarningMessage('No session data to seal.');
-        return;
-      }
+const activeEditorPath = vscode.window.activeTextEditor?.document.uri.fsPath;
+const chosen = await chooseSessionForSeal(
+  sessions,
+  (items, opts) => Promise.resolve(vscode.window.showQuickPick(items, opts)),
+  activeEditorPath,
+);
+if (chosen === undefined) {
+  if (sessions.length > 1) {
+    // User dismissed the QuickPick — no message needed, they cancelled deliberately.
+    return;
+  }
+  void vscode.window.showWarningMessage('No session data to seal.');
+  return;
+}
 ```
 
 Add the import: `import { chooseSessionForSeal } from './commands/seal-selector.js';`. The rest of `registerSealCommand`'s body (the `sealBundle({...})` call and result handling) is unchanged from Task 5 except it now reads from `chosen` (already the case).
@@ -2713,9 +2802,11 @@ git commit --no-gpg-sign -m "feat(recorder): prompt for assignment at seal time 
 ## Task 12: `activationEvents` glob update (mechanical — `haiku` OK)
 
 **Files:**
+
 - Modify: `packages/recorder/package.json:23-26`
 
 **Interfaces:**
+
 - Consumes/produces: nothing code-level — this only affects when VS Code loads the extension.
 
 - [ ] **Step 1: Update `activationEvents`**
@@ -2774,6 +2865,7 @@ Expected: no errors.
 - [ ] **Step 3: Cross-check each spec acceptance-criteria group against a specific test**
 
 Confirm, and note explicitly in the PR/report if any is missing:
+
 1. **Discovery** — `manifest-discovery.test.ts` (Task 1) + `activation.integration.test.ts`'s "multi-session discovery" describe block (Task 5).
 2. **Routing** — `session-router.test.ts` (Task 2) + `doc-wiring.test.ts`'s ownership-filter cases (Task 6).
 3. **Per-`.provenance/`** — `session-registry.test.ts`'s "two independent calls to startSession" case (Task 4) asserts distinct `provenanceDir` + distinct `.slog` contents per session.

@@ -33,20 +33,20 @@ The recorder only activates when the assignment folder (the one holding `.proven
 
 ## Current architecture (seams to change)
 
-| Concern | Location |
-|---|---|
-| Activation events (root-only, non-glob) | `packages/recorder/package.json:23-26` |
-| First-folder selection (`workspaceFolders[0]`) | `src/extension.ts:597-606` |
-| Manifest load, root-only, non-recursive | `src/activation/manifest-loader.ts:48-88` (esp. `:55-56`) |
-| Manifest file names | `manifest-loader.ts:34` |
-| Silent no-op on missing/invalid manifest | `src/extension.ts:190-205` |
-| `.provenance/` dir from single root | `src/extension.ts:215-217` |
-| In-scope filter (`isRecordable`) | `src/wiring/doc-wiring.ts:205-211` |
-| Out-of-workspace detection (`asRelativePath` === fsPath) | `doc-wiring.ts:149-168` |
-| `files_under_review` external-change watchers | `src/wiring/fs-watcher.ts:86-88` |
-| Assignment identity from manifest | `src/session/recorder-context.ts:89-92` |
-| Seal stamps assignment/semester | `src/commands/seal.ts:177-179` |
-| Session-key encryption bound to manifest sig | `src/extension.ts:297-301` |
+| Concern                                                  | Location                                                  |
+| -------------------------------------------------------- | --------------------------------------------------------- |
+| Activation events (root-only, non-glob)                  | `packages/recorder/package.json:23-26`                    |
+| First-folder selection (`workspaceFolders[0]`)           | `src/extension.ts:597-606`                                |
+| Manifest load, root-only, non-recursive                  | `src/activation/manifest-loader.ts:48-88` (esp. `:55-56`) |
+| Manifest file names                                      | `manifest-loader.ts:34`                                   |
+| Silent no-op on missing/invalid manifest                 | `src/extension.ts:190-205`                                |
+| `.provenance/` dir from single root                      | `src/extension.ts:215-217`                                |
+| In-scope filter (`isRecordable`)                         | `src/wiring/doc-wiring.ts:205-211`                        |
+| Out-of-workspace detection (`asRelativePath` === fsPath) | `doc-wiring.ts:149-168`                                   |
+| `files_under_review` external-change watchers            | `src/wiring/fs-watcher.ts:86-88`                          |
+| Assignment identity from manifest                        | `src/session/recorder-context.ts:89-92`                   |
+| Seal stamps assignment/semester                          | `src/commands/seal.ts:177-179`                            |
+| Session-key encryption bound to manifest sig             | `src/extension.ts:297-301`                                |
 
 (Terminal/git emit seams are not enumerated here — the implementation plan must locate them and apply the by-path routing rule.)
 
