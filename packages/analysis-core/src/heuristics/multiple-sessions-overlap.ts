@@ -9,18 +9,35 @@
  *   - rangeB: [session.start.wall, session.end.wall]
  *
  * If the two ranges overlap (i.e., A.start < B.end AND B.start < A.end),
- * emit a flag for that pair — UNLESS both sessions came from the same host
- * (session.start.data.machine_id) AND the same recorder
- * (session.start.data.recorder.extension_id). Multiple concurrent editor
- * instances on one machine (notably the Neovim recorder run in several
- * terminals/tmux panes on the same workspace) produce genuinely overlapping
- * sessions that are honest, not forgery, so that specific case is suppressed.
- * Overlaps across different hosts or different recorders remain flagged.
+ * emit a flag for that pair.
  *
- * Sessions with no `session.end` event are treated as open-ended — their
- * range is [session.start.wall, +Infinity). This means an open session always
- * overlaps any other session that starts after it, which is the conservative
- * (higher-sensitivity) choice.
+ * Sessions with no `session.end` event are bounded at their LAST RECORDED
+ * EVENT's wall, not at +Infinity.
+ *
+ * A missing `session.end` is the ordinary crash signature, not a suspicious
+ * one: the recorder only emits `session.end` from `deactivate()`, which the
+ * editor skips whenever the window is killed, the OS shuts down, or the host
+ * process dies. The recorder itself already reads this as a crash — see
+ * `previous_session_dangling` in the recorder's `startup/chain-recovery.ts`.
+ *
+ * Treating such a session as running until +Infinity claimed it overlapped
+ * every session that started after it, forever — one crash on day 1 flagged
+ * every session for the rest of the assignment. The last recorded event is the
+ * last moment the session demonstrably existed; extending the range past it
+ * invents evidence. A session whose only event is `session.start` therefore
+ * has a zero-length range and cannot overlap anything, which is correct: it
+ * never demonstrably ran concurrently with anything.
+ *
+ * This preserves the real signal — two sessions genuinely recording events in
+ * the same wall-clock window still overlap and still flag.
+ *
+ * Do NOT reintroduce a "same machine_id → suppress" guard. `machine_id` is
+ * sha256(hostname:username:sessionId) in all three recorders (VS Code,
+ * JetBrains, Neovim) — session-salted by design, per PRD §5.1, to prevent
+ * cross-assignment correlation. It is therefore unique per session and can
+ * never match across two sessions, so such a guard is unreachable. An earlier
+ * version of this file carried one; it was dead code, and its unit tests passed
+ * only because the fixtures hand-set a shared machine_id no recorder can emit.
  *
  * Note on bundle.sessions ordering: sessions are sorted oldest-first by
  * firstEvent.wall (done in the loader). We iterate all pairs N*(N-1)/2.
@@ -35,7 +52,6 @@
  * events of each session.
  */
 
-import type { SessionStartPayload } from '@provenance/log-core';
 import type { EventIndex } from '../index/event-index.js';
 import type { Bundle } from '../loader/types.js';
 import type { Flag, Heuristic } from './types.js';
@@ -48,18 +64,15 @@ import type { HeuristicConfig } from './config.js';
 type SessionRange = {
   sessionId: string;
   startWall: number; // Date.parse result
-  endWall: number; // Date.parse result, or Infinity if no session.end
+  /**
+   * Date.parse of `session.end`'s wall, or — when the session has no
+   * `session.end` (crash) — of its last recorded event's wall. Never
+   * +Infinity: see the module comment.
+   */
+  endWall: number;
   startSeq: number; // seq of session.start event
-  /**
-   * Machine identity from session.start.data.machine_id — the "same host"
-   * signal. `null` when the payload didn't carry a usable value.
-   */
-  machineId: string | null;
-  /**
-   * Recorder identity from session.start.data.recorder.extension_id — the
-   * "same recorder" signal. `null` when the payload didn't carry a usable value.
-   */
-  extensionId: string | null;
+  /** True when the session has no `session.end` event (crashed / killed). */
+  openEnded: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -75,39 +88,9 @@ function flagId(sessionIdA: string, sessionIdB: string): string {
 
 function rangesOverlap(a: SessionRange, b: SessionRange): boolean {
   // Standard interval overlap: a.start < b.end AND b.start < a.end.
-  // Open-ended sessions have endWall = Infinity, so they always "end after" anything.
+  // Strict `<` means zero-length ranges (a session whose only event is
+  // session.start) never overlap anything.
   return a.startWall < b.endWall && b.startWall < a.endWall;
-}
-
-/**
- * True when both sessions demonstrably came from the same machine AND the same
- * recorder. Such an overlap is a legitimate concurrent-editor situation (e.g.
- * two Neovim instances on one workspace in two terminals/tmux panes) rather than
- * clock manipulation or a two-machine forgery, so the overlap flag is suppressed.
- *
- * Identity is taken from the session.start payload:
- *   - host     = data.machine_id
- *   - recorder = data.recorder.extension_id
- *
- * Missing/blank identity on either side is treated as "not confirmed same" and
- * therefore does NOT suppress the flag — the conservative, anti-cheat-preserving
- * default. Overlaps across different hosts or different recorders (a real
- * "two machines stitched together" signal) always remain flagged.
- */
-function sameHostSameRecorder(a: SessionRange, b: SessionRange): boolean {
-  return (
-    a.machineId !== null &&
-    b.machineId !== null &&
-    a.machineId === b.machineId &&
-    a.extensionId !== null &&
-    b.extensionId !== null &&
-    a.extensionId === b.extensionId
-  );
-}
-
-/** Extract a non-empty string identity from an arbitrary payload field. */
-function nonEmpty(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,21 +110,23 @@ function run(index: EventIndex, _bundle: Bundle, _config: HeuristicConfig): Flag
     const startWall = Date.parse(startEvent.wall);
     if (Number.isNaN(startWall)) continue;
 
-    const endWall = endEvent !== undefined ? Date.parse(endEvent.wall) : Infinity;
+    // A crashed session (no session.end) is bounded at its last recorded event
+    // — the last moment it demonstrably existed. bySessionId is chronological.
+    const openEnded = endEvent === undefined;
+    const boundingEvent = endEvent ?? sessionEvents[sessionEvents.length - 1];
+    const parsedEnd = boundingEvent !== undefined ? Date.parse(boundingEvent.wall) : NaN;
 
-    // Host/recorder identity live on the session.start payload. Narrow from the
-    // index's `unknown` payload; treat anything missing/blank as unknown (null).
-    const payload = startEvent.payload as Partial<SessionStartPayload> | undefined;
-    const machineId = nonEmpty(payload?.machine_id);
-    const extensionId = nonEmpty(payload?.recorder?.extension_id);
+    // An unparseable or backwards end (clock skew — monotonic_wall_regression
+    // covers that separately) collapses the range to zero length rather than
+    // extending it.
+    const endWall = Number.isNaN(parsedEnd) ? startWall : Math.max(parsedEnd, startWall);
 
     ranges.push({
       sessionId,
       startWall,
-      endWall: Number.isNaN(endWall) ? Infinity : endWall,
+      endWall,
       startSeq: startEvent.seq,
-      machineId,
-      extensionId,
+      openEnded,
     });
   }
 
@@ -157,13 +142,6 @@ function run(index: EventIndex, _bundle: Bundle, _config: HeuristicConfig): Flag
 
       if (!rangesOverlap(a, b)) continue;
 
-      // Legitimate concurrent editing on one machine with one recorder (e.g.
-      // two Neovim instances on the same workspace) genuinely overlaps in
-      // wall-time and is not forgery. Suppress the flag only when both the host
-      // and the recorder identity match; cross-host / cross-recorder overlaps
-      // stay flagged as a real "two machines stitched together" signal.
-      if (sameHostSameRecorder(a, b)) continue;
-
       const pairId = flagId(a.sessionId, b.sessionId);
       if (emittedPairs.has(pairId)) continue;
       emittedPairs.add(pairId);
@@ -171,8 +149,15 @@ function run(index: EventIndex, _bundle: Bundle, _config: HeuristicConfig): Flag
       // Supporting seqs: the session.start events of both sessions.
       const supportingSeqs = [`${a.sessionId}:${a.startSeq}`, `${b.sessionId}:${b.startSeq}`];
 
-      const aEndLabel = a.endWall === Infinity ? 'open' : new Date(a.endWall).toISOString();
-      const bEndLabel = b.endWall === Infinity ? 'open' : new Date(b.endWall).toISOString();
+      // Label a crash-bounded end so a reader knows the bound came from the last
+      // recorded event rather than a real session.end.
+      const endLabel = (r: SessionRange): string =>
+        r.openEnded
+          ? `${new Date(r.endWall).toISOString()} (last event; no session.end)`
+          : new Date(r.endWall).toISOString();
+
+      const aEndLabel = endLabel(a);
+      const bEndLabel = endLabel(b);
 
       flags.push({
         id: pairId,
@@ -194,6 +179,8 @@ function run(index: EventIndex, _bundle: Bundle, _config: HeuristicConfig): Flag
           sessionAEndWall: aEndLabel,
           sessionBStartWall: new Date(b.startWall).toISOString(),
           sessionBEndWall: bEndLabel,
+          sessionAOpenEnded: a.openEnded,
+          sessionBOpenEnded: b.openEnded,
         },
       });
     }
