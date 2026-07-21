@@ -65,6 +65,21 @@ export type CandidatePaste = {
   sha256: string | undefined;
   /** Source event kind. */
   origin: 'paste' | 'doc.change';
+  /**
+   * globalIdx of the source event. Used by the internal-move classifier as the
+   * point-in-time key for "what did every file look like just before this".
+   */
+  globalIdx: number;
+  /**
+   * 0-based position in `iterateCandidatePastes` order. Stable across runs and
+   * across consumers, because the iterator walks `index.ordered` (globalIdx
+   * ascending) and yields a multi-delta event's deltas in array order.
+   *
+   * This is the join key between a candidate and its internal-move
+   * classification. `seqKey` cannot serve: a multi-delta doc.change yields
+   * several candidates that all share one seqKey.
+   */
+  ordinal: number;
 };
 
 /**
@@ -76,6 +91,7 @@ export type CandidatePaste = {
  * Other events are skipped.
  */
 export function* iterateCandidatePastes(index: EventIndex): Generator<CandidatePaste> {
+  let ordinal = 0;
   for (const e of index.ordered) {
     if (e.kind === 'paste') {
       const p = e.payload as Record<string, unknown> | null;
@@ -98,6 +114,8 @@ export function* iterateCandidatePastes(index: EventIndex): Generator<CandidateP
         length,
         sha256,
         origin: 'paste',
+        globalIdx: e.globalIdx,
+        ordinal: ordinal++,
       };
       continue;
     }
@@ -129,6 +147,8 @@ export function* iterateCandidatePastes(index: EventIndex): Generator<CandidateP
           length: d.text.length,
           sha256: undefined,
           origin: 'doc.change',
+          globalIdx: e.globalIdx,
+          ordinal: ordinal++,
         };
       }
     }

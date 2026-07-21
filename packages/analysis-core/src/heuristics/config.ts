@@ -237,6 +237,23 @@ export type HeuristicConfig = {
      */
     corpus: KnownSource[];
   };
+  /**
+   * internal_move classification — downgrades paste flags that are really the
+   * student relocating their own previously-typed code (copy-within-file,
+   * cut-then-paste-back, cross-file refactor).
+   */
+  internalMove: {
+    /** false → classifier never runs; output is byte-for-byte prior behaviour. */
+    enabled: boolean;
+    /** Fraction of normalised paste lines that must match a source region. */
+    minMatchRatio: number;
+    /** Fraction of matched source chars that must be typed/preexisting. */
+    typedRatio: number;
+    /** Deletion ledger byte cap; oldest-first eviction. */
+    ledgerMaxBytes: number;
+    /** Pastes and deletions below this many chars are never classified. */
+    minBlobChars: number;
+  };
 };
 
 export const DEFAULT_HEURISTIC_CONFIG: HeuristicConfig = {
@@ -289,6 +306,13 @@ export const DEFAULT_HEURISTIC_CONFIG: HeuristicConfig = {
   },
   interSessionExternalChange: {
     highSeverityCharsChanged: 100,
+  },
+  internalMove: {
+    enabled: true,
+    minMatchRatio: 0.95,
+    typedRatio: 0.9,
+    ledgerMaxBytes: 1_000_000,
+    minBlobChars: 40,
   },
 };
 
@@ -344,6 +368,10 @@ export function mergeConfig(override?: Partial<HeuristicConfig>): HeuristicConfi
     interSessionExternalChange: {
       ...DEFAULT_HEURISTIC_CONFIG.interSessionExternalChange,
       ...override.interSessionExternalChange,
+    },
+    internalMove: {
+      ...DEFAULT_HEURISTIC_CONFIG.internalMove,
+      ...override.internalMove,
     },
   };
 }
