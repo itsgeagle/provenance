@@ -11,7 +11,6 @@
  */
 
 import { useRef, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
@@ -216,10 +215,10 @@ interface EventRowProps {
   isSelected: boolean;
   onClick: () => void;
   style: React.CSSProperties;
+  onJumpToReplay?: ((event: IndexedEvent) => void) | undefined;
 }
 
-function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
-  const navigate = useNavigate();
+function EventRow({ event, isSelected, onClick, style, onJumpToReplay }: EventRowProps) {
   const summary = payloadSummary(event);
   const filePart = event.file
     ? event.file.length > 35
@@ -230,7 +229,7 @@ function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
   const handleReplayClick = (e: React.MouseEvent) => {
     // Prevent the row's onClick (select event) from also firing.
     e.stopPropagation();
-    void navigate(`/local/replay/${event.sessionId}?event=${event.globalIdx}`);
+    onJumpToReplay?.(event);
   };
 
   return (
@@ -277,17 +276,20 @@ function EventRow({ event, isSelected, onClick, style }: EventRowProps) {
       {summary && <span className="min-w-0 flex-1 truncate text-foreground/80">{summary}</span>}
       {!summary && <span className="flex-1" />}
 
-      {/* Replay deep-link button */}
-      <button
-        type="button"
-        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        onClick={handleReplayClick}
-        aria-label={`Replay at event ${event.globalIdx}`}
-        data-testid={`replay-btn-${event.globalIdx}`}
-        title="Open replay at this moment"
-      >
-        ▶
-      </button>
+      {/* Replay deep-link button — only when the host route can navigate to a
+          replay view (the target differs between /local and the server tab). */}
+      {onJumpToReplay && (
+        <button
+          type="button"
+          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          onClick={handleReplayClick}
+          aria-label={`Replay at event ${event.globalIdx}`}
+          data-testid={`replay-btn-${event.globalIdx}`}
+          title="Open replay at this moment"
+        >
+          ▶
+        </button>
+      )}
 
       {/* session chip */}
       <span
@@ -317,9 +319,22 @@ interface EventListProps {
    */
   scrollToKey: string | null;
   onScrollToKeyConsumed?: () => void;
+  /**
+   * Navigate to the replay view at this event. Supplied by the host route
+   * because the target differs: /local uses /local/replay/:sessionId, while
+   * the server-backed Timeline tab uses ?tab=replay&event=. When omitted, the
+   * per-row replay button is not rendered.
+   */
+  onJumpToReplay?: ((event: IndexedEvent) => void) | undefined;
 }
 
-export function EventList({ events, onSelect, selectedKey, scrollToKey }: EventListProps) {
+export function EventList({
+  events,
+  onSelect,
+  selectedKey,
+  scrollToKey,
+  onJumpToReplay,
+}: EventListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   const virtualizer = useVirtualizer({
@@ -385,6 +400,7 @@ export function EventList({ events, onSelect, selectedKey, scrollToKey }: EventL
                   event={event}
                   isSelected={selectedKey === key}
                   onClick={() => handleSelect(event)}
+                  onJumpToReplay={onJumpToReplay}
                   style={{
                     height: virtualItem.size,
                     transform: `translateY(${virtualItem.start}px)`,

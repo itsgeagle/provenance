@@ -10,7 +10,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useBundle } from '../../context/BundleContext.js';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
@@ -26,6 +26,7 @@ import { EventDetail } from './EventDetail.js';
 export function TimelineView() {
   const { index } = useBundle();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [filters, setFilters] = useState<TimelineFilters>(DEFAULT_FILTERS);
   const [selectedEvent, setSelectedEvent] = useState<IndexedEvent | null>(null);
@@ -96,6 +97,15 @@ export function TimelineView() {
     setScrollToKey(`${event.sessionId}:${event.seq}`);
   }, []);
 
+  // Replay navigation target for the /local route. EventList no longer hardcodes
+  // this — the server-backed Timeline tab navigates to a different target.
+  const handleJumpToReplay = useCallback(
+    (event: IndexedEvent) => {
+      void navigate(`/local/replay/${event.sessionId}?event=${event.globalIdx}`);
+    },
+    [navigate],
+  );
+
   const selectedKey = selectedEvent ? `${selectedEvent.sessionId}:${selectedEvent.seq}` : null;
 
   return (
@@ -128,6 +138,7 @@ export function TimelineView() {
             onSelect={handleSelect}
             selectedKey={selectedKey}
             scrollToKey={scrollToKey}
+            onJumpToReplay={handleJumpToReplay}
           />
         </div>
         <div className="col-span-2 min-h-0">

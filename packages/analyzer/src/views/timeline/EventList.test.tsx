@@ -216,14 +216,15 @@ describe('EventList', () => {
       onSelect = vi.fn(),
       selectedKey = null,
       scrollToKey = null,
+      onJumpToReplay,
     }: {
       onSelect?: (e: IndexedEvent) => void;
       selectedKey?: string | null;
       scrollToKey?: string | null;
+      onJumpToReplay?: (e: IndexedEvent) => void;
     } = {},
   ) {
     // jsdom doesn't do layout, so we need a fixed height container.
-    // EventRow now uses useNavigate(), which requires a Router context.
     return render(
       <MemoryRouter>
         <div style={{ height: '600px', width: '800px' }}>
@@ -232,11 +233,39 @@ describe('EventList', () => {
             onSelect={onSelect}
             selectedKey={selectedKey}
             scrollToKey={scrollToKey}
+            onJumpToReplay={onJumpToReplay}
           />
         </div>
       </MemoryRouter>,
     );
   }
+
+  it('calls onJumpToReplay with the event when the replay button is clicked', () => {
+    const onJumpToReplay = vi.fn();
+    const events = [makeEvent({ globalIdx: 0, seq: 0 })];
+    renderList(events, { onJumpToReplay });
+
+    fireEvent.click(screen.getByTestId('replay-btn-0'));
+
+    expect(onJumpToReplay).toHaveBeenCalledTimes(1);
+    expect(onJumpToReplay).toHaveBeenCalledWith(events[0]);
+  });
+
+  it('does not fire onSelect when the replay button is clicked', () => {
+    const onSelect = vi.fn();
+    const onJumpToReplay = vi.fn();
+    renderList([makeEvent({ globalIdx: 0, seq: 0 })], { onSelect, onJumpToReplay });
+
+    fireEvent.click(screen.getByTestId('replay-btn-0'));
+
+    expect(onJumpToReplay).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('does not render the replay button when onJumpToReplay is omitted', () => {
+    renderList([makeEvent({ globalIdx: 0, seq: 0 })]);
+    expect(screen.queryByTestId('replay-btn-0')).toBeNull();
+  });
 
   it('shows empty state when no events', () => {
     renderList([]);
