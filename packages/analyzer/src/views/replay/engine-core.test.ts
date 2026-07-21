@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine } from './engine-core.js';
+import { createEngine, MAX_IDLE_GAP_MS } from './engine-core.js';
 import { buildBundleClock } from './bundle-clock.js';
 import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
@@ -560,6 +560,114 @@ describe('createEngine', () => {
       const state = engine.tick(1000);
       expect(state.currentGlobalIdx).toBe(-1);
       expect(state.virtualT).toBe(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Idle-gap skipping
+  // -------------------------------------------------------------------------
+  describe('skipIdle (idle-gap compression)', () => {
+    /** Events at t=0 and t=300000 — a 5-minute think pause between them. */
+    function makeIdleGapIndex() {
+      return buildIndex([
+        { ...makeDocChangeEvent(0, 'hw.py', 'a'), t: 0 },
+        { ...makeDocChangeEvent(1, 'hw.py', 'b'), t: 300_000 },
+      ]);
+    }
+
+    it('defaults to off, preserving full-length idle playback', () => {
+      const engine = createEngine(makeIdleGapIndex());
+      expect(engine.getState().skipIdle).toBe(false);
+      const state = engine.tick(10_000);
+      expect(state.virtualT).toBe(10_000);
+    });
+
+    it('setSkipIdle(true) is reflected in state', () => {
+      const engine = createEngine(makeIdleGapIndex());
+      expect(engine.setSkipIdle(true).skipIdle).toBe(true);
+      expect(engine.setSkipIdle(false).skipIdle).toBe(false);
+    });
+
+    it('compresses a long idle gap to MAX_IDLE_GAP_MS before the next event', () => {
+      const engine = createEngine(makeIdleGapIndex());
+      engine.setSkipIdle(true);
+      // The first tick APPLIES the t=0 event, so it is paced normally: the
+      // frame that reveals an event never compresses. virtualT = 10000.
+      expect(engine.tick(10_000).virtualT).toBe(10_000);
+      // The next frame finds no event in its window — that is the idle gap,
+      // and 290s of dead air collapses to MAX_IDLE_GAP_MS of remaining pause.
+      const state = engine.tick(16);
+      expect(state.virtualT).toBe(300_000 - MAX_IDLE_GAP_MS);
+      // The jump is pacing only — no event is applied early.
+      expect(state.currentGlobalIdx).toBe(0);
+    });
+
+    it('still plays the residual pause, then reaches the event', () => {
+      const engine = createEngine(makeIdleGapIndex());
+      engine.setSkipIdle(true);
+      engine.tick(10_000); // applies event 0
+      engine.tick(16); // compresses the gap
+      // A tick shorter than the residual pause does not reach the event.
+      expect(engine.tick(MAX_IDLE_GAP_MS - 1).currentGlobalIdx).toBe(0);
+      // One more closes it.
+      expect(engine.tick(2).currentGlobalIdx).toBe(1);
+    });
+
+    it('leaves gaps shorter than MAX_IDLE_GAP_MS untouched', () => {
+      const index = buildIndex([
+        { ...makeDocChangeEvent(0, 'hw.py', 'a'), t: 0 },
+        { ...makeDocChangeEvent(1, 'hw.py', 'b'), t: 3_000 },
+      ]);
+      const engine = createEngine(index);
+      engine.setSkipIdle(true);
+      const state = engine.tick(100);
+      expect(state.virtualT).toBe(100);
+    });
+
+    it('never rewinds virtualT when already inside the residual window', () => {
+      const engine = createEngine(makeIdleGapIndex());
+      engine.setSkipIdle(true);
+      // Land past nextT - MAX_IDLE_GAP_MS without reaching the event.
+      const state = engine.tick(299_000);
+      expect(state.virtualT).toBe(299_000);
+      expect(state.currentGlobalIdx).toBe(0);
+    });
+
+    it('does not compress when events fall inside the tick window', () => {
+      const engine = createEngine(makeIdleGapIndex());
+      engine.setSkipIdle(true);
+      const state = engine.tick(300_000);
+      expect(state.virtualT).toBe(300_000);
+      expect(state.currentGlobalIdx).toBe(1);
+    });
+
+    it('does not compress past the last event', () => {
+      const engine = createEngine(makeIdleGapIndex());
+      engine.setSkipIdle(true);
+      engine.tick(300_000); // at the last event
+      const state = engine.tick(10_000);
+      expect(state.virtualT).toBe(310_000);
+    });
+
+    it('leaves collapsed inter-session seam gaps alone', () => {
+      // bundle-clock already clamps seam gaps to <= SEAM_MAX_GAP_MS, which
+      // equals MAX_IDLE_GAP_MS, so skipIdle finds nothing left to compress:
+      // an overnight break between sessions still plays as its short pause.
+      const index = buildIndex([
+        { ...makeDocChangeEvent(0, 'hw.py', 'a', 'sess1'), t: 0, wall: '2026-01-01T00:00:00.000Z' },
+        { ...makeDocChangeEvent(1, 'p2.py', 'x', 'sess2'), t: 0, wall: '2026-01-02T00:00:00.000Z' },
+      ]);
+      const engine = createEngine(index);
+      const seam = engine.seams()[0];
+      expect(seam).toBeDefined();
+      expect(seam!.collapsedGapMs).toBe(MAX_IDLE_GAP_MS);
+
+      engine.setSkipIdle(true);
+      engine.tick(0); // apply the first event
+      // The seam gap is exactly MAX_IDLE_GAP_MS, not greater, so no compression.
+      const state = engine.tick(1);
+      expect(state.virtualT).toBe(1);
+      expect(state.currentGlobalIdx).toBe(0);
     });
   });
 });

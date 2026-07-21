@@ -42,6 +42,7 @@ function state(currentGlobalIdx: number): ReplayState {
     speed: 1,
     sessionId: 'sess-a',
     virtualT: 0,
+    skipIdle: false,
   };
 }
 

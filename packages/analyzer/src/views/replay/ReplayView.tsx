@@ -23,6 +23,7 @@
  * URL state:
  *   ?event=:globalIdx  — current position (written back on change, debounced ~100ms).
  *   ?speed=:n          — playback speed (written back on state change).
+ *   ?skipIdle=0|1      — idle-gap compression. Defaults ON; only `0` opts out.
  *
  *   On mount: parse params → seek(event).
  *   On state change: debounced write-back.
@@ -42,6 +43,7 @@ import { FileTabs } from './FileTabs.js';
 import { MonacoMount, languageFromPath } from './MonacoMount.js';
 import { TransportBar } from './TransportBar.js';
 import { SpeedControl } from './SpeedControl.js';
+import { SkipIdleToggle } from './SkipIdleToggle.js';
 import { JumpControls } from './JumpControls.js';
 import { GutterDecorations } from './GutterDecorations.js';
 import { LineHoverProvider } from './LineHoverProvider.js';
@@ -239,7 +241,12 @@ export function ReplayInner({
 }: ReplayInnerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const engine = useReplayEngine(index);
+  // Idle-gap compression. Default ON — a recorded session is mostly waiting,
+  // and raising the speed multiplier alone never removes the dead air. `?skipIdle=0`
+  // opts out; any other value (or none) leaves it on.
+  const [skipIdle, setSkipIdle] = useState<boolean>(() => searchParams.get('skipIdle') !== '0');
+
+  const engine = useReplayEngine(index, { skipIdle });
   const { state, fileStates, files, seams, play, pause, step, seek } = engine;
 
   // Active file tab — null means "use first file".
@@ -421,6 +428,7 @@ export function ReplayInner({
           const next = new URLSearchParams(prev);
           next.set('event', String(state.currentGlobalIdx));
           next.set('speed', String(state.speed));
+          next.set('skipIdle', skipIdle ? '1' : '0');
           return next;
         },
         { replace: true },
@@ -433,7 +441,7 @@ export function ReplayInner({
         debounceRef.current = null;
       }
     };
-  }, [state.currentGlobalIdx, state.speed, setSearchParams]);
+  }, [state.currentGlobalIdx, state.speed, skipIdle, setSearchParams]);
 
   // ---------------------------------------------------------------------------
   // If files list changes (e.g. new session) and activeFile is no longer valid,
@@ -574,8 +582,16 @@ export function ReplayInner({
               onSeek={seek}
             />
           </div>
-          {/* Speed control sits at the right edge of the transport row */}
-          <div className="shrink-0 px-3 py-2 border-l" data-testid="speed-control-wrapper">
+          {/* Pacing controls sit at the right edge of the transport row */}
+          <div
+            className="shrink-0 flex items-center gap-2 px-3 py-2 border-l"
+            data-testid="speed-control-wrapper"
+          >
+            <SkipIdleToggle
+              skipIdle={skipIdle}
+              onSkipIdleChange={setSkipIdle}
+              disabled={eventCount === 0}
+            />
             <SpeedControl
               speed={state.speed}
               onSpeedChange={handleSpeedChange}

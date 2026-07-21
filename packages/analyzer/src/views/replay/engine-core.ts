@@ -9,6 +9,8 @@
  *   status           : 'paused' | 'playing'
  *   speed            : playback multiplier (currently reserved; timer lives
  *                      in useReplayEngine)
+ *   skipIdle         : when set, tick() compresses long idle gaps to
+ *                      MAX_IDLE_GAP_MS of playback (see the constant)
  *   sessionId        : DERIVED — the session the playhead is currently inside
  *
  * SCOPE:
@@ -69,6 +71,21 @@ import { buildBundleClock, type Seam } from './bundle-clock.js';
 /** Cache a checkpoint every N events. */
 const CHECKPOINT_EVERY = 1000;
 
+/**
+ * Longest pause `skipIdle` will play through, in ms of bundle time. A within-
+ * session gap longer than this is compressed so that only this much of it is
+ * played — a 20-minute think pause becomes a 5-second beat.
+ *
+ * Deliberately equal to SEAM_MAX_GAP_MS: bundle-clock already clamps INTER-
+ * session gaps to that value, so the two rules agree and a seam pause is left
+ * exactly as the clock rendered it. One concept, one duration.
+ *
+ * Compression is pacing only. It never applies an event early, and it never
+ * touches `bundleT`, so the scrub slider, seam ticks, event counts and the
+ * durations shown in the UI all continue to describe real recorded time.
+ */
+export const MAX_IDLE_GAP_MS = 5_000;
+
 /** Event kinds that "write" to a file; used to build the file list. */
 const FILE_WRITING_KINDS = new Set([
   'doc.change',
@@ -102,6 +119,14 @@ export type ReplayState = {
    * Synced to bundleT[currentGlobalIdx] on seek/step; advanced by tick().
    */
   virtualT: number;
+  /**
+   * When true, tick() compresses within-session idle gaps longer than
+   * MAX_IDLE_GAP_MS (see the constant). Defaults to FALSE here so the engine
+   * stays a faithful primitive and existing pacing tests keep their meaning;
+   * the replay UI turns it on by default because that is the useful default
+   * for a reader, not for the model.
+   */
+  skipIdle: boolean;
 };
 
 export type EngineHandle = {
@@ -126,13 +151,17 @@ export type EngineHandle = {
   setPaused(): ReplayState;
   /** Update speed (does not start/stop playing). Returns new state. */
   setSpeed(speed: number): ReplayState;
+  /** Toggle idle-gap compression (see MAX_IDLE_GAP_MS). Returns new state. */
+  setSkipIdle(skipIdle: boolean): ReplayState;
 
   /**
    * Advance the virtual time pointer by `virtualDeltaMs` ms of bundle time.
    * Applies all events whose bundle time falls in
    * [currentVirtualT, currentVirtualT + virtualDeltaMs].
    * If no events fall in the window, just advances virtualT (sits through an
-   * idle gap — including a collapsed inter-session gap). Returns new state.
+   * idle gap — including a collapsed inter-session gap), unless `skipIdle` is
+   * on, in which case a gap longer than MAX_IDLE_GAP_MS is compressed to that
+   * length. Returns new state.
    */
   tick(virtualDeltaMs: number): ReplayState;
 
@@ -311,6 +340,7 @@ export function createEngine(index: EventIndex): EngineHandle {
     // bundleT is zero-based by construction, so the pre-first-event playhead
     // sits at 0 regardless of what the first session's `t` happened to be.
     virtualT: 0,
+    skipIdle: false,
   };
 
   const internal: InternalState = {
@@ -431,6 +461,11 @@ export function createEngine(index: EventIndex): EngineHandle {
       return { ...internal.state };
     },
 
+    setSkipIdle(skipIdle) {
+      internal.state = { ...internal.state, skipIdle };
+      return { ...internal.state };
+    },
+
     tick(virtualDeltaMs) {
       if (internal.events.length === 0) {
         return { ...internal.state };
@@ -468,8 +503,22 @@ export function createEngine(index: EventIndex): EngineHandle {
         seekToPos(targetIdx);
         internal.state = { ...internal.state, virtualT: newVirtualT };
       } else {
-        // No events fell in the window (idle gap): just advance virtualT.
-        internal.state = { ...internal.state, virtualT: newVirtualT };
+        // No events fell in the window: we are sitting inside an idle gap.
+        //
+        // With skipIdle on, if the next event is still more than MAX_IDLE_GAP_MS
+        // away we jump the clock to MAX_IDLE_GAP_MS before it, so the remaining
+        // pause plays at that length instead of its true one. The guard makes
+        // this strictly forward — `nextT - MAX_IDLE_GAP_MS > newVirtualT` is the
+        // condition itself — so virtualT can never rewind, and a gap already
+        // shorter than the cap (including every collapsed seam gap) is left be.
+        let advancedT = newVirtualT;
+        if (internal.state.skipIdle) {
+          const nextT = internal.bundleT[currentIdx + 1];
+          if (nextT !== undefined && nextT - newVirtualT > MAX_IDLE_GAP_MS) {
+            advancedT = nextT - MAX_IDLE_GAP_MS;
+          }
+        }
+        internal.state = { ...internal.state, virtualT: advancedT };
       }
 
       return { ...internal.state };

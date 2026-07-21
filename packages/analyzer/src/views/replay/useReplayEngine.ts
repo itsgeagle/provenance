@@ -51,13 +51,28 @@ export type UseReplayEngineResult = {
   seek(globalIdx: number): void;
 };
 
+export type UseReplayEngineOptions = {
+  /**
+   * Compress within-session idle gaps during playback (see MAX_IDLE_GAP_MS).
+   * Declarative rather than an imperative setter: the engine is re-created
+   * whenever `index` changes, and a setter's effect would be silently dropped
+   * by that. Defaults to the engine's own default (off).
+   */
+  skipIdle?: boolean;
+};
+
 /**
  * @param index The EventIndex for the whole bundle. May be null (guard: returns no-op).
  *
  * The engine spans every session in the bundle; there is no session parameter.
  * `state.sessionId` is derived from wherever the playhead currently sits.
  */
-export function useReplayEngine(index: EventIndex | null): UseReplayEngineResult {
+export function useReplayEngine(
+  index: EventIndex | null,
+  options: UseReplayEngineOptions = {},
+): UseReplayEngineResult {
+  const skipIdle = options.skipIdle ?? false;
+
   // Engine handle lives in a ref so we don't re-create it on every render.
   const engineRef = useRef<EngineHandle | null>(null);
   // rAF id lives in a ref so the cancel callback always sees the latest id.
@@ -67,6 +82,11 @@ export function useReplayEngine(index: EventIndex | null): UseReplayEngineResult
   // Speed ref: always reflects the latest speed, read inside the rAF closure
   // so there is no stale-closure footgun when speed changes during playback.
   const speedRef = useRef<number>(1);
+  // Same trick for skipIdle: the engine-creation effect must apply the CURRENT
+  // value without taking skipIdle as a dependency, which would rebuild the
+  // engine (and lose the playhead) every time the toggle flips.
+  const skipIdleRef = useRef<boolean>(skipIdle);
+  skipIdleRef.current = skipIdle;
 
   // React state: the only things that trigger re-renders.
   const [replayState, setReplayState] = useState<ReplayState>(() => ({
@@ -75,6 +95,7 @@ export function useReplayEngine(index: EventIndex | null): UseReplayEngineResult
     speed: 1,
     sessionId: index?.ordered[0]?.sessionId ?? '',
     virtualT: 0,
+    skipIdle,
   }));
   const [fileStates, setFileStates] = useState<Map<string, FileReplayState>>(new Map());
   const [files, setFiles] = useState<string[]>([]);
@@ -98,6 +119,7 @@ export function useReplayEngine(index: EventIndex | null): UseReplayEngineResult
         speed: 1,
         sessionId: '',
         virtualT: 0,
+        skipIdle: skipIdleRef.current,
       });
       setFileStates(new Map());
       setFiles([]);
@@ -108,6 +130,7 @@ export function useReplayEngine(index: EventIndex | null): UseReplayEngineResult
     const engine = createEngine(index);
     engineRef.current = engine;
     speedRef.current = engine.getState().speed;
+    engine.setSkipIdle(skipIdleRef.current);
 
     setReplayState(engine.getState());
     setFileStates(engine.getFileStates());
@@ -130,6 +153,20 @@ export function useReplayEngine(index: EventIndex | null): UseReplayEngineResult
     setReplayState(engine.getState());
     setFileStates(engine.getFileStates());
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Apply skipIdle changes to the live engine.
+  //
+  // Separate from the creation effect so flipping the toggle does not rebuild
+  // the engine. Only pacing changes — the playhead stays exactly where it is,
+  // so the toggle is safe to hit mid-playback.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (engine === null) return;
+    engine.setSkipIdle(skipIdle);
+    setReplayState(engine.getState());
+  }, [skipIdle]);
 
   // ---------------------------------------------------------------------------
   // cancelRaf helper (idempotent)
