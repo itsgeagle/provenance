@@ -47,6 +47,8 @@ export type SubmissionStats = {
 
 export type ValidationCheckResult = {
   id: string;
+  /** Human-readable check name. Absent on very old rows; UI falls back to `id`. */
+  label?: string | undefined;
   status: 'pass' | 'fail' | 'warn' | 'skipped';
   detail?: string | null | undefined;
 };

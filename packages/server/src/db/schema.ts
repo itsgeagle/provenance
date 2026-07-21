@@ -662,8 +662,16 @@ export const validation_results = pgTable('validation_results', {
  * keys by buildIndex.bySeq at ingest time.
  *
  * `session_id`: set to the sessionId when all supporting_seqs belong to
- * the same session; otherwise '' (the default). This lets the API
- * deep-link into a specific session timeline without decoding supporting_seqs.
+ * the same session; otherwise '' (the default). This is a display/deep-link
+ * convenience only — it is NOT a key. Resolving a supporting seq back to its
+ * event goes through supporting_seqs (globalIdx), which is session-agnostic and
+ * therefore correct for flags that span sessions.
+ *
+ * `title` / `description`: the per-instance prose analysis-core generates with
+ * each flag ("Large paste in hw.py"). Persisted so the server-backed analyzer
+ * can render the same detail drawer the in-memory /local route does. Rows
+ * written before migration 0020 carry '' and the client falls back to
+ * heuristic_id.
  *
  * CHECK constraints are defined in the SQL migration; omitted from Drizzle to
  * keep the schema concise (V27 convention).
@@ -685,6 +693,8 @@ export const flags = pgTable(
     confidence: doublePrecision('confidence').notNull(),
     weight_at_compute: doublePrecision('weight_at_compute').notNull(),
     score_contribution: doublePrecision('score_contribution').notNull(),
+    title: text('title').notNull().default(''),
+    description: text('description').notNull().default(''),
     detail: jsonb('detail')
       .notNull()
       .default(sql`'{}'`),

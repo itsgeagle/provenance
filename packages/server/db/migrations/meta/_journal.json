@@ -127,6 +127,13 @@
       "when": 1782950400000,
       "tag": "0019_drop_events",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784592000000,
+      "tag": "0020_flags_title_description",
+      "breakpoints": true
     }
   ]
 }

@@ -213,6 +213,14 @@ describe('runAndStoreHeuristics', () => {
       expect(lpFlag!.session_id).not.toBe('');
       expect(typeof lpFlag!.session_id).toBe('string');
 
+      // The heuristic's per-instance prose is persisted, so the server-backed
+      // analyzer can render the same detail drawer /local does rather than
+      // falling back to the bare heuristic id.
+      expect(lpFlag!.title).not.toBe('');
+      expect(lpFlag!.title).toContain('Large paste');
+      expect(lpFlag!.description).not.toBe('');
+      expect(lpFlag!.description).toContain('250');
+
       // semester_id FK must be populated.
       expect(lpFlag!.semester_id).toBe(semesterId);
     });

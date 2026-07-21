@@ -76,6 +76,8 @@ const SubmissionStatsSchema = z.object({
 
 const ValidationCheckSchema = z.object({
   id: z.string(),
+  /** Human-readable check name. Absent on very old rows; UI falls back to `id`. */
+  label: z.string().optional(),
   status: z.enum(['pass', 'fail', 'warn', 'skipped']),
   detail: z.string().nullable().optional(),
 });

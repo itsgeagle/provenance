@@ -57,6 +57,13 @@ export type SubmissionSummary = {
   flag_count: number;
   flag_counts: { info: number; low: number; medium: number; high: number };
   session_ids: string[];
+  /**
+   * Per-session metadata in bundle (chronological) order. Same source as
+   * session_ids — the already-loaded bundle + index — so it adds no query and
+   * no extra blob parse, and it saves the analyzer from paging the whole event
+   * stream just to label a submission's sessions.
+   */
+  sessions: { session_id: string; started_at: string | null; event_count: number }[];
   files: { path: string; final_length: number; saves: number }[];
   superseded: boolean;
   superseded_by_submission_id: string | null;
@@ -156,8 +163,13 @@ export async function getSubmissionSummary(
 
   // Query 3: session_ids from the stored bundle's sessions (events are no longer
   // persisted in Postgres; the bundle blob is the source of the event stream).
-  const { bundle } = await loadSubmissionIndex(db, storage, submissionId);
+  const { bundle, index } = await loadSubmissionIndex(db, storage, submissionId);
   const session_ids = bundle.sessions.map((s) => s.sessionId);
+  const sessions = bundle.sessions.map((s) => ({
+    session_id: s.sessionId,
+    started_at: s.firstEvent?.wall ?? null,
+    event_count: index.bySessionId.get(s.sessionId)?.length ?? 0,
+  }));
 
   // Query 4: per_file_stats for files list
   const fileRows = await db
@@ -219,6 +231,7 @@ export async function getSubmissionSummary(
     flag_count,
     flag_counts,
     session_ids,
+    sessions,
     files,
     superseded: row.superseded_by_submission_id !== null,
     superseded_by_submission_id: row.superseded_by_submission_id,

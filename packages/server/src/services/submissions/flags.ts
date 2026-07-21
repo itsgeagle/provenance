@@ -21,6 +21,12 @@ export type FlagRow = {
   confidence: number;
   weight_at_compute: number;
   score_contribution: number;
+  /**
+   * Per-instance prose from analysis-core. Empty string on rows written before
+   * migration 0020 — clients fall back to heuristic_id.
+   */
+  title: string;
+  description: string;
   detail: unknown;
   supporting_seqs: number[];
   session_id: string;
@@ -41,6 +47,8 @@ export async function getSubmissionFlags(db: DrizzleDb, submissionId: string): P
       confidence: flags.confidence,
       weight_at_compute: flags.weight_at_compute,
       score_contribution: flags.score_contribution,
+      title: flags.title,
+      description: flags.description,
       detail: flags.detail,
       supporting_seqs: flags.supporting_seqs,
       session_id: flags.session_id,
@@ -63,6 +71,8 @@ export async function getSubmissionFlags(db: DrizzleDb, submissionId: string): P
     confidence: r.confidence,
     weight_at_compute: r.weight_at_compute,
     score_contribution: r.score_contribution,
+    title: r.title,
+    description: r.description,
     detail: r.detail,
     supporting_seqs: r.supporting_seqs as number[],
     session_id: r.session_id,

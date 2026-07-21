@@ -19,6 +19,13 @@ import type { DrizzleDb } from '../../db/client.js';
 
 export type ValidationCheckRow = {
   id: string;
+  /**
+   * Human-readable check name ("Monotonic wall clock"). runAndStoreValidation
+   * writes the full ValidationCheck[] verbatim, so this has always been present
+   * in the stored jsonb — it was simply narrowed away here, leaving the
+   * analyzer to print raw ids. Optional because rows are read back untyped.
+   */
+  label?: string;
   status: 'pass' | 'fail' | 'warn' | 'skipped';
   detail?: string;
 };

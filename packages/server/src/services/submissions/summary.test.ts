@@ -278,3 +278,63 @@ describe('getSubmissionSummary — protected mode masking', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// sessions[] — per-session metadata
+// ---------------------------------------------------------------------------
+
+describe('getSubmissionSummary — sessions[]', () => {
+  it('reports one entry per session, in bundle order, with start time and event count', async () => {
+    await withTestMinio(async ({ client }) => {
+      await withTestDb(async (db) => {
+        const user = await seedUser(db);
+        const { semester } = await seedCourseAndSemester(db);
+        const student = await seedStudent(db, semester.id, {
+          sid: 'multi001',
+          displayName: 'Multi Session',
+        });
+        const assignment = await seedAssignment(db, semester.id);
+        const job = await seedIngestJob(db, semester.id, user.id);
+        const sub = await seedSubmission(db, {
+          semesterId: semester.id,
+          assignmentId: assignment.id,
+          studentId: student.id,
+          ingestJobId: job.id,
+          sourceFilename: 'multi_hw01.zip',
+        });
+
+        const sessionA = crypto.randomUUID();
+        const sessionB = crypto.randomUUID();
+        const { zipBuffer } = await buildTestBundle({
+          sessions: [
+            { sessionId: sessionA, eventCount: 3 },
+            { sessionId: sessionB, eventCount: 5 },
+          ],
+        });
+        await putSubmissionBundle(db, client, sub.id, new Uint8Array(zipBuffer));
+
+        const summary = await getSubmissionSummary(db, client, sub.id, false);
+        expect(summary).not.toBeNull();
+
+        // Bundle order is chronological (loader sorts oldest → newest), and
+        // sessions[] must line up index-for-index with session_ids.
+        expect(summary!.sessions.map((s) => s.session_id)).toEqual(summary!.session_ids);
+        expect(summary!.sessions).toHaveLength(2);
+
+        // Counts come from the index, so they reflect every event in the
+        // session — not just the ones any single view happens to render.
+        // buildTestBundle's eventCount is events AFTER session.start, so the
+        // indexed totals are one higher.
+        const byId = new Map(summary!.sessions.map((s) => [s.session_id, s]));
+        expect(byId.get(sessionA)!.event_count).toBe(4);
+        expect(byId.get(sessionB)!.event_count).toBe(6);
+
+        // started_at is the first event's wall clock, as a parseable ISO string.
+        for (const s of summary!.sessions) {
+          expect(s.started_at).not.toBeNull();
+          expect(Number.isNaN(Date.parse(s.started_at!))).toBe(false);
+        }
+      });
+    });
+  });
+});

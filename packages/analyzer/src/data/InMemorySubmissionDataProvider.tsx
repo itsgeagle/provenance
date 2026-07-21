@@ -68,6 +68,8 @@ function flagsToFlagRows(flags: Flag[]): FlagRow[] {
     severity: f.severity,
     confidence: f.confidence,
     score_contribution: 0, // in-memory path doesn't have server-side scoring
+    title: f.title,
+    description: f.description,
     detail: f.detail ?? null,
   }));
 }

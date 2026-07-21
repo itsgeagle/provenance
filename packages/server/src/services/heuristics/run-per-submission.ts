@@ -225,6 +225,8 @@ export async function runAndStoreHeuristics(
       confidence: flag.confidence,
       weight_at_compute: perFlagCfg.weight,
       score_contribution: scoreContribution,
+      title: flag.title,
+      description: flag.description,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- FFI: jsonb accepts JSON-serializable value
       detail: (flag.detail ?? {}) as any,
       supporting_seqs: globalIdxs,
