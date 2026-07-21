@@ -46,7 +46,7 @@ export type CandidatePaste = {
    *
    * Always present for `doc.change`-derived candidates (the recorder always
    * inlines delta text regardless of size). Absent for `paste` events that
-   * exceeded the 4 KB inline cap — those carry only sha256 + head/tail.
+   * exceeded the recorder's inline cap — those carry only sha256 + head/tail.
    */
   content: string | undefined;
   /**
@@ -138,7 +138,7 @@ export function* iterateCandidatePastes(index: EventIndex): Generator<CandidateP
 /**
  * Return the candidate's sha256 hex, computing it from `content` on demand
  * for doc.change-derived candidates. Returns undefined if the candidate has
- * neither a pre-computed hash nor inline content (e.g., a paste > 4 KB whose
+ * neither a pre-computed hash nor inline content (e.g., a paste over the recorder's inline cap whose
  * payload was empty — shouldn't happen because PastePayload always has a
  * sha256, but the type allows it).
  */

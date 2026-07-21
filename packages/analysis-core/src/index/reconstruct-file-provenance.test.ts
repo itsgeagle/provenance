@@ -225,7 +225,7 @@ describe('reconstructFileWithProvenance — paste', () => {
     expect(state.kindByGlobalIdx.get(paste.globalIdx)).toBe('paste');
   });
 
-  it('large paste (no inline content): content + provenance both cleared', async () => {
+  it('large paste (no inline content): content + provenance preserved, not attributed', async () => {
     const { zipBuffer } = await buildTestBundle({
       sessions: [
         {
@@ -261,8 +261,10 @@ describe('reconstructFileWithProvenance — paste', () => {
     const bundle = await loadBundleFrom(zipBuffer);
     const index = buildIndex(bundle);
     const state = reconstructFileWithProvenance(index, '/src/big.py');
-    expect(state.content).toBe('');
-    expect(state.provenance.length).toBe(0);
+    // POLICY (changed 2026-07): the pasted text is unknown, but the surrounding
+    // content is not — keep it. Matches the base replay; '' is never correct.
+    expect(state.content).toBe('before');
+    expect(state.provenance.length).toBe('before'.length);
   });
 });
 

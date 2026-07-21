@@ -18,7 +18,7 @@
  *
  * Content at the save point is obtained by counting characters in the
  * reconstructed content (upToGlobalIdx = globalIdx of the save event + 1).
- * This counts only typed + inline-paste content — large pastes (>4KB, no
+ * This counts only typed + inline-paste content — large pastes (over the recorder's inline cap, no
  * inline content) and external changes clear the reconstruction, so we skip
  * tainted reconstructions (empty content).
  *

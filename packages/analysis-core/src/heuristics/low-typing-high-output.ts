@@ -29,7 +29,7 @@
  * for legitimate reasons.
  *
  * Skips any file whose reconstruction is tainted (reconstructFile set
- * tainted=true due to fs.external_change or a large paste > 4 KB with no
+ * tainted=true due to fs.external_change or a large paste over the recorder's inline cap with no
  * inline content). In that case content cannot be reliably reconstructed.
  *
  * Severity by ratio bracket:

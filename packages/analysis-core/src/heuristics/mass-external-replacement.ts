@@ -136,7 +136,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
     // D1: the recorder reporting the editor's own save -- never a replacement.
     if (index.selfInflictedExternalChanges?.has(e.globalIdx)) continue;
 
-    // No inline post-change content (>4 KB file, so the recorder only stored
+    // No inline post-change content (a file over the recorder's inline cap, so it stored only
     // head/tail) means the overlap ratio is not computable and this heuristic
     // MUST NOT guess. It previously appeared to work here only as a side effect
     // of reconstruction zeroing its content on such events, which made overlap

@@ -52,7 +52,7 @@ import type { EventIndex } from './event-index.js';
  * `'external_change'` is set for `fs.external_change` events. When the
  * payload carries `new_content` (recorder v1.3+), every character in the
  * reseeded file is attributed to that event's globalIdx. When it doesn't
- * (>4 KB file, pre-v1.3 bundle), the entry is a sentinel — no provenance
+ * (a file over the recorder's inline cap), the entry is a sentinel — no provenance
  * position references it and downstream UI sees an empty region.
  *
  * Future UI work (Phase 14 gutter coloring) could render preexisting
@@ -86,7 +86,7 @@ export type FileReplayState = {
    * For `'external_change'` entries: when the payload carries `new_content`
    * (recorder v1.3+), every character in the reseeded content is attributed
    * to that globalIdx — so `provenance` positions DO reference it. When the
-   * payload lacks `new_content` (pre-v1.3 bundle, or a >4 KB file with only
+   * payload lacks `new_content` (a file over the recorder's inline cap, with only
    * head/tail), the entry is a sentinel and no provenance position
    * references it. Do not assume bijection in either direction when building
    * gutter/hover decoration logic.
@@ -413,11 +413,12 @@ export function reconstructFileWithProvenance(
         if (applied) {
           kindByGlobalIdx.set(e.globalIdx, 'paste');
         } else {
-          // Large paste (> 4 KB, no inline content) — clear both. We do NOT
-          // attribute the cleared state to the paste event in
-          // kindByGlobalIdx because there are no characters to attribute.
-          buf.cells = [''];
-          buf.provCells = [[]];
+          // Large paste over the recorder's inline cap: we can't know what
+          // landed, so keep the surrounding content and provenance rather than
+          // discarding them ('' is never the true content). Not attributed in
+          // kindByGlobalIdx — there are no characters to attribute. Matches the
+          // base replay in reconstruct-file.ts (pinned in lockstep by
+          // reconstruct-line-index.fuzz.test.ts).
         }
         break;
       }
@@ -458,7 +459,7 @@ export function reconstructFileWithProvenance(
           break;
         }
         if (newContent === null) {
-          // A real external write whose content we cannot see (>4 KB, so no
+          // A real external write whose content we cannot see (over the inline cap, so no
           // inline new_content). Keep the last known content and provenance
           // rather than zeroing: '' is never the true content, and the base
           // replay in reconstruct-file.ts applies the same policy (the two are

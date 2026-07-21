@@ -21,7 +21,7 @@
  * Specifically: shared_lines / candidate_lines ≥ pasteIsSolutionLineOverlap.
  *
  * Only candidates with inline content are eligible — paste events that exceed
- * the 4 KB inline cap omit content and cannot be checked this way. The line
+ * the recorder's inline cap omit content and cannot be checked this way. The line
  * overlap metric counts lines that appear on BOTH sides of the diff (i.e.,
  * lines that diffLines reports as unchanged).
  */
@@ -92,7 +92,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
 
   for (const c of iterateCandidatePastes(index)) {
     // Only candidates with inline content can be compared. Paste events that
-    // exceeded the 4 KB cap omit content; doc.change deltas always carry text.
+    // exceeded the recorder's inline cap omit content; doc.change deltas always carry text.
     if (c.content === undefined || c.content.length === 0) continue;
 
     const finalContent = getFinalContent(c.path);

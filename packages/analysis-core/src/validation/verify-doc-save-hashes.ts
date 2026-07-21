@@ -19,7 +19,8 @@
  *  - For paste events with inline content (content field present), we apply
  *    the paste to the current tracked state by inserting the content at the
  *    target range.
- *  - A paste event with no inline content (large paste > 4 KB, only head/tail
+ *  - A paste event with no inline content (a paste over the recorder's
+ *    inline cap, only head/tail
  *    + sha256 recorded) makes reconstruction impossible. In that case we mark
  *    subsequent saves up to the next recoverable point as 'indeterminate' and
  *    emit a pass with an explanation.
@@ -115,7 +116,7 @@ type FileState = {
   /** Incrementally-maintained line-start index for `content`. Invariant:
    *  `lineStarts[0] === 0` and stays consistent with `content`. */
   lineStarts: number[];
-  /** True if a large paste (> 4 KB, no inline content) was seen since the
+  /** True if a large paste (over the inline cap, no inline content) was seen since the
    *  last verified save. Content reconstruction is unreliable past this point. */
   indeterminate: boolean;
   /** True if a fs.external_change was seen since the last save. */

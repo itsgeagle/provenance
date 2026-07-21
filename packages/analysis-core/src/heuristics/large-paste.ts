@@ -88,7 +88,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
 
   for (const c of iterateCandidatePastes(index)) {
     // `length` is authoritative — present even when content was omitted (paste
-    // events that exceeded the 4 KB inline cap).
+    // events that exceeded the recorder's inline cap).
     const length = c.length;
 
     // Line count: count newlines in `content` if available. When the content

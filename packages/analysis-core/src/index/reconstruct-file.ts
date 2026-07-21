@@ -19,6 +19,19 @@ import type { EventIndex, IndexedEvent } from './event-index.js';
 // Result type
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// A note on "the recorder's inline cap"
+//
+// Comments across analysis-core refer to the cap rather than a fixed number on
+// purpose: it is RECORDER-VERSION-DEPENDENT, and a real corpus spans versions.
+// Through VS Code recorder 1.1.x it was 4 KB for both paste content and
+// fs.external_change content; later builds raise it to 64 KB (matching the
+// doc.open limit). analysis-core never hardcodes either value — every consumer
+// branches on whether the inline content field is PRESENT, so both generations
+// of bundle are handled by the same code path. Do not reintroduce a literal
+// threshold here; it would silently mis-describe half the corpus.
+// ---------------------------------------------------------------------------
+
 export type TaintReason = 'fs_external_change' | 'large_paste';
 
 export type TaintEntry = {
@@ -30,8 +43,8 @@ export type TaintEntry = {
  * The result of reconstructing a file's content.
  *
  * `content` is best-effort. It is accurate as long as no taint has been
- * encountered; after a taint event (fs.external_change or a large paste > 4 KB
- * with no inline content), `content` is reset to `''` and should not be
+ * encountered; after a taint event (fs.external_change or a large paste over the recorder's
+ * inline cap with no inline content), `content` is reset to `''` and should not be
  * treated as the true file content.
  *
  * `hashBySaveSeq` is always populated regardless of taint; the sha256 values
@@ -138,7 +151,7 @@ export function applyPaste(
   const p = payload as Record<string, unknown>;
 
   // Only inline pastes (content field present) can be applied.
-  // Pastes > 4 KB only record head/tail/length/sha256, not the full text.
+  // Pastes over the recorder's inline cap record only head/tail/length/sha256.
   if (typeof p['content'] !== 'string') {
     return { content, applied: false };
   }
@@ -435,7 +448,7 @@ export function reconstructFile(
       case 'paste': {
         const applied = applyPasteBuf(buf, e.payload);
         if (!applied) {
-          // Large paste (> 4 KB, no inline content): we can't know what landed,
+          // Large paste over the recorder's inline cap: we can't know what landed,
           // so mark the reconstruction unreliable — but keep the surrounding
           // content rather than discarding it.
           tainted = true;
@@ -445,7 +458,8 @@ export function reconstructFile(
       }
 
       case 'fs.external_change': {
-        // PRD §4.5. Recorder v1.3+ inlines the post-change content (≤ 4 KB)
+        // PRD §4.5. The recorder inlines the post-change content when it fits
+        // under its inline cap
         // and an optional `operation` discriminator ('modify' | 'delete' |
         // 'create', default 'modify' when absent).
         //
@@ -473,7 +487,7 @@ export function reconstructFile(
           tainted = true;
           buf.cells = [''];
         } else if (newContent === null) {
-          // A real external write we cannot see the content of (>4 KB, so no
+          // A real external write we cannot see the content of (over the cap, so no
           // inline new_content). Mark it unreliable, but KEEP the last known
           // content: '' is never the true content, whereas stale content is
           // frequently still correct — and callers gate on `tainted`.
