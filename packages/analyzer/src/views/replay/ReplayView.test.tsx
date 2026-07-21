@@ -419,7 +419,7 @@ describe('ReplayView', () => {
       expect(options[1]!.textContent).toContain('Session 2 of 2');
     });
 
-    it('reflects the active session as the selected option', async () => {
+    it('opens on the session named by the entry anchor', async () => {
       renderReplayView('sess2');
       await waitFor(() => {
         const select = screen.getByTestId('replay-session-select') as HTMLSelectElement;
@@ -427,14 +427,77 @@ describe('ReplayView', () => {
       });
     });
 
-    it('changing the switcher navigates to the other session', async () => {
+    it('follows the PLAYHEAD across a seam, not the URL', async () => {
+      // Regression: the switcher used to key off the route param, so it kept
+      // reporting the entry session no matter where playback had reached —
+      // "Session 1 of 2" while the playhead sat in session 2.
       renderReplayView('sess1');
-      const select = (await screen.findByTestId('replay-session-select')) as HTMLSelectElement;
-      expect(select.value).toBe('sess1');
-      fireEvent.change(select, { target: { value: 'sess2' } });
       await waitFor(() => {
-        const next = screen.getByTestId('replay-session-select') as HTMLSelectElement;
-        expect(next.value).toBe('sess2');
+        expect((screen.getByTestId('replay-session-select') as HTMLSelectElement).value).toBe(
+          'sess1',
+        );
+      });
+      expect(screen.getByTestId('replay-session-ordinal').textContent).toBe('1 / 2');
+
+      // globalIdx 0 is sess1's only event; one step forward lands in sess2.
+      fireEvent.click(screen.getByLabelText('Step forward'));
+
+      await waitFor(() => {
+        expect((screen.getByTestId('replay-session-select') as HTMLSelectElement).value).toBe(
+          'sess2',
+        );
+      });
+      expect(screen.getByTestId('replay-session-ordinal').textContent).toBe('2 / 2');
+    });
+
+    it('changing the switcher MOVES THE PLAYHEAD, not just the label', async () => {
+      // Regression: this used to navigate to /local/replay/<id>. React Router
+      // does not remount on a param change and nothing keys ReplayInner, so the
+      // mount-only URL→engine seek never re-fired: the label flipped and the
+      // playhead stayed exactly where it was. Asserting the select's own value
+      // (as this test once did) passes in both the broken and fixed worlds, so
+      // it asserts the transport position instead.
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'hw.py'), // 'A'
+        makeDocChangeEvent(1, 'sess1', 'hw.py'), // 'B'
+        makeDocChangeEvent(2, 'sess2', 'part2.py'), // 'C'
+        makeDocChangeEvent(3, 'sess2', 'part2.py'), // 'D'
+      ]);
+      renderReplayView('sess1');
+
+      const select = (await screen.findByTestId('replay-session-select')) as HTMLSelectElement;
+      expect(document.querySelector('[role="slider"]')?.getAttribute('aria-valuenow')).toBe('0');
+
+      fireEvent.change(select, { target: { value: 'sess2' } });
+
+      // Seeks to sess2's FIRST event — globalIdx 2, not 0 and not the end.
+      await waitFor(() => {
+        expect(document.querySelector('[role="slider"]')?.getAttribute('aria-valuenow')).toBe('2');
+      });
+      // And the reconstruction cut moved with it: part2.py holds only 'C'.
+      await waitFor(() => {
+        expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('C');
+      });
+    });
+
+    it('seeks backwards when picking an earlier session', async () => {
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'hw.py'),
+        makeDocChangeEvent(1, 'sess1', 'hw.py'),
+        makeDocChangeEvent(2, 'sess2', 'part2.py'),
+        makeDocChangeEvent(3, 'sess2', 'part2.py'),
+      ]);
+      renderReplayView('sess2', '?event=3');
+
+      const select = (await screen.findByTestId('replay-session-select')) as HTMLSelectElement;
+      await waitFor(() => {
+        expect(document.querySelector('[role="slider"]')?.getAttribute('aria-valuenow')).toBe('3');
+      });
+
+      fireEvent.change(select, { target: { value: 'sess1' } });
+
+      await waitFor(() => {
+        expect(document.querySelector('[role="slider"]')?.getAttribute('aria-valuenow')).toBe('0');
       });
     });
 

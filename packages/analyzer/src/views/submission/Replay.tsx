@@ -9,11 +9,14 @@
  *  3. useSubmissionData().useFlags() → flag list for "next flag" jumps
  *  4. <ReplayInner index={…} sessionId={…} flags={…} sourceFilename={…} showHeader={false}/>
  *
- * Session selection: URL ?session=… is the source of truth. A dropdown is
- * shown above ReplayInner only when the submission has >1 session.
+ * Session selection: ?session= (or the session holding ?event=) is only an ENTRY
+ * ANCHOR — where replay opens. It is never written back, because the playhead
+ * roams the whole bundle and a URL that kept asserting one session would go stale
+ * the moment playback crossed a seam. ?event= is the position of record, and the
+ * session dropdown belongs to ReplayInner, which drives it off the playhead.
  */
 
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import { useFullEventIndex } from '../../data/useFullEventIndex.js';
@@ -49,7 +52,7 @@ function toFlag(row: FlagRow): Flag {
 export function Replay() {
   const { submissionId = '' } = useParams<{ submissionId: string }>();
   const provider = useSubmissionData();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   const summaryQuery = provider.useSummary();
   const flagsQuery = provider.useFlags();
@@ -64,16 +67,6 @@ export function Replay() {
     if (urlSession !== null && sessionIds.includes(urlSession)) return urlSession;
     return sessionIds[0] ?? null;
   }, [urlSession, sessionIds]);
-
-  // Reconcile the URL when the user landed without ?session=, or with an
-  // invalid one. Replace (not push) so the back button still leaves the tab.
-  useEffect(() => {
-    if (sessionId === null) return;
-    if (urlSession === sessionId) return;
-    const next = new URLSearchParams(searchParams);
-    next.set('session', sessionId);
-    setSearchParams(next, { replace: true });
-  }, [sessionId, urlSession, searchParams, setSearchParams]);
 
   const sourceFilename = summaryQuery.data?.source_filename ?? '';
 
@@ -120,62 +113,10 @@ export function Replay() {
     );
   }
 
-  const showSwitcher = sessionIds.length > 1;
-
-  // Bound here rather than read inside the handler: TS does not carry the
-  // `index !== undefined` narrowing above into a hoisted function declaration.
-  const bySessionId = index.bySessionId;
-
-  function handleSessionChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const target = e.target.value;
-    const next = new URLSearchParams(searchParams);
-    next.set('session', target);
-    // The playhead is whole-bundle, not session-relative, so switching sessions
-    // is a SEEK to that session's first event rather than a reset. (This used to
-    // delete ?event= entirely, which discarded the position.)
-    const firstOfSession = bySessionId.get(target)?.[0];
-    if (firstOfSession !== undefined) {
-      next.set('event', String(firstOfSession.globalIdx));
-    } else {
-      next.delete('event');
-    }
-    setSearchParams(next);
-  }
-
+  // The session dropdown is ReplayInner's — it reads the playhead, so it stays
+  // correct as playback crosses seams and it seeks instead of rewriting the URL.
   return (
     <div className="flex h-full flex-col" data-testid="replay-tab-shell">
-      {showSwitcher && (
-        <div
-          className="flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-4 py-1.5 text-xs"
-          data-testid="replay-session-switcher"
-        >
-          <label htmlFor="replay-session-select" className="font-medium text-gray-600">
-            Session
-          </label>
-          <select
-            id="replay-session-select"
-            value={sessionId}
-            onChange={handleSessionChange}
-            className="rounded border border-gray-300 bg-white px-2 py-0.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {sessionIds.map((id, idx) => {
-              const events = index.bySessionId.get(id);
-              const eventCount = events?.length ?? 0;
-              const startWall = events?.[0]?.wall ?? null;
-              const label =
-                startWall !== null
-                  ? `${idx + 1}. ${new Date(startWall).toLocaleString()} (${eventCount} events)`
-                  : `${idx + 1}. ${id.slice(0, 8)}… (${eventCount} events)`;
-              return (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              );
-            })}
-          </select>
-          <span className="ml-2 font-mono text-[10px] text-gray-400">{sessionId.slice(0, 8)}…</span>
-        </div>
-      )}
       <div className="min-h-0 flex-1">
         <ReplayInner
           sessionId={sessionId}

@@ -5,9 +5,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import type { UseQueryResult } from '@tanstack/react-query';
 
 import { SubmissionDataContext } from '../../data/SubmissionDataProvider.js';
@@ -356,5 +356,139 @@ describe('Replay tab (v3)', () => {
     await waitFor(() => {
       expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('world');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session select — owned by ReplayInner, shared with the /local route
+// ---------------------------------------------------------------------------
+
+/** Renders the router's current query string so tests can assert on it. */
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location-probe">{location.search}</span>;
+}
+
+describe('Replay tab — session select', () => {
+  beforeEach(() => {
+    mockIndexResult.value = null;
+  });
+
+  /** sess-1 owns globalIdx 0-1, sess-2 owns 2-3. */
+  function renderTwoSessionTab(initialEntry: string) {
+    const wallBase = 1_700_000_000_000;
+    mockIndexResult.value = makeQueryResult(
+      buildIndexFromEventRows([
+        {
+          seq: 0,
+          session_id: 'sess-1',
+          t: 0,
+          wall: new Date(wallBase).toISOString(),
+          kind: 'session.start',
+          payload: {},
+        },
+        {
+          seq: 1,
+          session_id: 'sess-1',
+          t: 100,
+          wall: new Date(wallBase + 100).toISOString(),
+          kind: 'doc.open',
+          payload: { path: 'hw1.py', content: 'first' },
+        },
+        {
+          seq: 2,
+          session_id: 'sess-2',
+          t: 0,
+          wall: new Date(wallBase + 1000).toISOString(),
+          kind: 'session.start',
+          payload: {},
+        },
+        {
+          seq: 3,
+          session_id: 'sess-2',
+          t: 100,
+          wall: new Date(wallBase + 1100).toISOString(),
+          kind: 'doc.open',
+          payload: { path: 'part2.py', content: 'second' },
+        },
+      ]),
+    );
+
+    const provider = makeProvider();
+    const twoSessionProvider: SubmissionDataProvider = {
+      ...provider,
+      useSummary: () =>
+        makeQueryResult({
+          ...(provider.useSummary().data as SubmissionSummary),
+          session_ids: ['sess-1', 'sess-2'],
+        }),
+    };
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <Routes>
+            <Route
+              path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
+              element={
+                <SubmissionDataContext.Provider value={twoSessionProvider}>
+                  <Replay />
+                  <LocationProbe />
+                </SubmissionDataContext.Provider>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('renders exactly one session select — the tab no longer owns its own bar', async () => {
+    renderTwoSessionTab('/s/cs61a/fa26/sub/test-sub-id?session=sess-1');
+    await waitFor(() => {
+      expect(screen.getAllByTestId('replay-session-select')).toHaveLength(1);
+    });
+    // The tab's old bar carried a visible <label for=…>; ReplayInner's control
+    // uses aria-label. Two controls would mean the bars were duplicated, not moved.
+    expect(screen.getAllByTestId('replay-session-switcher')).toHaveLength(1);
+  });
+
+  it('seeks the playhead when a session is picked', async () => {
+    renderTwoSessionTab('/s/cs61a/fa26/sub/test-sub-id?session=sess-1');
+
+    const select = (await screen.findByTestId('replay-session-select')) as HTMLSelectElement;
+    expect(select.value).toBe('sess-1');
+
+    fireEvent.change(select, { target: { value: 'sess-2' } });
+
+    // sess-2's first event is globalIdx 2 (its session.start).
+    await waitFor(() => {
+      expect(document.querySelector('[role="slider"]')?.getAttribute('aria-valuenow')).toBe('2');
+    });
+    await waitFor(() => {
+      expect((screen.getByTestId('replay-session-select') as HTMLSelectElement).value).toBe(
+        'sess-2',
+      );
+    });
+  });
+
+  it('does not write ?session= back into the URL', async () => {
+    // ?session= is an entry anchor only. Rewriting it would leave the address
+    // bar asserting a session the playhead had already left.
+    renderTwoSessionTab('/s/cs61a/fa26/sub/test-sub-id?event=3');
+
+    // The anchor resolved to sess-2 (globalIdx 3 lives there)…
+    await waitFor(() => {
+      expect((screen.getByTestId('replay-session-select') as HTMLSelectElement).value).toBe(
+        'sess-2',
+      );
+    });
+
+    // …and it did so without the router's URL ever gaining a ?session= param.
+    // (window.location is useless here — MemoryRouter never touches it.)
+    const search = screen.getByTestId('location-probe').textContent ?? '';
+    expect(search).toContain('event=');
+    expect(search).not.toContain('session=');
   });
 });
