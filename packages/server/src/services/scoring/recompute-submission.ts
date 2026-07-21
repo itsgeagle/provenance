@@ -1,8 +1,8 @@
 /**
  * recomputeSubmission — Phase 13b per-submission heuristic recompute service.
  *
- * Reconstructs a minimal Bundle stub from DB events + validation_results,
- * runs the full heuristic suite, and either:
+ * Loads the Bundle from its stored blob, re-runs validation, runs the full
+ * heuristic suite, and either:
  *   - Updates flags + submission score in a single transaction (simulate=false).
  *   - Returns prospective scores without any DB writes (simulate=true).
  *
@@ -19,13 +19,18 @@
  * services/heuristics/reconstruct-bundle.ts (extracted in Phase 14 so
  * run-cross.ts can reuse the same logic). See V31 + V32 for design decisions.
  *
- * ## ValidationReport reconstruction
+ * ## ValidationReport
  *
  * `integrityFlagsFromReport` (called by runHeuristics) reads the ValidationReport
- * to produce chain_broken / manifest_sig_invalid / etc. flags. We reconstruct
- * ValidationReport from the DB `validation_results` row — the `detail` column
- * stores the full checks array as jsonb. If no validation_results row exists,
- * we use a default "pass" report (integrity flags will not fire).
+ * to produce chain_broken / manifest_sig_invalid / etc. flags.
+ *
+ * We RE-RUN validation here rather than reading the stored `validation_results`
+ * row. Reusing the stored row meant a recompute could never correct a wrong
+ * validation verdict — and since the report feeds runHeuristics, a stale
+ * check-8 failure kept re-emitting a high-severity flag on every recompute.
+ * Re-running is safe against a stored, source-stripped bundle: every check
+ * reads the signed manifest, the .slog chain, or recorded event hashes, none of
+ * which are stripped. simulate=true computes the report without persisting it.
  *
  * ## Transaction contract
  *
@@ -54,6 +59,8 @@ import { withTransaction } from '../../db/client.js';
 import type { StorageClient } from '../storage/client.js';
 import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { reconstructBundleFromDb } from '../heuristics/reconstruct-bundle.js';
+import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
+import { runAndStoreValidation } from '../ingest/validation.js';
 import { computeScore } from './compute.js';
 import { computeFlagCounts, computeTopFlags } from './denorm.js';
 
@@ -231,11 +238,31 @@ export async function recomputeSubmission(
   // Delegates to the shared reconstructBundleFromDb helper (extracted in
   // Phase 14 for reuse by run-cross.ts). See V31/V32 for strategy rationale.
   // -------------------------------------------------------------------------
-  const {
-    bundle,
-    index: reconstructedIndex,
-    validationReport,
-  } = await reconstructBundleFromDb(db, storage, submissionId);
+  const { bundle, index: reconstructedIndex } = await reconstructBundleFromDb(
+    db,
+    storage,
+    submissionId,
+  );
+
+  // -------------------------------------------------------------------------
+  // Step 1b: RE-RUN validation against the freshly parsed bundle.
+  //
+  // reconstructBundleFromDb returns the STORED validation_results row, which is
+  // whatever ingest computed at the time — with whatever analyzer bugs were
+  // live then. Reusing it means a recompute can never correct a wrong
+  // validation verdict, and (because runHeuristics takes the report as input)
+  // a stale check-8 failure keeps re-emitting a high-severity flag forever.
+  //
+  // Re-running is safe against a stored, source-stripped bundle: every check
+  // reads the signed manifest, the .slog chain, or recorded event hashes, all
+  // of which survive stripping. Check 8's tamper sub-check is gated on
+  // submitted bytes actually being present (see verify-submitted-code.ts).
+  //
+  // simulate = dry-run: compute the report but persist nothing.
+  // -------------------------------------------------------------------------
+  const validationReport = simulate
+    ? await runValidation(bundle)
+    : await runAndStoreValidation(db, submissionId, bundle);
 
   // -------------------------------------------------------------------------
   // Step 2: Build EventIndex and run heuristics.
