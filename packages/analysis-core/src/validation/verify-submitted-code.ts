@@ -20,6 +20,7 @@
  * 1.1 bundles with at least one matching file can reach overall 'pass'.
  */
 import type { HashedEnvelope } from '@provenance/log-core';
+import { resolveAliasesForBundle } from '../index/build-index.js';
 import type { Bundle } from '../loader/types.js';
 import type { ValidationCheck } from './check-types.js';
 
@@ -34,11 +35,21 @@ export type SubmittedFileVerdict = {
   supportingSeqs: Array<{ sessionId: string; seq: number }>;
 };
 
-/** Last recorded on-disk hash per file, scanning all sessions in order. */
+/**
+ * Last recorded on-disk hash per file, scanning all sessions in order.
+ *
+ * Paths are canonicalized through the workspace-root alias map (D3) first. A
+ * student who worked on one file from two different workspace roots records it
+ * under two relative paths; without this, check 8 looks up only the manifest's
+ * spelling and finds a STALE save from whichever sessions used that root —
+ * then reports "File was changed outside the recording" against a submission
+ * that matches the log exactly. See `.notes/reconstruction-triage.md` (D3).
+ */
 function lastRecordedHashes(
   bundle: Bundle,
 ): Map<string, { sha: string; sessionId: string; seq: number }> {
   const out = new Map<string, { sha: string; sessionId: string; seq: number }>();
+  const aliases = resolveAliasesForBundle(bundle);
   for (const session of bundle.sessions) {
     for (const event of session.events as readonly HashedEnvelope[]) {
       let path: string | undefined;
@@ -53,7 +64,7 @@ function lastRecordedHashes(
         sha = d.new_hash;
       }
       if (path !== undefined && sha !== undefined) {
-        out.set(path, { sha, sessionId: session.sessionId, seq: event.seq });
+        out.set(aliases.get(path) ?? path, { sha, sessionId: session.sessionId, seq: event.seq });
       }
     }
   }

@@ -11,6 +11,7 @@
 import type { EventKind } from '@provenance/log-core';
 import type { Bundle } from '../loader/types.js';
 import type { EventIndex, IndexedEvent } from './event-index.js';
+import { isSelfInflictedSave } from './reconstruct-file.js';
 
 // ---------------------------------------------------------------------------
 // File-path extraction
@@ -57,16 +58,100 @@ export function getFileFromPayload(kind: EventKind, payload: unknown): string | 
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve workspace-root path aliases (D3).
+ *
+ * Paths are recorded relative to whichever folder the student opened. A student
+ * who works on one file from two different workspace roots produces two
+ * different relative paths for it — `hw.py` from the assignment folder, and
+ * `sub/hw.py` from its parent. They then index as two unrelated files and the
+ * events from one root are silently orphaned.
+ *
+ * Returns a map of alias path → canonical (manifest-named) path. An alias is
+ * only accepted when ALL of the following hold:
+ *
+ *   - the canonical path `P` is named in the manifest's submission_files,
+ *   - the alias `X/P` is NOT itself named in submission_files (it would be a
+ *     real, distinct submitted file),
+ *   - the two paths appear in DISJOINT session sets.
+ *
+ * The disjointness rule is what makes this safe. A single workspace root yields
+ * exactly one relative path per file, so a genuine alias can never appear
+ * alongside its canonical form inside one session. Two genuinely different
+ * files that merely share a basename (`hw.py` and `old/hw.py`, both real) would
+ * be edited from the same root and therefore appear together in at least one
+ * session — so they are left alone. When in doubt this refuses to merge, which
+ * is the safe direction: an un-merged file reconstructs partially, a wrongly
+ * merged one reconstructs garbage.
+ *
+ * See `.notes/reconstruction-triage.md` (D3).
+ */
+export function resolveWorkspaceRootAliases(
+  bundle: Bundle,
+  sessionsByPath: ReadonlyMap<string, ReadonlySet<string>>,
+): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const manifestPaths = new Set(
+    (bundle.manifest.submission_files ?? [])
+      .map((f) => f.path)
+      .filter((p) => typeof p === 'string'),
+  );
+  if (manifestPaths.size === 0) return aliases;
+
+  for (const [candidate, candidateSessions] of sessionsByPath) {
+    if (manifestPaths.has(candidate)) continue; // already canonical
+    for (const canonical of manifestPaths) {
+      if (!candidate.endsWith('/' + canonical)) continue;
+      const canonicalSessions = sessionsByPath.get(canonical);
+      if (canonicalSessions === undefined) continue;
+      let overlaps = false;
+      for (const s of candidateSessions) {
+        if (canonicalSessions.has(s)) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (!overlaps) aliases.set(candidate, canonical);
+      break;
+    }
+  }
+  return aliases;
+}
+
+/**
  * Build an EventIndex from a fully-loaded Bundle.
  *
  * Algorithm:
  *  1. Flatten all events from all sessions into a single array, tagging each
  *     with its sessionId.
+ *  1b. Canonicalize workspace-root path aliases (D3) so one file has one key.
  *  2. Sort by (wall, sessionId, seq) — wall is the primary key; ties are
  *     broken deterministically by sessionId then seq.
  *  3. Walk the sorted array once, assigning globalIdx and populating all
  *     index maps in a single pass.
  */
+/**
+ * Compute the workspace-root alias map for a bundle without building a full
+ * index. Used by consumers that scan `bundle.sessions` directly (e.g. check 8,
+ * `verify-submitted-code.ts`) so they resolve the same canonical paths that
+ * `buildIndex` does. Same rules — see `resolveWorkspaceRootAliases`.
+ */
+export function resolveAliasesForBundle(bundle: Bundle): Map<string, string> {
+  const sessionsByPath = new Map<string, Set<string>>();
+  for (const session of bundle.sessions) {
+    for (const envelope of session.events) {
+      const file = getFileFromPayload(envelope.kind, envelope.data);
+      if (file === undefined) continue;
+      let set = sessionsByPath.get(file);
+      if (set === undefined) {
+        set = new Set();
+        sessionsByPath.set(file, set);
+      }
+      set.add(session.sessionId);
+    }
+  }
+  return resolveWorkspaceRootAliases(bundle, sessionsByPath);
+}
+
 export function buildIndex(bundle: Bundle): EventIndex {
   // ---------------------------------------------------------------------------
   // Step 1: flatten
@@ -98,6 +183,31 @@ export function buildIndex(bundle: Bundle): EventIndex {
         event.file = file;
       }
       flat.push(event);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 1b: canonicalize workspace-root path aliases (D3).
+  //
+  // Done before sorting/indexing so every downstream consumer — byFile,
+  // reconstruction, heuristics, stats — sees one file under one key.
+  // ---------------------------------------------------------------------------
+  const sessionsByPath = new Map<string, Set<string>>();
+  for (const f of flat) {
+    if (f.file === undefined) continue;
+    let set = sessionsByPath.get(f.file);
+    if (set === undefined) {
+      set = new Set();
+      sessionsByPath.set(f.file, set);
+    }
+    set.add(f.sessionId);
+  }
+  const pathAliases = resolveWorkspaceRootAliases(bundle, sessionsByPath);
+  if (pathAliases.size > 0) {
+    for (const f of flat) {
+      if (f.file === undefined) continue;
+      const canonical = pathAliases.get(f.file);
+      if (canonical !== undefined) f.file = canonical;
     }
   }
 
@@ -172,7 +282,25 @@ export function buildIndex(bundle: Bundle): EventIndex {
     sessionArr.push(event);
   }
 
-  return { bySeq, byKind, byFile, bySessionId, ordered };
+  // D1: identify recorder-self-inflicted external changes once, so
+  // reconstruction and all heuristics share one verdict.
+  const selfInflictedExternalChanges = new Set<number>();
+  for (const events of byFile.values()) {
+    for (let i = 0; i < events.length; i++) {
+      if (events[i]!.kind !== 'fs.external_change') continue;
+      if (isSelfInflictedSave(events, i)) selfInflictedExternalChanges.add(events[i]!.globalIdx);
+    }
+  }
+
+  return {
+    bySeq,
+    byKind,
+    byFile,
+    bySessionId,
+    ordered,
+    pathAliases,
+    selfInflictedExternalChanges,
+  };
 }
 
 // ---------------------------------------------------------------------------

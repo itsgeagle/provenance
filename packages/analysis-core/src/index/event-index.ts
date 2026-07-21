@@ -67,4 +67,24 @@ export type EventIndex = {
   bySessionId: Map<string, IndexedEvent[]>;
   /** All events, sorted chronologically across sessions. */
   ordered: IndexedEvent[];
+  /**
+   * Workspace-root path aliases that were canonicalized away (D3): alias path →
+   * canonical manifest path. Empty in the normal case. Exposed so the UI can
+   * explain why events recorded under `sub/hw.py` appear under `hw.py`.
+   * See `resolveWorkspaceRootAliases`. Optional: hand-built indexes in tests
+   * and `buildIndexFromEventRows` omit it.
+   */
+  pathAliases?: Map<string, string>;
+  /**
+   * globalIdx of every `fs.external_change` reclassified as the recorder
+   * reacting to the editor's own save rather than a third-party write (D1).
+   *
+   * Computed once here so reconstruction and every heuristic agree on which
+   * events are real. Consumers that report on external changes MUST skip these
+   * — they describe something that never happened. They are kept in `byKind`
+   * and `ordered` rather than deleted so the timeline can still show them as
+   * reclassified. See `isSelfInflictedSave` and
+   * `.notes/external-change-false-positives.md`.
+   */
+  selfInflictedExternalChanges?: Set<number>;
 };
