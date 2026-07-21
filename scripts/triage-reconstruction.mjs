@@ -56,12 +56,15 @@
  * Requires `npm run build` (or at least a built packages/analysis-core/dist).
  * Run from the repo root so the workspace package resolves.
  *
- * PRIVACY: prints only paths, hashes, counts and verdicts. It never emits file
- * contents, event payloads, or bundle metadata (names, emails, submission ids).
+ * PRIVACY: emits only storage paths, semester/submission ids, hashes, counts and
+ * verdicts. It never emits file contents, event payloads, or student-identifying
+ * metadata (names, emails, LMS submission ids). The submission id is the DB row
+ * UUID — pseudonymous, but joinable back to a student via the database, so treat
+ * a --json report as operational data, not something to paste around.
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
-import { join, extname, basename } from 'node:path';
+import { join, extname, basename, relative, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 
 let analysisCore;
@@ -162,7 +165,31 @@ async function filterUnexpectedEntries(bytes) {
 // file could share a basename. We never assume: both the aliased and un-aliased
 // replays are run, and whichever reproduces the signed manifest hash wins. The
 // manifest is the arbiter, so a wrong guess can't silently corrupt a verdict.
+//
+// (Definitions below; the bundle-identity helper comes first.)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Bundle identity
+//
+// On the `fs` storage backend every stored bundle is literally named
+// `bundle.zip` (see packages/server/src/services/storage/keys.ts):
+//
+//   {STORAGE_ROOT}/semesters/{semesterId}/submissions/{submissionId}/bundle.zip
+//
+// so a basename is useless across a corpus. Report a path instead, and pull the
+// semester / submission ids out of the key layout when they are present so a
+// finding can be tied back to a DB row.
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY_RE = /semesters\/([^/]+)\/submissions\/([^/]+)\/[^/]+$/;
+
+function describeBundle(zipPath) {
+  const rel = relative(process.cwd(), zipPath);
+  const label = rel.startsWith('..') ? zipPath : rel;
+  const m = STORAGE_KEY_RE.exec(zipPath.split(sep).join('/'));
+  return m ? { bundle: label, semesterId: m[1], submissionId: m[2] } : { bundle: label };
+}
 
 function aliasCandidates(index, manifestPath) {
   const keys = [...index.byFile.keys()];
@@ -313,7 +340,7 @@ async function triageBundle(zipPath) {
     ).catch((e) => ({ ok: false, error: { kind: 'threw', detail: String(e?.message ?? e) } }));
     if (!retry.ok) {
       return {
-        bundle: basename(zipPath),
+        ...describeBundle(zipPath),
         verdict: 'load-failed',
         loaderRejectedStock,
         droppedEntries,
@@ -402,7 +429,7 @@ async function triageBundle(zipPath) {
     : 'no-submission-files';
 
   return {
-    bundle: basename(zipPath),
+    ...describeBundle(zipPath),
     verdict,
     loaderRejectedStock,
     droppedEntries,
@@ -429,7 +456,10 @@ function printBundle(r, opts) {
   const interesting = r.verdict !== 'already-ok';
   if (!interesting && !opts.verbose) return;
 
-  console.log(`${LABEL[r.verdict] ?? r.verdict}  ${r.bundle}`);
+  console.log(
+    `${LABEL[r.verdict] ?? r.verdict}  ${r.submissionId ? `submission=${r.submissionId}` : r.bundle}`,
+  );
+  if (r.submissionId) console.log(`    ${r.bundle}`);
   if (r.verdict === 'load-failed') {
     console.log(`    loader error: ${JSON.stringify(r.error)}`);
     return;
@@ -522,7 +552,7 @@ for (const z of zips) {
     printBundle(r, opts);
   } catch (e) {
     const r = {
-      bundle: basename(z),
+      ...describeBundle(z),
       verdict: 'load-failed',
       // Message only — a corpus-wide run should stay readable. Re-run the one
       // bundle with NODE_OPTIONS=--stack-trace-limit=50 if you need the stack.
