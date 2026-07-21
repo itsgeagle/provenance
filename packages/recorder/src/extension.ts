@@ -213,7 +213,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
       await activeSession?.writer.flush();
 
       const result = await sealBundle({
-        workspaceFolder,
+        assignmentRoot: workspaceFolder.uri.fsPath,
         provenanceDir: session.provenanceDir,
         assignmentId: session.manifest.assignment_id,
         semester: session.manifest.semester,
@@ -394,10 +394,7 @@ function registerSealCommand(context: vscode.ExtensionContext, extensionDistPath
       await chosen.writer.flush();
 
       const result = await sealBundle({
-        // seal.ts's SealDeps still takes `workspaceFolder` (renamed to `assignmentRoot` in
-        // Task 8, not yet run) — it only ever reads `.uri.fsPath` off this, so a minimal
-        // cast produces identical behavior without pre-empting that rename.
-        workspaceFolder: { uri: { fsPath: chosen.assignmentRoot } } as vscode.WorkspaceFolder,
+        assignmentRoot: chosen.assignmentRoot,
         provenanceDir: chosen.provenanceDir,
         assignmentId: chosen.manifest.assignment_id,
         semester: chosen.manifest.semester,
