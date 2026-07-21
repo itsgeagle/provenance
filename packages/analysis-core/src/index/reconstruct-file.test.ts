@@ -826,6 +826,122 @@ describe('reconstructFile — self-inflicted fs.external_change (D1)', () => {
     expect(recon.tainted).toBe(true);
     expect(recon.suppressedExternalChanges).toHaveLength(0);
   });
+
+  it('looks past selection.change events when finding the following save', async () => {
+    // `byFile` carries selection.change too (it has a `path`), and a cursor move
+    // routinely lands between the bogus event and the doc.save emitted from the
+    // same continuation. Anchoring on the literal next element made the rule
+    // miss those. A caret move is not a content event, so it can never be
+    // evidence that something wrote the file.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:01.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'aaa',
+                diff_size: 1,
+                operation: 'modify',
+              },
+            },
+            {
+              // The caret moves between the two — this is what defeated the rule.
+              kind: 'selection.change',
+              wall: '2026-01-01T00:05:01.001Z',
+              data: {
+                path: '/src/app.py',
+                range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
+                was_selection: false,
+              },
+            },
+            {
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:01.002Z',
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(false);
+    expect(recon.taintReasons).toHaveLength(0);
+    expect(recon.suppressedExternalChanges).toHaveLength(1);
+  });
+
+  it('does NOT look past a doc.change when finding the following save', async () => {
+    // Only non-content events are skipped. An intervening edit means the save
+    // that follows is a different save than the one the bogus event rode in
+    // with, so the same-continuation timing argument no longer holds.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:01.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'aaa',
+                diff_size: 4000,
+                operation: 'modify',
+              },
+            },
+            {
+              kind: 'doc.change',
+              wall: '2026-01-01T00:05:01.200Z',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'x',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              // Inside D1's 1 s window: only the intervening edit stops the rule.
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:01.400Z',
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -440,13 +440,44 @@ export function isSelfInflictedSave(events: ReadonlyArray<IndexedEvent>, i: numb
 }
 
 /**
+ * Event kinds that appear in a file's event list but cannot be evidence that
+ * anything wrote the file, and are therefore skipped when D1 looks for "the
+ * next event".
+ *
+ * `byFile` is keyed off any payload carrying a `path`, so it interleaves cursor
+ * moves with content events — in a real bundle `selection.change` outnumbers
+ * `doc.save` several to one. A caret move landing between the bogus
+ * `fs.external_change` and the `doc.save` emitted from the same continuation
+ * used to defeat the rule outright.
+ *
+ * Deliberately narrow: only kinds that provably cannot change file content
+ * belong here. Anything that can (`doc.change`, `paste`) must continue to break
+ * the match, because it means the following save is a *different* save than the
+ * one the bogus event rode in with — which is exactly what D1's
+ * same-continuation timing argument rests on.
+ */
+const NON_CONTENT_FILE_EVENT_KINDS = new Set<string>(['selection.change']);
+
+/** The next event for this file that could have changed its content. */
+function nextContentEvent(
+  events: ReadonlyArray<IndexedEvent>,
+  i: number,
+): IndexedEvent | undefined {
+  for (let j = i + 1; j < events.length; j++) {
+    const candidate = events[j]!;
+    if (!NON_CONTENT_FILE_EVENT_KINDS.has(candidate.kind)) return candidate;
+  }
+  return undefined;
+}
+
+/**
  * D1 — the save-path signature.
  *
  * The recorder's `onDidSaveTextDocument` handler reads disk asynchronously and
  * compares against a model that a keystroke has already advanced, then emits
  * both the bogus change and the real `doc.save` from the same continuation. So:
  *
- *   - the very next event for this file is a `doc.save`,
+ *   - the next CONTENT event for this file is a `doc.save`,
  *   - in the same session,
  *   - whose `sha256` equals this event's `new_hash` — i.e. the "external"
  *     content is byte-identical to what the editor itself wrote, and
@@ -461,7 +492,7 @@ function matchesFollowingSave(
   newHash: string,
 ): boolean {
   const e = events[i]!;
-  const next = events[i + 1];
+  const next = nextContentEvent(events, i);
   if (next === undefined) return false;
   if (next.kind !== 'doc.save') return false;
   if (next.sessionId !== e.sessionId) return false;
