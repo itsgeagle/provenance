@@ -1,7 +1,7 @@
 # Multi-session replay + unified events page
 
 **Date:** 2026-07-20
-**Status:** Approved, not yet implemented
+**Status:** Implemented (2026-07-21)
 **Scope:** `packages/analyzer` only. No changes to `log-core`, `analysis-core`, `shared`, `server`, or `recorder`.
 
 ## Problem
