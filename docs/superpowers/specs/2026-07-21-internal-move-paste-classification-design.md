@@ -57,49 +57,85 @@ paste or external change.
 ## Architecture
 
 One new module, `packages/analysis-core/src/heuristics/internal-move.ts`, plus a
-context builder that reuses the existing provenance replay primitives.
+small **optional observer hook** on the existing provenance replay.
 
 ```
 iterateCandidatePastes(index)              ← unchanged (candidate-pastes.ts)
-        ↓  collect globalIdxs of candidates clearing a size gate
-buildMoveContext(index, candidateIdxs)     ← new: ONE replay pass per file
-        ↓
-classifyCandidate(candidate, ctx)          ← 'internal_move' | 'external' | 'unknown'
-        ↓
+        ↓  collect snapshot points: candidate idxs + deletion-site idxs
+classifyInternalMoves(index, config)       ← new: ONE replay pass per file
+        ↓  Map<candidate ordinal, MoveResult>
 large_paste, paste_is_solution consult the classification
 ```
 
-### `buildMoveContext(index, candidateIdxs, config)`
+### The observer hook
 
-Performs **one provenance replay pass per tracked file**, not one per paste. The
-candidate `globalIdx` values are known before the pass starts, so snapshots are
-captured in-stream. Reuses the exported `spliceWithProvenance`
-(`index/reconstruct-file-provenance.ts:231`) rather than reimplementing splice
-logic.
+`reconstructFileWithProvenance` gains an optional 4th parameter:
 
-During the pass it records:
+```ts
+export type ReplayObserver = {
+  /** Ascending globalIdxs at which to capture pre-event state. */
+  snapshotAt: number[];
+  onSnapshot(globalIdx: number, state: FileReplayState): void;
+};
+```
 
-- **Snapshots.** At each requested `globalIdx`, the file's content plus its
-  per-character provenance-kind array.
+The observer is purely **observational** — when omitted, behaviour is
+byte-for-byte identical, which the existing `reconstruct-line-index.fuzz.test.ts`
+lockstep test continues to guarantee. When present, the memo cache is bypassed
+(a cache hit would skip the loop and fire no snapshots).
 
-  **Size gate:** a candidate requests a snapshot only if its inserted length is
-  ≥ `internalMove.minBlobChars`. Candidates below the gate are classified
-  `'external'` without a snapshot — fail-closed, consistent with the rest of the
-  classifier. The gate is deliberately `minBlobChars` and not
-  `largePaste.minChars`: `paste_is_solution` has no size minimum of its own
-  (`paste-is-solution.ts:96` accepts any non-empty content), so gating on the
-  `large_paste` threshold would leave small `paste_is_solution` candidates
-  unclassifiable. A paste under `minBlobChars` cannot match a ledger blob anyway,
-  since blobs below that size are never recorded.
+Firing rule: before processing an event, fire every pending `snapshotAt` value
+`v <= e.globalIdx`; after the loop, fire any remaining values. That yields "state
+of this file after all its events with globalIdx < v" — correct both for the file
+containing the candidate and for every other file, which has no event at `v` at
+all.
 
-  Snapshot count is therefore bounded by the number of non-trivial pastes —
-  single-digit to low-tens on a typical submission, not one per keystroke.
-- **Deletion ledger.** Every removed span, as `{ text, dominantKind, globalIdx,
-  path }`. This is what makes cut-then-paste detectable: at the instant of the
-  paste, the text no longer exists in any file.
+**This does not touch `spliceBuf`.** An earlier draft proposed reusing the
+exported `spliceWithProvenance` (`reconstruct-file-provenance.ts:231`); that
+function is a **test-only export** operating on flat offsets. The real replay
+uses the cell-based `spliceBuf`, and routing edits through the flat version would
+reintroduce the O(L²) interior-edit behaviour that `docs/ingest-complexity.md`
+records as a fixed bug. Design note A31 in that file also states the two replay
+implementations are deliberately kept separate and pinned by fuzz tests rather
+than unified — so the observer adds a hook to the one engine rather than building
+a second.
 
-Cost is the same order as the `reconstructFileWithProvenance` calls
-`paste_is_solution` already makes.
+### Obtaining the deletion ledger without touching the splice path
+
+Deleted text is not recoverable from an event payload alone — a delta records the
+*range* removed, not the characters. Rather than instrumenting `spliceBuf`, the
+classifier **adds deletion sites to the same `snapshotAt` list** and reads the
+removed text out of the pre-event snapshot.
+
+Deletion sites are pre-filtered from payloads, cheaply and without content: any
+`doc.change` delta (or `paste` over a non-empty range) whose range spans ≥ 2
+lines, or spans ≥ `minBlobChars` characters on a single line. Exact byte length
+is then measured against the snapshot; spans below `minBlobChars` are discarded.
+This keeps the extra snapshot count in the tens, not one per keystroke.
+
+### Two matching phases
+
+- **Live-content match**, during the replay passes. A candidate's text is matched
+  against each file's snapshot at the candidate's `globalIdx`. Yields
+  `via: 'copy'`.
+- **Ledger match**, after all passes complete. Ledger entries carry their own
+  text, provenance kind, and `globalIdx`, so this phase needs no replay state at
+  all — just entries with `globalIdx < candidate.globalIdx`. Yields `via: 'cut'`.
+
+Because ledger matching is deferred to after every file's pass, a **single**
+replay pass per file suffices even for cross-file cut-and-paste. Cost is the same
+order as the `reconstructFileWithProvenance` calls `paste_is_solution` already
+makes.
+
+**Size gate:** a candidate requests a snapshot only if its inserted length is
+≥ `internalMove.minBlobChars`. Candidates below the gate are classified
+`'external'` without a snapshot — fail-closed, consistent with the rest of the
+classifier. The gate is deliberately `minBlobChars` and not `largePaste.minChars`:
+`paste_is_solution` has no size minimum of its own (`paste-is-solution.ts:96`
+accepts any non-empty content), so gating on the `large_paste` threshold would
+leave small `paste_is_solution` candidates unclassifiable. A paste under
+`minBlobChars` cannot match a ledger blob anyway, since blobs below that size are
+never recorded.
 
 ### Deletion ledger policy
 
@@ -208,7 +244,12 @@ the downgrade fires with the expected title/severity/detail, and
 
 ## Expected diff size
 
-~250 lines of new code across 2 new files; ~30 lines of edits across
-`large-paste.ts`, `paste-is-solution.ts`, `config.ts`, plus a `docs/heuristics.md`
-row. This exceeds the ~200-line guidance in CLAUDE.md, but splitting it would
-ship a classifier that nothing consumes.
+~350 lines of new code across 2 new files (`internal-move.ts`,
+`internal-move.test.ts`); ~25 lines added to `reconstruct-file-provenance.ts` for
+the observer hook; ~40 lines of edits across `large-paste.ts`,
+`paste-is-solution.ts`, `config.ts`, plus a `docs/heuristics.md` row.
+
+This exceeds the ~200-line guidance in CLAUDE.md. Splitting it would ship a
+classifier that nothing consumes, so it stays one change — but the observer hook
+lands as its own commit with its own tests, ahead of anything that uses it, so
+the load-bearing edit to the replay engine can be reviewed in isolation.
