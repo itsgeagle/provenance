@@ -35,8 +35,8 @@ surfaces throw that away.
 ### P2. The server-backed events page is a stub
 
 `views/submission/Timeline.tsx` is a bespoke simplified list. Its own header comment
-says so: *"A simplified event list (not the full v2 TimelineView with Monaco).
-Phase 24/25 can integrate deeper with the v2 primitives."* It:
+says so: _"A simplified event list (not the full v2 TimelineView with Monaco).
+Phase 24/25 can integrate deeper with the v2 primitives."_ It:
 
 - caps at 500 rows (`events.slice(0, 500)`, line 84) over a `useEvents()` query
   already hard-capped at `limit=2000` — so large submissions silently show a
@@ -53,7 +53,7 @@ Meanwhile the `/local` route has the full experience: `FilterBar` + virtualized
 The server-backed **Replay** tab already solved the "server rows → EventIndex"
 problem. `data/useFullEventIndex.ts` pages `GET /submissions/:id/events` to
 exhaustion and calls `buildIndexFromEventRows`, producing a real `EventIndex`;
-`views/submission/Replay.tsx` then mounts the *same* `ReplayInner` the local route
+`views/submission/Replay.tsx` then mounts the _same_ `ReplayInner` the local route
 uses. Timeline simply never got that treatment.
 
 ## Design
@@ -189,12 +189,12 @@ Seam positions render as ticks on the slider with the real gap in the tooltip.
 #### 1.9 Routing
 
 Both replay entry points keep their current URL shape; the session identifier
-changes meaning from *scope* to *entry anchor*.
+changes meaning from _scope_ to _entry anchor_.
 
-| Route | Today | After |
-|---|---|---|
+| Route                      | Today                     | After                                                           |
+| -------------------------- | ------------------------- | --------------------------------------------------------------- |
 | `/local/replay/:sessionId` | replays only that session | mounts whole-bundle engine, seeks to that session's first event |
-| `?tab=replay&session=<id>` | replays only that session | same |
+| `?tab=replay&session=<id>` | replays only that session | same                                                            |
 
 `?event=<globalIdx>` becomes the position of record. The session `<select>` in
 `Replay.tsx:125` becomes a **seek** rather than a remount, and stops clearing the
@@ -213,7 +213,7 @@ Extract the body of `views/timeline/TimelineView.tsx` into a presentational
 
 Jump-to-replay is the only route-dependent behavior, hence the callback prop rather
 than a router read inside `TimelineInner`. The `?seq=sessionId:42` deep-link
-selection handling stays *inside* `TimelineInner` — both routes are search-param
+selection handling stays _inside_ `TimelineInner` — both routes are search-param
 based, so it needs no per-route variation.
 
 This deletes the 500-row cap, the ad-hoc `eventSummary`, and the `COMMON_KINDS`
@@ -280,5 +280,5 @@ three independently reviewable phases:
 - No new heuristics; `inter_session_external_change` is surfaced, not modified.
 - No new dependencies.
 - Within-session idle gaps keep today's "sit through the gap" playback behavior.
-  Only *inter*-session gaps collapse.
+  Only _inter_-session gaps collapse.
 - Seam collapse duration is a constant, not user-configurable UI.

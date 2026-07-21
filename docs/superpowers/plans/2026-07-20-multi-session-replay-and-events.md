@@ -14,9 +14,9 @@
 
 - **Analyzer-only.** No changes to `packages/log-core`, `packages/analysis-core`, `packages/shared`, `packages/server`, or `packages/recorder`. If a task appears to need one, stop and ask.
 - **No new dependencies.** Every library used already exists in `packages/analyzer/package.json`.
-- **`@testing-library/user-event` is NOT available** and must not be added. Use `fireEvent` from `@testing-library/react`. Consequence: Radix dropdown *contents* (kind/file/session filter menus) cannot be opened in tests, because Radix opens on pointer events `fireEvent.click` does not emit. Assert on rendered output instead of menu internals — e.g. verify cross-session coverage via the per-row `session-chip-<globalIdx>` elements rather than by opening the session filter.
+- **`@testing-library/user-event` is NOT available** and must not be added. Use `fireEvent` from `@testing-library/react`. Consequence: Radix dropdown _contents_ (kind/file/session filter menus) cannot be opened in tests, because Radix opens on pointer events `fireEvent.click` does not emit. Assert on rendered output instead of menu internals — e.g. verify cross-session coverage via the per-row `session-chip-<globalIdx>` elements rather than by opening the session filter.
 - **TypeScript strict mode.** No `any` except at FFI boundaries with an explaining comment. `unknown` over `any` for untyped input.
-- **No silent constraint softening.** If an existing test fails, do not weaken the assertion. Either the implementation is wrong, or the test encodes behavior this plan intentionally changes — in which case rewrite the test to encode the *new* behavior explicitly and say so in the commit message.
+- **No silent constraint softening.** If an existing test fails, do not weaken the assertion. Either the implementation is wrong, or the test encodes behavior this plan intentionally changes — in which case rewrite the test to encode the _new_ behavior explicitly and say so in the commit message.
 - **Tests are deterministic.** No `Date.now()` or `Math.random()` in assertions.
 - **Commits:** `git commit --no-gpg-sign`, conventional-commit prefixes, **no `Co-Authored-By` trailer**. Always stage with an explicit pathspec — the repo frequently has unrelated uncommitted work in the tree. Never `git add -A` or `git add .`.
 - **Verification before "done":** a task is complete only when `npm run test --workspace=packages/analyzer`, `npm run typecheck --workspace=packages/analyzer`, and `npm run lint --workspace=packages/analyzer` all pass.
@@ -26,33 +26,33 @@
 
 **Phase 1 — Events page unification**
 
-| File | Responsibility |
-|---|---|
-| `src/views/timeline/EventList.tsx` (modify) | Drop the hardcoded `/local/replay/...` navigation; accept an `onJumpToReplay` callback. |
+| File                                            | Responsibility                                                                                     |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `src/views/timeline/EventList.tsx` (modify)     | Drop the hardcoded `/local/replay/...` navigation; accept an `onJumpToReplay` callback.            |
 | `src/views/timeline/TimelineInner.tsx` (create) | Route-agnostic events browser: filter bar + virtualized list + detail pane. Takes an `EventIndex`. |
-| `src/views/timeline/TimelineView.tsx` (modify) | Thin `/local` wrapper: `useBundle()` → `TimelineInner`. |
-| `src/views/submission/Timeline.tsx` (rewrite) | Thin server wrapper: `useFullEventIndex()` → `TimelineInner`. |
+| `src/views/timeline/TimelineView.tsx` (modify)  | Thin `/local` wrapper: `useBundle()` → `TimelineInner`.                                            |
+| `src/views/submission/Timeline.tsx` (rewrite)   | Thin server wrapper: `useFullEventIndex()` → `TimelineInner`.                                      |
 
 **Phase 2 — Bundle clock + whole-bundle engine**
 
-| File | Responsibility |
-|---|---|
-| `src/views/replay/bundle-clock.ts` (create) | Pure derivation of `bundleT` + `seams` from `index.ordered`. No React. |
-| `src/views/replay/engine-core.ts` (modify) | Whole-bundle event stream; `bundleT`-driven playback. |
-| `src/views/replay/useReplayEngine.ts` (modify) | Drop the `sessionId` argument. |
-| `src/views/replay/TransportBar.tsx` (modify) | Whole-bundle scrubbing + seam ticks. |
-| `src/views/replay/ReplayView.tsx` (modify) | `:sessionId` becomes an entry anchor, not a scope. |
-| `src/views/submission/Replay.tsx` (modify) | `?session=` becomes an entry anchor; the `<select>` seeks instead of remounting. |
+| File                                           | Responsibility                                                                   |
+| ---------------------------------------------- | -------------------------------------------------------------------------------- |
+| `src/views/replay/bundle-clock.ts` (create)    | Pure derivation of `bundleT` + `seams` from `index.ordered`. No React.           |
+| `src/views/replay/engine-core.ts` (modify)     | Whole-bundle event stream; `bundleT`-driven playback.                            |
+| `src/views/replay/useReplayEngine.ts` (modify) | Drop the `sessionId` argument.                                                   |
+| `src/views/replay/TransportBar.tsx` (modify)   | Whole-bundle scrubbing + seam ticks.                                             |
+| `src/views/replay/ReplayView.tsx` (modify)     | `:sessionId` becomes an entry anchor, not a scope.                               |
+| `src/views/submission/Replay.tsx` (modify)     | `?session=` becomes an entry anchor; the `<select>` seeks instead of remounting. |
 
 **Phase 3 — Seam + file-tab UI**
 
-| File | Responsibility |
-|---|---|
-| `src/views/replay/file-recency.ts` (create) | Pure last-edited / dimming computation for the tab strip. |
-| `src/views/replay/FileTabs.tsx` (modify) | All-bundle tabs, last-edited badge, dimming, selection persistence. |
-| `src/views/replay/EventSidebar.tsx` (modify) | Whole-bundle rows with seam dividers, variable row heights. |
-| `src/views/replay/jump-predicates.ts` (modify) | `findNextSeam` / `countRemainingSeams`. |
-| `src/views/replay/JumpControls.tsx` (modify) | Seam jump button. |
+| File                                           | Responsibility                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------- |
+| `src/views/replay/file-recency.ts` (create)    | Pure last-edited / dimming computation for the tab strip.           |
+| `src/views/replay/FileTabs.tsx` (modify)       | All-bundle tabs, last-edited badge, dimming, selection persistence. |
+| `src/views/replay/EventSidebar.tsx` (modify)   | Whole-bundle rows with seam dividers, variable row heights.         |
+| `src/views/replay/jump-predicates.ts` (modify) | `findNextSeam` / `countRemainingSeams`.                             |
+| `src/views/replay/JumpControls.tsx` (modify)   | Seam jump button.                                                   |
 
 ---
 
@@ -65,10 +65,12 @@ Independent of the engine work. Land and review this before starting Phase 2.
 `EventList.tsx:233` hardcodes `void navigate(\`/local/replay/${event.sessionId}?event=${event.globalIdx}\`)`. The server-backed Timeline tab needs `?tab=replay&event=…` instead, so the navigation target must come from the parent.
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/timeline/EventList.tsx` (props type ~line 310, `EventRow` ~lines 221-234)
 - Test: `packages/analyzer/src/views/timeline/EventList.test.tsx`
 
 **Interfaces:**
+
 - Produces: `EventListProps.onJumpToReplay?: (event: IndexedEvent) => void` — threaded from `EventList` down to each `EventRow`. When omitted, the replay button is not rendered.
 
 - [ ] **Step 1: Write the failing test**
@@ -192,11 +194,13 @@ comes from an onJumpToReplay prop; TimelineView supplies the /local target."
 ### Task 2: Extract TimelineInner
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/timeline/TimelineInner.tsx`
 - Modify: `packages/analyzer/src/views/timeline/TimelineView.tsx`
 - Test: `packages/analyzer/src/views/timeline/TimelineInner.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `EventListProps.onJumpToReplay` from Task 1.
 - Produces:
   ```tsx
@@ -207,7 +211,7 @@ comes from an onJumpToReplay prop; TimelineView supplies the /local target."
   export function TimelineInner(props: TimelineInnerProps): JSX.Element;
   ```
 
-`TimelineInner` owns everything `TimelineView` currently does *except* reading `useBundle()`: filter state, derived `availableKinds` / `availableFiles` / `availableSessions`, `useFilteredEvents`, the `?seq=sessionId:42` deep-link effect, selection state, and the list+detail grid. The deep-link effect stays inside `TimelineInner` — both routes are search-param based, so it needs no per-route variation.
+`TimelineInner` owns everything `TimelineView` currently does _except_ reading `useBundle()`: filter state, derived `availableKinds` / `availableFiles` / `availableSessions`, `useFilteredEvents`, the `?seq=sessionId:42` deep-link effect, selection state, and the list+detail grid. The deep-link effect stays inside `TimelineInner` — both routes are search-param based, so it needs no per-route variation.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -383,10 +387,12 @@ a prop; TimelineView becomes a thin wrapper. No behavior change."
 This is the task that fixes "it only shows the first certain number".
 
 **Files:**
+
 - Rewrite: `packages/analyzer/src/views/submission/Timeline.tsx`
 - Test: `packages/analyzer/src/views/submission/Timeline.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `TimelineInner` (Task 2); `useFullEventIndex(submissionId)` from `src/data/useFullEventIndex.ts`, returning `UseQueryResult<EventIndex>`.
 
 What is deleted: the `events.slice(0, 500)` cap (line 84), the ad-hoc `eventSummary` and `formatWall` helpers, the bespoke row markup, and the `COMMON_KINDS` array — which contains `doc.paste`, a kind that does not exist (the real kind is `paste`), so that filter button has never matched anything. `FilterBar` derives its kind list from the index, so the hardcoded list is not replaced by anything.
@@ -528,25 +534,28 @@ visible error instead of silently truncating."
 ### Task 4: bundle-clock.ts
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/replay/bundle-clock.ts`
 - Test: `packages/analyzer/src/views/replay/bundle-clock.test.ts`
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export const SEAM_MAX_GAP_MS = 5_000;
   export const SEAM_FLOOR_MS = 1_000;
 
   export type Seam = {
-    atGlobalIdx: number;      // globalIdx of the FIRST event of the next session
+    atGlobalIdx: number; // globalIdx of the FIRST event of the next session
     prevSessionId: string;
     nextSessionId: string;
-    realGapMs: number;        // may be negative under clock skew
-    collapsedGapMs: number;   // always within [SEAM_FLOOR_MS, SEAM_MAX_GAP_MS]
+    realGapMs: number; // may be negative under clock skew
+    collapsedGapMs: number; // always within [SEAM_FLOOR_MS, SEAM_MAX_GAP_MS]
   };
 
   export type BundleClock = {
-    bundleT: Float64Array;    // indexed by globalIdx; non-decreasing
+    bundleT: Float64Array; // indexed by globalIdx; non-decreasing
     seams: Seam[];
   };
 
@@ -795,14 +804,16 @@ each seam, staying non-decreasing even under cross-machine clock skew."
 ### Task 5: Point the engine at the whole bundle
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/replay/engine-core.ts`
 - Test: `packages/analyzer/src/views/replay/engine-core.test.ts` (rewrite — 514 lines, currently written against a session-scoped engine)
 
 **Interfaces:**
+
 - Consumes: `buildBundleClock`, `Seam` from Task 4.
 - Produces:
   ```ts
-  export function createEngine(index: EventIndex): EngineHandle;   // sessionId arg removed
+  export function createEngine(index: EventIndex): EngineHandle; // sessionId arg removed
   // EngineHandle gains:
   //   seams(): readonly Seam[];
   // ReplayState.sessionId becomes DERIVED: the sessionId of the event at
@@ -854,7 +865,7 @@ it('reports seams', () => {
 });
 ```
 
-Any old test that asserted "stepping past the last event of the session stays put" now encodes *changed* behavior — rewrite it to assert the crossing, and note that in the commit message. Do not delete it.
+Any old test that asserted "stepping past the last event of the session stays put" now encodes _changed_ behavior — rewrite it to assert the crossing, and note that in the commit message. Do not delete it.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -868,6 +879,7 @@ Changes, in order:
 1. Import the clock: `import { buildBundleClock, type Seam } from './bundle-clock.js';`
 2. `InternalState` gains `bundleT: Float64Array` and `seams: readonly Seam[]`; `pos` is retained but is now always equal to `state.currentGlobalIdx`.
 3. Signature:
+
    ```ts
    export function createEngine(index: EventIndex): EngineHandle {
      const events = index.ordered;
@@ -883,7 +895,9 @@ Changes, in order:
      };
      // ... internal built with events, bundleT, seams ...
    ```
+
 4. Delete `globalIdxAtPos` and `posForGlobalIdx`. In `seekToPos`, `globalIdx === clamped`, so:
+
    ```ts
    function seekToPos(pos: number): ReplayState {
      const maxIdx = internal.events.length - 1;
@@ -900,10 +914,16 @@ Changes, in order:
 
      internal.pos = clamped;
      internal.fileStates = newFileStates;
-     internal.state = { ...internal.state, currentGlobalIdx: clamped, virtualT: targetVirtualT, sessionId };
+     internal.state = {
+       ...internal.state,
+       currentGlobalIdx: clamped,
+       virtualT: targetVirtualT,
+       sessionId,
+     };
      return { ...internal.state };
    }
    ```
+
 5. `seek(globalIdx)` becomes `return seekToPos(globalIdx);` — no mapping needed.
 6. In `tick`, replace the `internal.events[i]!.t ?? 0` comparison with `internal.bundleT[i] ?? 0`.
 7. `endVirtualT()` returns `internal.bundleT[internal.bundleT.length - 1] ?? 0`.
@@ -934,11 +954,13 @@ assert the crossing — that behavior is intentionally changed, not relaxed."
 ### Task 6: useReplayEngine + TransportBar
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/replay/useReplayEngine.ts`
 - Modify: `packages/analyzer/src/views/replay/TransportBar.tsx`
 - Test: existing `TransportBar` tests; add seam-tick coverage.
 
 **Interfaces:**
+
 - Consumes: `createEngine(index)`, `EngineHandle.seams()` from Task 5.
 - Produces: `useReplayEngine(index: EventIndex)` — `sessionId` argument removed. The returned object gains `seams: readonly Seam[]`.
 
@@ -963,8 +985,16 @@ it('renders one seam tick per session boundary', () => {
 });
 
 it('labels a seam tick with the real gap, not the collapsed one', () => {
-  render(<TransportBar {...props} seams={[{ ...seamAt(10), realGapMs: 15_120_000, collapsedGapMs: 5_000 }]} />);
-  expect(screen.getByTestId('seam-tick-10')).toHaveAttribute('title', expect.stringContaining('4h 12m'));
+  render(
+    <TransportBar
+      {...props}
+      seams={[{ ...seamAt(10), realGapMs: 15_120_000, collapsedGapMs: 5_000 }]}
+    />,
+  );
+  expect(screen.getByTestId('seam-tick-10')).toHaveAttribute(
+    'title',
+    expect.stringContaining('4h 12m'),
+  );
 });
 ```
 
@@ -989,26 +1019,28 @@ ticks labelled with the real offline duration."
 ### Task 7: Session identifier becomes an entry anchor
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/replay/ReplayView.tsx`
 - Modify: `packages/analyzer/src/views/submission/Replay.tsx`
 - Test: both existing test files (`ReplayView.test.tsx` is 492 lines and asserts session-scoped mounting).
 
 **Interfaces:**
+
 - Consumes: `useReplayEngine(index)` from Task 6.
 
 Behavior change:
 
-| Route | Before | After |
-|---|---|---|
+| Route                      | Before                    | After                                                                        |
+| -------------------------- | ------------------------- | ---------------------------------------------------------------------------- |
 | `/local/replay/:sessionId` | replays only that session | mounts the whole-bundle engine; seeks to that session's first event on mount |
-| `?tab=replay&session=<id>` | replays only that session | same |
+| `?tab=replay&session=<id>` | replays only that session | same                                                                         |
 
 `?event=<globalIdx>` becomes the position of record and wins over the session anchor when both are present.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```tsx
-it('seeks to the anchor session\'s first event on mount', () => {
+it("seeks to the anchor session's first event on mount", () => {
   // /local/replay/session-b with a two-session index
   // expect the playhead at the globalIdx of session-b's first event
 });
@@ -1074,18 +1106,21 @@ select seeks rather than remounting, so it no longer discards the playhead."
 ### Task 8: Cross-session file tabs
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/replay/file-recency.ts`
 - Create: `packages/analyzer/src/views/replay/file-recency.test.ts`
 - Modify: `packages/analyzer/src/views/replay/FileTabs.tsx`
 - Test: `packages/analyzer/src/views/replay/FileTabs.test.tsx`
 
 **Interfaces:**
+
 - Produces:
+
   ```ts
   export type FileRecency =
-    | { state: 'untouched' }                                   // no event at or before the playhead
-    | { state: 'current-session'; agoMs: number }               // last edit is in the playhead's session
-    | { state: 'earlier-session'; sessionsAgo: number };        // last edit predates it
+    | { state: 'untouched' } // no event at or before the playhead
+    | { state: 'current-session'; agoMs: number } // last edit is in the playhead's session
+    | { state: 'earlier-session'; sessionsAgo: number }; // last edit predates it
 
   export function computeFileRecency(
     index: EventIndex,
@@ -1094,7 +1129,7 @@ select seeks rather than remounting, so it no longer discards the playhead."
     currentSessionId: string,
   ): FileRecency;
 
-  export function formatRecency(r: FileRecency): string | null;  // null when 'untouched'
+  export function formatRecency(r: FileRecency): string | null; // null when 'untouched'
   ```
 
 Implementation notes: `index.byFile.get(filePath)` is already sorted ascending by `globalIdx`, so binary-search the greatest entry `≤ currentGlobalIdx`. `sessionsAgo` is measured in `index.bySessionId` key order (which `inter-session-external-change.ts:90` documents as session-start chronological order). `agoMs` uses `Date.parse` of the two `wall` values, floored at 0.
@@ -1122,7 +1157,7 @@ describe('computeFileRecency', () => {
     });
   });
 
-  it('finds the last edit at or before the playhead, not the file\'s final edit', () => {
+  it("finds the last edit at or before the playhead, not the file's final edit", () => {
     // hw1.py edited at globalIdx 1 and 9; playhead at 5 must resolve to 1
   });
 });
@@ -1158,7 +1193,7 @@ Props become:
 
 ```tsx
 type FileTabsProps = {
-  files: string[];                 // now the whole bundle's files (from engine.getFiles())
+  files: string[]; // now the whole bundle's files (from engine.getFiles())
   activeFile: string | null;
   currentGlobalIdx: number;
   currentSessionId: string;
@@ -1174,10 +1209,18 @@ In `ReplayView.tsx`, remove any logic that resets `activeFile` when the session 
 - [ ] **Step 5: Write and run the FileTabs tests**
 
 ```tsx
-it('renders a tab for a file touched only in an earlier session', () => { /* … */ });
-it('dims a file with no event in the current session', () => { /* … */ });
-it('shows a session-distance badge for an earlier-session file', () => { /* … */ });
-it('keeps the active file selected when the playhead crosses a seam', () => { /* … */ });
+it('renders a tab for a file touched only in an earlier session', () => {
+  /* … */
+});
+it('dims a file with no event in the current session', () => {
+  /* … */
+});
+it('shows a session-distance badge for an earlier-session file', () => {
+  /* … */
+});
+it('keeps the active file selected when the playhead crosses a seam', () => {
+  /* … */
+});
 ```
 
 Run: `npm run test --workspace=packages/analyzer -- src/views/replay/`
@@ -1202,21 +1245,21 @@ session, and keep their selection across seams."
 ### Task 9: Seam dividers in the Events sidebar
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/replay/EventSidebar.tsx`
 - Test: `packages/analyzer/src/views/replay/EventSidebar.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `Seam` and `formatGap` from `bundle-clock.ts`.
 - Produces: `EventSidebarProps` gains `seams: readonly Seam[]` and `flaggedSeamIdxs?: ReadonlySet<number>` (see Task 11).
 
 The sidebar is fed `index.ordered` (done in Task 7). It builds a display array interleaving seam rows, and the virtualizer gets a variable `estimateSize`:
 
 ```tsx
-type Row =
-  | { type: 'event'; event: IndexedEvent }
-  | { type: 'seam'; seam: Seam };
+type Row = { type: 'event'; event: IndexedEvent } | { type: 'seam'; seam: Seam };
 
-const EVENT_ROW_HEIGHT = 30;   // existing ROW_HEIGHT
+const EVENT_ROW_HEIGHT = 30; // existing ROW_HEIGHT
 const SEAM_ROW_HEIGHT = 44;
 
 const rows = useMemo<Row[]>(() => {
@@ -1238,10 +1281,18 @@ The divider label uses `formatGap(seam.realGapMs)` — the **real** duration, e.
 - [ ] **Step 1: Write the failing tests**
 
 ```tsx
-it('inserts a seam divider before the first event of the next session', () => { /* … */ });
-it('labels the divider with the real gap, not the collapsed one', () => { /* … */ });
-it('renders no dividers for a single-session bundle', () => { /* … */ });
-it('still auto-scrolls to the current event with dividers present', () => { /* … */ });
+it('inserts a seam divider before the first event of the next session', () => {
+  /* … */
+});
+it('labels the divider with the real gap, not the collapsed one', () => {
+  /* … */
+});
+it('renders no dividers for a single-session bundle', () => {
+  /* … */
+});
+it('still auto-scrolls to the current event with dividers present', () => {
+  /* … */
+});
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -1269,16 +1320,20 @@ separately from event rows."
 ### Task 10: Jump to next seam
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/replay/jump-predicates.ts`
 - Modify: `packages/analyzer/src/views/replay/JumpControls.tsx`
 - Test: `packages/analyzer/src/views/replay/jump-predicates.test.ts`, `JumpControls.test.tsx`
 
 **Interfaces:**
+
 - Produces, matching the existing `findNextPaste` / `countRemainingPastes` style (`jump-predicates.ts:46,184`):
+
   ```ts
   export function findNextSeam(seams: readonly Seam[], currentGlobalIdx: number): number | null;
   export function countRemainingSeams(seams: readonly Seam[], currentGlobalIdx: number): number;
   ```
+
   `findNextSeam` returns the `atGlobalIdx` of the first seam strictly after `currentGlobalIdx`, or `null`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1319,12 +1374,14 @@ git commit --no-gpg-sign -m "feat(analyzer): add a jump-to-next-session-seam con
 ### Task 11: Surface inter_session_external_change on its seam
 
 **Files:**
+
 - Modify: `packages/analyzer/src/views/replay/EventSidebar.tsx` (marking)
 - Modify: `packages/analyzer/src/views/replay/ReplayView.tsx` (compute the flagged set)
 - Create: `packages/analyzer/src/views/replay/seam-flags.ts`
 - Test: `packages/analyzer/src/views/replay/seam-flags.test.ts`
 
 **Interfaces:**
+
 - Consumes: `buildFlaggedGlobalIdxSet` (`jump-predicates.ts:92`), which already resolves `${sessionId}:${seq}` supporting-seq strings against `index.bySeq`.
 - Produces:
   ```ts
@@ -1332,7 +1389,7 @@ git commit --no-gpg-sign -m "feat(analyzer): add a jump-to-next-session-seam con
     seams: readonly Seam[],
     flags: readonly Flag[],
     bySeq: EventIndex['bySeq'],
-  ): Set<number>;   // set of seam.atGlobalIdx values
+  ): Set<number>; // set of seam.atGlobalIdx values
   ```
 
 A seam is flagged when a supporting event of an `inter_session_external_change` flag has `globalIdx >= seam.atGlobalIdx` and belongs to `seam.nextSessionId`. Per the heuristic's own docs (`inter-session-external-change.ts:26`), the supporting seq is the next session's first `doc.open` for the diverged file — so it always falls inside `nextSessionId`.
@@ -1340,10 +1397,18 @@ A seam is flagged when a supporting event of an `inter_session_external_change` 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-it('flags the seam whose next session carries the supporting event', () => { /* … */ });
-it('ignores flags of other heuristic ids', () => { /* … */ });
-it('returns an empty set when there are no seams', () => { /* … */ });
-it('handles a supporting seq that is not present in bySeq', () => { /* … */ });
+it('flags the seam whose next session carries the supporting event', () => {
+  /* … */
+});
+it('ignores flags of other heuristic ids', () => {
+  /* … */
+});
+it('returns an empty set when there are no seams', () => {
+  /* … */
+});
+it('handles a supporting seq that is not present in bySeq', () => {
+  /* … */
+});
 ```
 
 Read `analysis-core/src/heuristics/types.ts` for the exact `Flag` shape and the heuristic id string before writing these — use the real id, do not guess it.
@@ -1386,23 +1451,23 @@ because the playhead could never sit at a session boundary."
 
 ## Spec Coverage
 
-| Spec section | Task |
-|---|---|
-| 1.1 `bundle-clock.ts` | 4 |
-| 1.2 `engine-core.ts` whole-bundle | 5 |
-| 1.3 `useReplayEngine` | 6 |
-| 1.4 `FileTabs` (all 4 behaviors) | 8 |
-| 1.5 `EventSidebar` seam rows | 9 |
-| 1.6 Seam flag surfacing | 11 |
-| 1.7 `jump-predicates` + `JumpControls` | 10 |
-| 1.8 `TransportBar` | 6 |
-| 1.9 Routing / entry anchor | 7 |
-| Part 2 events page unification | 1, 2, 3 |
-| Error handling: event ceiling | 3 |
-| Error handling: single-session | 4 (empty seams), 9, 10 |
-| Error handling: zero-event | 4 |
-| Error handling: clock skew | 4 |
-| Error handling: unknown session in URL | 7 |
+| Spec section                           | Task                   |
+| -------------------------------------- | ---------------------- |
+| 1.1 `bundle-clock.ts`                  | 4                      |
+| 1.2 `engine-core.ts` whole-bundle      | 5                      |
+| 1.3 `useReplayEngine`                  | 6                      |
+| 1.4 `FileTabs` (all 4 behaviors)       | 8                      |
+| 1.5 `EventSidebar` seam rows           | 9                      |
+| 1.6 Seam flag surfacing                | 11                     |
+| 1.7 `jump-predicates` + `JumpControls` | 10                     |
+| 1.8 `TransportBar`                     | 6                      |
+| 1.9 Routing / entry anchor             | 7                      |
+| Part 2 events page unification         | 1, 2, 3                |
+| Error handling: event ceiling          | 3                      |
+| Error handling: single-session         | 4 (empty seams), 9, 10 |
+| Error handling: zero-event             | 4                      |
+| Error handling: clock skew             | 4                      |
+| Error handling: unknown session in URL | 7                      |
 
 ## Known Cost
 
