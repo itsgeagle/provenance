@@ -64,6 +64,18 @@ function wallToMs(wall: string): number {
   return Date.parse(wall);
 }
 
+/**
+ * How far inside a gap an event's wall clock must sit before it counts as
+ * evidence the recorder was executing during that gap.
+ *
+ * On wake, every timer that came due while the machine was suspended fires in
+ * one batch, so unrelated periodic events land within a millisecond or two of
+ * the heartbeat bounding the gap. Those are wake artifacts, not activity.
+ * 1s is far wider than the observed batch spread (median 1ms) and far narrower
+ * than any real recording cadence, so it separates the two cleanly.
+ */
+const WAKE_BATCH_EPSILON_MS = 1_000;
+
 // ---------------------------------------------------------------------------
 // Heuristic implementation
 // ---------------------------------------------------------------------------
@@ -106,7 +118,24 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
       // with seq strictly between the two heartbeats. A gap with zero
       // intervening events means nothing executed — machine sleep, not a
       // stalled or tampered recorder.
-      const hasEventInGap = sessionEvents.some((e) => e.seq > hA.seq && e.seq < hB.seq);
+      //
+      // The `seq` range alone is not sufficient. When the machine wakes, every
+      // timer that came due while suspended fires in a single batch at the
+      // wake instant, so an `ext.snapshot` tick lands microseconds after the
+      // heartbeat that bounds the gap. By `seq` it looks like it happened
+      // "during" the gap; by wall clock it is part of the wake batch and
+      // proves nothing about the intervening hours. Measured on a real
+      // 4-session bundle, 69 of 74 seq-qualifying gaps had every intervening
+      // event within 1s of a boundary (median distance: 1ms).
+      //
+      // So an event only counts as evidence the recorder ran if its wall clock
+      // is strictly inside the gap by more than WAKE_BATCH_EPSILON_MS.
+      const hasEventInGap = sessionEvents.some((e) => {
+        if (e.seq <= hA.seq || e.seq >= hB.seq) return false;
+        const w = wallToMs(e.wall);
+        if (Number.isNaN(w)) return false;
+        return w > wallA + WAKE_BATCH_EPSILON_MS && w < wallB - WAKE_BATCH_EPSILON_MS;
+      });
       if (!hasEventInGap) continue;
 
       flags.push({

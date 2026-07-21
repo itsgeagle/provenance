@@ -152,6 +152,43 @@ describe('gap_in_heartbeats — negative', () => {
     const flags = gapInHeartbeatsHeuristic.run(index, bundle, testConfig);
     expect(flags).toHaveLength(0);
   });
+
+  it('does not flag when the only intervening event fired in the wake batch', async () => {
+    // Regression: on wake, every timer that came due while the machine was
+    // suspended fires in one batch, so an ext.snapshot tick lands a few ms
+    // after the heartbeat that opens the gap. By seq it sits "inside" the gap,
+    // but nothing ran during the intervening 10 minutes. Observed in real
+    // bundles as 69 of 74 residual flags (median 1ms from the boundary).
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'session.heartbeat',
+              data: { focused: true, active_file: null, idle_since_ms: 0 },
+              wall: wallPlusMinutes(BASE_MS, 0),
+              t: 1000,
+            },
+            {
+              kind: 'ext.snapshot',
+              data: { extensions: [] },
+              // 5ms after the opening heartbeat — same wake batch.
+              wall: new Date(BASE_MS + 5).toISOString(),
+              t: 1005,
+            },
+            {
+              kind: 'session.heartbeat',
+              data: { focused: true, active_file: null, idle_since_ms: 600_000 },
+              wall: wallPlusMinutes(BASE_MS, 10),
+              t: 601_000,
+            },
+          ],
+        },
+      ],
+    });
+    const flags = gapInHeartbeatsHeuristic.run(index, bundle, testConfig);
+    expect(flags).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
