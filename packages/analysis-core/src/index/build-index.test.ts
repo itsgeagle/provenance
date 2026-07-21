@@ -404,3 +404,81 @@ describe('buildIndex — explicit event specs', () => {
     expect(extChanges[0]?.file).toBe('/src/foo.py');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Workspace-root path aliases (D3)
+//
+// Paths are relative to whichever folder the student opened. Working on one
+// file from two different roots yields `hw.py` and `sub/hw.py` for the same
+// file, which otherwise index as two unrelated files and orphan half the
+// history. See .notes/reconstruction-triage.md.
+// ---------------------------------------------------------------------------
+
+describe('buildIndex — workspace-root path aliases (D3)', () => {
+  const docChange = (path: string, text: string) => ({
+    kind: 'doc.change' as const,
+    data: {
+      path,
+      deltas: [
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, text },
+      ],
+      source: 'typed',
+    },
+  });
+
+  it('merges an aliased path into the manifest path when sessions are disjoint', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      submissionFiles: [{ path: 'hw.py', status: 'present', content: 'x = 1\n' }],
+      sessions: [
+        // Session 1: student opened the assignment folder → bare path.
+        { events: [docChange('hw.py', 'a')] },
+        // Session 2: student opened the PARENT folder → prefixed path.
+        { events: [docChange('sub/hw.py', 'b')] },
+      ],
+    });
+
+    const result = await loadBundle(new Blob([zipBuffer]), 'test.zip');
+    if (!result.ok) throw new Error('Expected successful bundle load');
+    const index = buildIndex(result.value);
+
+    expect(index.pathAliases?.get('sub/hw.py')).toBe('hw.py');
+    // Both sessions' events land under the single canonical key.
+    expect(index.byFile.get('hw.py')).toHaveLength(2);
+    expect(index.byFile.has('sub/hw.py')).toBe(false);
+  });
+
+  it('does NOT merge when both paths appear in the same session', async () => {
+    // Two genuinely different files that merely share a basename are edited
+    // from one workspace root, so they co-occur in a session. Refusing to merge
+    // is the safe direction: a partial reconstruction beats a garbled one.
+    const { zipBuffer } = await buildTestBundle({
+      submissionFiles: [{ path: 'hw.py', status: 'present', content: 'x = 1\n' }],
+      sessions: [{ events: [docChange('hw.py', 'a'), docChange('old/hw.py', 'b')] }],
+    });
+
+    const result = await loadBundle(new Blob([zipBuffer]), 'test.zip');
+    if (!result.ok) throw new Error('Expected successful bundle load');
+    const index = buildIndex(result.value);
+
+    expect(index.pathAliases?.size ?? 0).toBe(0);
+    expect(index.byFile.get('hw.py')).toHaveLength(1);
+    expect(index.byFile.get('old/hw.py')).toHaveLength(1);
+  });
+
+  it('does NOT merge a path that is itself a named submission file', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      submissionFiles: [
+        { path: 'hw.py', status: 'present', content: 'x = 1\n' },
+        { path: 'sub/hw.py', status: 'present', content: 'y = 2\n' },
+      ],
+      sessions: [{ events: [docChange('hw.py', 'a')] }, { events: [docChange('sub/hw.py', 'b')] }],
+    });
+
+    const result = await loadBundle(new Blob([zipBuffer]), 'test.zip');
+    if (!result.ok) throw new Error('Expected successful bundle load');
+    const index = buildIndex(result.value);
+
+    expect(index.pathAliases?.size ?? 0).toBe(0);
+    expect(index.byFile.get('sub/hw.py')).toHaveLength(1);
+  });
+});

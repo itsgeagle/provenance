@@ -148,6 +148,8 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
   // Separate by file, collecting only unexplained events.
   const unexplainedByFile = new Map<string, IndexedEvent[]>();
   for (const e of externalEvents) {
+    // D1: never happened -- the recorder reported the editor's own save.
+    if (index.selfInflictedExternalChanges?.has(e.globalIdx)) continue;
     if (isExplained(e.payload)) continue;
     const file = getFilePath(e.payload);
     let arr = unexplainedByFile.get(file);

@@ -33,6 +33,7 @@
 
 import { diffLines } from 'diff';
 import type { DocChangeDelta, Range } from '@provenance/log-core';
+import { isSelfInflictedSave } from './reconstruct-file.js';
 import type { EventIndex } from './event-index.js';
 
 // ---------------------------------------------------------------------------
@@ -348,7 +349,8 @@ export function reconstructFileWithProvenance(
 
   const fileEvents = index.byFile.get(filePath) ?? [];
 
-  for (const e of fileEvents) {
+  for (let i = 0; i < fileEvents.length; i++) {
+    const e = fileEvents[i]!;
     if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
 
     switch (e.kind) {
@@ -436,6 +438,13 @@ export function reconstructFileWithProvenance(
         // otherwise-rewritten file keep their original author attribution
         // (typed / paste / preexisting), and the gutter paints only the
         // lines the external tool actually touched.
+        // D1: the recorder reporting the editor's own save. Not a real event.
+        // Kept out of kindByGlobalIdx entirely so the replay gutter does not
+        // paint phantom "external tool wrote this" regions. Shares the single
+        // discriminator in reconstruct-file.ts -- the two replays must agree
+        // (pinned by reconstruct-line-index.fuzz.test.ts).
+        if (isSelfInflictedSave(fileEvents, i)) break;
+
         const p = e.payload as Record<string, unknown> | null;
         const operation =
           typeof p?.['operation'] === 'string' ? (p['operation'] as string) : 'modify';

@@ -70,7 +70,12 @@ function run(index: EventIndex, _bundle: Bundle, _config: HeuristicConfig): Flag
     if (terminalOpenTimes.length === 0) continue;
 
     // For each external change, check if any terminal was already open (open.t <= change.t).
-    const externalChangeEvents = sessionEvents.filter((e) => e.kind === 'fs.external_change');
+    const externalChangeEvents = sessionEvents.filter(
+      // D1: skip external changes that were the recorder reporting the editor's
+      // own save -- they describe something that never happened.
+      (e) =>
+        e.kind === 'fs.external_change' && !index.selfInflictedExternalChanges?.has(e.globalIdx),
+    );
     for (const ev of externalChangeEvents) {
       const terminalWasOpen = terminalOpenTimes.some((openT) => openT <= ev.t);
       if (!terminalWasOpen) continue;

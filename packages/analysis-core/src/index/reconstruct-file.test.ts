@@ -606,6 +606,248 @@ describe('reconstructFile — fs.external_change with new_content (recorder v1.3
   });
 });
 
+// ---------------------------------------------------------------------------
+// Self-inflicted fs.external_change (D1) + taint recovery (D2).
+//
+// Recorders <= VS Code 1.1.x / JetBrains emit a bogus fs.external_change when a
+// keystroke lands inside the async window between the editor writing the file
+// and the recorder reading it back. The signature is exact: the very next event
+// for the file is a doc.save, in the same session, whose sha256 equals the
+// change's new_hash, at effectively the same wall clock — because both are
+// emitted from the same handler continuation.
+//
+// See .notes/external-change-false-positives.md. 3316 such events were found
+// across a 156-bundle corpus; the discriminator matched 3316/3316.
+// ---------------------------------------------------------------------------
+
+/** Both events carry the same wall so the adjacency window is unambiguous. */
+const SAME_WALL = '2026-01-01T00:05:00.000Z';
+
+describe('reconstructFile — self-inflicted fs.external_change (D1)', () => {
+  it('does not taint when the next doc.save has the same hash (recorder save race)', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: SAME_WALL,
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'aaa',
+                diff_size: 1,
+                operation: 'modify',
+                // >4 KB file: no new_content, which is what makes this fatal today.
+              },
+            },
+            {
+              kind: 'doc.save',
+              wall: SAME_WALL,
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
+                    text: ' world',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    // The event never happened: no taint, no taint reason, and — critically —
+    // the deltas after it still apply.
+    expect(recon.tainted).toBe(false);
+    expect(recon.taintReasons).toHaveLength(0);
+    expect(recon.content).toBe('hello world');
+    // Still surfaced for the UI so staff can see what was reclassified.
+    expect(recon.suppressedExternalChanges).toHaveLength(1);
+  });
+
+  it('STILL taints when the next doc.save hash differs (genuine external write)', async () => {
+    // Anti-regression: the D1 fix must not buy quiet by going blind to real
+    // external writes. That failure mode is worse than the bug.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: SAME_WALL,
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'ccc',
+                diff_size: 4000,
+                operation: 'modify',
+              },
+            },
+            {
+              // Different hash → the disk state was NOT what the editor saved.
+              kind: 'doc.save',
+              wall: SAME_WALL,
+              data: { path: '/src/app.py', sha256: 'ddd' },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.taintReasons).toHaveLength(1);
+    expect(recon.taintReasons[0]?.reason).toBe('fs_external_change');
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
+
+  it('does not suppress when the matching doc.save is far away in wall clock', async () => {
+    // A tool writes the file, then a human saves identical content much later.
+    // Human reaction time >> the same-continuation emit, so the window separates
+    // them. Keeping this window tight is what bounds the false-negative risk.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'aaa',
+                diff_size: 4000,
+                operation: 'modify',
+              },
+            },
+            {
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:30.000Z', // 30s later
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
+});
+
+describe('reconstructFile — taint is recoverable (D2)', () => {
+  it('re-anchors on a later doc.open that carries content, clearing taint', async () => {
+    const reopened = 'def solve():\n    return 42\n';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'original',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              // Genuine, contentless → taints (correctly).
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'aaa',
+                new_hash: 'bbb',
+                diff_size: 5000,
+                operation: 'modify',
+              },
+            },
+            {
+              // A later open re-establishes ground truth. Before the D2 fix the
+              // taint was permanent and everything past it was discarded.
+              kind: 'doc.open',
+              data: { path: '/src/app.py', content: reopened },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 1, character: 14 }, end: { line: 1, character: 14 } },
+                    text: '  # done',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    // The gap is still recorded — staff must see that an external write happened —
+    // but reconstruction recovers instead of dying.
+    expect(recon.taintReasons).toHaveLength(1);
+    expect(recon.taintReasons[0]?.reason).toBe('fs_external_change');
+    expect(recon.tainted).toBe(false);
+    expect(recon.content).toBe('def solve():\n    return 42  # done\n');
+  });
+});
+
 describe('reconstructFile — taint: large paste', () => {
   it('marks file as tainted on large paste (no content field)', async () => {
     const { zipBuffer } = await buildTestBundle({

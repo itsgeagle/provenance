@@ -13,7 +13,7 @@
  */
 
 import type { DocChangeDelta, Range } from '@provenance/log-core';
-import type { EventIndex } from './event-index.js';
+import type { EventIndex, IndexedEvent } from './event-index.js';
 
 // ---------------------------------------------------------------------------
 // Result type
@@ -39,8 +39,15 @@ export type TaintEntry = {
  *
  * `tainted` and `taintReasons` expose which events caused reconstruction to
  * become unreliable, for downstream consumers (Phase 4 heuristics, Phase 12
- * replay). Once tainted, the file stays tainted for the rest of the
- * reconstruction window — there is no "untaint" on doc.save in v1.
+ * replay).
+ *
+ * Taint is RECOVERABLE: a later `doc.open` that carries inlined content is
+ * ground truth read straight from disk, so it re-anchors the replay and clears
+ * `tainted`. `taintReasons` is never cleared — the gap still happened and must
+ * stay visible; only the "discard everything after it" behaviour is gone.
+ * (Taint was permanent before 2026-07; combined with the recorder's false
+ * external-change events that silently emptied ~67% of a term's
+ * reconstructions. See `.notes/reconstruction-triage.md`.)
  *
  * v2 extension: this type will gain optional fields (e.g. a per-character
  * provenance map) without breaking callers that don't use them.
@@ -53,6 +60,15 @@ export type ReconstructResult = {
   tainted: boolean;
   /** One entry per taint event, in globalIdx order. */
   taintReasons: TaintEntry[];
+  /**
+   * globalIdx of each `fs.external_change` that was reclassified as the
+   * recorder reacting to the editor's own save, and therefore NOT applied.
+   *
+   * These are surfaced rather than silently dropped: an external change is the
+   * highest-signal integrity event the system produces, so staff must be able
+   * to see which ones were suppressed and why. See `isSelfInflictedSave`.
+   */
+  suppressedExternalChanges: number[];
 };
 
 // ---------------------------------------------------------------------------
@@ -256,6 +272,66 @@ function applyPasteBuf(buf: ContentBuf, payload: unknown): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Self-inflicted external-change detection (D1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum wall-clock gap between an `fs.external_change` and the `doc.save`
+ * that identifies it as the recorder reacting to the editor's own write.
+ *
+ * The two events are emitted from the same handler continuation, so in real
+ * bundles the gap is 0 ms. The window exists only to absorb clock granularity.
+ *
+ * Keep it TIGHT. It is what bounds the false-negative risk: if an external tool
+ * wrote content X and the student then saved identical content, a wide window
+ * would suppress a genuine external write. A human cannot save within a second
+ * of a tool's write, so 1 s separates the two cases. Widening this trades away
+ * detection of real external edits — do not raise it without discussion.
+ */
+const SELF_INFLICTED_WINDOW_MS = 1000;
+
+/**
+ * True when `events[i]` is an `fs.external_change` that describes the editor's
+ * own save rather than a third-party write.
+ *
+ * Recorders at VS Code <= 1.1.x and JetBrains compare a disk snapshot taken at
+ * save time against a live, mutating expected-content model. A keystroke landing
+ * inside that async window makes the two disagree, so the recorder reports its
+ * own save as an external modification. The signature is exact and all four
+ * conditions must hold:
+ *
+ *   - the very next event for this file is a `doc.save`,
+ *   - in the same session,
+ *   - whose `sha256` equals this event's `new_hash` — i.e. the "external"
+ *     content is byte-identical to what the editor itself wrote, and
+ *   - within `SELF_INFLICTED_WINDOW_MS`.
+ *
+ * Only `operation: 'modify'` qualifies; a create or delete is never this bug.
+ *
+ * Validated against a 156-bundle corpus: matched 3316 of 3316 false positives,
+ * with zero genuine external changes reclassified. See
+ * `.notes/external-change-false-positives.md`.
+ */
+export function isSelfInflictedSave(events: ReadonlyArray<IndexedEvent>, i: number): boolean {
+  const e = events[i];
+  const next = events[i + 1];
+  if (e === undefined || next === undefined) return false;
+  if (next.kind !== 'doc.save') return false;
+  if (next.sessionId !== e.sessionId) return false;
+
+  const p = e.payload as Record<string, unknown> | null;
+  const operation = typeof p?.['operation'] === 'string' ? p['operation'] : 'modify';
+  if (operation !== 'modify') return false;
+
+  const newHash = p?.['new_hash'];
+  const savedHash = (next.payload as Record<string, unknown> | null)?.['sha256'];
+  if (typeof newHash !== 'string' || newHash !== savedHash) return false;
+
+  const dt = Math.abs(Date.parse(next.wall) - Date.parse(e.wall));
+  return Number.isFinite(dt) && dt <= SELF_INFLICTED_WINDOW_MS;
+}
+
+// ---------------------------------------------------------------------------
 // reconstructFile
 // ---------------------------------------------------------------------------
 
@@ -313,10 +389,12 @@ export function reconstructFile(
   const hashBySaveSeq = new Map<string, string>();
   let tainted = false;
   const taintReasons: TaintEntry[] = [];
+  const suppressedExternalChanges: number[] = [];
 
   const fileEvents = index.byFile.get(filePath) ?? [];
 
-  for (const e of fileEvents) {
+  for (let i = 0; i < fileEvents.length; i++) {
+    const e = fileEvents[i]!;
     // upToGlobalIdx is exclusive: stop before processing this event.
     if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
 
@@ -331,6 +409,13 @@ export function reconstructFile(
         const p = e.payload as Record<string, unknown> | null;
         if (typeof p?.['content'] === 'string') {
           buf.cells = splitCells(p['content']);
+          // D2: a doc.open that carries content is ground truth straight from
+          // disk, so it re-anchors the replay and CLEARS any prior taint. Taint
+          // used to be permanent, which turned one contentless external change
+          // into a dead reconstruction for the rest of the bundle. taintReasons
+          // is deliberately left intact — the gap still happened and staff must
+          // still see it; we just stop discarding everything after it.
+          tainted = false;
         }
         break;
       }
@@ -366,6 +451,15 @@ export function reconstructFile(
         // 'delete' or modify-without-content (large file / pre-v1.3
         // bundle) → clear content + taint. 'modify' or 'create' with
         // content → reseed; reconstruction stays valid (no taint).
+        // D1: the recorder reporting its own save. Not a real event — do not
+        // taint, do not reseed, do not record a taint reason. Surfaced via
+        // suppressedExternalChanges so the UI can still show what was
+        // reclassified.
+        if (isSelfInflictedSave(fileEvents, i)) {
+          suppressedExternalChanges.push(e.globalIdx);
+          break;
+        }
+
         const p = e.payload as Record<string, unknown> | null;
         const operation =
           typeof p?.['operation'] === 'string' ? (p['operation'] as string) : 'modify';
@@ -401,6 +495,7 @@ export function reconstructFile(
     hashBySaveSeq,
     tainted,
     taintReasons,
+    suppressedExternalChanges,
   };
   if (upToGlobalIdx === undefined) {
     let perIndex = finalReconstructionCache.get(index);
