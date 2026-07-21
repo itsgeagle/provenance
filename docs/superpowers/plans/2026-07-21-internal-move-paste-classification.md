@@ -24,27 +24,29 @@
 
 ## File Structure
 
-| File | Responsibility |
-| --- | --- |
-| `packages/analysis-core/src/index/reconstruct-file-provenance.ts` (modify) | Gains an optional `ReplayObserver` param. Purely observational; no behaviour change when omitted. |
-| `packages/analysis-core/src/index/reconstruct-file-provenance.test.ts` (modify) | Tests for the observer firing rule. |
-| `packages/analysis-core/src/heuristics/internal-move.ts` (create) | The classifier: normalisation, deletion-site detection, snapshot matching, ledger matching, provenance gate. |
-| `packages/analysis-core/src/heuristics/internal-move.test.ts` (create) | All classifier behaviour, including the anti-laundering case. |
-| `packages/analysis-core/src/heuristics/candidate-pastes.ts` (modify) | Adds `ordinal` to `CandidatePaste` so results can be keyed stably. |
-| `packages/analysis-core/src/heuristics/config.ts` (modify) | Adds the `internalMove` config block + `mergeConfig` entry. |
-| `packages/analysis-core/src/heuristics/large-paste.ts` (modify) | Consults the classifier; downgrades. |
-| `packages/analysis-core/src/heuristics/paste-is-solution.ts` (modify) | Consults the classifier; downgrades. |
-| `docs/heuristics.md` (modify) | Documents the downgrade behaviour. |
+| File                                                                            | Responsibility                                                                                               |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `packages/analysis-core/src/index/reconstruct-file-provenance.ts` (modify)      | Gains an optional `ReplayObserver` param. Purely observational; no behaviour change when omitted.            |
+| `packages/analysis-core/src/index/reconstruct-file-provenance.test.ts` (modify) | Tests for the observer firing rule.                                                                          |
+| `packages/analysis-core/src/heuristics/internal-move.ts` (create)               | The classifier: normalisation, deletion-site detection, snapshot matching, ledger matching, provenance gate. |
+| `packages/analysis-core/src/heuristics/internal-move.test.ts` (create)          | All classifier behaviour, including the anti-laundering case.                                                |
+| `packages/analysis-core/src/heuristics/candidate-pastes.ts` (modify)            | Adds `ordinal` to `CandidatePaste` so results can be keyed stably.                                           |
+| `packages/analysis-core/src/heuristics/config.ts` (modify)                      | Adds the `internalMove` config block + `mergeConfig` entry.                                                  |
+| `packages/analysis-core/src/heuristics/large-paste.ts` (modify)                 | Consults the classifier; downgrades.                                                                         |
+| `packages/analysis-core/src/heuristics/paste-is-solution.ts` (modify)           | Consults the classifier; downgrades.                                                                         |
+| `docs/heuristics.md` (modify)                                                   | Documents the downgrade behaviour.                                                                           |
 
 ---
 
 ### Task 1: Observer hook on the provenance replay
 
 **Files:**
+
 - Modify: `packages/analysis-core/src/index/reconstruct-file-provenance.ts`
 - Test: `packages/analysis-core/src/index/reconstruct-file-provenance.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks.
 - Produces: `export type ReplayObserver = { snapshotAt: number[]; onSnapshot(globalIdx: number, state: FileReplayState): void }` and a 4th parameter on `reconstructFileWithProvenance(index, filePath, upToGlobalIdx?, observer?)`.
 
@@ -67,7 +69,10 @@ describe('reconstructFileWithProvenance — observer', () => {
                 path: '/t/f.py',
                 source: 'typed',
                 deltas: [
-                  { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, text: 'a' },
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'a',
+                  },
                 ],
               },
             },
@@ -77,7 +82,10 @@ describe('reconstructFileWithProvenance — observer', () => {
                 path: '/t/f.py',
                 source: 'typed',
                 deltas: [
-                  { range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } }, text: 'b' },
+                  {
+                    range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
+                    text: 'b',
+                  },
                 ],
               },
             },
@@ -87,7 +95,10 @@ describe('reconstructFileWithProvenance — observer', () => {
                 path: '/t/f.py',
                 source: 'typed',
                 deltas: [
-                  { range: { start: { line: 0, character: 2 }, end: { line: 0, character: 2 } }, text: 'c' },
+                  {
+                    range: { start: { line: 0, character: 2 }, end: { line: 0, character: 2 } },
+                    text: 'c',
+                  },
                 ],
               },
             },
@@ -112,13 +123,11 @@ describe('reconstructFileWithProvenance — observer', () => {
     expect(seen[0]!.content).toBe('ab');
   });
 
-  it('fires snapshots for globalIdxs past the end of this file\'s events', async () => {
+  it("fires snapshots for globalIdxs past the end of this file's events", async () => {
     const { index } = await buildAndIndex({
       sessions: [
         {
-          events: [
-            { kind: 'doc.open', data: { path: '/t/f.py', content: 'hello' } },
-          ],
+          events: [{ kind: 'doc.open', data: { path: '/t/f.py', content: 'hello' } }],
         },
       ],
     });
@@ -147,7 +156,10 @@ describe('reconstructFileWithProvenance — observer', () => {
                 path: '/t/f.py',
                 source: 'typed',
                 deltas: [
-                  { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 3 } }, text: 'XYZ' },
+                  {
+                    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 3 } },
+                    text: 'XYZ',
+                  },
                 ],
               },
             },
@@ -231,39 +243,39 @@ export function reconstructFileWithProvenance(
 Immediately after `const blobByHash = new Map<string, string>();`, add the snapshot cursor and emitter:
 
 ```ts
-  // Snapshot bookkeeping. Sorted ascending; `snapCursor` is the index of the
-  // next pending value. Emitting materializes the current buffer, so it costs
-  // O(content) per fire — bounded by the caller keeping snapshotAt small.
-  const snapPoints = observer === undefined ? [] : [...observer.snapshotAt].sort((a, b) => a - b);
-  let snapCursor = 0;
+// Snapshot bookkeeping. Sorted ascending; `snapCursor` is the index of the
+// next pending value. Emitting materializes the current buffer, so it costs
+// O(content) per fire — bounded by the caller keeping snapshotAt small.
+const snapPoints = observer === undefined ? [] : [...observer.snapshotAt].sort((a, b) => a - b);
+let snapCursor = 0;
 
-  function emitSnapshotsUpTo(limit: number): void {
-    while (snapCursor < snapPoints.length && snapPoints[snapCursor]! <= limit) {
-      const at = snapPoints[snapCursor]!;
-      snapCursor++;
-      observer!.onSnapshot(at, {
-        content: buf.cells.join(''),
-        provenance: joinProvenance(buf.provCells),
-        kindByGlobalIdx,
-        hashBySaveSeq,
-      });
-    }
+function emitSnapshotsUpTo(limit: number): void {
+  while (snapCursor < snapPoints.length && snapPoints[snapCursor]! <= limit) {
+    const at = snapPoints[snapCursor]!;
+    snapCursor++;
+    observer!.onSnapshot(at, {
+      content: buf.cells.join(''),
+      provenance: joinProvenance(buf.provCells),
+      kindByGlobalIdx,
+      hashBySaveSeq,
+    });
   }
+}
 ```
 
 Inside the event loop, as the very first statement of the `for` body (before the `upToGlobalIdx` break check):
 
 ```ts
-    const e = fileEvents[i]!;
-    if (observer !== undefined) emitSnapshotsUpTo(e.globalIdx);
-    if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
+const e = fileEvents[i]!;
+if (observer !== undefined) emitSnapshotsUpTo(e.globalIdx);
+if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
 ```
 
 After the loop closes, before building `result`:
 
 ```ts
-  // Any snapshot points past this file's last event get the final state.
-  if (observer !== undefined) emitSnapshotsUpTo(Number.MAX_SAFE_INTEGER);
+// Any snapshot points past this file's last event get the final state.
+if (observer !== undefined) emitSnapshotsUpTo(Number.MAX_SAFE_INTEGER);
 ```
 
 Change the cache write so an observed pass does not populate the memo:
@@ -295,11 +307,13 @@ git commit --no-gpg-sign -m "feat(analysis-core): optional snapshot observer on 
 ### Task 2: Config block and candidate ordinals
 
 **Files:**
+
 - Modify: `packages/analysis-core/src/heuristics/config.ts`
 - Modify: `packages/analysis-core/src/heuristics/candidate-pastes.ts`
 - Test: `packages/analysis-core/src/heuristics/config.test.ts` (create if absent)
 
 **Interfaces:**
+
 - Consumes: nothing from Task 1.
 - Produces: `HeuristicConfig['internalMove']` with fields `{ enabled: boolean; minMatchRatio: number; typedRatio: number; ledgerMaxBytes: number; minBlobChars: number }`, and `CandidatePaste.ordinal: number` (0-based position in `iterateCandidatePastes` order).
 
@@ -340,22 +354,22 @@ Expected: FAIL — `internalMove` is undefined.
 In `config.ts`, add to the `HeuristicConfig` type (after the `pasteMatchesKnownSource` block, before the closing `};`):
 
 ```ts
-  /**
-   * internal_move classification — suppresses paste flags that are really the
-   * student relocating their own previously-typed code.
-   */
-  internalMove: {
-    /** false → classifier never runs; output is byte-for-byte prior behaviour. */
-    enabled: boolean;
-    /** Fraction of normalised paste lines that must match a source region. */
-    minMatchRatio: number;
-    /** Fraction of matched source chars that must be typed/preexisting. */
-    typedRatio: number;
-    /** Deletion ledger byte cap; oldest-first eviction. */
-    ledgerMaxBytes: number;
-    /** Pastes and deletions below this many chars are never classified. */
-    minBlobChars: number;
-  };
+/**
+ * internal_move classification — suppresses paste flags that are really the
+ * student relocating their own previously-typed code.
+ */
+internalMove: {
+  /** false → classifier never runs; output is byte-for-byte prior behaviour. */
+  enabled: boolean;
+  /** Fraction of normalised paste lines that must match a source region. */
+  minMatchRatio: number;
+  /** Fraction of matched source chars that must be typed/preexisting. */
+  typedRatio: number;
+  /** Deletion ledger byte cap; oldest-first eviction. */
+  ledgerMaxBytes: number;
+  /** Pastes and deletions below this many chars are never classified. */
+  minBlobChars: number;
+}
 ```
 
 Add to `DEFAULT_HEURISTIC_CONFIG` (after `interSessionExternalChange`):
@@ -384,14 +398,14 @@ Add to `mergeConfig`'s returned object (after `interSessionExternalChange`):
 In `candidate-pastes.ts`, add to the `CandidatePaste` type (after `origin`):
 
 ```ts
-  /**
-   * 0-based position in `iterateCandidatePastes` order. Stable across runs and
-   * across consumers, because the iterator walks `index.ordered` (globalIdx
-   * ascending) and yields deltas in array order. Used as the join key between
-   * a candidate and its internal-move classification, which `seqKey` cannot be:
-   * a multi-delta doc.change yields several candidates sharing one seqKey.
-   */
-  ordinal: number;
+/**
+ * 0-based position in `iterateCandidatePastes` order. Stable across runs and
+ * across consumers, because the iterator walks `index.ordered` (globalIdx
+ * ascending) and yields deltas in array order. Used as the join key between
+ * a candidate and its internal-move classification, which `seqKey` cannot be:
+ * a multi-delta doc.change yields several candidates sharing one seqKey.
+ */
+ordinal: number;
 ```
 
 Add a counter in `iterateCandidatePastes` — declare `let ordinal = 0;` as the first statement of the generator, then add `ordinal: ordinal++,` to **both** yielded object literals (the `paste` branch and the `doc.change` delta branch).
@@ -399,8 +413,8 @@ Add a counter in `iterateCandidatePastes` — declare `let ordinal = 0;` as the 
 Also add the `globalIdx` field, needed by the classifier:
 
 ```ts
-  /** globalIdx of the source event. Snapshot join key for internal-move. */
-  globalIdx: number;
+/** globalIdx of the source event. Snapshot join key for internal-move. */
+globalIdx: number;
 ```
 
 Set `globalIdx: e.globalIdx,` in both yield sites.
@@ -426,12 +440,15 @@ git commit --no-gpg-sign -m "feat(analysis-core): internalMove config block and 
 ### Task 3: The classifier
 
 **Files:**
+
 - Create: `packages/analysis-core/src/heuristics/internal-move.ts`
 - Test: `packages/analysis-core/src/heuristics/internal-move.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ReplayObserver` and the 4-arg `reconstructFileWithProvenance` (Task 1); `HeuristicConfig['internalMove']` and `CandidatePaste.ordinal` / `.globalIdx` (Task 2).
 - Produces:
+
   ```ts
   export type MoveVia = 'copy' | 'cut';
   export type MoveClassification = 'internal_move' | 'external' | 'unknown';
@@ -446,9 +463,10 @@ git commit --no-gpg-sign -m "feat(analysis-core): internalMove config block and 
   export function classifyInternalMoves(
     index: EventIndex,
     config: HeuristicConfig,
-  ): Map<number, MoveResult>;   // keyed by CandidatePaste.ordinal
+  ): Map<number, MoveResult>; // keyed by CandidatePaste.ordinal
   export function normalizeForMatch(text: string): string;
   ```
+
   A candidate absent from the returned map is `'external'` (callers use `?? { classification: 'external' }`).
 
 - [ ] **Step 1: Write the failing tests**
@@ -536,7 +554,7 @@ describe('normalizeForMatch', () => {
 });
 
 describe('classifyInternalMoves', () => {
-  it('classifies a copy of the student\'s own typed code as an internal move', async () => {
+  it("classifies a copy of the student's own typed code as an internal move", async () => {
     const { index } = await buildAndIndex({
       sessions: [
         {
@@ -994,11 +1012,7 @@ export function classifyInternalMoves(
           const haystack = normalizeForMatch(state.content);
           const at = findNormalized(haystack, needle, cfg.minMatchRatio);
           if (at === -1) continue;
-          const span = originalSpanForNormalizedMatch(
-            state.content,
-            at,
-            needle.split('\n').length,
-          );
+          const span = originalSpanForNormalizedMatch(state.content, at, needle.split('\n').length);
           const typed = ownRatio(state, span.start, span.end);
           if (typed < cfg.typedRatio) continue;
           results.set(c.ordinal, {
@@ -1083,10 +1097,12 @@ git commit --no-gpg-sign -m "feat(analysis-core): internal-move paste classifier
 ### Task 4: Wire the downgrade into large_paste
 
 **Files:**
+
 - Modify: `packages/analysis-core/src/heuristics/large-paste.ts`
 - Test: `packages/analysis-core/src/heuristics/large-paste.test.ts`
 
 **Interfaces:**
+
 - Consumes: `classifyInternalMoves(index, config): Map<number, MoveResult>` (Task 3), `CandidatePaste.ordinal` (Task 2).
 - Produces: no new exports.
 
@@ -1108,7 +1124,7 @@ describe('large_paste — internal move downgrade', () => {
     '',
   ].join('\n');
 
-  it('downgrades a relocation of the student\'s own typed code to info', async () => {
+  it("downgrades a relocation of the student's own typed code to info", async () => {
     const { index, bundle } = await buildAndIndex({
       sessions: [
         {
@@ -1216,72 +1232,72 @@ import { classifyInternalMoves } from './internal-move.js';
 In `run()`, after `const anomalyWindows = buildAnomalyWindows(index);`:
 
 ```ts
-  const moves = classifyInternalMoves(index, config);
+const moves = classifyInternalMoves(index, config);
 ```
 
 Replace the flag-construction block (from `const severity: Severity =` through the `flags.push({...})` call) with:
 
 ```ts
-    // Severity: escalate if either high-severity threshold is met.
-    const baseSeverity: Severity =
-      length >= highSeverityChars || lines >= highSeverityLines ? 'high' : 'medium';
+// Severity: escalate if either high-severity threshold is met.
+const baseSeverity: Severity =
+  length >= highSeverityChars || lines >= highSeverityLines ? 'high' : 'medium';
 
-    // Confidence: reduced if inside a paste.anomaly window.
-    const anomalyTs = anomalyWindows.get(c.sessionId);
-    const confidence = isInAnomalyWindow(c.t, anomalyTs) ? ANOMALY_CONFIDENCE : NORMAL_CONFIDENCE;
+// Confidence: reduced if inside a paste.anomaly window.
+const anomalyTs = anomalyWindows.get(c.sessionId);
+const confidence = isInAnomalyWindow(c.t, anomalyTs) ? ANOMALY_CONFIDENCE : NORMAL_CONFIDENCE;
 
-    const id = flagId(c.seqKey, flagIndex++);
+const id = flagId(c.seqKey, flagIndex++);
 
-    const lineInfo = lines > 0 ? `, ${lines} lines` : '';
-    const sourceDescriptor =
-      c.origin === 'paste' ? 'A paste' : 'A paste-shaped bulk edit (doc.change/paste_likely)';
+const lineInfo = lines > 0 ? `, ${lines} lines` : '';
+const sourceDescriptor =
+  c.origin === 'paste' ? 'A paste' : 'A paste-shaped bulk edit (doc.change/paste_likely)';
 
-    // An internal move is the student relocating their own previously-typed
-    // code. Keep the record (evidence is never destroyed) but drop it to info,
-    // which scores 0 under the default severity weights and leaves the ranked
-    // queue. `heuristic` is deliberately unchanged so per-flag weights and
-    // severity roll-ups keep working.
-    const move = moves.get(c.ordinal);
-    const isMove = move?.classification === 'internal_move';
+// An internal move is the student relocating their own previously-typed
+// code. Keep the record (evidence is never destroyed) but drop it to info,
+// which scores 0 under the default severity weights and leaves the ranked
+// queue. `heuristic` is deliberately unchanged so per-flag weights and
+// severity roll-ups keep working.
+const move = moves.get(c.ordinal);
+const isMove = move?.classification === 'internal_move';
 
-    const severity: Severity = isMove ? 'info' : baseSeverity;
-    const title = isMove
-      ? move!.sourcePath !== undefined && move!.sourcePath !== c.path
-        ? `Code moved from ${move!.sourcePath} into ${c.path}`
-        : `Code moved within ${c.path}`
-      : `Large paste in ${c.path}`;
-    const description = isMove
-      ? `${length} characters${lineInfo} were relocated into ${c.path} from the student's own ` +
-        `previously-typed code in ${move!.sourcePath}. Not treated as an external paste.`
-      : `${sourceDescriptor} of ${length} characters${lineInfo} was detected in ${c.path}.`;
+const severity: Severity = isMove ? 'info' : baseSeverity;
+const title = isMove
+  ? move!.sourcePath !== undefined && move!.sourcePath !== c.path
+    ? `Code moved from ${move!.sourcePath} into ${c.path}`
+    : `Code moved within ${c.path}`
+  : `Large paste in ${c.path}`;
+const description = isMove
+  ? `${length} characters${lineInfo} were relocated into ${c.path} from the student's own ` +
+    `previously-typed code in ${move!.sourcePath}. Not treated as an external paste.`
+  : `${sourceDescriptor} of ${length} characters${lineInfo} was detected in ${c.path}.`;
 
-    flags.push({
-      id,
-      heuristic: 'large_paste',
-      title,
-      severity,
-      confidence,
-      supportingSeqs: [c.seqKey],
-      description,
-      detail: {
-        path: c.path,
-        charCount: length,
-        lineCount: lines > 0 ? lines : null,
-        inAnomalyWindow: isInAnomalyWindow(c.t, anomalyTs),
-        origin: c.origin,
-        ...(isMove
-          ? {
-              internalMove: {
-                sourcePath: move!.sourcePath,
-                sourceGlobalIdx: move!.sourceGlobalIdx,
-                matchRatio: move!.matchRatio,
-                typedRatio: move!.typedRatio,
-                via: move!.via,
-              },
-            }
-          : {}),
-      },
-    });
+flags.push({
+  id,
+  heuristic: 'large_paste',
+  title,
+  severity,
+  confidence,
+  supportingSeqs: [c.seqKey],
+  description,
+  detail: {
+    path: c.path,
+    charCount: length,
+    lineCount: lines > 0 ? lines : null,
+    inAnomalyWindow: isInAnomalyWindow(c.t, anomalyTs),
+    origin: c.origin,
+    ...(isMove
+      ? {
+          internalMove: {
+            sourcePath: move!.sourcePath,
+            sourceGlobalIdx: move!.sourceGlobalIdx,
+            matchRatio: move!.matchRatio,
+            typedRatio: move!.typedRatio,
+            via: move!.via,
+          },
+        }
+      : {}),
+  },
+});
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1304,10 +1320,12 @@ git commit --no-gpg-sign -m "feat(analysis-core): downgrade large_paste on inter
 ### Task 5: Wire the downgrade into paste_is_solution
 
 **Files:**
+
 - Modify: `packages/analysis-core/src/heuristics/paste-is-solution.ts`
 - Test: `packages/analysis-core/src/heuristics/paste-is-solution.test.ts`
 
 **Interfaces:**
+
 - Consumes: `classifyInternalMoves` (Task 3), `CandidatePaste.ordinal` (Task 2).
 - Produces: no new exports.
 
@@ -1402,52 +1420,52 @@ import { classifyInternalMoves } from './internal-move.js';
 In `run()`, after `const threshold = config.pasteIsSolution.lineOverlap;`:
 
 ```ts
-  const moves = classifyInternalMoves(index, config);
+const moves = classifyInternalMoves(index, config);
 ```
 
 Replace the `flags.push({...})` call with:
 
 ```ts
-    const move = moves.get(c.ordinal);
-    const isMove = move?.classification === 'internal_move';
+const move = moves.get(c.ordinal);
+const isMove = move?.classification === 'internal_move';
 
-    flags.push({
-      id,
-      heuristic: 'paste_is_solution',
-      title: isMove
-        ? move!.sourcePath !== undefined && move!.sourcePath !== c.path
-          ? `Code moved from ${move!.sourcePath} into ${c.path}`
-          : `Code moved within ${c.path}`
-        : `Paste matches solution in ${c.path}`,
-      severity: isMove ? 'info' : 'high',
-      confidence: 0.85,
-      supportingSeqs: [c.seqKey],
-      description: isMove
-        ? `An insertion in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
-          `file's final content, but it is a relocation of the student's own previously-typed ` +
-          `code in ${move!.sourcePath}. Not treated as an external paste.`
-        : `${sourceDescriptor} in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
-          `file's final content, suggesting the insertion may be the complete solution.`,
-      detail: {
-        filePath: c.path,
-        pasteLines,
-        sharedLines: shared,
-        overlapRatio: ratio,
-        threshold,
-        origin: c.origin,
-        ...(isMove
-          ? {
-              internalMove: {
-                sourcePath: move!.sourcePath,
-                sourceGlobalIdx: move!.sourceGlobalIdx,
-                matchRatio: move!.matchRatio,
-                typedRatio: move!.typedRatio,
-                via: move!.via,
-              },
-            }
-          : {}),
-      },
-    });
+flags.push({
+  id,
+  heuristic: 'paste_is_solution',
+  title: isMove
+    ? move!.sourcePath !== undefined && move!.sourcePath !== c.path
+      ? `Code moved from ${move!.sourcePath} into ${c.path}`
+      : `Code moved within ${c.path}`
+    : `Paste matches solution in ${c.path}`,
+  severity: isMove ? 'info' : 'high',
+  confidence: 0.85,
+  supportingSeqs: [c.seqKey],
+  description: isMove
+    ? `An insertion in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
+      `file's final content, but it is a relocation of the student's own previously-typed ` +
+      `code in ${move!.sourcePath}. Not treated as an external paste.`
+    : `${sourceDescriptor} in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
+      `file's final content, suggesting the insertion may be the complete solution.`,
+  detail: {
+    filePath: c.path,
+    pasteLines,
+    sharedLines: shared,
+    overlapRatio: ratio,
+    threshold,
+    origin: c.origin,
+    ...(isMove
+      ? {
+          internalMove: {
+            sourcePath: move!.sourcePath,
+            sourceGlobalIdx: move!.sourceGlobalIdx,
+            matchRatio: move!.matchRatio,
+            typedRatio: move!.typedRatio,
+            via: move!.via,
+          },
+        }
+      : {}),
+  },
+});
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1470,9 +1488,11 @@ git commit --no-gpg-sign -m "feat(analysis-core): downgrade paste_is_solution on
 ### Task 6: Full analysis-core suite and documentation
 
 **Files:**
+
 - Modify: `docs/heuristics.md`
 
 **Interfaces:**
+
 - Consumes: everything from Tasks 1–5.
 - Produces: nothing.
 
@@ -1491,7 +1511,7 @@ In `docs/heuristics.md`, add after the "Shared iterator" paragraph:
 **Internal-move downgrade.** `large_paste` and `paste_is_solution` consult
 [`internal-move.ts`](../packages/analysis-core/src/heuristics/internal-move.ts)
 before emitting. When a paste's content matches a region of the student's own
-prior content whose provenance is *typed* (or preexisting starter code), the flag
+prior content whose provenance is _typed_ (or preexisting starter code), the flag
 is retitled "Code moved within/from …", dropped to `info` severity — scoring 0
 under the default severity weights — and carries a `detail.internalMove`
 block naming the source path and event. The flag is never suppressed: the record
@@ -1519,4 +1539,4 @@ git commit --no-gpg-sign -m "docs(heuristics): document the internal-move downgr
 
 **Spec coverage.** Every spec section maps to a task: observer hook → Task 1; config + ordinals → Task 2; matching rule, normalisation, provenance gate, ledger policy, fail-closed → Task 3; flag shape for both heuristics → Tasks 4–5; docs → Task 6. Non-goals (`paste_matches_known_source`, `SubmissionStats`, cross-flags, `api-schemas.ts`) are named in Global Constraints as do-not-touch.
 
-**Known risk, flagged for the implementer.** `originalSpanForNormalizedMatch` maps a normalised-space match back to original-space offsets so the provenance check can run. This is the fiddliest function in the change and the most likely source of an off-by-one on the reindent and blank-line cases. If it resists, the correct fallback is to compute the provenance ratio over the *whole* matched file region rather than the exact span — more conservative, never less. Relaxing `typedRatio` or `minMatchRatio` is not an acceptable fix.
+**Known risk, flagged for the implementer.** `originalSpanForNormalizedMatch` maps a normalised-space match back to original-space offsets so the provenance check can run. This is the fiddliest function in the change and the most likely source of an off-by-one on the reindent and blank-line cases. If it resists, the correct fallback is to compute the provenance ratio over the _whole_ matched file region rather than the exact span — more conservative, never less. Relaxing `typedRatio` or `minMatchRatio` is not an acceptable fix.

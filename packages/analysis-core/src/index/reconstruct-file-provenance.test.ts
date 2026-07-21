@@ -1118,3 +1118,132 @@ describe('reconstructFileWithProvenance — over-cap paste recovery', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// ReplayObserver — snapshot hook (internal-move classification)
+// ---------------------------------------------------------------------------
+
+describe('reconstructFileWithProvenance — observer', () => {
+  /** Three typed doc.changes appending 'a', 'b', 'c' to one file. */
+  async function abcIndex(path: string) {
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            { kind: 'doc.open', data: { path, content: '' } },
+            ...['a', 'b', 'c'].map((ch, i) => ({
+              kind: 'doc.change' as const,
+              data: {
+                path,
+                source: 'typed',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: i },
+                      end: { line: 0, character: i },
+                    },
+                    text: ch,
+                  },
+                ],
+              },
+            })),
+          ],
+        },
+      ],
+    });
+    return buildIndex(await loadBundleFrom(zipBuffer));
+  }
+
+  it('captures state BEFORE the event at the requested globalIdx', async () => {
+    const path = '/src/abc.py';
+    const index = await abcIndex(path);
+    const changes = (index.byKind.get('doc.change') ?? []).filter((e) => e.file === path);
+    const lastIdx = changes[changes.length - 1]!.globalIdx;
+
+    const seen: Array<{ globalIdx: number; content: string }> = [];
+    reconstructFileWithProvenance(index, path, undefined, {
+      snapshotAt: [lastIdx],
+      onSnapshot: (globalIdx, state) => seen.push({ globalIdx, content: state.content }),
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.globalIdx).toBe(lastIdx);
+    // 'c' has not landed yet.
+    expect(seen[0]!.content).toBe('ab');
+  });
+
+  it("fires snapshots for globalIdxs past this file's last event", async () => {
+    const path = '/src/seed.py';
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [{ events: [{ kind: 'doc.open', data: { path, content: 'hello' } }] }],
+    });
+    const index = buildIndex(await loadBundleFrom(zipBuffer));
+
+    const seen: number[] = [];
+    reconstructFileWithProvenance(index, path, undefined, {
+      snapshotAt: [999_999],
+      onSnapshot: (globalIdx, state) => {
+        seen.push(globalIdx);
+        expect(state.content).toBe('hello');
+      },
+    });
+
+    expect(seen).toEqual([999_999]);
+  });
+
+  it('fires each snapshot point exactly once, in ascending order', async () => {
+    const path = '/src/abc.py';
+    const index = await abcIndex(path);
+    const changes = (index.byKind.get('doc.change') ?? []).filter((e) => e.file === path);
+
+    const seen: number[] = [];
+    reconstructFileWithProvenance(index, path, undefined, {
+      // Deliberately unsorted, with a duplicate.
+      snapshotAt: [
+        changes[2]!.globalIdx,
+        changes[0]!.globalIdx,
+        changes[1]!.globalIdx,
+        changes[0]!.globalIdx,
+      ],
+      onSnapshot: (globalIdx) => seen.push(globalIdx),
+    });
+
+    expect(seen).toEqual([
+      changes[0]!.globalIdx,
+      changes[0]!.globalIdx,
+      changes[1]!.globalIdx,
+      changes[2]!.globalIdx,
+    ]);
+  });
+
+  it('produces output identical to an unobserved pass', async () => {
+    const path = '/src/abc.py';
+    const index = await abcIndex(path);
+
+    const observed = reconstructFileWithProvenance(index, path, undefined, {
+      snapshotAt: [0, 1, 2],
+      onSnapshot: () => {},
+    });
+    const plain = reconstructFileWithProvenance(index, path);
+
+    expect(observed.content).toBe(plain.content);
+    expect(Array.from(observed.provenance)).toEqual(Array.from(plain.provenance));
+    expect([...observed.kindByGlobalIdx.entries()]).toEqual([...plain.kindByGlobalIdx.entries()]);
+  });
+
+  it('does not serve an observed pass from the memo cache', async () => {
+    const path = '/src/abc.py';
+    const index = await abcIndex(path);
+
+    // Prime the memo with an unobserved full-stream pass.
+    reconstructFileWithProvenance(index, path);
+
+    const seen: number[] = [];
+    reconstructFileWithProvenance(index, path, undefined, {
+      snapshotAt: [0],
+      onSnapshot: (globalIdx) => seen.push(globalIdx),
+    });
+
+    expect(seen).toEqual([0]);
+  });
+});

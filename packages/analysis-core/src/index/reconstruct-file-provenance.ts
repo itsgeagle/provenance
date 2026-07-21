@@ -102,6 +102,29 @@ export type FileReplayState = {
   hashBySaveSeq: Map<string, string>;
 };
 
+/**
+ * Optional observational hook for a replay pass.
+ *
+ * `snapshotAt` lists globalIdx values (order irrelevant — sorted internally,
+ * duplicates preserved). For each value `v`, `onSnapshot(v, state)` fires with
+ * `state` reflecting every event of this file whose globalIdx is < v — i.e. the
+ * state *before* the event at `v`. Values past the file's last event fire after
+ * the loop with the final state, so a caller can ask "what did file G look like
+ * at the moment something happened in file F" without G having any event there.
+ *
+ * The observer never influences reconstruction: passing one produces identical
+ * `content` / `provenance` / `kindByGlobalIdx` output to omitting it. The only
+ * difference is that the full-stream memo cache is bypassed, because a cache hit
+ * would skip the loop and fire no snapshots.
+ *
+ * The `state` handed to `onSnapshot` is freshly materialized per call and owned
+ * by the callback; the replay does not retain or mutate it afterwards.
+ */
+export type ReplayObserver = {
+  snapshotAt: number[];
+  onSnapshot(globalIdx: number, state: FileReplayState): void;
+};
+
 // ---------------------------------------------------------------------------
 // Line-cell content model (perf: O(line) intra-line edits, no lineStarts)
 // ---------------------------------------------------------------------------
@@ -344,12 +367,16 @@ export function reconstructFileWithProvenance(
   index: EventIndex,
   filePath: string,
   upToGlobalIdx?: number,
+  observer?: ReplayObserver,
 ): FileReplayState {
   // Memoize full-stream reconstructions per index (shared by paste-is-solution
   // and idle-then-complete's final state). Cut-point reconstructions are
   // detector-specific and uncached, keeping memory bounded for replay seeking.
   // All callers treat the result as read-only.
-  if (upToGlobalIdx === undefined) {
+  //
+  // An observed pass must skip the memo in both directions: a hit would return
+  // early and fire no snapshots.
+  if (upToGlobalIdx === undefined && observer === undefined) {
     const cached = finalReplayCache.get(index)?.get(filePath);
     if (cached !== undefined) return cached;
   }
@@ -365,8 +392,30 @@ export function reconstructFileWithProvenance(
   const wantedPasteHashes = collectOverCapPasteHashes(fileEvents);
   const blobByHash = new Map<string, string>();
 
+  // Snapshot bookkeeping. Sorted ascending; `snapCursor` is the next pending
+  // value. Emitting materializes the buffer, so each fire costs O(content) —
+  // bounded by the caller keeping `snapshotAt` small (see internal-move.ts,
+  // which requests one point per non-trivial paste and deletion site).
+  const snapPoints = observer === undefined ? [] : [...observer.snapshotAt].sort((a, b) => a - b);
+  let snapCursor = 0;
+
+  function emitSnapshotsUpTo(limit: number): void {
+    while (snapCursor < snapPoints.length && snapPoints[snapCursor]! <= limit) {
+      const at = snapPoints[snapCursor]!;
+      snapCursor++;
+      observer!.onSnapshot(at, {
+        content: buf.cells.join(''),
+        provenance: joinProvenance(buf.provCells),
+        kindByGlobalIdx,
+        hashBySaveSeq,
+      });
+    }
+  }
+
   for (let i = 0; i < fileEvents.length; i++) {
     const e = fileEvents[i]!;
+    // Pre-event: everything with globalIdx < e.globalIdx has been applied.
+    if (observer !== undefined) emitSnapshotsUpTo(e.globalIdx);
     if (upToGlobalIdx !== undefined && e.globalIdx >= upToGlobalIdx) break;
 
     switch (e.kind) {
@@ -553,13 +602,16 @@ export function reconstructFileWithProvenance(
     }
   }
 
+  // Snapshot points past this file's last event get the final state.
+  if (observer !== undefined) emitSnapshotsUpTo(Number.MAX_SAFE_INTEGER);
+
   const result: FileReplayState = {
     content: buf.cells.join(''),
     provenance: joinProvenance(buf.provCells),
     kindByGlobalIdx,
     hashBySaveSeq,
   };
-  if (upToGlobalIdx === undefined) {
+  if (upToGlobalIdx === undefined && observer === undefined) {
     let perIndex = finalReplayCache.get(index);
     if (perIndex === undefined) {
       perIndex = new Map();

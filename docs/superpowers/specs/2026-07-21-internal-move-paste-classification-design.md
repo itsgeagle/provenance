@@ -16,7 +16,7 @@ Two ordinary student behaviours produce high-severity flags today:
 
 Both are indistinguishable, to the current heuristics, from pasting code in from
 outside the editor. `large_paste` fires on any paste-shaped insertion ≥ 200 chars
-or ≥ 10 lines. `paste_is_solution` is worse: a student who *types* the entire
+or ≥ 10 lines. `paste_is_solution` is worse: a student who _types_ the entire
 solution and then reorganises it trips "pasted block has ≥ 80% line overlap with
 the file's final saved state" at high severity, which reads as the single most
 damning flag in the catalogue.
@@ -32,14 +32,14 @@ dismiss the flag class wholesale, which costs the true positives too.
   added detail field.
 - Changing `SubmissionStats.pastedChars`. It keeps counting internal moves.
 - Changing the cross-submission flag `paste_shared_across_students`. Excluding
-  internal moves there would be actively wrong: two students whose *own typed
-  code* hashes identically is a genuine collusion signal.
+  internal moves there would be actively wrong: two students whose _own typed
+  code_ hashes identically is a genuine collusion signal.
 - Any change to the HTTP API contract or the log format.
 
 ## Approach
 
 Classify each candidate paste as an **internal move** when its content matches a
-region of the student's own prior content *whose provenance is typed*, and
+region of the student's own prior content _whose provenance is typed_, and
 downgrade — not suppress — the resulting flag.
 
 Downgrade rather than suppress because Provenance is an evidence system. A
@@ -103,7 +103,7 @@ a second.
 ### Obtaining the deletion ledger without touching the splice path
 
 Deleted text is not recoverable from an event payload alone — a delta records the
-*range* removed, not the characters. Rather than instrumenting `spliceBuf`, the
+_range_ removed, not the characters. Rather than instrumenting `spliceBuf`, the
 classifier **adds deletion sites to the same `snapshotAt` list** and reads the
 removed text out of the pre-event snapshot.
 
@@ -183,12 +183,12 @@ The `heuristic` id is unchanged (`large_paste`, `paste_is_solution`), so per-fla
 enable/weight toggles, the tuning UI, severity roll-ups, and cross-flag counting
 keep working with no changes. What changes on a downgraded flag:
 
-| Field | Value |
-| --- | --- |
-| `severity` | `'info'` |
-| `title` | `Code moved within hw3.py`, or `Code moved from utils.py into hw3.py` for a cross-file move |
-| `confidence` | unchanged — confidence describes paste *detection*, not the verdict |
-| `detail.internalMove` | `{ sourcePath, sourceGlobalIdx, matchRatio, typedRatio, via: 'copy' \| 'cut' }` |
+| Field                 | Value                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `severity`            | `'info'`                                                                                    |
+| `title`               | `Code moved within hw3.py`, or `Code moved from utils.py into hw3.py` for a cross-file move |
+| `confidence`          | unchanged — confidence describes paste _detection_, not the verdict                         |
+| `detail.internalMove` | `{ sourcePath, sourceGlobalIdx, matchRatio, typedRatio, via: 'copy' \| 'cut' }`             |
 
 `via: 'cut'` when the match came from the deletion ledger, `'copy'` when it came
 from a live snapshot.
