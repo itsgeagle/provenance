@@ -19,6 +19,7 @@ import type {
   Range,
 } from '@provenance/log-core';
 import type { PastePayloadFields } from './paste-payload.js';
+import { MAX_INLINE_BYTES } from './inline-content-limits.js';
 
 // ---------------------------------------------------------------------------
 // WorkspaceLike — minimal seam so tests don't need a real vscode.workspace
@@ -36,8 +37,12 @@ export type WorkspaceLike = {
  * Maximum byte-length for inlining document content in a doc.open payload.
  * Files larger than this have only `sha256`/`line_count`; `truncated: true`
  * is set so the analyzer knows reconstruction will be tainted for this file.
+ *
+ * Aliases the shared MAX_INLINE_BYTES (inline-content-limits.ts). doc.open was
+ * always 64 KB; `paste` and `fs.external_change` were raised to match it, and
+ * all three now move together.
  */
-export const DOC_OPEN_MAX_INLINE_BYTES = 64 * 1024; // 64 KB
+export const DOC_OPEN_MAX_INLINE_BYTES = MAX_INLINE_BYTES;
 
 /**
  * Build a doc.open payload from a VS Code TextDocument.

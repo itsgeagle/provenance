@@ -1,15 +1,25 @@
 /**
  * Paste payload builder — PRD §4.2 paste row + §4.3.
  *
- * Stores full pasted text up to 4 KB inline; for larger pastes stores
- * a hash + head/tail truncation. Uses Buffer.byteLength for byte-accurate
+ * Stores full pasted text up to MAX_INLINE_BYTES inline; for larger pastes
+ * stores a hash + head/tail truncation. Uses Buffer.byteLength for byte-accurate
  * length (handles multi-byte UTF-8 codepoints correctly).
+ *
+ * The caps live in inline-content-limits.ts, shared with external-change-content.ts
+ * and doc-events.ts; they are re-exported here so existing importers (and the
+ * tests that pin the boundary) keep working.
+ *
+ * A `paste` event is NOT duplicated by a `doc.change`, so whatever is dropped
+ * here is dropped from reconstruction and from the paste heuristics for good.
  *
  * @noble/hashes is in the approved dependency list (CLAUDE.md boundary).
  */
 
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { MAX_INLINE_BYTES, HEAD_TAIL_BYTES } from './inline-content-limits.js';
+
+export { MAX_INLINE_BYTES, HEAD_TAIL_BYTES };
 
 export type PastePayloadFields = {
   length: number;
@@ -21,9 +31,6 @@ export type PastePayloadFields = {
   /** Tail of text if > MAX_INLINE_BYTES. Last HEAD_TAIL_BYTES chars. */
   content_tail?: string;
 };
-
-export const MAX_INLINE_BYTES = 4096;
-export const HEAD_TAIL_BYTES = 512;
 
 /**
  * Build the paste payload fields for a pasted string.

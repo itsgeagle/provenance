@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildPastePayload, MAX_INLINE_BYTES, HEAD_TAIL_BYTES } from './paste-payload.js';
 
 describe('buildPastePayload', () => {
-  it('short text (< 4KB): sets content, no head/tail', () => {
+  it('short text: sets content, no head/tail', () => {
     const text = 'hello world';
     const result = buildPastePayload(text);
     expect(result.content).toBe(text);
@@ -10,28 +10,78 @@ describe('buildPastePayload', () => {
     expect(result.content_tail).toBeUndefined();
   });
 
-  it('text exactly at 4096 bytes: sets content (boundary inclusive)', () => {
+  // -------------------------------------------------------------------------
+  // Cap boundary (PRD §4.3). MAX_INLINE_BYTES is 64 KB, raised from 4 KB.
+  // A `paste` event is NOT duplicated by a `doc.change`, so anything dropped
+  // here is gone from reconstruction AND from the paste heuristics — which
+  // made a >4 KB pasted solution, the single most load-bearing detection case
+  // in the product, invisible.
+  // -------------------------------------------------------------------------
+
+  it('pins the cap at 64 KB', () => {
+    expect(MAX_INLINE_BYTES).toBe(64 * 1024);
+  });
+
+  it('just below the cap: sets content', () => {
+    const text = 'a'.repeat(MAX_INLINE_BYTES - 1);
+    const result = buildPastePayload(text);
+    expect(result.content).toBe(text);
+    expect(result.content_head).toBeUndefined();
+    expect(result.length).toBe(MAX_INLINE_BYTES - 1);
+  });
+
+  it('exactly at the cap: sets content (boundary inclusive)', () => {
     const text = 'a'.repeat(MAX_INLINE_BYTES);
     const result = buildPastePayload(text);
     expect(result.content).toBe(text);
     expect(result.content_head).toBeUndefined();
+    expect(result.length).toBe(MAX_INLINE_BYTES);
   });
 
-  it('text exceeding 4096 bytes: sets head/tail, no content', () => {
+  it('one byte over the cap: sets head/tail, no content', () => {
     const text = 'a'.repeat(MAX_INLINE_BYTES + 1);
     const result = buildPastePayload(text);
     expect(result.content).toBeUndefined();
     expect(result.content_head).toBe('a'.repeat(HEAD_TAIL_BYTES));
     expect(result.content_tail).toBe('a'.repeat(HEAD_TAIL_BYTES));
+    expect(result.length).toBe(MAX_INLINE_BYTES + 1);
+  });
+
+  // The cap is BYTES, not JS string length — the case that breaks if someone
+  // reaches for `text.length`.
+  it('multi-byte UTF-8 exactly at the cap in BYTES: sets content', () => {
+    const emoji = '😀'; // 4 UTF-8 bytes, 2 JS chars (surrogate pair)
+    const text = emoji.repeat(MAX_INLINE_BYTES / 4);
+    expect(Buffer.byteLength(text, 'utf8')).toBe(MAX_INLINE_BYTES);
+    expect(text.length).toBeLessThan(MAX_INLINE_BYTES);
+
+    const result = buildPastePayload(text);
+    expect(result.content).toBe(text);
+    expect(result.length).toBe(MAX_INLINE_BYTES);
+  });
+
+  it('multi-byte UTF-8 over the cap in BYTES but under it in chars: head/tail', () => {
+    const emoji = '😀';
+    const text = emoji.repeat(MAX_INLINE_BYTES / 4 + 1);
+    expect(Buffer.byteLength(text, 'utf8')).toBe(MAX_INLINE_BYTES + 4);
+    expect(text.length).toBeLessThan(MAX_INLINE_BYTES); // would wrongly inline on .length
+
+    const result = buildPastePayload(text);
+    expect(result.content).toBeUndefined();
+    expect(result.length).toBe(MAX_INLINE_BYTES + 4);
+    // Character slices, so truncation never splits a surrogate pair.
+    expect(result.content_head).toBe(emoji.repeat(HEAD_TAIL_BYTES / 2));
+    expect(result.content_tail).toBe(emoji.repeat(HEAD_TAIL_BYTES / 2));
   });
 
   it('large text: head is first 512 chars, tail is last 512 chars', () => {
     // Build text where head and tail are distinct
     const head = 'H'.repeat(HEAD_TAIL_BYTES);
-    const middle = 'M'.repeat(5000);
+    const middle = 'M'.repeat(MAX_INLINE_BYTES);
     const tail = 'T'.repeat(HEAD_TAIL_BYTES);
     const text = head + middle + tail;
     const result = buildPastePayload(text);
+    expect(result.content).toBeUndefined();
     expect(result.content_head).toBe(head);
     expect(result.content_tail).toBe(tail);
   });
