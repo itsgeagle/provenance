@@ -39,6 +39,7 @@ import {
   submissions,
   heuristic_configs,
   recompute_jobs,
+  per_file_stats,
 } from '../db/schema.js';
 import * as schema from '../db/schema.js';
 import { startWorker } from './worker.js';
@@ -256,6 +257,27 @@ describe('recompute e2e pipeline (POST /recompute → worker → status=succeede
       const submissionId = fileRow!.submission_id!;
 
       // -----------------------------------------------------------------------
+      // Poison per_file_stats to stand in for "derived by an older analyzer".
+      //
+      // These columns used to be written only at ingest, so a recompute that
+      // revised the flags left them frozen — the Source tab kept calling a
+      // now-clean reconstruction tainted, and the Stats panel kept attributing
+      // characters to external writes that had been reclassified away. The
+      // recompute must rewrite them.
+      // -----------------------------------------------------------------------
+      const statsBefore = await db
+        .select()
+        .from(per_file_stats)
+        .where(eq(per_file_stats.submission_id, submissionId));
+      expect(statsBefore.length, 'ingest must have written per_file_stats').toBeGreaterThan(0);
+      const poisonedPath = statsBefore[0]!.file_path;
+
+      await db
+        .update(per_file_stats)
+        .set({ reconstruction_tainted: true, chars_external_change_delta: 9999, chars_typed: 1 })
+        .where(eq(per_file_stats.submission_id, submissionId));
+
+      // -----------------------------------------------------------------------
       // POST /recompute against the active config.
       // -----------------------------------------------------------------------
       const recomputeRes = await app.fetch(
@@ -322,6 +344,22 @@ describe('recompute e2e pipeline (POST /recompute → worker → status=succeede
         .from(recompute_jobs)
         .where(eq(recompute_jobs.id, recomputeJobId));
       expect(rjRow!.target_config_id).toBe(configRow!.id);
+
+      // Assert per_file_stats was rewritten back to the values the bundle
+      // actually implies, not left at the poisoned ones.
+      const [statsAfter] = await db
+        .select()
+        .from(per_file_stats)
+        .where(
+          and(
+            eq(per_file_stats.submission_id, submissionId),
+            eq(per_file_stats.file_path, poisonedPath),
+          ),
+        );
+      const expected = statsBefore.find((r) => r.file_path === poisonedPath)!;
+      expect(statsAfter!.reconstruction_tainted).toBe(expected.reconstruction_tainted);
+      expect(statsAfter!.chars_external_change_delta).toBe(expected.chars_external_change_delta);
+      expect(statsAfter!.chars_typed).toBe(expected.chars_typed);
     });
   });
 });

@@ -38,11 +38,29 @@
  *   1. UPDATE submissions SET recompute_status='recomputing' WHERE id=...
  *   2. DELETE FROM flags WHERE submission_id=...
  *   3. INSERT INTO flags (...) VALUES ...
- *   4. UPDATE submissions SET score_total=..., score_max_severity=...,
+ *   4. UPSERT per_file_stats (...) — see below
+ *   5. UPDATE submissions SET score_total=..., score_max_severity=...,
  *        heuristic_config_version=..., recompute_status='fresh' WHERE id=...
  *
- * All 4 writes are in a single transaction so pg-boss retry sees a clean state
+ * All 5 writes are in a single transaction so pg-boss retry sees a clean state
  * on rollback.
+ *
+ * ## Why per_file_stats is rewritten here
+ *
+ * per_file_stats was previously written only at ingest, so two of its columns
+ * were derived once and never corrected: `reconstruction_tainted` (which the
+ * Source tab reads to decide whether to trust a reconstruction) and
+ * `chars_external_change_delta` (which the Stats panel attributes to external
+ * writes). Both are downstream of exactly the analyzer verdicts a recompute
+ * exists to revise — e.g. reclassifying a batch of false `fs.external_change`
+ * events flips a file from tainted to clean — so leaving them frozen at their
+ * ingest values meant a recompute silently fixed the flags while the stats kept
+ * telling staff the old story.
+ *
+ * This mirrors ingest, which also calls computeAndStoreStats inside its
+ * transaction (worker.ts, attach.ts). The upsert is keyed on
+ * (submission_id, file_path) and is idempotent, matching the rest of the
+ * pipeline's retry contract.
  *
  * If simulate=true, none of the above writes occur. The function is pure-ish
  * (reads from DB, no writes).
@@ -61,6 +79,7 @@ import type { ServerHeuristicConfig } from '../heuristics/config.js';
 import { reconstructBundleFromDb } from '../heuristics/reconstruct-bundle.js';
 import { runValidation } from '@provenance/analysis-core/validation/run-validation.js';
 import { runAndStoreValidation } from '../ingest/validation.js';
+import { computeAndStoreStats } from '../ingest/stats.js';
 import { computeScore } from './compute.js';
 import { computeFlagCounts, computeTopFlags } from './denorm.js';
 
@@ -316,9 +335,10 @@ export async function recomputeSubmission(
   // 5a. Mark submission as recomputing (visible to other readers during recompute).
   // 5b. Delete all existing flags.
   // 5c. Insert new flags.
-  // 5d. Update submission score + heuristic_config_version + recompute_status='fresh'.
+  // 5d. Rewrite per_file_stats from the freshly parsed bundle.
+  // 5e. Update submission score + heuristic_config_version + recompute_status='fresh'.
   //
-  // All 4 writes are atomic: a retry after crash sees a clean state.
+  // All 5 writes are atomic: a retry after crash sees a clean state.
   // -------------------------------------------------------------------------
   await withTransaction(db, async (tx) => {
     // 5a: recomputing sentinel
@@ -335,7 +355,11 @@ export async function recomputeSubmission(
       await tx.insert(flags).values(flagRows);
     }
 
-    // 5d: UPDATE submission — including the P1-1a denormalized cohort
+    // 5d: UPSERT per_file_stats. Same call ingest makes, against the same
+    // in-memory bundle + index, so the two paths cannot drift.
+    await computeAndStoreStats(tx, submissionId, bundle, index);
+
+    // 5e: UPDATE submission — including the P1-1a denormalized cohort
     // columns so the read path can skip the per-page sub-queries.
     // severity_rank is GENERATED from score_max_severity in DB.
     await tx
