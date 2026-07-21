@@ -50,6 +50,7 @@ import { ColorLegend } from './ColorLegend.js';
 import { FocusAwayOverlay } from './FocusAwayOverlay.js';
 import { currentFocusAwaySpan, currentEditedFile } from './focus-and-follow.js';
 import { CursorMarker } from './CursorMarker.js';
+import { FollowCursor } from './FollowCursor.js';
 import { currentSelection } from './cursor-position.js';
 import {
   findNextPaste,
@@ -490,6 +491,8 @@ export function ReplayInner({
               <GutterDecorations editor={monacoEditor} fileState={activeFileState} />
               {/* Student cursor / selection marker at the playhead. */}
               <CursorMarker editor={monacoEditor} selection={cursorSelection} />
+              {/* Scroll the editor to keep that marker in view as replay plays. */}
+              <FollowCursor editor={monacoEditor} selection={cursorSelection} content={content} />
               <LineHoverProvider
                 editor={monacoEditor}
                 monaco={monacoInstance}

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { currentSelection, toMonacoRange } from './cursor-position.js';
+import { currentSelection, toMonacoRange, caretPosition } from './cursor-position.js';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind, Range } from '@provenance/log-core';
 
@@ -103,6 +103,31 @@ describe('toMonacoRange', () => {
       startColumn: 3,
       endLineNumber: 5,
       endColumn: 3,
+    });
+  });
+});
+
+describe('caretPosition', () => {
+  it('puts the caret at the (equal) start/end of a bare cursor', () => {
+    expect(caretPosition({ range: rng(2, 4, 2, 4), wasSelection: false })).toEqual({
+      lineNumber: 3,
+      column: 5,
+    });
+  });
+
+  it('puts the caret at the END of a real selection', () => {
+    expect(caretPosition({ range: rng(1, 0, 3, 6), wasSelection: true })).toEqual({
+      lineNumber: 4,
+      column: 7,
+    });
+  });
+
+  it('ignores the range end when wasSelection is false', () => {
+    // A degenerate payload (was_selection false but start !== end) must still
+    // anchor on the start, matching what CursorMarker paints.
+    expect(caretPosition({ range: rng(1, 0, 3, 6), wasSelection: false })).toEqual({
+      lineNumber: 2,
+      column: 1,
     });
   });
 });

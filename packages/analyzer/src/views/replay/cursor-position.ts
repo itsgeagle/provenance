@@ -58,3 +58,23 @@ export function toMonacoRange(range: Range): MonacoRangeLiteral {
     endColumn: range.end.character + 1,
   };
 }
+
+/** A Monaco position literal (1-based), matching `IPosition`. */
+export type MonacoPositionLiteral = {
+  lineNumber: number;
+  column: number;
+};
+
+/**
+ * Where the student's caret sits for a selection: at the selection END for a
+ * real selection, else at the (equal) start/end of a bare cursor.
+ *
+ * Shared by CursorMarker (which paints the caret) and FollowCursor (which
+ * scrolls it into view) so the painted and revealed positions cannot drift.
+ */
+export function caretPosition(selection: ReplaySelection): MonacoPositionLiteral {
+  const m = toMonacoRange(selection.range);
+  return selection.wasSelection
+    ? { lineNumber: m.endLineNumber, column: m.endColumn }
+    : { lineNumber: m.startLineNumber, column: m.startColumn };
+}

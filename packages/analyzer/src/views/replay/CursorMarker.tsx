@@ -16,7 +16,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { editor as MonacoEditorNS } from 'monaco-editor';
-import { toMonacoRange } from './cursor-position.js';
+import { toMonacoRange, caretPosition } from './cursor-position.js';
 import type { ReplaySelection } from './cursor-position.js';
 
 type CursorMarkerProps = {
@@ -29,9 +29,9 @@ type CursorMarkerProps = {
 function buildDecorations(selection: ReplaySelection): MonacoEditorNS.IModelDeltaDecoration[] {
   const m = toMonacoRange(selection.range);
   // Caret sits at the cursor: the selection end for a real selection, else the
-  // (equal) start/end of a bare cursor.
-  const caretLine = selection.wasSelection ? m.endLineNumber : m.startLineNumber;
-  const caretCol = selection.wasSelection ? m.endColumn : m.startColumn;
+  // (equal) start/end of a bare cursor. Shared with FollowCursor so the painted
+  // caret and the revealed position can never disagree.
+  const { lineNumber: caretLine, column: caretCol } = caretPosition(selection);
 
   const decorations: MonacoEditorNS.IModelDeltaDecoration[] = [
     {

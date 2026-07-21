@@ -9,6 +9,7 @@
  *  5. TransportBar renders.
  */
 
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -19,9 +20,42 @@ import type { BundleContextValue } from '../../context/BundleContext.js';
 
 // ---------------------------------------------------------------------------
 // Mock Monaco so lazy import resolves immediately in jsdom.
+//
+// The mock invokes `onMount` with a fake editor so the headless side-effect
+// drivers (GutterDecorations, CursorMarker, FollowCursor, LineHoverProvider)
+// actually run. `fakeEditorCalls` exposes the spies to the tests below.
 // ---------------------------------------------------------------------------
+const fakeEditorCalls = {
+  reveal: vi.fn(),
+  deltaDecorations: vi.fn((_old: string[], next: unknown[]) => next.map((_, i) => `id-${i}`)),
+};
+
 vi.mock('@monaco-editor/react', () => ({
-  default: ({ value }: { value: string }) => <div data-testid="monaco-editor" data-value={value} />,
+  default: ({
+    value,
+    onMount,
+  }: {
+    value: string;
+    onMount?: (editor: unknown, monaco: unknown) => void;
+  }) => {
+    const editor = {
+      deltaDecorations: fakeEditorCalls.deltaDecorations,
+      revealPositionInCenterIfOutsideViewport: fakeEditorCalls.reveal,
+      getModel: () => null,
+    };
+    const monaco = {
+      languages: { registerHoverProvider: () => ({ dispose: () => {} }) },
+    };
+    // Mount callback fires once, like the real editor.
+    const mounted = React.useRef(false);
+    React.useEffect(() => {
+      if (mounted.current) return;
+      mounted.current = true;
+      onMount?.(editor, monaco);
+      // Mount-only, matching the real @monaco-editor/react contract.
+    }, []);
+    return <div data-testid="monaco-editor" data-value={value} />;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -145,6 +179,8 @@ function renderReplayView(sessionId: string, search = '') {
 describe('ReplayView', () => {
   beforeEach(() => {
     mockIndex.current = null;
+    fakeEditorCalls.reveal.mockClear();
+    fakeEditorCalls.deltaDecorations.mockClear();
   });
 
   describe('route guard', () => {
@@ -257,6 +293,60 @@ describe('ReplayView', () => {
       await waitFor(() => {
         expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('B');
       });
+    });
+  });
+
+  describe('follow cursor', () => {
+    function makeSelectionEvent(
+      globalIdx: number,
+      sessionId: string,
+      file: string,
+      line: number,
+    ): IndexedEvent {
+      return {
+        sessionId,
+        seq: globalIdx,
+        globalIdx,
+        wall: '2026-01-01T00:00:00.000Z',
+        t: globalIdx * 100,
+        kind: 'selection.change',
+        payload: {
+          path: file,
+          range: { start: { line, character: 0 }, end: { line, character: 0 } },
+          was_selection: false,
+        },
+        file,
+      };
+    }
+
+    it('scrolls the editor to the student’s caret at the playhead', async () => {
+      // Regression guard for the FollowCursor wiring: without it the reviewer
+      // watches an unmoving viewport while the caret runs off-screen.
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'hw.py'),
+        makeSelectionEvent(1, 'sess1', 'hw.py', 120),
+      ]);
+      renderReplayView('sess1', '?event=1');
+      await waitFor(() => {
+        expect(fakeEditorCalls.reveal).toHaveBeenCalled();
+      });
+      // 0-based line 120 → Monaco 1-based 121.
+      expect(fakeEditorCalls.reveal.mock.calls.at(-1)![0]).toEqual({
+        lineNumber: 121,
+        column: 1,
+      });
+    });
+
+    it('does not scroll when the session has no selection events', async () => {
+      mockIndex.current = buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'hw.py'),
+        makeDocChangeEvent(1, 'sess1', 'hw.py'),
+      ]);
+      renderReplayView('sess1', '?event=1');
+      await waitFor(() => {
+        expect(screen.getByTestId('monaco-editor')).toBeDefined();
+      });
+      expect(fakeEditorCalls.reveal).not.toHaveBeenCalled();
     });
   });
 
