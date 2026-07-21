@@ -438,6 +438,7 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
     registry: expectedContentRegistry,
     emit: (data) => sessionHost.emit('fs.external_change', data),
     getLastDocChangeAt: (p) => docWiring.getLastDocChangeAt(p),
+    getLastSaveAt: (p) => docWiring.getLastSaveAt(p),
     getNow: () => clock.now(),
     readFile: prodReadFile,
     explanationTagger,

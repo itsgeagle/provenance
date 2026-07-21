@@ -114,6 +114,8 @@ function computeHash(content: string): string {
 export type DocWiringHandle = vscode.Disposable & {
   /** Returns the monotonic time of the last doc.change for a relative path, or -Infinity. */
   getLastDocChangeAt: (relativePath: string) => number;
+  /** Returns the monotonic time of the last doc.save for a relative path, or -Infinity. */
+  getLastSaveAt: (relativePath: string) => number;
 };
 
 /**
@@ -142,6 +144,9 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
 
   // Track the most recent doc.change time per relative path (for fs-watcher tolerance).
   const lastDocChangeAt = new Map<string, number>();
+
+  // Track the most recent doc.save time per relative path (for fs-watcher tolerance).
+  const lastSaveAt = new Map<string, number>();
 
   // Track previous focus state for transition detection
   let prevFocused = vscode.window.state.focused;
@@ -423,6 +428,13 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
     if (!isRecordable(document.uri)) return;
     const relativePath = workspace.asRelativePath(document.uri);
 
+    // Anchor the fs-watcher's tolerance window on the SAVE, not just on the last
+    // doc.change. VS Code's autoSaveDelay defaults to 1000ms while the watcher
+    // tolerance is 250ms, so a doc.change-anchored window never covers the
+    // watcher event for the editor's own autosave. Recorded synchronously, before
+    // any async work, so the watcher sees it no matter when the OS notifies us.
+    lastSaveAt.set(relativePath, getNow());
+
     if (expectedContent.isWatched(relativePath)) {
       const ec = expectedContent.get(relativePath);
       if (ec !== undefined) {
@@ -432,6 +444,26 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
         readFile(relativePath).then(
           (onDiskContent) => {
             const result = compareSavedContent(ec, onDiskContent);
+
+            // Recent-state tolerance (PRD §4.5).
+            //
+            // `readFile` opens an async gap between the physical write and this
+            // comparison. A keystroke landing in that gap advances `ec` past the
+            // snapshot we just read, so a naive hash compare reports the student's
+            // own save as an external write — and the historical `ec.reset(...)`
+            // below then rolled the model BACKWARDS onto the stale snapshot,
+            // guaranteeing the next save mismatched too (the mirrored-pair bug).
+            //
+            // If the on-disk hash is a state this buffer genuinely passed through,
+            // the write was ours and we merely observed it late. Emit nothing, and
+            // crucially do NOT reset: the live buffer is ahead and authoritative.
+            // Content the buffer never held is still reported, so a real external
+            // write (git checkout, another editor, an agentic CLI tool) is
+            // unaffected.
+            if (result.kind === 'external_change' && ec.hasRecentHash(result.new_hash)) {
+              emitDocSave(transformDocSave(document, workspace, result.new_hash));
+              return;
+            }
 
             if (result.kind === 'external_change') {
               // Emit fs.external_change FIRST, then reset, then emit doc.save.
@@ -531,6 +563,9 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
     },
     getLastDocChangeAt(relativePath: string): number {
       return lastDocChangeAt.get(relativePath) ?? -Infinity;
+    },
+    getLastSaveAt(relativePath: string): number {
+      return lastSaveAt.get(relativePath) ?? -Infinity;
     },
   };
 }

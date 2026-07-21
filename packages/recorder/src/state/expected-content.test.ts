@@ -4,7 +4,19 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ExpectedContent } from './expected-content.js';
+import { ExpectedContent, RECENT_HASH_RING_SIZE } from './expected-content.js';
+import { sha256Hex } from '@provenance/log-core';
+
+/** Append `text` at the very end of the content (character index clamps). */
+function appendDelta(text: string) {
+  return {
+    range: {
+      start: { line: Number.MAX_SAFE_INTEGER, character: Number.MAX_SAFE_INTEGER },
+      end: { line: Number.MAX_SAFE_INTEGER, character: Number.MAX_SAFE_INTEGER },
+    },
+    text,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Hash correctness (pinned test vector from progress.md)
@@ -178,5 +190,73 @@ describe('ExpectedContent – range edge cases', () => {
       text: '-replaced-',
     });
     expect(ec.content).toBe('line1-replaced-\nline3');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recent-state ring (PRD §4.5 — external-change race tolerance)
+// ---------------------------------------------------------------------------
+
+describe('ExpectedContent – recent-state ring', () => {
+  it('recognizes the initial content as a recent state', () => {
+    const ec = new ExpectedContent('hello');
+    expect(ec.hasRecentHash(sha256Hex('hello'))).toBe(true);
+  });
+
+  it('recognizes states the model passed through, and rejects states it never held', () => {
+    const ec = new ExpectedContent('a');
+    ec.applyDelta(appendDelta('b'));
+    ec.applyDelta(appendDelta('c'));
+
+    expect(ec.content).toBe('abc');
+    expect(ec.hasRecentHash(sha256Hex('a'))).toBe(true);
+    expect(ec.hasRecentHash(sha256Hex('ab'))).toBe(true);
+    expect(ec.hasRecentHash(sha256Hex('abc'))).toBe(true);
+    // Never a buffer state.
+    expect(ec.hasRecentHash(sha256Hex('something else entirely'))).toBe(false);
+  });
+
+  it('applyDeltas records only the resulting state, not the states between deltas', () => {
+    const ec = new ExpectedContent('a');
+    ec.applyDeltas([appendDelta('b'), appendDelta('c')]);
+
+    expect(ec.content).toBe('abc');
+    expect(ec.hasRecentHash(sha256Hex('abc'))).toBe(true);
+    // 'ab' existed only between the two deltas of one change event — it was never
+    // observable as buffer content, so it must not widen the tolerance window.
+    expect(ec.hasRecentHash(sha256Hex('ab'))).toBe(false);
+  });
+
+  it('records the content passed to reset()', () => {
+    const ec = new ExpectedContent('a');
+    ec.reset('external rewrite');
+    expect(ec.hasRecentHash(sha256Hex('external rewrite'))).toBe(true);
+  });
+
+  it('is bounded: states older than the ring size are evicted', () => {
+    const ec = new ExpectedContent('');
+    // Push RECENT_HASH_RING_SIZE + 1 further states, so the initial '' falls out.
+    for (let i = 0; i < RECENT_HASH_RING_SIZE + 1; i++) {
+      ec.applyDelta(appendDelta('x'));
+    }
+
+    expect(ec.hasRecentHash(sha256Hex(''))).toBe(false);
+    // The most recent state and the oldest surviving one are both retained.
+    expect(ec.hasRecentHash(sha256Hex('x'.repeat(RECENT_HASH_RING_SIZE + 1)))).toBe(true);
+    expect(ec.hasRecentHash(sha256Hex('x'.repeat(2)))).toBe(true);
+  });
+
+  it('a no-op change does not consume a ring slot', () => {
+    const ec = new ExpectedContent('seed');
+    // Fill the ring with distinct states.
+    for (let i = 0; i < RECENT_HASH_RING_SIZE - 1; i++) {
+      ec.applyDelta(appendDelta('x'));
+    }
+    expect(ec.hasRecentHash(sha256Hex('seed'))).toBe(true);
+
+    // An empty delta list leaves content unchanged; the oldest state must survive.
+    ec.applyDeltas([]);
+    ec.applyDeltas([]);
+    expect(ec.hasRecentHash(sha256Hex('seed'))).toBe(true);
   });
 });

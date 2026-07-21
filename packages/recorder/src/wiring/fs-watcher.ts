@@ -12,8 +12,12 @@
  * - Each file in filesUnderReview gets its own FileSystemWatcher created via
  *   vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, path)).
  * - onDidChange (modify): if the change happened within recentDocChangeToleranceMs of
- *   the last doc.change for that file, we skip it — VS Code-mediated saves
- *   are already captured in doc.change. Only truly external modifies are reported.
+ *   the last doc.change OR the last doc.save for that file, we skip it — VS
+ *   Code-mediated saves are already captured on the doc.* path. Only truly
+ *   external modifies are reported. Beyond that window, the on-disk hash is
+ *   additionally checked against the file's recent-buffer-state ring
+ *   (ExpectedContent.hasRecentHash), so a late-delivered watcher event for the
+ *   editor's own write is never reported as external.
  * - onDidCreate: read the file, emit operation:'create' with new_content, seed
  *   the expected-content registry.
  * - onDidDelete: emit operation:'delete' with old_hash from the registry and
@@ -52,8 +56,18 @@ export type FsWatcherDeps = {
   emit: (data: FsExternalChangeData) => void;
   /** Returns the time of the last doc.change for path (monotonic ms), or -Infinity. */
   getLastDocChangeAt: (path: string) => number;
+  /**
+   * Returns the time of the last doc.save for path (monotonic ms), or -Infinity.
+   * Required: VS Code's autosave delay (default 1000ms) routinely exceeds the
+   * tolerance window, so a doc.change-anchored window alone never covers the
+   * watcher event for the editor's own save.
+   */
+  getLastSaveAt: (path: string) => number;
   getNow: () => number;
-  /** Tolerance in ms. Modifies within this window of a doc.change are ignored. Default 250. */
+  /**
+   * Tolerance in ms. Modifies within this window of a doc.change *or* a doc.save
+   * are ignored. Default 250.
+   */
   recentDocChangeToleranceMs?: number;
   /** Read the on-disk file content (relative path within workspace). */
   readFile: (relativePath: string) => Promise<string>;
@@ -75,6 +89,7 @@ export function startFsWatcher(deps: FsWatcherDeps): vscode.Disposable {
     registry,
     emit,
     getLastDocChangeAt,
+    getLastSaveAt,
     getNow,
     readFile,
     explanationTagger,
@@ -88,11 +103,17 @@ export function startFsWatcher(deps: FsWatcherDeps): vscode.Disposable {
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
     const handleChange = (_uri: vscode.Uri) => {
-      // Check whether this change is too close to a recent doc.change
-      // (i.e., it was VS Code-mediated and already captured).
-      const lastDocChange = getLastDocChangeAt(relativePath);
-      if (getNow() - lastDocChange < tolerance) {
-        // VS Code-mediated save — already captured via doc.change handler.
+      // Check whether this change is too close to a recent editor touch — a
+      // doc.change OR a doc.save — i.e. it was VS Code-mediated and is already
+      // captured on the doc.* path. The save anchor is load-bearing: VS Code's
+      // autoSaveDelay defaults to 1000ms, so a save routinely lands well outside
+      // a doc.change-anchored 250ms window.
+      const lastEditorTouch = Math.max(
+        getLastDocChangeAt(relativePath),
+        getLastSaveAt(relativePath),
+      );
+      if (getNow() - lastEditorTouch < tolerance) {
+        // VS Code-mediated save — already captured via the doc.* handlers.
         return;
       }
 
@@ -103,15 +124,28 @@ export function startFsWatcher(deps: FsWatcherDeps): vscode.Disposable {
         return;
       }
 
-      // Capture oldHash before the async read to avoid TOCTOU with
-      // concurrent doc.changes updating expected content.
-      const oldHash = expected.hash;
-
       readFile(relativePath).then(
         (onDiskContent) => {
           const newHash = sha256Hex(onDiskContent);
+
+          // Sample the expected hash HERE, after the read resolves, so both
+          // sides of the comparison are read at the same moment. Pinning it
+          // before the read (as this code used to, in the name of avoiding
+          // TOCTOU) does the opposite: it compares a stale model hash against
+          // fresher disk bytes and manufactures a mismatch whenever a
+          // doc.change lands during the read.
+          const oldHash = expected.hash;
           if (newHash === oldHash) {
             // No real change (e.g., file touched but content identical).
+            return;
+          }
+
+          // Recent-state tolerance: if the disk holds a state this buffer
+          // genuinely passed through, the write was the editor's own and we
+          // merely observed it late. Emit nothing, and do NOT reset — the live
+          // buffer is ahead and authoritative. Content the buffer never held
+          // still falls through and is reported.
+          if (expected.hasRecentHash(newHash)) {
             return;
           }
 
@@ -154,8 +188,12 @@ export function startFsWatcher(deps: FsWatcherDeps): vscode.Disposable {
             // was opened in VS Code before the FS watcher fired). If the
             // hashes match, the open path covered it — silent. If they
             // differ, treat as a modify against the doc.open baseline so
-            // staff still see the divergence.
+            // staff still see the divergence — unless the on-disk state is one
+            // the buffer genuinely passed through, in which case this is the
+            // editor's own write observed late (same recent-state tolerance as
+            // handleChange; do not reset, the buffer is ahead).
             if (newHash === existing.hash) return;
+            if (existing.hasRecentHash(newHash)) return;
             const diff_size = Math.abs(onDiskContent.length - existing.content.length);
             const explanation = explanationTagger?.consume();
             emit({

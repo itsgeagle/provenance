@@ -826,6 +826,126 @@ describe('startDocWiring', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Save-time race: keystroke lands during the async disk read (PRD §4.5)
+  //
+  // The save handler reads disk asynchronously. A keystroke arriving inside that
+  // gap advances the expected-content model past the snapshot being read, so a
+  // naive hash compare reports the student's own save as an external write — and
+  // the reset that followed rolled the model backwards onto the stale snapshot,
+  // guaranteeing the next save mismatched too (the mirrored-pair bug).
+  //
+  // The seam is the injected `readFile`: these tests hand it a deferred promise
+  // so the change event can be delivered before the read resolves.
+  // -------------------------------------------------------------------------
+
+  /** A promise whose resolution is controlled by the caller. */
+  function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  const RACE_BASE = 'def foo(): pass\n';
+  /** Delta appending 'x' at the end of RACE_BASE — the interleaved keystroke. */
+  const RACE_KEYSTROKE = { startLine: 1, startChar: 0, endLine: 1, endChar: 0, text: 'x' };
+  const RACE_ADVANCED = `${RACE_BASE}x`;
+
+  function startRaceHarness(readFile: () => Promise<string>) {
+    setMockWindowState({ focused: true });
+    const registry = new ExpectedContentRegistry(['src/foo.py']);
+    const emitters = makeEmitters();
+
+    startDocWiring({
+      workspace: testWorkspace,
+      ...emitters,
+      filesUnderReview: ['src/foo.py'],
+      expectedContent: registry,
+      ...makeDefaultPasteDeps(),
+      readFile: vi.fn(readFile),
+    });
+
+    const doc = fakeDoc({ path: 'src/foo.py', text: RACE_BASE, lineCount: 2 });
+    openSub.handler!(doc);
+    return { registry, emitters, doc };
+  }
+
+  it('T1: keystroke during the save-time disk read emits NO fs.external_change and does not roll the model back', async () => {
+    const read = deferred<string>();
+    const { registry, emitters, doc } = startRaceHarness(() => read.promise);
+
+    // Save fires; the disk read is now in flight and has NOT resolved.
+    saveSub.handler!(doc);
+
+    // The student types one more character before the read completes.
+    changeSub.handler!(fakeChangeEvent('src/foo.py', [RACE_KEYSTROKE]));
+    expect(registry.get('src/foo.py')?.content).toBe(RACE_ADVANCED);
+
+    // The read now resolves with the PRE-keystroke disk snapshot.
+    read.resolve(RACE_BASE);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The write was ours — nothing external happened.
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+
+    // And the model must still reflect the live buffer, NOT the stale snapshot.
+    const ec = registry.get('src/foo.py');
+    expect(ec?.content).toBe(RACE_ADVANCED);
+    expect(ec?.hash).toBe(sha256Hex(RACE_ADVANCED));
+
+    // doc.save is still emitted exactly once.
+    expect(emitters.emitDocSave).toHaveBeenCalledOnce();
+  });
+
+  it('T2: a genuine external write during the save-time read is still reported exactly once', async () => {
+    const externalContent = 'import os\nos.system("rm -rf /")\n'; // never a buffer state
+    const read = deferred<string>();
+    const { registry, emitters, doc } = startRaceHarness(() => read.promise);
+
+    saveSub.handler!(doc);
+    changeSub.handler!(fakeChangeEvent('src/foo.py', [RACE_KEYSTROKE]));
+
+    read.resolve(externalContent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(emitters.emitFsExternalChange).toHaveBeenCalledOnce();
+    const payload = emitters.emitFsExternalChange.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.path).toBe('src/foo.py');
+    expect(payload.operation).toBe('modify');
+    // old_hash is the live model at compare time (post-keystroke), new_hash is disk.
+    expect(payload.old_hash).toBe(sha256Hex(RACE_ADVANCED));
+    expect(payload.new_hash).toBe(sha256Hex(externalContent));
+
+    // Model reseeded to disk reality so subsequent edits chain from it.
+    const ec = registry.get('src/foo.py');
+    expect(ec?.content).toBe(externalContent);
+  });
+
+  it('T3: the tolerated race does not self-perpetuate — the next clean save is also silent', async () => {
+    const reads = [deferred<string>(), deferred<string>()];
+    let readIndex = 0;
+    const { registry, emitters, doc } = startRaceHarness(() => reads[readIndex++]!.promise);
+
+    // --- T1 over again: save, interleaved keystroke, stale snapshot resolves.
+    saveSub.handler!(doc);
+    changeSub.handler!(fakeChangeEvent('src/foo.py', [RACE_KEYSTROKE]));
+    reads[0]!.resolve(RACE_BASE);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+
+    // --- Second save, no interleaved edit. Disk now holds the advanced content.
+    saveSub.handler!(doc);
+    reads[1]!.resolve(RACE_ADVANCED);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Before the fix this was the mirrored second event of the pair.
+    expect(emitters.emitFsExternalChange).not.toHaveBeenCalled();
+    expect(emitters.emitDocSave).toHaveBeenCalledTimes(2);
+    expect(registry.get('src/foo.py')?.content).toBe(RACE_ADVANCED);
+  });
+
+  // -------------------------------------------------------------------------
   // Reload-from-disk detection (PRD §4.5)
   //
   // VS Code auto-reloads a clean buffer when its file changes on disk. The
