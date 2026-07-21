@@ -26,6 +26,7 @@ import {
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 import type { ReplayState } from './engine-core.js';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import { formatGap, type Seam } from './bundle-clock.js';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -34,12 +35,14 @@ import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.j
 type TransportBarProps = {
   state: ReplayState;
   /**
-   * The session's events, in chronological order. Used to translate between the
-   * scrub slider's session-local position and each event's true whole-bundle
-   * `globalIdx` — `state.currentGlobalIdx` is a true globalIdx, which for any
-   * session after the first does not equal its array position.
+   * The whole bundle's events, in chronological order. Position in this array
+   * IS the event's `globalIdx` (event-index.ts guarantees
+   * `ordered[i].globalIdx === i`), so the slider needs no translation — the
+   * session-scoped transport used to require one.
    */
   events: readonly IndexedEvent[];
+  /** Session boundaries, rendered as ticks. Empty for a single-session bundle. */
+  seams?: readonly Seam[];
   onPlay(): void;
   onPause(): void;
   onStep(n: number): void;
@@ -53,6 +56,7 @@ type TransportBarProps = {
 export function TransportBar({
   state,
   events,
+  seams = [],
   onPlay,
   onPause,
   onStep,
@@ -60,14 +64,9 @@ export function TransportBar({
 }: TransportBarProps) {
   const eventCount = events.length;
 
-  // The slider operates in session-local position space [0, eventCount-1].
-  // state.currentGlobalIdx is a true whole-bundle globalIdx, so map it back to
-  // the position of the matching session event (-1 before the first event).
+  // Position and globalIdx are the same number over the whole-bundle stream.
   const sliderMax = Math.max(0, eventCount - 1);
-  const currentPos =
-    state.currentGlobalIdx < 0
-      ? -1
-      : events.findIndex((e) => e.globalIdx === state.currentGlobalIdx);
+  const currentPos = state.currentGlobalIdx;
   const sliderValue = Math.max(0, currentPos);
 
   // requestAnimationFrame throttle for scrub.
@@ -76,10 +75,7 @@ export function TransportBar({
 
   const handleSliderChange = useCallback(
     (values: number[]) => {
-      // Slider yields a session-local position; convert to the event's true
-      // globalIdx before handing it to the engine's seek().
-      const newPos = values[0] ?? 0;
-      const target = events[newPos]?.globalIdx ?? -1;
+      const target = values[0] ?? 0;
       pendingSeekRef.current = target;
       if (rafRef.current === null) {
         rafRef.current = requestAnimationFrame(() => {
@@ -91,7 +87,7 @@ export function TransportBar({
         });
       }
     },
-    [onSeek, events],
+    [onSeek],
   );
 
   const isPlaying = state.status === 'playing';
@@ -160,8 +156,8 @@ export function TransportBar({
           <TooltipContent>Step forward (+1 event)</TooltipContent>
         </Tooltip>
 
-        {/* Scrub slider */}
-        <div className="flex-1">
+        {/* Scrub slider, with a tick per session boundary */}
+        <div className="relative flex-1">
           <Slider
             min={0}
             max={sliderMax}
@@ -171,6 +167,17 @@ export function TransportBar({
             disabled={eventCount === 0}
             aria-label="Scrub timeline"
           />
+          {sliderMax > 0 &&
+            seams.map((seam) => (
+              <span
+                key={seam.atGlobalIdx}
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 h-3 w-px -translate-y-1/2 bg-amber-500/70"
+                style={{ left: `${(seam.atGlobalIdx / sliderMax) * 100}%` }}
+                data-testid={`seam-tick-${seam.atGlobalIdx}`}
+                title={`Session boundary — ${formatGap(seam.realGapMs)} offline`}
+              />
+            ))}
         </div>
 
         {/* Event label */}

@@ -122,11 +122,23 @@ export function Replay() {
 
   const showSwitcher = sessionIds.length > 1;
 
+  // Bound here rather than read inside the handler: TS does not carry the
+  // `index !== undefined` narrowing above into a hoisted function declaration.
+  const bySessionId = index.bySessionId;
+
   function handleSessionChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const target = e.target.value;
     const next = new URLSearchParams(searchParams);
-    next.set('session', e.target.value);
-    // Clear playback-position state — it's session-relative.
-    next.delete('event');
+    next.set('session', target);
+    // The playhead is whole-bundle, not session-relative, so switching sessions
+    // is a SEEK to that session's first event rather than a reset. (This used to
+    // delete ?event= entirely, which discarded the position.)
+    const firstOfSession = bySessionId.get(target)?.[0];
+    if (firstOfSession !== undefined) {
+      next.set('event', String(firstOfSession.globalIdx));
+    } else {
+      next.delete('event');
+    }
     setSearchParams(next);
   }
 

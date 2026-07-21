@@ -9,11 +9,21 @@
  *   status           : 'paused' | 'playing'
  *   speed            : playback multiplier (currently reserved; timer lives
  *                      in useReplayEngine)
- *   sessionId        : session being replayed
+ *   sessionId        : DERIVED — the session the playhead is currently inside
+ *
+ * SCOPE:
+ *   The engine spans the WHOLE bundle (index.ordered), not a single session.
+ *   Since event-index.ts guarantees `ordered[i].globalIdx === i`, array position
+ *   and globalIdx are the same number throughout this module.
+ *
+ * TIME:
+ *   Playback is driven by `bundleT` (see bundle-clock.ts), not the per-event
+ *   `t`. `t` is relative to its own session's start and restarts at every
+ *   session boundary, so it cannot drive a cross-session stream.
  *
  * FILES:
- *   "files under review" = union of all event.file values in the session's
- *   events where kind ∈ {doc.change, paste, doc.save, doc.open, fs.external_change}.
+ *   "files under review" = union of all event.file values across the bundle
+ *   where kind ∈ {doc.change, paste, doc.save, doc.open, fs.external_change}.
  *
  * RECONSTRUCTION:
  *   We maintain one `FileReplayState` per file path. On step/seek we rebuild
@@ -50,6 +60,7 @@
 import { reconstructFileWithProvenance } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 import type { FileReplayState } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import { buildBundleClock, type Seam } from './bundle-clock.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -78,11 +89,17 @@ export type ReplayState = {
   /** The index into events[] of the "current" position. -1 means before any event. */
   currentGlobalIdx: number;
   speed: number;
+  /**
+   * The session the playhead currently sits inside. DERIVED, not an input —
+   * the engine spans the whole bundle, so this changes as playback crosses a
+   * session seam. Before the first event it is the first session's id.
+   */
   sessionId: string;
   /**
-   * The engine's current position in session time (ms since session start).
-   * Tracks the virtual playhead for real-time rAF-based playback.
-   * Synced to events[currentGlobalIdx].t on seek/step; advanced by tick().
+   * The engine's current position in BUNDLE time (see bundle-clock.ts), not the
+   * per-session `t` — `t` restarts at each session, so it cannot drive playback
+   * across a multi-session bundle.
+   * Synced to bundleT[currentGlobalIdx] on seek/step; advanced by tick().
    */
   virtualT: number;
 };
@@ -92,10 +109,12 @@ export type EngineHandle = {
   getState(): ReplayState;
   /** Current file states keyed by file path. */
   getFileStates(): Map<string, FileReplayState>;
-  /** Ordered list of files under review. */
+  /** Ordered list of files under review (across the whole bundle). */
   getFiles(): string[];
-  /** Total number of events in the session. */
+  /** Total number of events in the bundle. */
   eventCount(): number;
+  /** Session boundaries in the stream. Empty for a single-session bundle. */
+  seams(): readonly Seam[];
 
   /** Advance by n events (may be negative). Clamps to valid range. Returns new state. */
   step(n?: number): ReplayState;
@@ -109,15 +128,16 @@ export type EngineHandle = {
   setSpeed(speed: number): ReplayState;
 
   /**
-   * Advance the virtual time pointer by `virtualDeltaMs` ms of session time.
-   * Applies all events whose `t` falls in [currentVirtualT, currentVirtualT + virtualDeltaMs].
-   * If no events fall in the window, just advances virtualT (sits through an idle gap).
-   * Returns new state.
+   * Advance the virtual time pointer by `virtualDeltaMs` ms of bundle time.
+   * Applies all events whose bundle time falls in
+   * [currentVirtualT, currentVirtualT + virtualDeltaMs].
+   * If no events fall in the window, just advances virtualT (sits through an
+   * idle gap — including a collapsed inter-session gap). Returns new state.
    */
   tick(virtualDeltaMs: number): ReplayState;
 
   /**
-   * The t value of the last event in the session (or 0 if no events).
+   * The bundle-time value of the last event (or 0 if no events).
    * Used by the rAF loop to detect end-of-stream.
    */
   endVirtualT(): number;
@@ -135,21 +155,23 @@ type InternalState = {
   state: ReplayState;
   fileStates: Map<string, FileReplayState>;
   /**
-   * Cursor into `events` as an array position (0-based), where -1 means
-   * "before the first event". This is the engine's internal playhead.
+   * Cursor into `events`, where -1 means "before the first event".
    *
-   * It is NOT the same as `state.currentGlobalIdx`: session events carry their
-   * true whole-bundle `globalIdx`, which for any session after the first is far
-   * larger than its array position. `state.currentGlobalIdx` is derived as
-   * `events[pos].globalIdx` (or -1), so all consumers — and the whole-bundle
-   * `reconstructFileWithProvenance` cut — see the true globalIdx, while
-   * step/tick/scrub navigate by array position.
+   * Because `events` IS `index.ordered`, and `event-index.ts` guarantees
+   * `ordered[i].globalIdx === i`, array position and globalIdx are the same
+   * number. `pos` and `state.currentGlobalIdx` therefore always agree. (The
+   * session-scoped engine needed a translation layer here; the whole-bundle
+   * engine does not.)
    */
   pos: number;
-  /** events[] for this session (ordered by globalIdx). */
+  /** All bundle events, ordered by globalIdx. */
   events: readonly IndexedEvent[];
   /** Files under review (derived from events; computed once). */
   files: string[];
+  /** Playback timeline, indexed by globalIdx. See bundle-clock.ts. */
+  bundleT: Float64Array;
+  /** Session boundaries within `events`. */
+  seams: readonly Seam[];
   /**
    * Checkpoint cache. Key = globalIdx of the first event AFTER the checkpoint
    * boundary, i.e. the file state reflects events [0, key).
@@ -166,9 +188,13 @@ type InternalState = {
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the set of "files under review" from a session's events.
+ * Derive the set of "files under review" from the whole bundle's events.
  * These are all file paths touched by the writing-kind events, in the order
  * they first appear.
+ *
+ * Whole-bundle, not per-session, on purpose: a file edited in session 1 and
+ * left alone in session 2 must stay in the tab strip, since its content is
+ * still reconstructable and still part of the submission.
  */
 function computeFiles(events: readonly IndexedEvent[]): string[] {
   const seen = new Set<string>();
@@ -262,30 +288,39 @@ function clamp(idx: number, maxIdx: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a replay engine for the given session.
+ * Create a replay engine spanning the WHOLE bundle.
  *
- * @param index       The EventIndex for the whole bundle (we read bySessionId + byFile).
- * @param sessionId   Which session to replay.
- * @returns           An EngineHandle with mutable internal state.
+ * The engine is deliberately not scoped to a session: a submission's sessions
+ * are one continuous piece of work, and scoping made files edited in earlier
+ * sessions vanish, dead-ended the event sidebar at each boundary, and made the
+ * inter-session seam (where `inter_session_external_change` fires) unreachable.
+ *
+ * @param index  The EventIndex for the whole bundle (we read ordered + byFile).
+ * @returns      An EngineHandle with mutable internal state.
  */
-export function createEngine(index: EventIndex, sessionId: string): EngineHandle {
-  const sessionEvents = index.bySessionId.get(sessionId) ?? [];
-  const files = computeFiles(sessionEvents);
+export function createEngine(index: EventIndex): EngineHandle {
+  const events = index.ordered;
+  const files = computeFiles(events);
+  const { bundleT, seams } = buildBundleClock(events);
 
   const initialState: ReplayState = {
     status: 'paused',
     currentGlobalIdx: -1,
     speed: 1,
-    sessionId,
-    virtualT: sessionEvents.length > 0 ? (sessionEvents[0]!.t ?? 0) : 0,
+    sessionId: events[0]?.sessionId ?? '',
+    // bundleT is zero-based by construction, so the pre-first-event playhead
+    // sits at 0 regardless of what the first session's `t` happened to be.
+    virtualT: 0,
   };
 
   const internal: InternalState = {
     state: { ...initialState },
     fileStates: new Map(files.map((f) => [f, emptyFileState()])),
     pos: -1,
-    events: sessionEvents,
+    events,
     files,
+    bundleT,
+    seams,
     checkpoints: new Map<number, Checkpoint>([
       [0, new Map(files.map((f) => [f, emptyFileState()]))],
     ]),
@@ -293,50 +328,20 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
   };
 
   // ---------------------------------------------------------------------------
-  // Navigation helpers
-  // ---------------------------------------------------------------------------
-
-  /** The true whole-bundle globalIdx of the event at array position `pos`. */
-  function globalIdxAtPos(pos: number): number {
-    return pos < 0 ? -1 : (internal.events[pos]?.globalIdx ?? -1);
-  }
-
-  /**
-   * The array position whose event we should be "at" for a requested true
-   * globalIdx `g`: the last session event with `globalIdx <= g`, or -1 when `g`
-   * precedes the first event. Session events are ordered ascending by globalIdx,
-   * so a linear scan suffices (and mirrors EventSidebar's globalIdx→listIdx scan).
-   */
-  function posForGlobalIdx(g: number): number {
-    let pos = -1;
-    for (let i = 0; i < internal.events.length; i++) {
-      if (internal.events[i]!.globalIdx <= g) {
-        pos = i;
-      } else {
-        break;
-      }
-    }
-    return pos;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Seek implementation — navigate to array position `pos`.
+  // Seek implementation — navigate to position `pos`.
   //
-  // `pos` is a session-local array index (-1 = before any event). It is clamped
-  // to [-1, events.length - 1]. Reconstruction is cut at the event's TRUE
-  // globalIdx (+1, exclusive) because reconstructFileWithProvenance walks the
-  // whole-bundle byFile stream; and `state.currentGlobalIdx` exposes that same
-  // true globalIdx to all consumers.
+  // `pos` is both an array index into `events` and a true globalIdx: `events` is
+  // `index.ordered`, and event-index.ts guarantees `ordered[i].globalIdx === i`.
+  // -1 means "before any event". Reconstruction is cut at `pos + 1` (exclusive)
+  // because reconstructFileWithProvenance walks the whole-bundle byFile stream.
   // ---------------------------------------------------------------------------
 
   function seekToPos(pos: number): ReplayState {
     const maxIdx = internal.events.length - 1;
     const clamped = clamp(pos, maxIdx);
-    const globalIdx = globalIdxAtPos(clamped);
 
-    // upToGlobalIdx (exclusive) = current event's true globalIdx + 1.
-    // If clamped = -1 (before any event), upTo = 0 → no events applied.
-    const upTo = clamped === -1 ? 0 : globalIdx + 1;
+    // upToGlobalIdx (exclusive). If clamped = -1, upTo = 0 → no events applied.
+    const upTo = clamped === -1 ? 0 : clamped + 1;
 
     // Warm the checkpoint below this position so future adjacent seeks can
     // short-circuit. Keyed by the true-globalIdx cut so the cache boundaries
@@ -353,18 +358,23 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
         ? new Map(internal.files.map((f) => [f, emptyFileState()]))
         : buildFileStates(internal, upTo);
 
-    // Sync virtualT to the target event's t value.
-    // At -1 (before any event), use the first event's t (or 0).
+    // Sync virtualT to the target event's bundle time.
+    // At -1 (before any event) the playhead sits at the start of the timeline.
     const targetVirtualT =
+      clamped === -1 ? 0 : (internal.bundleT[clamped] ?? internal.state.virtualT);
+
+    // The current session is derived from where the playhead landed.
+    const sessionId =
       clamped === -1
-        ? (internal.events[0]?.t ?? 0)
-        : (internal.events[clamped]?.t ?? internal.state.virtualT);
+        ? (internal.events[0]?.sessionId ?? '')
+        : (internal.events[clamped]?.sessionId ?? internal.state.sessionId);
 
     internal.pos = clamped;
     internal.fileStates = newFileStates;
     internal.state = {
       ...internal.state,
-      currentGlobalIdx: globalIdx,
+      currentGlobalIdx: clamped,
+      sessionId,
       virtualT: targetVirtualT,
     };
 
@@ -392,17 +402,18 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
       return internal.events.length;
     },
 
+    seams() {
+      return internal.seams;
+    },
+
     step(n = 1) {
-      // Step by `n` events in the session (array-position space), not in
-      // globalIdx space — the next event may be many globalIdx away.
       return seekToPos(internal.pos + n);
     },
 
     seek(globalIdx) {
-      // `globalIdx` is a true whole-bundle index (sidebar rows, jump targets,
-      // and the scrub slider all pass true globalIdx values). Map it onto the
-      // session event it lands on.
-      return seekToPos(posForGlobalIdx(globalIdx));
+      // Array position and globalIdx are the same number over index.ordered, so
+      // sidebar rows, jump targets, and the scrub slider need no translation.
+      return seekToPos(globalIdx);
     },
 
     setPlaying() {
@@ -435,12 +446,13 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
         return { ...internal.state };
       }
 
-      // Find the last event whose t <= newVirtualT, starting after currentIdx.
-      // All events with t in (currentVirtualT, newVirtualT] are applied.
-      // Indices here are array positions into the session's events.
+      // Find the last event whose bundle time <= newVirtualT, starting after
+      // currentIdx. All events in (currentVirtualT, newVirtualT] are applied.
+      // Using bundleT (not `t`) is what lets playback cross a session seam:
+      // `t` restarts at 0 in the next session and would never satisfy this.
       let targetIdx = currentIdx;
       for (let i = currentIdx + 1; i <= maxIdx; i++) {
-        const eventT = internal.events[i]!.t ?? 0;
+        const eventT = internal.bundleT[i] ?? 0;
         if (eventT <= newVirtualT) {
           targetIdx = i;
         } else {
@@ -464,8 +476,8 @@ export function createEngine(index: EventIndex, sessionId: string): EngineHandle
     },
 
     endVirtualT() {
-      if (internal.events.length === 0) return 0;
-      return internal.events[internal.events.length - 1]!.t ?? 0;
+      if (internal.bundleT.length === 0) return 0;
+      return internal.bundleT[internal.bundleT.length - 1] ?? 0;
     },
   };
 

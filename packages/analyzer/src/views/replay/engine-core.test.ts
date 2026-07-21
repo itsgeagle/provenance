@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createEngine } from './engine-core.js';
+import { buildBundleClock } from './bundle-clock.js';
 import type { EventIndex, IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
 
@@ -92,7 +93,7 @@ describe('createEngine', () => {
     it('starts paused at -1 with empty file states', () => {
       const events = [makeDocChangeEvent(0, 'hw.py', 'x')];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.getState();
 
       expect(state.status).toBe('paused');
@@ -104,7 +105,7 @@ describe('createEngine', () => {
     it('returns empty content for all files at -1', () => {
       const events = [makeDocChangeEvent(0, 'hw.py', 'hello')];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
 
       const fileStates = engine.getFileStates();
       expect(fileStates.get('hw.py')?.content).toBe('');
@@ -117,14 +118,14 @@ describe('createEngine', () => {
         makeDocChangeEvent(2, 'hw.py', 'c'),
       ];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       // files appear in order of first appearance
       expect(engine.getFiles()).toEqual(['hw.py', 'utils.py']);
     });
 
-    it('returns 0 event count for unknown session', () => {
+    it('returns 0 event count for an empty bundle', () => {
       const index = buildIndex([]);
-      const engine = createEngine(index, 'no-such-session');
+      const engine = createEngine(index);
       expect(engine.eventCount()).toBe(0);
     });
   });
@@ -140,7 +141,7 @@ describe('createEngine', () => {
         makeDocChangeEvent(2, 'hw.py', 'c'),
       ];
       const index = buildIndex(events);
-      engine = createEngine(index, 'sess1');
+      engine = createEngine(index);
     });
 
     it('seek(0) applies the first event (inclusive)', () => {
@@ -193,7 +194,7 @@ describe('createEngine', () => {
         makeDocChangeEvent(2, 'hw.py', 'c'),
       ];
       const index = buildIndex(events);
-      engine = createEngine(index, 'sess1');
+      engine = createEngine(index);
     });
 
     it('step() with no arg advances by 1', () => {
@@ -229,7 +230,7 @@ describe('createEngine', () => {
     it('setPlaying sets status to playing', () => {
       const events = [makeDocChangeEvent(0, 'hw.py', 'x')];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.setPlaying();
       expect(state.status).toBe('playing');
     });
@@ -237,7 +238,7 @@ describe('createEngine', () => {
     it('setPaused sets status to paused', () => {
       const events = [makeDocChangeEvent(0, 'hw.py', 'x')];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.setPlaying();
       const state = engine.setPaused();
       expect(state.status).toBe('paused');
@@ -246,7 +247,7 @@ describe('createEngine', () => {
     it('seek does not change playing status', () => {
       const events = [makeDocChangeEvent(0, 'hw.py', 'x'), makeDocChangeEvent(1, 'hw.py', 'y')];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.setPlaying();
       const state = engine.seek(1);
       expect(state.status).toBe('playing');
@@ -256,7 +257,7 @@ describe('createEngine', () => {
   describe('setSpeed', () => {
     it('updates speed', () => {
       const index = buildIndex([makeDocChangeEvent(0, 'hw.py', 'x')]);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.setSpeed(4);
       expect(state.speed).toBe(4);
     });
@@ -266,7 +267,7 @@ describe('createEngine', () => {
     it('returns total number of session events', () => {
       const events = [makeDocChangeEvent(0, 'hw.py', 'a'), makeDocChangeEvent(1, 'hw.py', 'b')];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       expect(engine.eventCount()).toBe(2);
     });
   });
@@ -279,7 +280,7 @@ describe('createEngine', () => {
         makeDocChangeEvent(2, 'hw.py', ' '),
       ];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.seek(2);
       const fileStates = engine.getFileStates();
       // hw.py: event 0 inserts 'hello' then event 2 inserts ' ' at pos 0 → ' hello'
@@ -289,12 +290,14 @@ describe('createEngine', () => {
     });
   });
 
-  describe('multi-session (non-zero globalIdx offset)', () => {
+  describe('multi-session (whole-bundle engine)', () => {
     // Two sessions in one bundle. sess1 edits hw.py at globalIdx 0..2; sess2
-    // edits a distinct file p2.py at globalIdx 3..5. A session's events carry
-    // their true whole-bundle globalIdx — for sess2 those are 3,4,5, NOT the
-    // 0,1,2 array positions. The engine must key reconstruction off the true
-    // globalIdx; otherwise replaying sess2 truncates to sess1's early state.
+    // edits a distinct file p2.py at globalIdx 3..5.
+    //
+    // The engine spans BOTH sessions. These tests previously asserted the
+    // session-scoped behavior (files limited to the mounted session, stepping
+    // from -1 landing on that session's first event, tick confined to it).
+    // That behavior is intentionally changed, so they now assert the crossing.
     function buildTwoSessionIndex(): EventIndex {
       return buildIndex([
         makeDocChangeEvent(0, 'hw.py', 'a', 'sess1'),
@@ -306,13 +309,27 @@ describe('createEngine', () => {
       ]);
     }
 
-    it('lists only the second session files', () => {
-      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
-      expect(engine.getFiles()).toEqual(['p2.py']);
+    it('lists files from every session, not just one', () => {
+      const engine = createEngine(buildTwoSessionIndex());
+      expect(engine.getFiles()).toEqual(['hw.py', 'p2.py']);
+    });
+
+    it('counts events across every session', () => {
+      expect(createEngine(buildTwoSessionIndex()).eventCount()).toBe(6);
+    });
+
+    it('reports one seam for a two-session bundle', () => {
+      const seams = createEngine(buildTwoSessionIndex()).seams();
+      expect(seams).toHaveLength(1);
+      expect(seams[0]).toMatchObject({
+        atGlobalIdx: 3,
+        prevSessionId: 'sess1',
+        nextSessionId: 'sess2',
+      });
     });
 
     it('seek to the last sess2 event reconstructs full sess2 content', () => {
-      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
+      const engine = createEngine(buildTwoSessionIndex());
       const state = engine.seek(5);
       expect(state.currentGlobalIdx).toBe(5);
       // events 3,4,5 each insert one char at pos 0 → 'zyx'
@@ -320,33 +337,67 @@ describe('createEngine', () => {
     });
 
     it('seek to the first sess2 event reconstructs only that event', () => {
-      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
+      const engine = createEngine(buildTwoSessionIndex());
       const state = engine.seek(3);
       expect(state.currentGlobalIdx).toBe(3);
       expect(engine.getFileStates().get('p2.py')?.content).toBe('x');
     });
 
-    it('step from -1 advances to the first sess2 event (globalIdx 3)', () => {
-      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
-      const state = engine.step(1);
-      expect(state.currentGlobalIdx).toBe(3);
-      expect(engine.getFileStates().get('p2.py')?.content).toBe('x');
+    it('keeps an earlier session’s file content visible from a later session', () => {
+      // The whole point of the change: hw.py was last touched in sess1, but its
+      // content must still be reconstructable while the playhead is in sess2.
+      const engine = createEngine(buildTwoSessionIndex());
+      engine.seek(5);
+      expect(engine.getFileStates().get('hw.py')?.content).toBe('cba');
     });
 
-    it('tick plays sess2 events in order using true globalIdx', () => {
-      const engine = createEngine(buildTwoSessionIndex(), 'sess2');
-      // sess2 events are at t = globalIdx*100 → 300, 400, 500. virtualT starts
-      // at the first event's t (300). Advance to cover all three.
-      const state = engine.tick(1000);
+    it('step from -1 advances to the first event of the BUNDLE', () => {
+      const engine = createEngine(buildTwoSessionIndex());
+      const state = engine.step(1);
+      expect(state.currentGlobalIdx).toBe(0);
+      expect(state.sessionId).toBe('sess1');
+    });
+
+    it('steps across the session boundary without stopping', () => {
+      const engine = createEngine(buildTwoSessionIndex());
+      engine.seek(2); // last event of sess1
+      const state = engine.step(1);
+      expect(state.currentGlobalIdx).toBe(3);
+      expect(state.sessionId).toBe('sess2');
+    });
+
+    it('derives sessionId from the playhead position', () => {
+      const engine = createEngine(buildTwoSessionIndex());
+      expect(engine.seek(0).sessionId).toBe('sess1');
+      expect(engine.seek(4).sessionId).toBe('sess2');
+      // Back before the first event → first session.
+      expect(engine.seek(-1).sessionId).toBe('sess1');
+    });
+
+    it('tick plays through the seam into the next session', () => {
+      const engine = createEngine(buildTwoSessionIndex());
+      // Within sess1, bundleT tracks t deltas: 0, 100, 200. The seam then adds a
+      // collapsed gap, and sess2's own deltas follow. A large enough tick must
+      // reach the end of the bundle rather than stalling at the boundary.
+      const state = engine.tick(1_000_000);
       expect(state.currentGlobalIdx).toBe(5);
+      expect(state.sessionId).toBe('sess2');
       expect(engine.getFileStates().get('p2.py')?.content).toBe('zyx');
+    });
+
+    it('endVirtualT spans the whole bundle including the seam gap', () => {
+      const engine = createEngine(buildTwoSessionIndex());
+      const { bundleT } = buildBundleClock(buildTwoSessionIndex().ordered);
+      expect(engine.endVirtualT()).toBe(bundleT[bundleT.length - 1]);
+      // Strictly greater than sess1's span alone, because the seam adds a gap.
+      expect(engine.endVirtualT()).toBeGreaterThan(200);
     });
   });
 
   describe('empty session', () => {
     it('handles session with no events gracefully', () => {
       const index = buildIndex([]);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       expect(engine.eventCount()).toBe(0);
       expect(engine.getFiles()).toEqual([]);
       const state = engine.step(1);
@@ -358,7 +409,7 @@ describe('createEngine', () => {
     it('mutating returned map does not affect engine', () => {
       const events = [makeDocChangeEvent(0, 'hw.py', 'x')];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.seek(0);
       const fileStates = engine.getFileStates();
       fileStates.delete('hw.py');
@@ -385,19 +436,19 @@ describe('createEngine', () => {
 
     it('initializes virtualT to the first event t', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       expect(engine.getState().virtualT).toBe(0);
     });
 
     it('endVirtualT returns the last event t', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       expect(engine.endVirtualT()).toBe(5000);
     });
 
     it('endVirtualT returns 0 for empty session', () => {
       const index = buildIndex([]);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       expect(engine.endVirtualT()).toBe(0);
     });
 
@@ -405,7 +456,7 @@ describe('createEngine', () => {
       // Initial virtualT = first event's t = 0. tick(50) → newVirtualT = 50.
       // Events with t <= 50: t=0 (idx 0). t=100 is NOT included. t=1000, t=5000 neither.
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.tick(50);
       expect(state.virtualT).toBe(50);
       expect(state.currentGlobalIdx).toBe(0); // t=0 event applied; t=100 not yet
@@ -413,7 +464,7 @@ describe('createEngine', () => {
 
     it('tick(150) from start: applies events at t=0 and t=100, virtualT=150', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.tick(150);
       expect(state.virtualT).toBe(150);
       expect(state.currentGlobalIdx).toBe(1); // events at t=0 and t=100 applied
@@ -421,7 +472,7 @@ describe('createEngine', () => {
 
     it('tick(2000) from start: applies up to event at t=1000', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.tick(2000);
       expect(state.virtualT).toBe(2000);
       expect(state.currentGlobalIdx).toBe(2); // event at t=1000 applied; t=5000 not yet
@@ -429,7 +480,7 @@ describe('createEngine', () => {
 
     it('tick(10000) from start: applies all events, virtualT=10000', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.tick(10000);
       expect(state.virtualT).toBe(10000);
       expect(state.currentGlobalIdx).toBe(3); // all events applied
@@ -444,7 +495,7 @@ describe('createEngine', () => {
         { ...makeDocChangeEvent(1, 'hw.py', 'b'), t: 300_000 },
       ];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.tick(10000);
       // virtualT advanced; t=0 event applied; t=300000 second event not reached.
       expect(state.virtualT).toBe(10000);
@@ -459,7 +510,7 @@ describe('createEngine', () => {
         { ...makeDocChangeEvent(1, 'hw.py', 'b'), t: 300_000 },
       ];
       const index = buildIndex(events);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       // Apply t=0 event via tick(0)
       engine.tick(0);
       expect(engine.getState().currentGlobalIdx).toBe(0); // t=0 event applied
@@ -471,7 +522,7 @@ describe('createEngine', () => {
 
     it('tick does not advance past last event index', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.tick(10000); // apply all
       // Tick again: should not error or advance beyond last index.
       const state = engine.tick(5000);
@@ -481,14 +532,14 @@ describe('createEngine', () => {
 
     it('seek syncs virtualT to the target event t', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.seek(2); // event at t=1000
       expect(engine.getState().virtualT).toBe(1000);
     });
 
     it('seek(-1) syncs virtualT to first event t', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.seek(3);
       engine.seek(-1);
       expect(engine.getState().virtualT).toBe(0); // reset to first event t
@@ -496,7 +547,7 @@ describe('createEngine', () => {
 
     it('step syncs virtualT to the stepped-to event t', () => {
       const { index } = makeTimedSession();
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       engine.step(1); // → event 0 at t=0
       expect(engine.getState().virtualT).toBe(0);
       engine.step(1); // → event 1 at t=100
@@ -505,7 +556,7 @@ describe('createEngine', () => {
 
     it('tick on empty session is a no-op', () => {
       const index = buildIndex([]);
-      const engine = createEngine(index, 'sess1');
+      const engine = createEngine(index);
       const state = engine.tick(1000);
       expect(state.currentGlobalIdx).toBe(-1);
       expect(state.virtualT).toBe(0);

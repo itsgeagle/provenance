@@ -236,8 +236,8 @@ export function ReplayInner({
 }: ReplayInnerProps) {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const engine = useReplayEngine(index, sessionId);
-  const { state, fileStates, files, play, pause, step, seek } = engine;
+  const engine = useReplayEngine(index);
+  const { state, fileStates, files, seams, play, pause, step, seek } = engine;
 
   // Active file tab — null means "use first file".
   const [activeFile, setActiveFile] = useState<string | null>(null);
@@ -251,14 +251,13 @@ export function ReplayInner({
   // FileReplayState for the active file (used by GutterDecorations + LineHoverProvider).
   const activeFileState = resolvedFile !== null ? (fileStates.get(resolvedFile) ?? null) : null;
 
-  // Total event count for the session (passed to TransportBar).
-  const eventCount = index?.bySessionId.get(sessionId)?.length ?? 0;
+  // Total event count for the bundle (passed to TransportBar).
+  const eventCount = index?.ordered.length ?? 0;
 
-  // Session events for the sidebar.
-  const sessionEvents = useMemo(() => index?.bySessionId.get(sessionId) ?? [], [index, sessionId]);
-
-  // All events ordered (for hover lookup).
-  const orderedEvents = useMemo(() => index?.ordered ?? [], [index]);
+  // The whole bundle's events, across every session. Replay is not scoped to a
+  // session: the sidebar, jump targets, focus-away spans, and edited-file
+  // tracking all span the full submission.
+  const bundleEvents = useMemo(() => index?.ordered ?? [], [index]);
 
   // ---------------------------------------------------------------------------
   // Focus-away overlay + auto-follow the edited file.
@@ -266,14 +265,14 @@ export function ReplayInner({
 
   // Whether the student is focused away from the window at the current playhead.
   const focusAway = useMemo(
-    () => currentFocusAwaySpan(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => currentFocusAwaySpan(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
 
   // The file being edited at the current playhead.
   const editedFile = useMemo(
-    () => currentEditedFile(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => currentEditedFile(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
 
   // Auto-follow: switch the active file ONLY when the edited file transitions to a
@@ -289,8 +288,8 @@ export function ReplayInner({
 
   // The student's cursor/selection in the shown file at the current playhead.
   const cursorSelection = useMemo(
-    () => currentSelection(sessionEvents, state.currentGlobalIdx, resolvedFile),
-    [sessionEvents, state.currentGlobalIdx, resolvedFile],
+    () => currentSelection(bundleEvents, state.currentGlobalIdx, resolvedFile),
+    [bundleEvents, state.currentGlobalIdx, resolvedFile],
   );
 
   // ---------------------------------------------------------------------------
@@ -304,36 +303,36 @@ export function ReplayInner({
   );
 
   const nextPaste = useMemo(
-    () => findNextPaste(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => findNextPaste(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
   const nextExternalChange = useMemo(
-    () => findNextExternalChange(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => findNextExternalChange(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
   const nextFlag = useMemo(
-    () => findNextFlag(sessionEvents, state.currentGlobalIdx, flaggedSet),
-    [sessionEvents, state.currentGlobalIdx, flaggedSet],
+    () => findNextFlag(bundleEvents, state.currentGlobalIdx, flaggedSet),
+    [bundleEvents, state.currentGlobalIdx, flaggedSet],
   );
   const nextFileSwitch = useMemo(
-    () => findNextFileSwitch(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => findNextFileSwitch(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
   const remainingPastes = useMemo(
-    () => countRemainingPastes(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => countRemainingPastes(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
   const remainingExternalChanges = useMemo(
-    () => countRemainingExternalChanges(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => countRemainingExternalChanges(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
   const remainingFlags = useMemo(
-    () => countRemainingFlags(sessionEvents, state.currentGlobalIdx, flaggedSet),
-    [sessionEvents, state.currentGlobalIdx, flaggedSet],
+    () => countRemainingFlags(bundleEvents, state.currentGlobalIdx, flaggedSet),
+    [bundleEvents, state.currentGlobalIdx, flaggedSet],
   );
   const remainingFileSwitches = useMemo(
-    () => countRemainingFileSwitches(sessionEvents, state.currentGlobalIdx),
-    [sessionEvents, state.currentGlobalIdx],
+    () => countRemainingFileSwitches(bundleEvents, state.currentGlobalIdx),
+    [bundleEvents, state.currentGlobalIdx],
   );
 
   // Monaco editor + monaco instances (set via onMount callback).
@@ -364,12 +363,21 @@ export function ReplayInner({
     if (didInitRef.current) return;
     didInitRef.current = true;
 
+    // ?event= is the position of record and wins when present.
     const eventParam = searchParams.get('event');
     if (eventParam !== null) {
       const idx = parseInt(eventParam, 10);
       if (!isNaN(idx)) {
         seek(idx);
+        return;
       }
+    }
+
+    // Otherwise the session id in the route/query is an ENTRY ANCHOR, not a
+    // scope: open the whole-bundle engine at that session's first event.
+    const anchor = index?.bySessionId.get(sessionId)?.[0];
+    if (anchor !== undefined) {
+      seek(anchor.globalIdx);
     }
     // Mount-only: didInitRef guards re-fires; seek is stable via useCallback.
     // Intentionally empty dep array: this effect handles initial URL→engine sync only
@@ -498,7 +506,7 @@ export function ReplayInner({
                 monaco={monacoInstance}
                 fileState={activeFileState}
                 language={language}
-                orderedEvents={orderedEvents}
+                orderedEvents={bundleEvents}
               />
               {/* Color legend overlay */}
               <ColorLegend />
@@ -518,7 +526,7 @@ export function ReplayInner({
         {/* Event sidebar — 30% width */}
         <div className="flex-1 min-w-0 min-h-0" style={{ flex: '0 0 30%' }}>
           <EventSidebar
-            events={sessionEvents}
+            events={bundleEvents}
             currentGlobalIdx={state.currentGlobalIdx}
             onSeek={seek}
           />
@@ -530,8 +538,9 @@ export function ReplayInner({
         <div className="flex items-center border-t bg-background">
           <div className="flex-1">
             <TransportBar
+              seams={seams}
               state={state}
-              events={sessionEvents}
+              events={bundleEvents}
               onPlay={handlePlay}
               onPause={pause}
               onStep={step}

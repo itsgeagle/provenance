@@ -468,6 +468,57 @@ describe('ReplayView', () => {
     });
   });
 
+  describe('whole-bundle replay (session id is an entry anchor)', () => {
+    function twoSessions() {
+      return buildIndex([
+        makeDocChangeEvent(0, 'sess1', 'hw.py'), // 'A'
+        makeDocChangeEvent(1, 'sess1', 'hw.py'), // 'B'
+        makeDocChangeEvent(2, 'sess2', 'part2.py'), // 'C'
+        makeDocChangeEvent(3, 'sess2', 'part2.py'), // 'D'
+      ]);
+    }
+
+    it('opens at the anchor session’s first event when ?event= is absent', async () => {
+      mockIndex.current = twoSessions();
+      renderReplayView('sess2');
+      // sess2's first event is globalIdx 2 → part2.py has just 'C'.
+      await waitFor(() => {
+        expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('C');
+      });
+    });
+
+    it('prefers ?event= over the session anchor, even across sessions', async () => {
+      mockIndex.current = twoSessions();
+      // Anchor says sess2, but ?event=1 is inside sess1 → hw.py shows 'BA'.
+      renderReplayView('sess2', '?event=1');
+      await waitFor(() => {
+        expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('BA');
+      });
+    });
+
+    it('lists files from every session in the tab strip', async () => {
+      mockIndex.current = twoSessions();
+      renderReplayView('sess2');
+      // hw.py is touched only in sess1, part2.py only in sess2. Mounted at sess2,
+      // BOTH must be present — the session-scoped view showed only part2.py.
+      await waitFor(() => {
+        expect(screen.getByTestId('file-tabs')).toBeDefined();
+      });
+      expect(screen.getByLabelText('hw.py')).toBeDefined();
+      expect(screen.getByLabelText('part2.py')).toBeDefined();
+    });
+
+    it('shows events from every session in the sidebar', async () => {
+      mockIndex.current = twoSessions();
+      renderReplayView('sess2');
+      await waitFor(() => {
+        expect(screen.getByTestId('event-sidebar')).toBeDefined();
+      });
+      // Four events across both sessions, not just sess2's two.
+      expect(screen.getAllByTestId(/^sidebar-row-/).length).toBe(4);
+    });
+  });
+
   describe('layout: height cap (Fix 2)', () => {
     it('outer wrapper has h-full and flex-col classes (viewport-constrained)', async () => {
       mockIndex.current = buildIndex([makeDocChangeEvent(0, 'sess1', 'hw.py')]);

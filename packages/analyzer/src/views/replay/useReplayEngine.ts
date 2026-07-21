@@ -2,7 +2,7 @@
  * useReplayEngine — React adapter over the pure engine-core.
  *
  * Responsibilities:
- *  - Instantiates/re-instantiates the engine when (index, sessionId) changes.
+ *  - Instantiates/re-instantiates the engine when the index changes.
  *  - Manages the playback rAF loop. CLAUDE.md rule: every timer/RAF
  *    has an explicit cleanup path.
  *  - Exposes `play`, `pause`, `step`, `seek` to React components.
@@ -19,7 +19,7 @@
  *    If engine.getVirtualT() >= engine.endVirtualT(), auto-pause.
  *  - `pause()`: cancels pending rAF, sets engine to paused.
  *  - On unmount: rAF is cancelled via useEffect cleanup.
- *  - On (index, sessionId) change: engine is recreated; any running rAF
+ *  - On index change: engine is recreated; any running rAF
  *    is cancelled first.
  *  - Speed change while playing: restarts the rAF loop with the new multiplier
  *    (play() is called again, which cancels the old rAF before starting a new one).
@@ -30,6 +30,7 @@ import { createEngine } from './engine-core.js';
 import type { EngineHandle, ReplayState } from './engine-core.js';
 import type { FileReplayState } from '@provenance/analysis-core/index/reconstruct-file-provenance.js';
 import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import type { Seam } from './bundle-clock.js';
 
 // Re-export for convenience.
 export type { ReplayState } from './engine-core.js';
@@ -42,6 +43,8 @@ export type UseReplayEngineResult = {
   state: ReplayState;
   fileStates: Map<string, FileReplayState>;
   files: string[];
+  /** Session boundaries in the stream. Empty for a single-session bundle. */
+  seams: readonly Seam[];
   play(speed?: number): void;
   pause(): void;
   step(n?: number): void;
@@ -49,13 +52,12 @@ export type UseReplayEngineResult = {
 };
 
 /**
- * @param index     The EventIndex for the whole bundle. May be null (guard: returns no-op).
- * @param sessionId Which session to replay.
+ * @param index The EventIndex for the whole bundle. May be null (guard: returns no-op).
+ *
+ * The engine spans every session in the bundle; there is no session parameter.
+ * `state.sessionId` is derived from wherever the playhead currently sits.
  */
-export function useReplayEngine(
-  index: EventIndex | null,
-  sessionId: string,
-): UseReplayEngineResult {
+export function useReplayEngine(index: EventIndex | null): UseReplayEngineResult {
   // Engine handle lives in a ref so we don't re-create it on every render.
   const engineRef = useRef<EngineHandle | null>(null);
   // rAF id lives in a ref so the cancel callback always sees the latest id.
@@ -71,14 +73,15 @@ export function useReplayEngine(
     status: 'paused',
     currentGlobalIdx: -1,
     speed: 1,
-    sessionId,
+    sessionId: index?.ordered[0]?.sessionId ?? '',
     virtualT: 0,
   }));
   const [fileStates, setFileStates] = useState<Map<string, FileReplayState>>(new Map());
   const [files, setFiles] = useState<string[]>([]);
+  const [seams, setSeams] = useState<readonly Seam[]>([]);
 
   // ---------------------------------------------------------------------------
-  // (Re-)create engine when index or sessionId changes.
+  // (Re-)create engine when the index changes.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     // Cancel any running rAF before recreating the engine.
@@ -89,19 +92,27 @@ export function useReplayEngine(
 
     if (index === null) {
       engineRef.current = null;
-      setReplayState({ status: 'paused', currentGlobalIdx: -1, speed: 1, sessionId, virtualT: 0 });
+      setReplayState({
+        status: 'paused',
+        currentGlobalIdx: -1,
+        speed: 1,
+        sessionId: '',
+        virtualT: 0,
+      });
       setFileStates(new Map());
       setFiles([]);
+      setSeams([]);
       return;
     }
 
-    const engine = createEngine(index, sessionId);
+    const engine = createEngine(index);
     engineRef.current = engine;
     speedRef.current = engine.getState().speed;
 
     setReplayState(engine.getState());
     setFileStates(engine.getFileStates());
     setFiles(engine.getFiles());
+    setSeams(engine.seams());
 
     return () => {
       // Cleanup: cancel rAF when engine is replaced or component unmounts.
@@ -110,7 +121,7 @@ export function useReplayEngine(
         rafRef.current = null;
       }
     };
-  }, [index, sessionId]);
+  }, [index]);
 
   // ---------------------------------------------------------------------------
   // Helper: sync React state from the engine after a mutation.
@@ -228,7 +239,7 @@ export function useReplayEngine(
   // Stable result object (avoids unnecessary re-renders in consumers).
   // ---------------------------------------------------------------------------
   return useMemo(
-    () => ({ state: replayState, fileStates, files, play, pause, step, seek }),
-    [replayState, fileStates, files, play, pause, step, seek],
+    () => ({ state: replayState, fileStates, files, seams, play, pause, step, seek }),
+    [replayState, fileStates, files, seams, play, pause, step, seek],
   );
 }
