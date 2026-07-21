@@ -62,7 +62,10 @@ import {
   countRemainingExternalChanges,
   countRemainingFlags,
   countRemainingFileSwitches,
+  findNextSeam,
+  countRemainingSeams,
 } from './jump-predicates.js';
+import { buildFlaggedSeamIdxs } from './seam-flags.js';
 
 // ---------------------------------------------------------------------------
 // ReplayHeader — back button + session context info.
@@ -334,6 +337,21 @@ export function ReplayInner({
     () => countRemainingFileSwitches(bundleEvents, state.currentGlobalIdx),
     [bundleEvents, state.currentGlobalIdx],
   );
+  const nextSeam = useMemo(
+    () => findNextSeam(seams, state.currentGlobalIdx),
+    [seams, state.currentGlobalIdx],
+  );
+  const remainingSeams = useMemo(
+    () => countRemainingSeams(seams, state.currentGlobalIdx),
+    [seams, state.currentGlobalIdx],
+  );
+
+  // Seams where the inter_session_external_change heuristic fired — file content
+  // demonstrably changed while the recorder was off.
+  const flaggedSeamIdxs = useMemo(
+    () => buildFlaggedSeamIdxs(seams, flags, index?.bySeq ?? new Map()),
+    [seams, flags, index],
+  );
 
   // Monaco editor + monaco instances (set via onMount callback).
   const [monacoEditor, setMonacoEditor] = useState<MonacoEditorNS.IStandaloneCodeEditor | null>(
@@ -533,6 +551,8 @@ export function ReplayInner({
         {/* Event sidebar — 30% width */}
         <div className="flex-1 min-w-0 min-h-0" style={{ flex: '0 0 30%' }}>
           <EventSidebar
+            seams={seams}
+            flaggedSeamIdxs={flaggedSeamIdxs}
             events={bundleEvents}
             currentGlobalIdx={state.currentGlobalIdx}
             onSeek={seek}
@@ -576,6 +596,9 @@ export function ReplayInner({
           remainingExternalChanges={remainingExternalChanges}
           remainingFlags={remainingFlags}
           remainingFileSwitches={remainingFileSwitches}
+          nextSeam={nextSeam}
+          remainingSeams={remainingSeams}
+          hasSeams={seams.length > 0}
           onSeek={handleJumpSeek}
         />
       </div>

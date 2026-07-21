@@ -23,7 +23,10 @@ import {
   countRemainingExternalChanges,
   countRemainingFlags,
   countRemainingFileSwitches,
+  findNextSeam,
+  countRemainingSeams,
 } from './jump-predicates.js';
+import type { Seam } from './bundle-clock.js';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 
@@ -328,5 +331,56 @@ describe('findNextPaste / countRemainingPastes — paste-shaped doc.change', () 
       makeDocChange(4, 'hw.py', 'paste_confirmed'),
     ];
     expect(countRemainingPastes(events, 0)).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findNextSeam / countRemainingSeams
+// ---------------------------------------------------------------------------
+
+describe('findNextSeam', () => {
+  const seams: Seam[] = [
+    { atGlobalIdx: 5, prevSessionId: 'a', nextSessionId: 'b', realGapMs: 1, collapsedGapMs: 1 },
+    { atGlobalIdx: 12, prevSessionId: 'b', nextSessionId: 'c', realGapMs: 1, collapsedGapMs: 1 },
+  ];
+
+  it('finds the next seam strictly after the current position', () => {
+    expect(findNextSeam(seams, 0)).toBe(5);
+  });
+
+  it('is strict — a seam AT the current position does not count', () => {
+    expect(findNextSeam(seams, 5)).toBe(12);
+  });
+
+  it('returns null when no seam follows', () => {
+    expect(findNextSeam(seams, 12)).toBeNull();
+  });
+
+  it('returns null for a single-session bundle', () => {
+    expect(findNextSeam([], 0)).toBeNull();
+  });
+
+  it('finds the first seam from before the stream starts', () => {
+    expect(findNextSeam(seams, -1)).toBe(5);
+  });
+});
+
+describe('countRemainingSeams', () => {
+  const seams: Seam[] = [
+    { atGlobalIdx: 5, prevSessionId: 'a', nextSessionId: 'b', realGapMs: 1, collapsedGapMs: 1 },
+    { atGlobalIdx: 12, prevSessionId: 'b', nextSessionId: 'c', realGapMs: 1, collapsedGapMs: 1 },
+  ];
+
+  it('counts every seam ahead of the playhead', () => {
+    expect(countRemainingSeams(seams, -1)).toBe(2);
+  });
+
+  it('excludes seams at or behind the playhead', () => {
+    expect(countRemainingSeams(seams, 5)).toBe(1);
+    expect(countRemainingSeams(seams, 12)).toBe(0);
+  });
+
+  it('returns 0 for a single-session bundle', () => {
+    expect(countRemainingSeams([], 0)).toBe(0);
   });
 });

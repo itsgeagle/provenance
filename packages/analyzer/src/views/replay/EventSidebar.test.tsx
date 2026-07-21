@@ -14,6 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { EventSidebar } from './EventSidebar.js';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import type { Seam } from './bundle-clock.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -128,5 +129,118 @@ describe('ColorLegend', () => {
     expect(legend.textContent).toContain('Paste');
     expect(legend.textContent).toContain('External');
     expect(legend.textContent).toContain('Uncolored: typed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session seams
+// ---------------------------------------------------------------------------
+
+describe('EventSidebar — session seams', () => {
+  function seam(atGlobalIdx: number, realGapMs: number): Seam {
+    return {
+      atGlobalIdx,
+      prevSessionId: 'sess1',
+      nextSessionId: 'sess2',
+      realGapMs,
+      collapsedGapMs: 5_000,
+    };
+  }
+
+  it('renders no dividers for a single-session bundle', () => {
+    render(<EventSidebar events={THREE_EVENTS} currentGlobalIdx={-1} onSeek={vi.fn()} />);
+    expect(screen.queryAllByTestId(/^seam-divider-/)).toHaveLength(0);
+  });
+
+  it('inserts a divider before the first event of the next session', () => {
+    render(
+      <EventSidebar
+        events={THREE_EVENTS}
+        currentGlobalIdx={-1}
+        onSeek={vi.fn()}
+        seams={[seam(2, 60_000)]}
+      />,
+    );
+    expect(screen.getByTestId('seam-divider-2')).toBeInTheDocument();
+  });
+
+  it('labels the divider with the real gap, not the collapsed playback gap', () => {
+    render(
+      <EventSidebar
+        events={THREE_EVENTS}
+        currentGlobalIdx={-1}
+        onSeek={vi.fn()}
+        seams={[seam(2, 15_120_000)]}
+      />,
+    );
+    // 4h 12m real; collapsedGapMs is only 5s and must not be what's shown.
+    expect(screen.getByTestId('seam-divider-2')).toHaveTextContent('4h 12m offline');
+  });
+
+  it('still renders every event row alongside the divider', () => {
+    render(
+      <EventSidebar
+        events={THREE_EVENTS}
+        currentGlobalIdx={-1}
+        onSeek={vi.fn()}
+        seams={[seam(2, 60_000)]}
+      />,
+    );
+    expect(screen.getAllByTestId(/^sidebar-row-/)).toHaveLength(3);
+  });
+
+  it('marks a seam carrying an inter_session_external_change flag', () => {
+    render(
+      <EventSidebar
+        events={THREE_EVENTS}
+        currentGlobalIdx={-1}
+        onSeek={vi.fn()}
+        seams={[seam(2, 60_000)]}
+        flaggedSeamIdxs={new Set([2])}
+      />,
+    );
+    const divider = screen.getByTestId('seam-divider-2');
+    expect(divider).toHaveAttribute('data-flagged', 'true');
+    expect(divider).toHaveTextContent('file content changed while the recorder was off');
+  });
+
+  it('leaves an unflagged seam unmarked', () => {
+    render(
+      <EventSidebar
+        events={THREE_EVENTS}
+        currentGlobalIdx={-1}
+        onSeek={vi.fn()}
+        seams={[seam(2, 60_000)]}
+        flaggedSeamIdxs={new Set()}
+      />,
+    );
+    expect(screen.getByTestId('seam-divider-2')).not.toHaveAttribute('data-flagged');
+  });
+
+  it('still marks the current event when dividers shift row indices', () => {
+    // The divider sits before globalIdx 2, so row index != globalIdx there.
+    render(
+      <EventSidebar
+        events={THREE_EVENTS}
+        currentGlobalIdx={2}
+        onSeek={vi.fn()}
+        seams={[seam(2, 60_000)]}
+      />,
+    );
+    expect(screen.getByTestId('sidebar-row-2')).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('seeks to the right event when a row after a divider is clicked', () => {
+    const onSeek = vi.fn();
+    render(
+      <EventSidebar
+        events={THREE_EVENTS}
+        currentGlobalIdx={-1}
+        onSeek={onSeek}
+        seams={[seam(2, 60_000)]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('sidebar-row-2'));
+    expect(onSeek).toHaveBeenCalledWith(2);
   });
 });

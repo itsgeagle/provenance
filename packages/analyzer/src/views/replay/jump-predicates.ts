@@ -14,6 +14,7 @@
  */
 
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
+import type { Seam } from './bundle-clock.js';
 import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
 
 // ---------------------------------------------------------------------------
@@ -243,6 +244,35 @@ export function countRemainingFileSwitches(
       count++;
       prevFile = e.file;
     }
+  }
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// findNextSeam / countRemainingSeams
+// ---------------------------------------------------------------------------
+
+/**
+ * Find the globalIdx of the next session boundary strictly after
+ * `currentGlobalIdx`. Returns null if none follows (or the bundle has a single
+ * session, in which case `seams` is empty).
+ *
+ * A seam's `atGlobalIdx` is the FIRST event of the next session, so seeking
+ * there lands the playhead at the moment the new session begins — which is
+ * exactly where `inter_session_external_change` becomes visible.
+ */
+export function findNextSeam(seams: readonly Seam[], currentGlobalIdx: number): number | null {
+  for (const s of seams) {
+    if (s.atGlobalIdx > currentGlobalIdx) return s.atGlobalIdx;
+  }
+  return null;
+}
+
+/** Count the number of session boundaries strictly after `currentGlobalIdx`. */
+export function countRemainingSeams(seams: readonly Seam[], currentGlobalIdx: number): number {
+  let count = 0;
+  for (const s of seams) {
+    if (s.atGlobalIdx > currentGlobalIdx) count++;
   }
   return count;
 }

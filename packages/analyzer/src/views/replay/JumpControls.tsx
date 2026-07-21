@@ -1,5 +1,5 @@
 /**
- * JumpControls — four jump buttons for the replay view.
+ * JumpControls — jump buttons for the replay view.
  *
  * PRD ref: §7.2 (jump-to: next paste/external/flag/file-switch).
  *
@@ -8,6 +8,7 @@
  *   - Next external change (fs.external_change event)
  *   - Next flag (event whose globalIdx appears in any flag's supportingSeqs)
  *   - Next file switch (event where file differs from the prior file-bearing event)
+ *   - Next session boundary (multi-session bundles only)
  *
  * Each button:
  *   - Disables when no next match exists.
@@ -45,6 +46,11 @@ interface JumpControlsProps {
   nextFlag: number | null;
   /** The globalIdx of the next file-switch event, or null if none. */
   nextFileSwitch: number | null;
+  /**
+   * The globalIdx of the next session boundary, or null if none. Undefined for
+   * single-session bundles, which hide the control entirely.
+   */
+  nextSeam?: number | null | undefined;
 
   /** Count of remaining pastes (for tooltip). */
   remainingPastes: number;
@@ -54,6 +60,10 @@ interface JumpControlsProps {
   remainingFlags: number;
   /** Count of remaining file switches (for tooltip). */
   remainingFileSwitches: number;
+  /** Count of remaining session boundaries (for tooltip). */
+  remainingSeams?: number | undefined;
+  /** Whether the bundle has more than one session. Hides the seam button when false. */
+  hasSeams?: boolean | undefined;
 
   /** Seek the engine to this globalIdx (and pause). */
   onSeek: (globalIdx: number) => void;
@@ -114,6 +124,9 @@ export function JumpControls({
   remainingExternalChanges,
   remainingFlags,
   remainingFileSwitches,
+  nextSeam = null,
+  remainingSeams = 0,
+  hasSeams = false,
   onSeek,
 }: JumpControlsProps) {
   return (
@@ -163,6 +176,20 @@ export function JumpControls({
           onSeek={onSeek}
           testId="jump-file-switch"
         />
+
+        {/* Only meaningful for multi-session bundles; hidden otherwise so
+            single-session replays look exactly as they did before. */}
+        {hasSeams && (
+          <JumpButton
+            label="Session"
+            icon="⏭"
+            nextIdx={nextSeam}
+            remaining={remainingSeams}
+            noun="session boundary"
+            onSeek={onSeek}
+            testId="jump-seam"
+          />
+        )}
       </div>
     </TooltipProvider>
   );

@@ -16,17 +16,24 @@
  * PRD ref: §7.2 (scrolling sidebar event log).
  */
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { EventKind } from '@provenance/log-core';
+import { formatGap, type Seam } from './bundle-clock.js';
 
 // ---------------------------------------------------------------------------
 // Row height (narrower than EventList; 30px)
 // ---------------------------------------------------------------------------
 
 const ROW_HEIGHT = 30;
+
+/** Seam dividers are taller — they carry a label and the offline duration. */
+const SEAM_ROW_HEIGHT = 44;
+
+/** A rendered row: either an event or a session boundary before one. */
+type Row = { type: 'event'; event: IndexedEvent } | { type: 'seam'; seam: Seam };
 
 // ---------------------------------------------------------------------------
 // Kind chip (compact)
@@ -134,25 +141,103 @@ function SidebarRow({ event, isCurrent, onSeek, style }: SidebarRowProps) {
 }
 
 // ---------------------------------------------------------------------------
+// SeamDivider — a session boundary in the stream
+// ---------------------------------------------------------------------------
+
+/**
+ * Marks the gap between one session ending and the next beginning.
+ *
+ * Shows the REAL offline duration (from Seam.realGapMs), not the collapsed
+ * playback gap — the collapsed value is a playback detail and would misrepresent
+ * how long the student was actually away.
+ */
+function SeamDivider({
+  seam,
+  isFlagged,
+  style,
+}: {
+  seam: Seam;
+  isFlagged: boolean;
+  style: React.CSSProperties;
+}) {
+  return (
+    <div
+      style={style}
+      className={cn(
+        'absolute left-0 right-0 flex flex-col justify-center gap-0.5 border-y px-2 py-1',
+        isFlagged ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50/60',
+      )}
+      data-testid={`seam-divider-${seam.atGlobalIdx}`}
+      data-flagged={isFlagged ? 'true' : undefined}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="h-px flex-1 bg-current opacity-20" aria-hidden="true" />
+        <span
+          className={cn(
+            'shrink-0 text-[10px] font-medium uppercase tracking-wide',
+            isFlagged ? 'text-red-700' : 'text-amber-700',
+          )}
+        >
+          {formatGap(seam.realGapMs)} offline
+        </span>
+        <span className="h-px flex-1 bg-current opacity-20" aria-hidden="true" />
+      </div>
+      {isFlagged && (
+        <span className="text-center text-[9px] leading-tight text-red-700">
+          file content changed while the recorder was off
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // EventSidebar
 // ---------------------------------------------------------------------------
 
 interface EventSidebarProps {
-  /** All events in the session (in chronological order). */
+  /** All events in the BUNDLE (in chronological order, across every session). */
   events: IndexedEvent[];
   /** The engine's current position (globalIdx of the current event). */
   currentGlobalIdx: number;
   /** Seek the engine to this globalIdx. */
   onSeek: (globalIdx: number) => void;
+  /** Session boundaries, rendered as dividers. Empty for a single-session bundle. */
+  seams?: readonly Seam[];
+  /**
+   * `atGlobalIdx` values of seams that carry an inter_session_external_change
+   * flag — file content demonstrably changed while the recorder was off.
+   */
+  flaggedSeamIdxs?: ReadonlySet<number>;
 }
 
-export function EventSidebar({ events, currentGlobalIdx, onSeek }: EventSidebarProps) {
+export function EventSidebar({
+  events,
+  currentGlobalIdx,
+  onSeek,
+  seams = [],
+  flaggedSeamIdxs,
+}: EventSidebarProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Interleave seam dividers into the row list so the virtualizer can size them
+  // independently from event rows.
+  const rows = useMemo<Row[]>(() => {
+    if (seams.length === 0) return events.map((event) => ({ type: 'event' as const, event }));
+    const seamByIdx = new Map(seams.map((s) => [s.atGlobalIdx, s]));
+    const out: Row[] = [];
+    for (const event of events) {
+      const seam = seamByIdx.get(event.globalIdx);
+      if (seam !== undefined) out.push({ type: 'seam', seam });
+      out.push({ type: 'event', event });
+    }
+    return out;
+  }, [events, seams]);
+
   const virtualizer = useVirtualizer({
-    count: events.length,
+    count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: (i) => (rows[i]?.type === 'seam' ? SEAM_ROW_HEIGHT : ROW_HEIGHT),
     overscan: 10,
   });
 
@@ -169,17 +254,16 @@ export function EventSidebar({ events, currentGlobalIdx, onSeek }: EventSidebarP
 
   useEffect(() => {
     if (currentGlobalIdx === lastScrolledIdx.current) return;
-    // Find the position of currentGlobalIdx in the events array.
-    // events[i].globalIdx is NOT necessarily i (the sidebar shows session events,
-    // which may start at a non-zero globalIdx). Do a linear scan.
-    // For perf: if the session is long and this becomes slow, memoize a
-    // globalIdx→listIdx map. For Phase 14 this is fine.
-    const listIdx = events.findIndex((e) => e.globalIdx === currentGlobalIdx);
+    // Row index != globalIdx once seam dividers are interleaved, so scan `rows`
+    // rather than `events`.
+    const listIdx = rows.findIndex(
+      (r) => r.type === 'event' && r.event.globalIdx === currentGlobalIdx,
+    );
     if (listIdx !== -1) {
       virtualizer.scrollToIndex(listIdx, { align: 'center' });
       lastScrolledIdx.current = currentGlobalIdx;
     }
-  }, [currentGlobalIdx, events, virtualizer]);
+  }, [currentGlobalIdx, rows, virtualizer]);
 
   const totalSize = virtualizer.getTotalSize();
   const virtualItems = virtualizer.getVirtualItems();
@@ -195,14 +279,14 @@ export function EventSidebar({ events, currentGlobalIdx, onSeek }: EventSidebarP
       </div>
 
       {/* Empty state */}
-      {events.length === 0 && (
+      {rows.length === 0 && (
         <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
           No events
         </div>
       )}
 
       {/* Virtualized list */}
-      {events.length > 0 && (
+      {rows.length > 0 && (
         <div
           ref={parentRef}
           className="flex-1 overflow-auto"
@@ -210,17 +294,28 @@ export function EventSidebar({ events, currentGlobalIdx, onSeek }: EventSidebarP
         >
           <div style={{ height: totalSize, width: '100%', position: 'relative' }}>
             {virtualItems.map((virtualItem) => {
-              const event = events[virtualItem.index]!;
+              const row = rows[virtualItem.index]!;
+              const style = {
+                height: virtualItem.size,
+                transform: `translateY(${virtualItem.start}px)`,
+              };
+              if (row.type === 'seam') {
+                return (
+                  <SeamDivider
+                    key={virtualItem.key}
+                    seam={row.seam}
+                    isFlagged={flaggedSeamIdxs?.has(row.seam.atGlobalIdx) ?? false}
+                    style={style}
+                  />
+                );
+              }
               return (
                 <SidebarRow
                   key={virtualItem.key}
-                  event={event}
-                  isCurrent={event.globalIdx === currentGlobalIdx}
+                  event={row.event}
+                  isCurrent={row.event.globalIdx === currentGlobalIdx}
                   onSeek={handleSeek}
-                  style={{
-                    height: virtualItem.size,
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
+                  style={style}
                 />
               );
             })}
