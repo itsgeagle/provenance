@@ -11,7 +11,10 @@ function makeTerminal(opts: {
   hasShellIntegration?: boolean;
 }): vscode.Terminal {
   return {
-    creationOptions: opts.shellPath !== undefined ? { shellPath: opts.shellPath } : {},
+    // cwd is always present (VS Code resolves a default even when the caller
+    // didn't request one) so pre-existing tests, which don't exercise cwd
+    // resolution, keep emitting under the default "owns everything" filter.
+    creationOptions: { shellPath: opts.shellPath, cwd: '/ws/default' },
     shellIntegration: opts.hasShellIntegration ? { executeCommand: vi.fn() } : undefined,
   } as unknown as vscode.Terminal;
 }
@@ -231,6 +234,102 @@ describe('startTerminalWiring — shell execution unavailable', () => {
     // No command emitted — we can't subscribe without the hooks.
     expect(emittedCommand).toHaveLength(0);
     expect(emittedOpen).toHaveLength(1);
+  });
+});
+
+describe('cwd-based ownership routing', () => {
+  function makeTerminal(opts: { cwd?: string; shellIntegrationCwd?: string }): vscode.Terminal {
+    return {
+      creationOptions: opts.cwd !== undefined ? { cwd: opts.cwd } : {},
+      shellIntegration:
+        opts.shellIntegrationCwd !== undefined
+          ? { cwd: { fsPath: opts.shellIntegrationCwd } }
+          : undefined,
+    } as unknown as vscode.Terminal;
+  }
+
+  it('emits terminal.open when the terminal cwd (via creationOptions) is owned', () => {
+    const emitTerminalOpen = vi.fn();
+    let openHandler: ((t: vscode.Terminal) => void) | undefined;
+    startTerminalWiring({
+      emitTerminalOpen,
+      emitTerminalCommand: vi.fn(),
+      onDidOpenTerminal: (h) => {
+        openHandler = h;
+        return { dispose() {} };
+      },
+      onDidCloseTerminal: () => ({ dispose() {} }),
+      isOwnedByThisRoot: (fsPath) => fsPath === '/ws/cats',
+    });
+    openHandler!(makeTerminal({ cwd: '/ws/cats' }));
+    expect(emitTerminalOpen).toHaveBeenCalledOnce();
+  });
+
+  it('drops terminal.open when the resolved cwd is owned by no session', () => {
+    const emitTerminalOpen = vi.fn();
+    let openHandler: ((t: vscode.Terminal) => void) | undefined;
+    startTerminalWiring({
+      emitTerminalOpen,
+      emitTerminalCommand: vi.fn(),
+      onDidOpenTerminal: (h) => {
+        openHandler = h;
+        return { dispose() {} };
+      },
+      onDidCloseTerminal: () => ({ dispose() {} }),
+      isOwnedByThisRoot: (fsPath) => fsPath === '/ws/cats',
+    });
+    openHandler!(makeTerminal({ cwd: '/ws/parent' }));
+    expect(emitTerminalOpen).not.toHaveBeenCalled();
+  });
+
+  it('drops terminal.open when cwd cannot be determined at all', () => {
+    const emitTerminalOpen = vi.fn();
+    let openHandler: ((t: vscode.Terminal) => void) | undefined;
+    startTerminalWiring({
+      emitTerminalOpen,
+      emitTerminalCommand: vi.fn(),
+      onDidOpenTerminal: (h) => {
+        openHandler = h;
+        return { dispose() {} };
+      },
+      onDidCloseTerminal: () => ({ dispose() {} }),
+      isOwnedByThisRoot: () => true, // even an "owns everything" filter can't help with unknown cwd
+    });
+    openHandler!(makeTerminal({}));
+    expect(emitTerminalOpen).not.toHaveBeenCalled();
+  });
+
+  it('prefers shellIntegration.cwd over creationOptions.cwd when both are present', () => {
+    const emitTerminalOpen = vi.fn();
+    let openHandler: ((t: vscode.Terminal) => void) | undefined;
+    startTerminalWiring({
+      emitTerminalOpen,
+      emitTerminalCommand: vi.fn(),
+      onDidOpenTerminal: (h) => {
+        openHandler = h;
+        return { dispose() {} };
+      },
+      onDidCloseTerminal: () => ({ dispose() {} }),
+      isOwnedByThisRoot: (fsPath) => fsPath === '/ws/hog', // only the shellIntegration cwd is owned
+    });
+    openHandler!(makeTerminal({ cwd: '/ws/cats', shellIntegrationCwd: '/ws/hog' }));
+    expect(emitTerminalOpen).toHaveBeenCalledOnce();
+  });
+
+  it('defaults to owning everything when isOwnedByThisRoot is omitted, as long as cwd resolves (regression)', () => {
+    const emitTerminalOpen = vi.fn();
+    let openHandler: ((t: vscode.Terminal) => void) | undefined;
+    startTerminalWiring({
+      emitTerminalOpen,
+      emitTerminalCommand: vi.fn(),
+      onDidOpenTerminal: (h) => {
+        openHandler = h;
+        return { dispose() {} };
+      },
+      onDidCloseTerminal: () => ({ dispose() {} }),
+    });
+    openHandler!(makeTerminal({ cwd: '/ws/hw03' }));
+    expect(emitTerminalOpen).toHaveBeenCalledOnce();
   });
 });
 

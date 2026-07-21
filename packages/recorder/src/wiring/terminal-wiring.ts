@@ -39,11 +39,31 @@ export type TerminalWiringDeps = {
   ) => vscode.Disposable;
   /**
    * Ownership filter: returns true if the given absolute fsPath belongs to THIS
-   * session's assignment root. Accepted but currently ignored — a later task
-   * wires the filtering behavior.
+   * session's assignment root. Defaults to "always owned" when omitted.
    */
   isOwnedByThisRoot?: (fsPath: string) => boolean;
 };
+
+// ---------------------------------------------------------------------------
+// cwd resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a terminal's current working directory, preferring shell-integration's
+ * live-updated cwd (accounts for `cd`) over the static creationOptions.cwd set at
+ * terminal-creation time. Returns undefined if neither is available.
+ */
+function resolveTerminalCwd(terminal: vscode.Terminal): string | undefined {
+  const shellCwd = terminal.shellIntegration?.cwd;
+  if (shellCwd !== undefined) {
+    return shellCwd.fsPath;
+  }
+  const creationCwd = (terminal.creationOptions as { cwd?: string | vscode.Uri } | undefined)?.cwd;
+  if (creationCwd === undefined) {
+    return undefined;
+  }
+  return typeof creationCwd === 'string' ? creationCwd : creationCwd.fsPath;
+}
 
 // ---------------------------------------------------------------------------
 // startTerminalWiring
@@ -58,6 +78,13 @@ export function startTerminalWiring(deps: TerminalWiringDeps): vscode.Disposable
     onDidStartTerminalShellExecution,
     onDidEndTerminalShellExecution,
   } = deps;
+
+  const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
+
+  function isTerminalOwned(terminal: vscode.Terminal): boolean {
+    const cwd = resolveTerminalCwd(terminal);
+    return cwd !== undefined && isOwnedByThisRoot(cwd);
+  }
 
   // Map each Terminal object to its stable log-side id.
   const terminalIds = new Map<vscode.Terminal, string>();
@@ -80,6 +107,7 @@ export function startTerminalWiring(deps: TerminalWiringDeps): vscode.Disposable
   // ---- open ----------------------------------------------------------------
 
   const openSub = onDidOpenTerminal((terminal) => {
+    if (!isTerminalOwned(terminal)) return;
     const terminal_id = assignId(terminal);
     const creationOptions = terminal.creationOptions as { shellPath?: string } | undefined;
     const shell = creationOptions?.shellPath ?? 'unknown';
@@ -103,6 +131,7 @@ export function startTerminalWiring(deps: TerminalWiringDeps): vscode.Disposable
     onDidEndTerminalShellExecution !== undefined
   ) {
     const startSub = onDidStartTerminalShellExecution((event) => {
+      if (!isTerminalOwned(event.terminal)) return;
       const terminal_id = assignId(event.terminal);
       // event.execution.commandLine may be undefined on some shell types.
       const commandLine = event.execution.commandLine;
@@ -116,7 +145,10 @@ export function startTerminalWiring(deps: TerminalWiringDeps): vscode.Disposable
         // end event arrived without a matching start — skip.
         return;
       }
+      // Delete before the ownership check so an unowned terminal's entry never
+      // leaks in the pending-executions map.
       pendingExecutions.delete(event.execution);
+      if (!isTerminalOwned(event.terminal)) return;
 
       // exitCode is undefined when shell integration couldn't determine it.
       const exit_code = event.exitCode;
