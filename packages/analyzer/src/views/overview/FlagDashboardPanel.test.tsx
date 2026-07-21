@@ -1,53 +1,37 @@
 /**
  * FlagDashboardPanel tests.
  *
- * Tests:
- * - Renders all fixture flags in order.
- * - Severity chips show the right text.
- * - Severity chip classes match severity-color mapping.
- * - Supporting event count is displayed.
- * - Empty flags renders the no-flags message.
- * - Clicking a flag opens the HeuristicDetailDrawer (content appears in DOM).
+ * The panel is route-agnostic — it renders FlagViews and delegates navigation
+ * to its caller — so these tests supply plain callbacks rather than a router
+ * context, and assert the panel hands back the right supporting ref.
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 import { FlagDashboardPanel } from './FlagDashboardPanel.js';
+import { toFlagViewFromLocal, type FlagView, type SupportingRef } from './flag-view.js';
 import { fixtureFlags, makeMinimalIndex } from './test-fixtures.js';
 
-// ---------------------------------------------------------------------------
-// Mock BundleContext — HeuristicDetailDrawer (rendered inside the panel when
-// a flag row is clicked) calls useBundle() to resolve globalIdx for replay links.
-// ---------------------------------------------------------------------------
+function fixtureViews(): FlagView[] {
+  const index = makeMinimalIndex();
+  return fixtureFlags.map((f) => toFlagViewFromLocal(f, index));
+}
 
-vi.mock('../../context/BundleContext.js', () => ({
-  useBundle: () => ({
-    index: makeMinimalIndex(),
-    flags: fixtureFlags,
-    bundles: [],
-    selectedBundleId: null,
-    selectBundle: vi.fn(),
-    indicesByBundle: new Map(),
-    validationReportByBundle: new Map(),
-    flagsByBundle: new Map(),
-    validationReport: null,
-    status: 'loaded' as const,
-    loadingStage: null,
-    loadError: null,
-    partialLoadErrors: [],
-    loadBundleFile: vi.fn(),
-    loadBundleFiles: vi.fn(),
-    clearBundle: vi.fn(),
-  }),
-}));
-
-function renderPanel(flags = fixtureFlags) {
+function renderPanel(
+  flags: FlagView[] = fixtureViews(),
+  handlers: { onDrawerOpen?: () => void } = {},
+) {
+  const onJumpToTimeline = vi.fn<(ref: SupportingRef) => void>();
+  const onJumpToReplay = vi.fn<(ref: SupportingRef) => void>();
   render(
-    <MemoryRouter>
-      <FlagDashboardPanel flags={flags} />
-    </MemoryRouter>,
+    <FlagDashboardPanel
+      flags={flags}
+      onJumpToTimeline={onJumpToTimeline}
+      onJumpToReplay={onJumpToReplay}
+      onDrawerOpen={handlers.onDrawerOpen}
+    />,
   );
+  return { onJumpToTimeline, onJumpToReplay };
 }
 
 describe('FlagDashboardPanel', () => {
@@ -127,5 +111,26 @@ describe('FlagDashboardPanel', () => {
     expect(screen.getAllByText('Large paste detected').length).toBeGreaterThan(0);
     // The drawer severity badge
     expect(screen.getByTestId('drawer-severity')).toBeInTheDocument();
+  });
+
+  it('notifies the caller when a drawer opens, so it can load data lazily', () => {
+    // The server Overview defers paging the whole event stream until this fires.
+    const onDrawerOpen = vi.fn();
+    renderPanel(fixtureViews(), { onDrawerOpen });
+    expect(onDrawerOpen).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId(`flag-row-${fixtureFlags[0]!.id}`));
+    expect(onDrawerOpen).toHaveBeenCalled();
+  });
+
+  it('hands the caller the supporting ref that was clicked', () => {
+    const { onJumpToTimeline } = renderPanel();
+    fireEvent.click(screen.getByTestId(`flag-row-${fixtureFlags[0]!.id}`));
+    fireEvent.click(screen.getByTestId('jump-btn-abc:2'));
+
+    expect(onJumpToTimeline).toHaveBeenCalledTimes(1);
+    expect(onJumpToTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'abc:2', timelineSeq: 'abc:2' }),
+    );
   });
 });

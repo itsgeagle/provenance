@@ -1,85 +1,76 @@
 /**
  * HeuristicDetailDrawer tests.
  *
- * Tests:
- * - Renders trigger but not drawer content before opening.
- * - Click trigger opens the drawer (flag title, severity, description visible).
- * - Supporting event rows rendered; jump buttons navigate to /local/timeline?seq=.
- * - Detail JSON rendered when flag has detail.
- * - Flags with no supportingSeqs show no supporting-events section.
- * - Flags with no detail show no detail-json section.
+ * The drawer is route-agnostic: it renders a FlagView and calls back rather
+ * than navigating, so these assert on the refs it hands out. Route-specific
+ * URL shapes are covered where the callbacks are supplied — OverviewView.test
+ * for /local, Overview.test for the submission tab.
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { HeuristicDetailDrawer } from './HeuristicDetailDrawer.js';
+import { toFlagViewFromLocal, type FlagView, type SupportingRef } from './flag-view.js';
 import { fixtureFlags, makeMinimalIndex } from './test-fixtures.js';
-
-// ---------------------------------------------------------------------------
-// Mock BundleContext — DrawerBody calls useBundle() to resolve globalIdx for
-// the "▶ Replay" deep-link. We supply a minimal index so the replay buttons
-// render correctly (disabled when seqKey not in index).
-// ---------------------------------------------------------------------------
-
-vi.mock('../../context/BundleContext.js', () => ({
-  useBundle: () => ({
-    index: makeMinimalIndex(),
-    flags: fixtureFlags,
-    bundles: [],
-    selectedBundleId: null,
-    selectBundle: vi.fn(),
-    indicesByBundle: new Map(),
-    validationReportByBundle: new Map(),
-    flagsByBundle: new Map(),
-    validationReport: null,
-    status: 'loaded' as const,
-    loadingStage: null,
-    loadError: null,
-    partialLoadErrors: [],
-    loadBundleFile: vi.fn(),
-    loadBundleFiles: vi.fn(),
-    clearBundle: vi.fn(),
-  }),
-}));
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function LocationCapture({ onLocation }: { onLocation: (l: string) => void }) {
-  const loc = useLocation();
-  onLocation(loc.pathname + loc.search);
-  return null;
-}
-
-function renderDrawer(flagIndex = 0) {
-  const flag = fixtureFlags[flagIndex]!;
-  let lastLocation = '';
+function renderDrawer(
+  flagIndex = 0,
+  opts: { flag?: FlagView; sessionOrdinals?: Map<string, number> } = {},
+) {
+  const flag = opts.flag ?? toFlagViewFromLocal(fixtureFlags[flagIndex]!, makeMinimalIndex());
+  const onJumpToTimeline = vi.fn<(ref: SupportingRef) => void>();
+  const onJumpToReplay = vi.fn<(ref: SupportingRef) => void>();
 
   render(
-    <MemoryRouter initialEntries={['/overview']}>
-      <Routes>
-        <Route
-          path="/overview"
-          element={
-            <HeuristicDetailDrawer flag={flag}>
-              <button data-testid="open-btn">Open</button>
-            </HeuristicDetailDrawer>
-          }
-        />
-        <Route path="/local/timeline" element={<div data-testid="timeline-page" />} />
-        <Route path="/local/replay/:sessionId" element={<div data-testid="replay-page" />} />
-      </Routes>
-      <LocationCapture
-        onLocation={(l) => {
-          lastLocation = l;
-        }}
-      />
-    </MemoryRouter>,
+    <HeuristicDetailDrawer
+      flag={flag}
+      onJumpToTimeline={onJumpToTimeline}
+      onJumpToReplay={onJumpToReplay}
+      sessionOrdinals={opts.sessionOrdinals}
+    >
+      <button data-testid="open-btn">Open</button>
+    </HeuristicDetailDrawer>,
   );
 
-  return { flag, getLocation: () => lastLocation };
+  return { flag, onJumpToTimeline, onJumpToReplay };
+}
+
+/** A FlagView whose two supporting events sit in different sessions. */
+function crossSessionFlag(): FlagView {
+  const event = (sessionId: string, seq: number, kind: string): IndexedEvent =>
+    ({
+      sessionId,
+      seq,
+      globalIdx: seq,
+      wall: `2026-01-01T0${seq}:00:00.000Z`,
+      t: seq * 1000,
+      kind,
+      payload: {},
+      file: 'hw1.py',
+    }) as unknown as IndexedEvent;
+
+  return {
+    id: 'external_edits-x',
+    heuristic: 'external_edits',
+    title: 'External edit across sessions',
+    description: 'A file changed on disk between two sittings.',
+    severity: 'high',
+    confidence: 0.9,
+    supporting: [
+      { id: '1', globalIdx: 1, timelineSeq: 'sess-a:1', event: event('sess-a', 1, 'paste') },
+      {
+        id: '4',
+        globalIdx: 4,
+        timelineSeq: 'sess-b:4',
+        event: event('sess-b', 4, 'fs.external_change'),
+      },
+    ],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +87,6 @@ describe('HeuristicDetailDrawer', () => {
   it('clicking trigger opens the drawer with flag title', () => {
     const { flag } = renderDrawer();
     fireEvent.click(screen.getByTestId('open-btn'));
-    // Flag title appears in the drawer header
     expect(screen.getAllByText(flag.title).length).toBeGreaterThan(0);
   });
 
@@ -120,18 +110,34 @@ describe('HeuristicDetailDrawer', () => {
     expect(screen.getByTestId('jump-btn-abc:3')).toBeInTheDocument();
   });
 
-  it('jump button navigates to /local/timeline?seq=', () => {
-    const { getLocation } = renderDrawer(0);
+  it('jump button reports the ref it was rendered for', () => {
+    const { onJumpToTimeline } = renderDrawer(0);
     fireEvent.click(screen.getByTestId('open-btn'));
     fireEvent.click(screen.getByTestId('jump-btn-abc:2'));
-    expect(getLocation()).toBe('/local/timeline?seq=abc:2');
+    expect(onJumpToTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'abc:2', timelineSeq: 'abc:2' }),
+    );
   });
 
-  it('second jump button navigates with correct seq', () => {
-    const { getLocation } = renderDrawer(0);
+  it('second jump button reports its own ref', () => {
+    const { onJumpToTimeline } = renderDrawer(0);
     fireEvent.click(screen.getByTestId('open-btn'));
     fireEvent.click(screen.getByTestId('jump-btn-abc:3'));
-    expect(getLocation()).toBe('/local/timeline?seq=abc:3');
+    expect(onJumpToTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'abc:3', timelineSeq: 'abc:3' }),
+    );
+  });
+
+  it('replay button reports the resolved event, so the caller can name its session', () => {
+    const { onJumpToReplay } = renderDrawer(0);
+    fireEvent.click(screen.getByTestId('open-btn'));
+    fireEvent.click(screen.getByTestId('jump-replay-btn-abc:2'));
+    expect(onJumpToReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'abc:2',
+        event: expect.objectContaining({ sessionId: 'abc', globalIdx: 2 }),
+      }),
+    );
   });
 
   it('detail JSON is rendered when flag has detail', () => {
@@ -162,20 +168,74 @@ describe('HeuristicDetailDrawer', () => {
     expect(chip.className).toContain('bg-amber-100');
   });
 
-  it('replay button is enabled when globalIdx resolves from index.bySeq', () => {
-    // Flag 0 has supportingSeqs: ['abc:2', 'abc:3']
-    // makeMinimalIndex now populates bySeq with these keys (Phase 15 fix)
+  // -------------------------------------------------------------------------
+  // Multi-session presentation
+  // -------------------------------------------------------------------------
+
+  it('does not label sessions when all evidence sits in one', () => {
+    // A header per row would be noise when there is nothing to tell apart.
     renderDrawer(0);
     fireEvent.click(screen.getByTestId('open-btn'));
-    const replayBtn = screen.getByTestId('jump-replay-btn-abc:2');
-    expect(replayBtn).not.toBeDisabled();
+    expect(screen.queryByTestId(/^supporting-session-header-/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spans-sessions-note')).not.toBeInTheDocument();
   });
 
-  it('replay button navigates to /local/replay/:sessionId?event=:globalIdx', () => {
-    // Flag 0: supporting seq abc:2 → globalIdx 2 (from makeMinimalIndex bySeq)
-    const { getLocation } = renderDrawer(0);
+  it('groups supporting events by session and says how many it spans', () => {
+    renderDrawer(0, { flag: crossSessionFlag() });
     fireEvent.click(screen.getByTestId('open-btn'));
-    fireEvent.click(screen.getByTestId('jump-replay-btn-abc:2'));
-    expect(getLocation()).toBe('/local/replay/abc?event=2');
+
+    expect(screen.getByTestId('supporting-session-header-sess-a')).toBeInTheDocument();
+    expect(screen.getByTestId('supporting-session-header-sess-b')).toBeInTheDocument();
+    expect(screen.getByTestId('spans-sessions-note').textContent).toContain('spans 2 sessions');
+  });
+
+  it('uses session ordinals in headers when the caller supplies them', () => {
+    renderDrawer(0, {
+      flag: crossSessionFlag(),
+      sessionOrdinals: new Map([
+        ['sess-a', 1],
+        ['sess-b', 2],
+      ]),
+    });
+    fireEvent.click(screen.getByTestId('open-btn'));
+    expect(screen.getByTestId('supporting-session-header-sess-b').textContent).toBe('Session 2');
+  });
+
+  it('keeps unresolved refs navigable while the index is still loading', () => {
+    // The server Overview renders before it has paged the event stream. Evidence
+    // must still be listed and jumpable — a supporting seq is a globalIdx, which
+    // is all the destination needs.
+    const flag: FlagView = {
+      ...crossSessionFlag(),
+      supporting: [{ id: '4880', globalIdx: 4880, timelineSeq: '4880', event: null }],
+    };
+    const { onJumpToTimeline } = renderDrawer(0, { flag });
+    fireEvent.click(screen.getByTestId('open-btn'));
+
+    expect(screen.getByText('event #4880')).toBeInTheDocument();
+    const btn = screen.getByTestId('jump-btn-4880');
+    expect(btn).not.toBeDisabled();
+
+    fireEvent.click(btn);
+    expect(onJumpToTimeline).toHaveBeenCalledWith(
+      expect.objectContaining({ globalIdx: 4880, timelineSeq: '4880' }),
+    );
+  });
+
+  it('fires onOpen when the drawer opens', () => {
+    const onOpen = vi.fn();
+    render(
+      <HeuristicDetailDrawer
+        flag={toFlagViewFromLocal(fixtureFlags[0]!, makeMinimalIndex())}
+        onJumpToTimeline={vi.fn()}
+        onJumpToReplay={vi.fn()}
+        onOpen={onOpen}
+      >
+        <button data-testid="open-btn">Open</button>
+      </HeuristicDetailDrawer>,
+    );
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('open-btn'));
+    expect(onOpen).toHaveBeenCalled();
   });
 });

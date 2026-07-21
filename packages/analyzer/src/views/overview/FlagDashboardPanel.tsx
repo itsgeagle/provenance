@@ -3,28 +3,54 @@
  *
  * PRD §7.4.
  *
- * Flags arrive pre-sorted from runHeuristics (severity desc, confidence desc).
- * Each row opens a HeuristicDetailDrawer on click.
+ * Flags arrive pre-sorted (severity desc, confidence desc) — from runHeuristics
+ * on /local, from the flags endpoint's ORDER BY on the server path. Each row
+ * opens a HeuristicDetailDrawer on click.
+ *
+ * Route-agnostic: navigation is delegated to the caller, so /local and the
+ * submission tab share one implementation.
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Progress } from '@/components/ui/progress.js';
 import { HeuristicDetailDrawer } from './HeuristicDetailDrawer.js';
 import { SeverityChip } from './SeverityChip.js';
-import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
+import type { FlagView, SupportingRef } from './flag-view.js';
 
 interface FlagDashboardPanelProps {
-  flags: Flag[];
+  flags: FlagView[];
+  onJumpToTimeline: (ref: SupportingRef) => void;
+  onJumpToReplay: (ref: SupportingRef) => void;
+  /** Session id → 1-based ordinal, so the drawer can say "Session 2". */
+  sessionOrdinals?: ReadonlyMap<string, number> | undefined;
+  /** Fired when any drawer opens; lets a caller lazily load supporting-event data. */
+  onDrawerOpen?: (() => void) | undefined;
 }
 
-function FlagRow({ flag }: { flag: Flag }) {
+type FlagRowProps = {
+  flag: FlagView;
+} & Omit<FlagDashboardPanelProps, 'flags'>;
+
+function FlagRow({
+  flag,
+  onJumpToTimeline,
+  onJumpToReplay,
+  sessionOrdinals,
+  onDrawerOpen,
+}: FlagRowProps) {
   const pct = Math.round(flag.confidence * 100);
 
   return (
-    <HeuristicDetailDrawer flag={flag}>
+    <HeuristicDetailDrawer
+      flag={flag}
+      onJumpToTimeline={onJumpToTimeline}
+      onJumpToReplay={onJumpToReplay}
+      sessionOrdinals={sessionOrdinals}
+      onOpen={onDrawerOpen}
+    >
       <button
         type="button"
-        className="w-full rounded-md border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring"
+        className="w-full rounded-md border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/50 focus:ring-2 focus:ring-ring focus:outline-none"
         data-testid={`flag-row-${flag.id}`}
       >
         <div className="flex items-center gap-3">
@@ -40,7 +66,7 @@ function FlagRow({ flag }: { flag: Flag }) {
 
           {/* Supporting count */}
           <span className="shrink-0 text-xs text-muted-foreground">
-            {flag.supportingSeqs.length} {flag.supportingSeqs.length === 1 ? 'event' : 'events'}
+            {flag.supporting.length} {flag.supporting.length === 1 ? 'event' : 'events'}
           </span>
         </div>
 
@@ -54,7 +80,13 @@ function FlagRow({ flag }: { flag: Flag }) {
   );
 }
 
-export function FlagDashboardPanel({ flags }: FlagDashboardPanelProps) {
+export function FlagDashboardPanel({
+  flags,
+  onJumpToTimeline,
+  onJumpToReplay,
+  sessionOrdinals,
+  onDrawerOpen,
+}: FlagDashboardPanelProps) {
   return (
     <Card data-testid="flag-dashboard-panel">
       <CardHeader className="pb-3">
@@ -73,7 +105,14 @@ export function FlagDashboardPanel({ flags }: FlagDashboardPanelProps) {
         ) : (
           <div className="space-y-2" data-testid="flag-list">
             {flags.map((flag) => (
-              <FlagRow key={flag.id} flag={flag} />
+              <FlagRow
+                key={flag.id}
+                flag={flag}
+                onJumpToTimeline={onJumpToTimeline}
+                onJumpToReplay={onJumpToReplay}
+                sessionOrdinals={sessionOrdinals}
+                onDrawerOpen={onDrawerOpen}
+              />
             ))}
           </div>
         )}

@@ -326,7 +326,9 @@ describe('InMemorySubmissionDataProvider — mock provider rendering', () => {
 
     await waitFor(
       () => {
-        expect(screen.getByTestId('flag-row-large_paste')).toBeInTheDocument();
+        expect(
+          screen.getByTestId('flag-row-11111111-0000-0000-0000-000000000001'),
+        ).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
@@ -385,7 +387,10 @@ describe('InMemorySubmissionDataProviderContext — BundleProvider integration',
 //   (A) a direct mock provider that holds SHARED_* fixtures
 //   (B) ApiSubmissionDataProviderContext backed by MSW returning same fixtures
 //
-// Both must render identical summary-student and flag-row-large_paste text.
+// Both must render identical summary-student and flag-row text. The flag row is
+// keyed by the flag's own id, not its heuristic_id — one heuristic can fire many
+// flags on a submission (large_paste fires once per paste), so heuristic_id is
+// not unique.
 // ---------------------------------------------------------------------------
 
 describe('Provider parity — same fixture, both providers, identical output', () => {
@@ -399,7 +404,9 @@ describe('Provider parity — same fixture, both providers, identical output', (
       () => {
         expect(screen.getByTestId('summary-student')).toHaveTextContent('Alice Liddell');
         expect(screen.getByTestId('summary-assignment')).toHaveTextContent('Homework 1');
-        expect(screen.getByTestId('flag-row-large_paste')).toBeInTheDocument();
+        expect(
+          screen.getByTestId('flag-row-11111111-0000-0000-0000-000000000001'),
+        ).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
@@ -417,7 +424,9 @@ describe('Provider parity — same fixture, both providers, identical output', (
       () => {
         expect(screen.getByTestId('summary-student')).toHaveTextContent('Alice Liddell');
         expect(screen.getByTestId('summary-assignment')).toHaveTextContent('Homework 1');
-        expect(screen.getByTestId('flag-row-large_paste')).toBeInTheDocument();
+        expect(
+          screen.getByTestId('flag-row-11111111-0000-0000-0000-000000000001'),
+        ).toBeInTheDocument();
       },
       { timeout: 3000 },
     );

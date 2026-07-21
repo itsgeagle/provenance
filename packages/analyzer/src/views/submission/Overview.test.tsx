@@ -7,11 +7,16 @@
  * introduced in Task 14.
  */
 
-import { describe, it, expect } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import type { UseQueryResult } from '@tanstack/react-query';
+import type { EventIndex } from '@provenance/analysis-core/index/event-index.js';
+import {
+  buildIndexFromEventRows,
+  type ServerEventRow,
+} from '@provenance/analysis-core/index/build-index.js';
 
 import { SubmissionDataContext } from '../../data/SubmissionDataProvider.js';
 import type {
@@ -26,6 +31,26 @@ import type {
 } from '../../data/SubmissionDataProvider.js';
 import type { SubmissionSummary, FlagRow, EventRow } from '@provenance/shared/api-schemas';
 import { Overview } from './Overview.js';
+
+// ---------------------------------------------------------------------------
+// Mock useFullEventIndex so nothing hits the network, and so we can assert
+// WHETHER it was enabled — the whole point of deferring it is that the default
+// tab does not page the event stream until a drawer needs it.
+// ---------------------------------------------------------------------------
+
+const indexHook = {
+  enabledCalls: [] as boolean[],
+  result: null as UseQueryResult<EventIndex> | null,
+};
+
+vi.mock('../../data/useFullEventIndex.js', () => ({
+  useFullEventIndex: (_id: string, options?: { enabled?: boolean }) => {
+    indexHook.enabledCalls.push(options?.enabled ?? true);
+    return (
+      indexHook.result ?? { data: undefined, isLoading: false, isError: false, isSuccess: false }
+    );
+  },
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -86,18 +111,21 @@ const DUMMY_SUMMARY: SubmissionSummary = {
 
 const DUMMY_VALIDATION: ValidationResults = { overall: 'pass', checks: [] };
 
-function makeProvider(summaryResult: UseQueryResult<SubmissionSummary>): SubmissionDataProvider {
+function makeProvider(
+  summaryResult: UseQueryResult<SubmissionSummary>,
+  overrides: { flags?: FlagRow[]; validation?: ValidationResults } = {},
+): SubmissionDataProvider {
   return {
     useSummary: () => summaryResult,
     useEvents: () => makeQueryResult([] as EventRow[]),
     useEvent: () => makeQueryResult(null),
-    useFlags: () => makeQueryResult([] as FlagRow[]),
+    useFlags: () => makeQueryResult(overrides.flags ?? ([] as FlagRow[])),
     useStats: () =>
       makeQueryResult({
         per_file: [],
         aggregate: { total_events: 0, total_saves: 0, total_sessions: 0, total_wall_ms: 0 },
       } as SubmissionStats),
-    useValidation: () => makeQueryResult(DUMMY_VALIDATION),
+    useValidation: () => makeQueryResult(overrides.validation ?? DUMMY_VALIDATION),
     useFiles: () => makeQueryResult({ files: [] } as FileListResult),
     useFileContent: () =>
       makeQueryResult({ content: '', at_seq: 0, computed_at_ms: 0 } as FileContentResult),
@@ -132,6 +160,11 @@ function renderOverview(provider: SubmissionDataProvider) {
 // Tests
 // ---------------------------------------------------------------------------
 
+beforeEach(() => {
+  indexHook.enabledCalls = [];
+  indexHook.result = null;
+});
+
 describe('Overview tab', () => {
   it('renders the summary once loaded', async () => {
     const provider = makeProvider(makeQueryResult(DUMMY_SUMMARY));
@@ -158,5 +191,211 @@ describe('Overview tab', () => {
     const errorEl = screen.getByTestId('overview-error');
     expect(errorEl).toBeInTheDocument();
     expect(errorEl.closest('[role="alert"]')).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Flag drill-down
+// ---------------------------------------------------------------------------
+
+/** Two sessions, globally numbered as the events API numbers them. */
+function twoSessionIndex(): EventIndex {
+  const rows: ServerEventRow[] = [
+    {
+      seq: 0,
+      session_id: 'sess-a',
+      t: 0,
+      wall: '2026-01-01T00:00:00.000Z',
+      kind: 'session.start',
+      payload: {},
+    },
+    {
+      seq: 1,
+      session_id: 'sess-a',
+      t: 100,
+      wall: '2026-01-01T00:00:01.000Z',
+      kind: 'paste',
+      payload: { path: 'hw1.py' },
+    },
+    {
+      seq: 2,
+      session_id: 'sess-b',
+      t: 0,
+      wall: '2026-01-02T00:00:00.000Z',
+      kind: 'session.start',
+      payload: {},
+    },
+    {
+      seq: 3,
+      session_id: 'sess-b',
+      t: 100,
+      wall: '2026-01-02T00:00:01.000Z',
+      kind: 'fs.external_change',
+      payload: { path: 'hw1.py' },
+    },
+  ];
+  return buildIndexFromEventRows(rows);
+}
+
+/** A flag whose evidence spans both sessions — session_id is '' in that case. */
+const CROSS_SESSION_FLAG: FlagRow = {
+  id: '00000000-0000-4000-8000-000000000001',
+  heuristic_id: 'external_edits',
+  severity: 'high',
+  confidence: 0.9,
+  score_contribution: 4.5,
+  title: 'External edit in hw1.py',
+  description: 'A file changed on disk between sessions.',
+  detail: { path: 'hw1.py' },
+  supporting_seqs: [1, 3],
+  session_id: '',
+};
+
+const TWO_SESSION_SUMMARY: SubmissionSummary = {
+  ...DUMMY_SUMMARY,
+  session_ids: ['sess-a', 'sess-b'],
+  sessions: [
+    { session_id: 'sess-a', started_at: '2026-01-01T00:00:00.000Z', event_count: 2 },
+    { session_id: 'sess-b', started_at: '2026-01-02T00:00:00.000Z', event_count: 2 },
+  ],
+};
+
+function LocationCapture({ onLocation }: { onLocation: (l: string) => void }) {
+  const loc = useLocation();
+  onLocation(loc.pathname + loc.search);
+  return null;
+}
+
+function renderAtRoute(provider: SubmissionDataProvider) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let lastLocation = '';
+  render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/s/cs61a/fa26/sub/test-sub-id']}>
+        <Routes>
+          <Route
+            path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
+            element={
+              <SubmissionDataContext.Provider value={provider}>
+                <Overview />
+              </SubmissionDataContext.Provider>
+            }
+          />
+        </Routes>
+        <LocationCapture
+          onLocation={(l) => {
+            lastLocation = l;
+          }}
+        />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return { getLocation: () => lastLocation };
+}
+
+describe('Overview tab — flag drill-down', () => {
+  it('renders flags as openable rows', () => {
+    renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [CROSS_SESSION_FLAG] }),
+    );
+    expect(screen.getByTestId('flag-dashboard-panel')).toBeInTheDocument();
+    // Persisted prose, not the bare heuristic id.
+    expect(screen.getByText('External edit in hw1.py')).toBeInTheDocument();
+  });
+
+  it('does not load the event index until a drawer is opened', () => {
+    indexHook.result = makeQueryResult(twoSessionIndex());
+    renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [CROSS_SESSION_FLAG] }),
+    );
+
+    // Overview is the default tab; paging every event on arrival would be a
+    // real regression on large submissions.
+    expect(indexHook.enabledCalls.every((e) => e === false)).toBe(true);
+
+    fireEvent.click(screen.getByTestId(`flag-row-${CROSS_SESSION_FLAG.id}`));
+    expect(indexHook.enabledCalls.at(-1)).toBe(true);
+  });
+
+  it('jumps to the timeline at the supporting event', () => {
+    indexHook.result = makeQueryResult(twoSessionIndex());
+    const { getLocation } = renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [CROSS_SESSION_FLAG] }),
+    );
+
+    fireEvent.click(screen.getByTestId(`flag-row-${CROSS_SESSION_FLAG.id}`));
+    fireEvent.click(screen.getByTestId('jump-btn-3'));
+
+    expect(getLocation()).toContain('tab=timeline');
+    expect(getLocation()).toContain('seq=sess-b%3A3');
+  });
+
+  it('jumps to replay in the session that actually holds the evidence', () => {
+    // The regression: seq 3 lives in sess-b, but session_id is '' for this
+    // cross-session flag, so anything keying off it would land in sess-a.
+    indexHook.result = makeQueryResult(twoSessionIndex());
+    const { getLocation } = renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [CROSS_SESSION_FLAG] }),
+    );
+
+    fireEvent.click(screen.getByTestId(`flag-row-${CROSS_SESSION_FLAG.id}`));
+    fireEvent.click(screen.getByTestId('jump-replay-btn-3'));
+
+    expect(getLocation()).toContain('tab=replay');
+    expect(getLocation()).toContain('session=sess-b');
+    expect(getLocation()).toContain('event=3');
+  });
+
+  it('keeps jump targets live before the index has loaded', () => {
+    // indexHook.result stays null → no index. Evidence must still be listed and
+    // navigable via the bare global seq.
+    const { getLocation } = renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [CROSS_SESSION_FLAG] }),
+    );
+
+    fireEvent.click(screen.getByTestId(`flag-row-${CROSS_SESSION_FLAG.id}`));
+    expect(screen.getByText('event #3')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('jump-replay-btn-3'));
+    // No session named — Replay derives it from ?event= on arrival.
+    expect(getLocation()).toContain('tab=replay');
+    expect(getLocation()).toContain('event=3');
+    expect(getLocation()).not.toContain('session=');
+  });
+});
+
+describe('Overview tab — sessions and validation labels', () => {
+  it('lists sessions when there is more than one, and opens replay at one', () => {
+    const { getLocation } = renderAtRoute(makeProvider(makeQueryResult(TWO_SESSION_SUMMARY)));
+
+    expect(screen.getByTestId('sessions-section')).toBeInTheDocument();
+    expect(screen.getAllByTestId(/^session-row-/)).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId('session-row-sess-b'));
+    expect(getLocation()).toContain('tab=replay');
+    expect(getLocation()).toContain('session=sess-b');
+  });
+
+  it('omits the sessions card for a single-session submission', () => {
+    const single: SubmissionSummary = {
+      ...DUMMY_SUMMARY,
+      sessions: [{ session_id: 'sess-a', started_at: '2026-01-01T00:00:00.000Z', event_count: 2 }],
+    };
+    renderAtRoute(makeProvider(makeQueryResult(single)));
+    expect(screen.queryByTestId('sessions-section')).not.toBeInTheDocument();
+  });
+
+  it('shows human check labels, falling back to the id when absent', () => {
+    const validation: ValidationResults = {
+      overall: 'warn',
+      checks: [
+        { id: 'monotonic_wall', label: 'Monotonic wall clock', status: 'pass' },
+        { id: 'seq_gaps', status: 'pass' },
+      ],
+    };
+    renderAtRoute(makeProvider(makeQueryResult(DUMMY_SUMMARY), { validation }));
+
+    expect(screen.getByText('Monotonic wall clock')).toBeInTheDocument();
+    expect(screen.getByText('seq_gaps')).toBeInTheDocument();
   });
 });

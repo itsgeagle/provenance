@@ -250,7 +250,9 @@ describe('ApiSubmissionDataProvider — Overview renders from API', () => {
 
     await waitFor(
       () => {
-        expect(screen.getByTestId('flag-row-large_paste')).toBeInTheDocument();
+        expect(
+          screen.getByTestId('flag-row-11111111-0000-0000-0000-000000000001'),
+        ).toBeInTheDocument();
       },
       { timeout: 3000 },
     );

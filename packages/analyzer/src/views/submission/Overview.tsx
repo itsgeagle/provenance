@@ -1,12 +1,32 @@
 /**
- * Overview tab — summary card, validation summary, files list, flags.
+ * Overview tab — summary card, sessions, validation summary, flags, files list.
  *
  * Phase 23. Consumes SubmissionDataProvider via useSubmissionData().
  * Works with both ApiSubmissionDataProvider and InMemorySubmissionDataProvider.
+ *
+ * Flags render through the same FlagDashboardPanel / HeuristicDetailDrawer that
+ * /local uses, so a reviewer can open a flag and jump to the events behind it
+ * instead of reading an inert list of heuristic ids.
+ *
+ * ## Loading the event index
+ *
+ * The drawer wants each supporting event's kind, file, time and session, which
+ * means the full event index — the most expensive fetch in the app, and Overview
+ * is the default tab. So the index is requested only once a drawer is actually
+ * opened (`needsIndex`). Until it lands, supporting rows show their bare global
+ * event number and their jump buttons still work: a supporting seq is a
+ * globalIdx, which is all either destination needs to resolve the event, and
+ * the session along with it.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
+import { useFullEventIndex } from '../../data/useFullEventIndex.js';
+import { buildGlobalSeqLookup } from '../../data/global-seq-lookup.js';
+import { FlagDashboardPanel } from '../overview/FlagDashboardPanel.js';
+import { toFlagViewFromRow, type SupportingRef } from '../overview/flag-view.js';
+import { SessionsCard } from './SessionsCard.js';
 import { collectActiveExtensions } from '../../extensions/collect-active-extensions.js';
 import { ActiveExtensionsCard } from '../../extensions/ActiveExtensionsCard.js';
 import { StatusRegion } from '../../components/a11y/StatusRegion.js';
@@ -64,12 +84,21 @@ function ValidationStatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export function Overview() {
+  const { submissionId = '' } = useParams<{ submissionId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const provider = useSubmissionData();
   const summaryQuery = provider.useSummary();
   const flagsQuery = provider.useFlags();
   const validationQuery = provider.useValidation();
   const filesQuery = provider.useFiles();
   const extEventsQuery = provider.useEvents({ kind: ['ext.snapshot', 'ext.activate'] });
+
+  // Deferred until a flag drawer is opened — see the module comment. Cached
+  // under the same query key the Timeline and Replay tabs use, so this is at
+  // worst a prefetch of work those tabs would do anyway.
+  const [needsIndex, setNeedsIndex] = useState(false);
+  const indexQuery = useFullEventIndex(submissionId, { enabled: needsIndex });
+  const bySeq = useMemo(() => buildGlobalSeqLookup(indexQuery.data ?? null), [indexQuery.data]);
 
   const activeExtensions = useMemo(() => {
     const events = extEventsQuery.data ?? [];
@@ -78,6 +107,60 @@ export function Overview() {
       events.filter((e) => e.kind === 'ext.activate'),
     );
   }, [extEventsQuery.data]);
+
+  const flagViews = useMemo(
+    () => (flagsQuery.data ?? []).map((row) => toFlagViewFromRow(row, bySeq)),
+    [flagsQuery.data, bySeq],
+  );
+
+  const sessions = useMemo(() => summaryQuery.data?.sessions ?? [], [summaryQuery.data]);
+
+  // Session id → 1-based ordinal, matching the numbering SessionsCard shows.
+  const sessionOrdinals = useMemo(() => {
+    const map = new Map<string, number>();
+    sessions.forEach((s, i) => map.set(s.session_id, i + 1));
+    return map;
+  }, [sessions]);
+
+  // Navigation is a tab switch on the current route, not a route change: the
+  // submission shell is driven by ?tab=.
+  const setTabParams = useCallback(
+    (params: Record<string, string>) => {
+      const next = new URLSearchParams(searchParams);
+      for (const [key, value] of Object.entries(params)) next.set(key, value);
+      setSearchParams(next);
+    },
+    [searchParams, setSearchParams],
+  );
+
+  const handleJumpToTimeline = useCallback(
+    (ref: SupportingRef) => setTabParams({ tab: 'timeline', seq: ref.timelineSeq }),
+    [setTabParams],
+  );
+
+  const handleJumpToReplay = useCallback(
+    (ref: SupportingRef) => {
+      // Session is deliberately omitted when unresolved: Replay derives it from
+      // ?event=, so this lands correctly even for a flag spanning sessions.
+      if (ref.event !== null) {
+        setTabParams({
+          tab: 'replay',
+          session: ref.event.sessionId,
+          event: String(ref.event.globalIdx),
+        });
+      } else if (ref.globalIdx !== null) {
+        setTabParams({ tab: 'replay', event: String(ref.globalIdx) });
+      }
+    },
+    [setTabParams],
+  );
+
+  const handleOpenSession = useCallback(
+    (sessionId: string) => setTabParams({ tab: 'replay', session: sessionId }),
+    [setTabParams],
+  );
+
+  const handleDrawerOpen = useCallback(() => setNeedsIndex(true), []);
 
   if (summaryQuery.isLoading) {
     return (
@@ -162,6 +245,9 @@ export function Overview() {
         </dl>
       </section>
 
+      {/* Sessions — only rendered when there's more than one. */}
+      <SessionsCard sessions={sessions} onOpenSession={handleOpenSession} />
+
       {/* Active extensions */}
       <ActiveExtensionsCard extensions={activeExtensions} />
 
@@ -192,7 +278,9 @@ export function Overview() {
                 >
                   {check.status === 'pass' ? '✓' : check.status === 'fail' ? '✗' : '–'}
                 </span>
-                <span className="font-medium text-gray-700">{check.id}</span>
+                {/* label is stored alongside every check; id is the fallback
+                    for rows written before the API surfaced it. */}
+                <span className="font-medium text-gray-700">{check.label ?? check.id}</span>
                 {check.detail && <span className="text-gray-500 truncate">{check.detail}</span>}
               </div>
             ))}
@@ -200,31 +288,17 @@ export function Overview() {
         </section>
       )}
 
-      {/* Flags */}
+      {/* Flags — same panel/drawer as /local, so each row opens its evidence. */}
       {flagsQuery.data && flagsQuery.data.length > 0 && (
-        <section
-          className="bg-white rounded-lg border border-gray-200 p-5"
-          data-testid="flags-section"
-        >
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Flags ({flagsQuery.data.length})
-          </h2>
-          <div className="space-y-2">
-            {flagsQuery.data.map((flag) => (
-              <div
-                key={flag.id}
-                className="flex items-center gap-3 text-sm py-2 border-b border-gray-100 last:border-0"
-                data-testid={`flag-row-${flag.heuristic_id}`}
-              >
-                <SeverityChip severity={flag.severity} />
-                <span className="font-medium text-gray-800">{flag.heuristic_id}</span>
-                <span className="text-gray-500 text-xs ml-auto">
-                  conf {(flag.confidence * 100).toFixed(0)}%
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+        <div data-testid="flags-section">
+          <FlagDashboardPanel
+            flags={flagViews}
+            onJumpToTimeline={handleJumpToTimeline}
+            onJumpToReplay={handleJumpToReplay}
+            sessionOrdinals={sessionOrdinals}
+            onDrawerOpen={handleDrawerOpen}
+          />
+        </div>
       )}
 
       {/* Files list */}
