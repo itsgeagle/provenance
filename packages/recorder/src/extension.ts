@@ -27,6 +27,7 @@ import type { ActivationError } from './activation/manifest-loader.js';
 import { discoverManifests } from './activation/manifest-discovery.js';
 import { createRecordingStatusBar } from './activation/status-bar.js';
 import { sealBundle } from './commands/seal.js';
+import { chooseSessionForSeal } from './commands/seal-selector.js';
 import { computeExtensionHash } from './commands/extension-hash.js';
 import { startSession, SessionRegistry } from './session/session-registry.js';
 import type { ActiveSession, HeartbeatVscodeDeps } from './session/session-registry.js';
@@ -378,8 +379,8 @@ async function rescan(
 
 /**
  * Registers the "Prepare Submission Bundle" command against the whole registry.
- * Stub for this task: unconditionally picks the first session. Task 11 replaces
- * the selection with a real QuickPick when multiple sessions are active.
+ * When more than one session is active, prompts the student via QuickPick to
+ * choose which assignment to bundle (Task 11).
  */
 function registerSealCommand(context: vscode.ExtensionContext, extensionDistPath: string): void {
   const sealCmd = vscode.commands.registerCommand(
@@ -390,7 +391,21 @@ function registerSealCommand(context: vscode.ExtensionContext, extensionDistPath
         void vscode.window.showWarningMessage('No session data to seal.');
         return;
       }
-      const chosen = sessions[0]!; // Task 11 replaces this with a QuickPick when sessions.length > 1.
+
+      const activeEditorPath = vscode.window.activeTextEditor?.document.uri.fsPath;
+      const chosen = await chooseSessionForSeal(
+        sessions,
+        (items, opts) => Promise.resolve(vscode.window.showQuickPick(items, opts)),
+        activeEditorPath,
+      );
+      if (chosen === undefined) {
+        if (sessions.length > 1) {
+          // User dismissed the QuickPick — no message needed, they cancelled deliberately.
+          return;
+        }
+        void vscode.window.showWarningMessage('No session data to seal.');
+        return;
+      }
       await chosen.writer.flush();
 
       const result = await sealBundle({
