@@ -77,7 +77,8 @@ export type EventIndex = {
   pathAliases?: Map<string, string>;
   /**
    * globalIdx of every `fs.external_change` reclassified as the recorder
-   * reacting to the editor's own save rather than a third-party write (D1).
+   * reacting to the editor's own save rather than a third-party write — from
+   * either the save path (D1) or the fs-watcher path (D1b).
    *
    * Computed once here so reconstruction and every heuristic agree on which
    * events are real. Consumers that report on external changes MUST skip these

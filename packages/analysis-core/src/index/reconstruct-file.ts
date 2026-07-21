@@ -414,8 +414,37 @@ const SELF_INFLICTED_WINDOW_MS = 1000;
  * Recorders at VS Code <= 1.1.x and JetBrains compare a disk snapshot taken at
  * save time against a live, mutating expected-content model. A keystroke landing
  * inside that async window makes the two disagree, so the recorder reports its
- * own save as an external modification. The signature is exact and all four
- * conditions must hold:
+ * own save as an external modification.
+ *
+ * The defect has two emit sites, which leave opposite signatures. Either one
+ * being present is sufficient; see the two helpers below.
+ *
+ * Only `operation: 'modify'` qualifies; a create or delete is never this bug.
+ *
+ * See `.notes/external-change-false-positives.md`.
+ */
+export function isSelfInflictedSave(events: ReadonlyArray<IndexedEvent>, i: number): boolean {
+  const e = events[i];
+  if (e === undefined) return false;
+
+  const p = e.payload as Record<string, unknown> | null;
+  const operation = typeof p?.['operation'] === 'string' ? p['operation'] : 'modify';
+  if (operation !== 'modify') return false;
+
+  const newHash = p?.['new_hash'];
+  if (typeof newHash !== 'string') return false;
+
+  return (
+    matchesFollowingSave(events, i, newHash) || matchesNearestPrecedingSave(events, i, newHash)
+  );
+}
+
+/**
+ * D1 — the save-path signature.
+ *
+ * The recorder's `onDidSaveTextDocument` handler reads disk asynchronously and
+ * compares against a model that a keystroke has already advanced, then emits
+ * both the bogus change and the real `doc.save` from the same continuation. So:
  *
  *   - the very next event for this file is a `doc.save`,
  *   - in the same session,
@@ -423,29 +452,79 @@ const SELF_INFLICTED_WINDOW_MS = 1000;
  *     content is byte-identical to what the editor itself wrote, and
  *   - within `SELF_INFLICTED_WINDOW_MS`.
  *
- * Only `operation: 'modify'` qualifies; a create or delete is never this bug.
- *
- * Validated against a 156-bundle corpus: matched 3316 of 3316 false positives,
- * with zero genuine external changes reclassified. See
- * `.notes/external-change-false-positives.md`.
+ * Validated against a 156-bundle corpus: matched 3316 of 3316 of the false
+ * positives it targets, with zero genuine external changes reclassified.
  */
-export function isSelfInflictedSave(events: ReadonlyArray<IndexedEvent>, i: number): boolean {
-  const e = events[i];
+function matchesFollowingSave(
+  events: ReadonlyArray<IndexedEvent>,
+  i: number,
+  newHash: string,
+): boolean {
+  const e = events[i]!;
   const next = events[i + 1];
-  if (e === undefined || next === undefined) return false;
+  if (next === undefined) return false;
   if (next.kind !== 'doc.save') return false;
   if (next.sessionId !== e.sessionId) return false;
 
-  const p = e.payload as Record<string, unknown> | null;
-  const operation = typeof p?.['operation'] === 'string' ? p['operation'] : 'modify';
-  if (operation !== 'modify') return false;
-
-  const newHash = p?.['new_hash'];
   const savedHash = (next.payload as Record<string, unknown> | null)?.['sha256'];
-  if (typeof newHash !== 'string' || newHash !== savedHash) return false;
+  if (newHash !== savedHash) return false;
 
   const dt = Math.abs(Date.parse(next.wall) - Date.parse(e.wall));
   return Number.isFinite(dt) && dt <= SELF_INFLICTED_WINDOW_MS;
+}
+
+/**
+ * D1b — the fs-watcher-path signature (the mirror image of D1).
+ *
+ * `fs-watcher.ts` `handleChange` fires for the editor's own write, reads disk
+ * asynchronously, and by the time the read resolves the student has typed on.
+ * The event therefore reports `old_hash` = the live buffer and `new_hash` = the
+ * state the editor last *saved*. The matching `doc.save` PRECEDES the event, so
+ * `matchesFollowingSave` never fires — and these events were consequently
+ * misfiled as genuine external writes.
+ *
+ * Discriminator: `new_hash` equals the `sha256` of the NEAREST preceding
+ * `doc.save` for this file in this session.
+ *
+ * There is deliberately no time window here, unlike D1. The two rules bound
+ * their false-negative risk in different ways:
+ *
+ *   - D1 is a TIMING argument ("emitted from the same continuation"), so it
+ *     needs a tight window — a tool could write content that the student later
+ *     saves identically, and only the clock separates those cases.
+ *   - D1b is a CONTENT-IDENTITY argument. It fires only when disk held exactly
+ *     the bytes the editor itself last wrote, with no intervening save. At that
+ *     instant no foreign content is present on disk by construction, so there
+ *     is nothing for a window to protect. Elapsed time does not change that.
+ *
+ * "Nearest" is load-bearing. Matching against any earlier save would forgive a
+ * disk that had been rewound past the latest save — which is a real external
+ * write, and one worth seeing.
+ *
+ * A tool that writes foreign content and then restores the last saved bytes
+ * still surfaces: the first write produces content no save ever held, so it is
+ * reported; only the restore is forgiven.
+ *
+ * Measured on a term-1 bundle recorded by an affected build: matched 213/213 of
+ * the surviving false positives, and reconstruction then reproduced the
+ * submitted file byte-for-byte.
+ */
+function matchesNearestPrecedingSave(
+  events: ReadonlyArray<IndexedEvent>,
+  i: number,
+  newHash: string,
+): boolean {
+  const e = events[i]!;
+  // Walk back to the most recent doc.save for this file in this session. The
+  // scan stops at the first save (or the session boundary), so it stays short
+  // in practice — students save far more often than tools write.
+  for (let j = i - 1; j >= 0; j--) {
+    const prev = events[j]!;
+    if (prev.sessionId !== e.sessionId) return false;
+    if (prev.kind !== 'doc.save') continue;
+    return (prev.payload as Record<string, unknown> | null)?.['sha256'] === newHash;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

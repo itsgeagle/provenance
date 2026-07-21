@@ -828,6 +828,260 @@ describe('reconstructFile — self-inflicted fs.external_change (D1)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// D1b: the fs-watcher-path half of the same recorder defect.
+//
+// The save-path false positive (D1 above) is recognised by a FOLLOWING doc.save
+// whose sha256 matches. The fs-watcher path produces the mirror image: the
+// watcher fires for the editor's own write, reads disk asynchronously, and by
+// the time the read resolves the student has typed on. The event then reports
+// old_hash = the live buffer and new_hash = the state the editor last SAVED —
+// so the matching doc.save PRECEDES it and the D1 rule never fires.
+//
+// Discriminator: new_hash equals the sha256 of the nearest preceding doc.save
+// for this file in this session. That means the disk held exactly the bytes the
+// editor itself last wrote, so no foreign content was ever present. This is a
+// content-identity argument, not a timing one, which is why it needs no window.
+//
+// See .notes/external-change-false-positives.md ("Open question that blocks
+// item 4's scope" — these events were previously misfiled as genuine).
+// ---------------------------------------------------------------------------
+
+describe('reconstructFile — self-inflicted fs.external_change, watcher path (D1b)', () => {
+  it('does not taint when new_hash matches the nearest PRECEDING doc.save', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              // The editor saves "hello" — disk now holds hash 'aaa'.
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+            {
+              // The student types on; the model is now ahead of disk.
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
+                    text: ' world',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              // The watcher's late read of the editor's own write: old_hash is
+              // the live buffer, new_hash is the already-saved disk state.
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:02.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'aaa',
+                diff_size: 6,
+                operation: 'modify',
+              },
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 11 }, end: { line: 0, character: 11 } },
+                    text: '!',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(false);
+    expect(recon.taintReasons).toHaveLength(0);
+    expect(recon.content).toBe('hello world!');
+    expect(recon.suppressedExternalChanges).toHaveLength(1);
+  });
+
+  it('STILL taints when new_hash is content no doc.save ever wrote', async () => {
+    // Anti-regression: a genuine external write after a save must survive. The
+    // rule only ever forgives disk content the editor itself produced.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:02.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'aaa',
+                new_hash: 'ccc',
+                diff_size: 4000,
+                operation: 'modify',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.taintReasons).toHaveLength(1);
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
+
+  it('STILL taints when disk holds a save older than the most recent one', async () => {
+    // Disk rewound past the latest save — something outside the editor put an
+    // earlier state back on disk. "Nearest preceding save" is load-bearing:
+    // matching against ANY earlier save would wrongly forgive this.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+            {
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:10.000Z',
+              data: { path: '/src/app.py', sha256: 'bbb' },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:20.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'aaa', // an OLDER save, not the nearest one
+                diff_size: 500,
+                operation: 'modify',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
+
+  it('does not match a preceding doc.save from a different session', async () => {
+    // `t` and the expected-content model are session-local; a save in another
+    // session says nothing about what this session's recorder saw on disk.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+          ],
+        },
+        {
+          events: [
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:02.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'bbb',
+                new_hash: 'aaa',
+                diff_size: 6,
+                operation: 'modify',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
+
+  it('does not forgive a delete just because disk matched the last save', async () => {
+    // Only `modify` is ever this bug. A create/delete is always real.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.save',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: { path: '/src/app.py', sha256: 'aaa' },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:02.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'aaa',
+                new_hash: 'aaa',
+                diff_size: 0,
+                operation: 'delete',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
+});
+
 describe('reconstructFile — taint is recoverable (D2)', () => {
   it('re-anchors on a later doc.open that carries content, clearing taint', async () => {
     const reopened = 'def solve():\n    return 42\n';
