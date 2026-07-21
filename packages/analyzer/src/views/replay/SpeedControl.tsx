@@ -1,11 +1,13 @@
 /**
  * SpeedControl — speed preset dropdown for the replay view.
  *
- * PRD ref: §7.2 (variable speed 0.25–32×).
- *
  * Design choices (A43):
  *   - Uses the existing @radix-ui/react-dropdown-menu primitive (Phase 7).
- *   - Preset speeds: [0.25, 0.5, 1, 2, 4, 8, 16, 32].
+ *   - Preset speeds: [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]. The ceiling
+ *     was raised from 32× because long submissions were unwatchable at 32×.
+ *     Cost is flat: engine.tick() seeks to the LAST event in the virtual-time
+ *     window rather than applying events one at a time, so a bigger multiplier
+ *     is one seek per frame regardless of how many events it crosses.
  *   - If the current speed matches a preset, that item shows a check indicator.
  *   - If the current speed is NOT a preset (e.g. ?speed=3 from URL), the trigger
  *     shows "3×" as the current value without a matching item in the list.
@@ -28,7 +30,7 @@ import { cn } from '@/lib/utils';
 // Constants
 // ---------------------------------------------------------------------------
 
-export const SPEED_PRESETS = [0.25, 0.5, 1, 2, 4, 8, 16, 32] as const;
+export const SPEED_PRESETS = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256] as const;
 
 // ---------------------------------------------------------------------------
 // Props

@@ -4,7 +4,7 @@
  * Tests:
  *  1. Renders the trigger with the current speed label.
  *  2. Non-preset speed shows as-is (e.g. "3×").
- *  3. SPEED_PRESETS has the expected 8 values.
+ *  3. SPEED_PRESETS has the expected 11 values.
  *  4. Disabled prop disables the trigger.
  *  5. Clicking a preset item (with menu forced open) calls onSpeedChange correctly.
  *
@@ -39,9 +39,9 @@ describe('SpeedControl', () => {
     expect(screen.getByTestId('speed-control-trigger').textContent).toContain('0.25×');
   });
 
-  it('shows 32× for the largest preset', () => {
-    render(<SpeedControl speed={32} onSpeedChange={vi.fn()} />);
-    expect(screen.getByTestId('speed-control-trigger').textContent).toContain('32×');
+  it('shows 256× for the largest preset', () => {
+    render(<SpeedControl speed={256} onSpeedChange={vi.fn()} />);
+    expect(screen.getByTestId('speed-control-trigger').textContent).toContain('256×');
   });
 
   it('disabled prop sets disabled attribute on the trigger', () => {
@@ -55,13 +55,19 @@ describe('SpeedControl', () => {
     ).toBe(true);
   });
 
-  it('SPEED_PRESETS has 8 values with correct bounds', () => {
-    expect(SPEED_PRESETS).toHaveLength(8);
+  it('SPEED_PRESETS has 11 values with correct bounds', () => {
+    expect(SPEED_PRESETS).toHaveLength(11);
     expect(SPEED_PRESETS[0]).toBe(0.25);
-    expect(SPEED_PRESETS[SPEED_PRESETS.length - 1]).toBe(32);
+    expect(SPEED_PRESETS[SPEED_PRESETS.length - 1]).toBe(256);
   });
 
-  it('all 8 preset speeds are in ascending order', () => {
+  it('offers speeds above the old 32× ceiling', () => {
+    expect(SPEED_PRESETS).toContain(64);
+    expect(SPEED_PRESETS).toContain(128);
+    expect(SPEED_PRESETS).toContain(256);
+  });
+
+  it('all preset speeds are in ascending order', () => {
     for (let i = 1; i < SPEED_PRESETS.length; i++) {
       expect(SPEED_PRESETS[i]).toBeGreaterThan(SPEED_PRESETS[i - 1]!);
     }
