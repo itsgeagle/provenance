@@ -10,6 +10,7 @@ import { ExplanationTagger } from '../events/explanation-tags.js';
 type StateChangeHandler = () => void;
 
 type FakeRepo = {
+  rootUri: { fsPath: string };
   state: {
     HEAD: { commit: string | undefined };
     _handlers: StateChangeHandler[];
@@ -19,7 +20,7 @@ type FakeRepo = {
   setCommit: (sha: string | undefined) => void;
 };
 
-function makeFakeRepo(initialCommit?: string): FakeRepo {
+function makeFakeRepo(initialCommit?: string, rootFsPath = '/ws/fake'): FakeRepo {
   const _handlers: StateChangeHandler[] = [];
   const state: FakeRepo['state'] = {
     HEAD: { commit: initialCommit },
@@ -30,6 +31,7 @@ function makeFakeRepo(initialCommit?: string): FakeRepo {
     },
   };
   return {
+    rootUri: { fsPath: rootFsPath },
     state,
     fireStateChange: () => _handlers.forEach((h) => h()),
     setCommit: (sha: string | undefined) => {
@@ -168,5 +170,78 @@ describe('startGitWiring — state change events', () => {
     // but the actual onDidChange handlers in our fake remain subscribed.
     // The key check is that dispose() does not throw.
     expect(() => wiring.dispose()).not.toThrow();
+  });
+});
+
+describe('rootUri-based ownership routing', () => {
+  function makeRepo(rootFsPath: string, initialCommit?: string) {
+    let changeHandler: (() => void) | undefined;
+    const repo = {
+      rootUri: { fsPath: rootFsPath },
+      state: {
+        HEAD: initialCommit !== undefined ? { commit: initialCommit } : undefined,
+        onDidChange: (h: () => void) => {
+          changeHandler = h;
+          return { dispose() {} };
+        },
+      },
+    };
+    return {
+      repo,
+      fireChange: (commit?: string) => {
+        if (commit !== undefined) repo.state.HEAD = { commit };
+        changeHandler?.();
+      },
+    };
+  }
+
+  it('emits git.event when the repo rootUri is owned', () => {
+    const emit = vi.fn();
+    const { repo, fireChange } = makeRepo('/ws/cats', 'abc');
+    startGitWiring({
+      emit,
+      getGitExtension: () =>
+        ({
+          exports: {
+            getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }),
+          },
+        }) as unknown as import('vscode').Extension<unknown>,
+      isOwnedByThisRoot: (fsPath) => fsPath === '/ws/cats',
+    });
+    fireChange('def');
+    expect(emit).toHaveBeenCalledOnce();
+  });
+
+  it('drops git.event when the repo rootUri is owned by no session', () => {
+    const emit = vi.fn();
+    const { repo, fireChange } = makeRepo('/ws/parent', 'abc');
+    startGitWiring({
+      emit,
+      getGitExtension: () =>
+        ({
+          exports: {
+            getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }),
+          },
+        }) as unknown as import('vscode').Extension<unknown>,
+      isOwnedByThisRoot: (fsPath) => fsPath === '/ws/cats',
+    });
+    fireChange('def');
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('defaults to owning everything when isOwnedByThisRoot is omitted (regression)', () => {
+    const emit = vi.fn();
+    const { repo, fireChange } = makeRepo('/ws/hw03', 'abc');
+    startGitWiring({
+      emit,
+      getGitExtension: () =>
+        ({
+          exports: {
+            getAPI: () => ({ repositories: [repo], onDidOpenRepository: () => ({ dispose() {} }) }),
+          },
+        }) as unknown as import('vscode').Extension<unknown>,
+    });
+    fireChange('def');
+    expect(emit).toHaveBeenCalledOnce();
   });
 });
