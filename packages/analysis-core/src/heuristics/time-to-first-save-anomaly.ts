@@ -7,9 +7,16 @@
  * For each file, we find the first doc.open event and the first doc.save event
  * that follows it. If:
  *   - The save arrives within `anomalySeconds` seconds (default: 30), AND
- *   - The reconstructed file content at the save point has > `minChars`
- *     characters (default: 500)
+ *   - More than `minChars` characters (default: 500) of *new* content were
+ *     written between the open and the save
  * then we emit a flag.
+ *
+ * "New" is the operative word (PRD: ">500 chars of new code"). doc.open seeds
+ * the file's existing on-disk content into the reconstruction, attributed to
+ * the doc.open event itself, so we count only characters whose per-character
+ * provenance points at an event *after* the open. Counting total content
+ * length instead makes every quick save of any large pre-existing file an
+ * anomaly, which is the overwhelmingly common benign case.
  *
  * We measure elapsed time using the `t` field (ms since session start) for
  * events within the same session. When doc.open and doc.save are in the same
@@ -102,7 +109,20 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
 
     // Skip tainted (empty) reconstructions — cannot reliably count chars.
     if (state.content.length === 0) continue;
-    if (state.content.length <= minChars) continue;
+
+    // Count only characters authored AFTER this doc.open. Per-character
+    // provenance holds the globalIdx of the event that last wrote each char;
+    // the file's pre-existing content is seeded by doc.open itself and is
+    // therefore attributed to `openEvent.globalIdx` (anything attributed to a
+    // lower globalIdx predates this open too). Counting `state.content.length`
+    // instead measures total file size, which flags any quick save of a large
+    // existing file — reopening a 15k-char file, typing a newline, and saving
+    // 9s later is not evidence of anything.
+    let newChars = 0;
+    for (let i = 0; i < state.provenance.length; i++) {
+      if (state.provenance[i]! > openEvent.globalIdx) newChars++;
+    }
+    if (newChars <= minChars) continue;
 
     const openSeqKey = `${openEvent.sessionId}:${openEvent.seq}`;
     const saveSeqKey = `${firstSave.sessionId}:${firstSave.seq}`;
@@ -117,12 +137,14 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
       supportingSeqs: [openSeqKey, saveSeqKey],
       description:
         `${filePath} was saved ${Math.round(elapsedMs / 1000)}s after opening, ` +
-        `with ${state.content.length} characters of content. ` +
+        `with ${newChars} characters of new content written in that window ` +
+        `(file is ${state.content.length} characters total). ` +
         `Expected at least ${anomalySeconds}s for genuine typing of ${minChars}+ chars.`,
       detail: {
         filePath,
         elapsedMs,
         anomalySeconds,
+        newChars,
         contentLength: state.content.length,
         minChars,
       },

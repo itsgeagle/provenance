@@ -194,4 +194,101 @@ describe('time_to_first_save_anomaly — negative', () => {
     const flags = timeToFirstSaveAnomalyHeuristic.run(index, bundle, cfg);
     expect(flags).toHaveLength(0);
   });
+
+  it('does not flag a quick save of a large file the student only edited slightly', async () => {
+    // Regression: opening an existing 15k-char file (content seeded by doc.open,
+    // all of it `preexisting`), typing a single newline, then saving 9s later
+    // used to flag because the heuristic counted TOTAL reconstructed chars.
+    // PRD §7.4 gates on >500 chars of *new* code.
+    const preexisting = 'x'.repeat(15000);
+
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: '/hw/cats.py',
+                content: preexisting,
+                sha256: 'a'.repeat(64),
+                line_count: 1,
+              },
+              t: 0,
+            },
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/hw/cats.py',
+                deltas: [
+                  {
+                    range: {
+                      start: { line: 0, character: 7000 },
+                      end: { line: 0, character: 7000 },
+                    },
+                    text: '\n',
+                  },
+                ],
+              },
+              t: 4000,
+            },
+            {
+              kind: 'doc.save',
+              data: { path: '/hw/cats.py', sha256: 'c'.repeat(64) },
+              t: 9000, // 9s after open — fast, but only 1 new char
+            },
+          ],
+        },
+      ],
+    });
+
+    const flags = timeToFirstSaveAnomalyHeuristic.run(index, bundle, cfg);
+    expect(flags.filter((f) => f.heuristic === 'time_to_first_save_anomaly')).toHaveLength(0);
+  });
+
+  it('still flags a large paste into an existing file within the window', async () => {
+    // Counterpart to the regression above: the preexisting bulk must not mask a
+    // genuinely fast injection of new code either.
+    const preexisting = 'x'.repeat(15000);
+    const pasted = 'y'.repeat(600);
+
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.open',
+              data: {
+                path: '/hw/cats.py',
+                content: preexisting,
+                sha256: 'a'.repeat(64),
+                line_count: 1,
+              },
+              t: 0,
+            },
+            {
+              kind: 'paste',
+              data: {
+                path: '/hw/cats.py',
+                content: pasted,
+                length: pasted.length,
+                sha256: 'b'.repeat(64),
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              },
+              t: 4000,
+            },
+            {
+              kind: 'doc.save',
+              data: { path: '/hw/cats.py', sha256: 'c'.repeat(64) },
+              t: 9000,
+            },
+          ],
+        },
+      ],
+    });
+
+    const flags = timeToFirstSaveAnomalyHeuristic.run(index, bundle, cfg);
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.detail!['newChars']).toBe(600);
+  });
 });
