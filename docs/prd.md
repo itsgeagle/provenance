@@ -239,7 +239,9 @@ Constraints:
 
 - Memory: the in-memory event buffer must not exceed 50 MB. We flush to disk every 1 s or 256 KB, whichever comes first.
 - CPU: doc.change handlers must run in < 1 ms p99 on a typical student laptop. Hashing is incremental (we maintain a running SHA-256 state per file, not a re-hash from scratch).
-- Disk: a 4-hour project session should produce < 20 MB of log. The paste-payload truncation rule (§4.2) is the main lever here.
+- Disk: a 4-hour project session should produce < 20 MB of log. The inline-content truncation rule (§4.2) is the main lever here — it caps how much of a pasted or externally-written blob any single event carries.
+  - That cap was raised from 4 KB to 64 KB (see §4.3 and §4.5), which deliberately weakens the lever, so the headroom is restated here. The events it governs are rare: a `paste` fires when a student pastes, and an `fs.external_change` only on a genuine external write. Each such event grows from ~1 KB (512-byte head + 512-byte tail) to at most 64 KB. A realistic session carries on the order of 10 over-cap events, at a typical source-file size of 10–20 KB, so roughly **+150 KB**; a pathological session with 15 events all at the full cap adds **~1 MB**. Against a 20 MB budget that is about 5% in the worst case, so the constraint holds.
+  - This estimate assumes the D1 save-time race is fixed. Before that fix the recorder emitted roughly 21 false `fs.external_change` events per session; at 64 KB each those alone would have exceeded the budget. **The cap raise is only sound in combination with that fix** — do not port one without the other.
 - The extension should not block typing under any circumstance. All disk I/O is async; all hashing happens on a worker thread.
 
 ### 4.8 Failure modes
