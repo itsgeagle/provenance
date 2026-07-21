@@ -27,7 +27,8 @@ import {
   buildIndexFromEventRows,
   type ServerEventRow,
 } from '@provenance/analysis-core/index/build-index.js';
-import { Replay } from './Replay.js';
+import { Replay, toFlag } from './Replay.js';
+import { buildGlobalSeqLookup } from '../../data/global-seq-lookup.js';
 
 // ---------------------------------------------------------------------------
 // Mock useFullEventIndex so we don't actually hit the network.
@@ -355,6 +356,202 @@ describe('Replay tab (v3)', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('world');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toFlag — FlagRow → Flag projection
+//
+// Flag.supportingSeqs are `${sessionId}:${seq}` keys that must resolve in
+// index.bySeq for JumpControls to be able to land on the evidence. The server
+// hands us globalIdx ints instead, so the keys are rebuilt from the index.
+// ---------------------------------------------------------------------------
+
+/**
+ * Two sessions numbered the way the events API numbers them: `seq` is the
+ * global chronological index. sess-a holds 0–1, sess-b holds 2–3.
+ */
+function crossSessionIndex(): EventIndex {
+  const wallBase = 1_700_000_000_000;
+  return buildIndexFromEventRows([
+    {
+      seq: 0,
+      session_id: 'sess-a',
+      t: 0,
+      wall: new Date(wallBase).toISOString(),
+      kind: 'session.start',
+      payload: {},
+    },
+    {
+      seq: 1,
+      session_id: 'sess-a',
+      t: 100,
+      wall: new Date(wallBase + 100).toISOString(),
+      kind: 'paste',
+      payload: { path: 'hw1.py' },
+    },
+    {
+      seq: 2,
+      session_id: 'sess-b',
+      t: 0,
+      wall: new Date(wallBase + 1000).toISOString(),
+      kind: 'session.start',
+      payload: {},
+    },
+    {
+      seq: 3,
+      session_id: 'sess-b',
+      t: 100,
+      wall: new Date(wallBase + 1100).toISOString(),
+      kind: 'fs.external_change',
+      payload: { path: 'hw1.py' },
+    },
+  ]);
+}
+
+function flagRow(overrides: Partial<FlagRow> = {}): FlagRow {
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    heuristic_id: 'external_edits',
+    severity: 'high',
+    confidence: 0.9,
+    score_contribution: 4.5,
+    title: 'External edit after paste in hw1.py',
+    description: 'A file changed on disk between sessions.',
+    detail: null,
+    ...overrides,
+  };
+}
+
+describe('toFlag', () => {
+  it('resolves supporting seqs that span sessions into keys the index can find', () => {
+    const index = crossSessionIndex();
+    const bySeq = buildGlobalSeqLookup(index);
+
+    // The regression this guards: session_id is '' precisely when a flag's
+    // evidence spans sessions, so building keys from it produced ":1" / ":3",
+    // which resolve to nothing and made "jump to next flag" a no-op.
+    const flag = toFlag(flagRow({ supporting_seqs: [1, 3], session_id: '' }), bySeq);
+
+    expect(flag.supportingSeqs).toEqual(['sess-a:1', 'sess-b:3']);
+    for (const key of flag.supportingSeqs) {
+      expect(index.bySeq.get(key)).toBeDefined();
+    }
+  });
+
+  it('drops seqs no event carries rather than emitting unresolvable keys', () => {
+    const bySeq = buildGlobalSeqLookup(crossSessionIndex());
+    const flag = toFlag(flagRow({ supporting_seqs: [1, 999] }), bySeq);
+    expect(flag.supportingSeqs).toEqual(['sess-a:1']);
+  });
+
+  it('yields no supporting seqs while the index is still loading', () => {
+    const flag = toFlag(flagRow({ supporting_seqs: [1, 3] }), buildGlobalSeqLookup(null));
+    expect(flag.supportingSeqs).toEqual([]);
+  });
+
+  it('carries the persisted prose through', () => {
+    const flag = toFlag(
+      flagRow({ supporting_seqs: [1] }),
+      buildGlobalSeqLookup(crossSessionIndex()),
+    );
+    expect(flag.title).toBe('External edit after paste in hw1.py');
+    expect(flag.description).toBe('A file changed on disk between sessions.');
+  });
+
+  it('falls back to the heuristic id when prose was never persisted', () => {
+    // Flags stored before the server persisted title/description.
+    const bySeq = buildGlobalSeqLookup(crossSessionIndex());
+    const flag = toFlag(flagRow({ supporting_seqs: [1], title: '', description: '' }), bySeq);
+    expect(flag.title).toBe('external_edits');
+    expect(flag.description).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session resolution from ?event= alone
+// ---------------------------------------------------------------------------
+
+describe('Replay tab — session resolution', () => {
+  beforeEach(() => {
+    mockIndexResult.value = null;
+  });
+
+  it('opens the session that holds ?event= when no ?session= is given', async () => {
+    // The flag drawer deep-links by supporting seq, which names an event but
+    // not a session — and for cross-session flags there is no single session to
+    // name. Falling through to session_ids[0] would open the wrong session for
+    // any evidence outside the first one.
+    const wallBase = 1_700_000_000_000;
+    mockIndexResult.value = makeQueryResult(
+      buildIndexFromEventRows([
+        {
+          seq: 0,
+          session_id: 'sess-1',
+          t: 0,
+          wall: new Date(wallBase).toISOString(),
+          kind: 'session.start',
+          payload: {},
+        },
+        {
+          seq: 1,
+          session_id: 'sess-1',
+          t: 100,
+          wall: new Date(wallBase + 100).toISOString(),
+          kind: 'doc.open',
+          payload: { path: 'hw1.py', content: 'first' },
+        },
+        {
+          seq: 2,
+          session_id: 'sess-2',
+          t: 0,
+          wall: new Date(wallBase + 1000).toISOString(),
+          kind: 'session.start',
+          payload: {},
+        },
+        {
+          seq: 3,
+          session_id: 'sess-2',
+          t: 100,
+          wall: new Date(wallBase + 1100).toISOString(),
+          kind: 'doc.open',
+          payload: { path: 'part2.py', content: 'second' },
+        },
+      ]),
+    );
+
+    const provider = makeProvider();
+    const twoSessionProvider: SubmissionDataProvider = {
+      ...provider,
+      useSummary: () =>
+        makeQueryResult({
+          ...(provider.useSummary().data as SubmissionSummary),
+          session_ids: ['sess-1', 'sess-2'],
+        }),
+    };
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/s/cs61a/fa26/sub/test-sub-id?event=3']}>
+          <Routes>
+            <Route
+              path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
+              element={
+                <SubmissionDataContext.Provider value={twoSessionProvider}>
+                  <Replay />
+                </SubmissionDataContext.Provider>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // globalIdx 3 lives in sess-2, whose only file is part2.py.
+    await waitFor(() => {
+      expect(screen.getByTestId('monaco-editor').getAttribute('data-value')).toBe('second');
     });
   });
 });

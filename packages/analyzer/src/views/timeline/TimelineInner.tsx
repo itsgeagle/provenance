@@ -79,25 +79,45 @@ export function TimelineInner({ index, onJumpToReplay }: TimelineInnerProps) {
   // Filtered events (memoized).
   const filteredEvents = useFilteredEvents(allEvents, filters);
 
-  // Deep-link: ?seq=sessionId:42
+  // Deep-link. Two accepted forms:
+  //   ?seq=sessionId:42  — session-scoped, what /local emits (seq is
+  //                        session-local there, so the session is required to
+  //                        disambiguate).
+  //   ?seq=1204          — a bare global seq. The API-backed index sets
+  //                        `event.seq` to the server's globalIdx, which is
+  //                        unique across the whole submission, so no session is
+  //                        needed. This is what the flag drawer emits: it can
+  //                        link to evidence from a supporting seq alone,
+  //                        without waiting for the index to resolve a session.
+  //
+  // The forms can't collide — /local never emits a bare number.
   const seqParam = searchParams.get('seq');
   useEffect(() => {
     if (!seqParam) return;
-    const colonIdx = seqParam.lastIndexOf(':');
-    if (colonIdx === -1) return;
-    const sessionId = seqParam.slice(0, colonIdx);
-    const seq = parseInt(seqParam.slice(colonIdx + 1), 10);
-    if (isNaN(seq)) return;
 
-    const target = allEvents.find((e) => e.sessionId === sessionId && e.seq === seq);
+    let matches: (e: IndexedEvent) => boolean;
+    const colonIdx = seqParam.lastIndexOf(':');
+    if (colonIdx === -1) {
+      const globalSeq = parseInt(seqParam, 10);
+      if (isNaN(globalSeq)) return;
+      matches = (e) => e.seq === globalSeq;
+    } else {
+      const sessionId = seqParam.slice(0, colonIdx);
+      const seq = parseInt(seqParam.slice(colonIdx + 1), 10);
+      if (isNaN(seq)) return;
+      matches = (e) => e.sessionId === sessionId && e.seq === seq;
+    }
+
+    const target = allEvents.find(matches);
     if (!target) return;
 
     setSelectedEvent(target);
-    setScrollToKey(seqParam);
+    // Scroll by the list's own key format, not the raw param — the bare-seq
+    // form isn't a list key.
+    setScrollToKey(`${target.sessionId}:${target.seq}`);
 
     // If the target event is currently filtered out, reset filters so it's visible.
-    const isVisible = filteredEvents.some((e) => e.sessionId === sessionId && e.seq === seq);
-    if (!isVisible) {
+    if (!filteredEvents.some(matches)) {
       setFilters(DEFAULT_FILTERS);
     }
     // Intentionally only depends on seqParam: this effect handles URL→view

@@ -54,7 +54,24 @@ async function fetchAllEvents(submissionId: string): Promise<EventRow[]> {
   return all;
 }
 
-export function useFullEventIndex(submissionId: string): UseQueryResult<EventIndex> {
+export type UseFullEventIndexOptions = {
+  /**
+   * Gate the fetch. Defaults to true.
+   *
+   * Paging every event is the most expensive thing a submission view does, so
+   * a consumer that only *sometimes* needs the index (the Overview tab, which
+   * needs it only once a flag drawer is opened) passes `false` until then. The
+   * query key is unchanged either way, so an index fetched by one tab is
+   * immediately reused by the others.
+   */
+  enabled?: boolean;
+};
+
+export function useFullEventIndex(
+  submissionId: string,
+  options: UseFullEventIndexOptions = {},
+): UseQueryResult<EventIndex> {
+  const { enabled = true } = options;
   return useQuery({
     queryKey: ['submission', submissionId, 'full-event-index'],
     queryFn: async (): Promise<EventIndex> => {
@@ -66,6 +83,6 @@ export function useFullEventIndex(submissionId: string): UseQueryResult<EventInd
     // implicitly when a re-ingest produces a new submission row (different id).
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
-    enabled: submissionId !== '',
+    enabled: enabled && submissionId !== '',
   });
 }

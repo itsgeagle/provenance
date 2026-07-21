@@ -70,6 +70,15 @@ function twoSessionRows(): ServerEventRow[] {
   ];
 }
 
+/**
+ * The same two sessions, numbered the way the events API actually numbers them:
+ * `seq` is the global chronological index, unique across the whole submission.
+ * sess-a holds seqs 0–2, sess-b holds 3–4.
+ */
+function globallyNumberedRows(): ServerEventRow[] {
+  return twoSessionRows().map((row, i) => ({ ...row, seq: i }));
+}
+
 function renderInner(
   rows: ServerEventRow[] | null,
   onJumpToReplay?: (event: IndexedEvent) => void,
@@ -138,5 +147,41 @@ describe('TimelineInner', () => {
     renderInner(twoSessionRows(), undefined, ['/?seq=sess-b:1']);
     // EventDetail shows the selected event's session id.
     expect(screen.getByTestId('detail-session-id')).toHaveTextContent('sess-b');
+  });
+
+  // -------------------------------------------------------------------------
+  // Bare global-seq deep link
+  //
+  // The API numbers events globally (`seq` on an events-endpoint row IS the
+  // globalIdx), so a single number identifies an event across the whole
+  // submission. The flag drawer relies on that: a flag's supporting_seqs name
+  // events without naming sessions, and for a flag whose evidence spans
+  // sessions there is no single session to name.
+  //
+  // twoSessionRows() numbers per-session (0,1,2 / 0,1) which the real API never
+  // does, so these use a globally-numbered fixture.
+  // -------------------------------------------------------------------------
+
+  it('selects the deep-linked event from a bare ?seq=<globalIdx>', () => {
+    renderInner(globallyNumberedRows(), undefined, ['/?seq=4']);
+    expect(screen.getByTestId('detail-session-id')).toHaveTextContent('sess-b');
+  });
+
+  it('resolves a bare seq into the session that actually holds it', () => {
+    // seq 1 lives in sess-a and seq 3 in sess-b. Resolving by number alone has
+    // to land in the right one — picking the first session would be wrong for
+    // every piece of evidence outside it.
+    renderInner(globallyNumberedRows(), undefined, ['/?seq=1']);
+    expect(screen.getByTestId('detail-session-id')).toHaveTextContent('sess-a');
+  });
+
+  it('ignores a bare ?seq= that names no event', () => {
+    renderInner(globallyNumberedRows(), undefined, ['/?seq=999']);
+    expect(screen.queryByTestId('detail-session-id')).toBeNull();
+  });
+
+  it('ignores a non-numeric ?seq=', () => {
+    renderInner(globallyNumberedRows(), undefined, ['/?seq=not-a-number']);
+    expect(screen.queryByTestId('detail-session-id')).toBeNull();
   });
 });

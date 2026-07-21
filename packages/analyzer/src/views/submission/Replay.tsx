@@ -20,29 +20,45 @@ import { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import { useFullEventIndex } from '../../data/useFullEventIndex.js';
+import { buildGlobalSeqLookup } from '../../data/global-seq-lookup.js';
 import { ReplayInner } from '../replay/ReplayView.js';
 import { StatusRegion } from '../../components/a11y/StatusRegion.js';
 import { ErrorRegion } from '../../components/a11y/ErrorRegion.js';
 import type { Flag } from '@provenance/analysis-core/heuristics/types.js';
+import type { IndexedEvent } from '@provenance/analysis-core/index/event-index.js';
 import type { FlagRow } from '@provenance/shared/api-schemas';
 
 /**
  * Project the server's FlagRow shape onto the analyzer's Flag shape so the
- * v2 ReplayInner (and its JumpControls) can consume it. The recorder/analyzer
- * Flag carries free-form `title` / `description` which the server doesn't
- * persist — substitute the heuristic id so the sidebar tooltip is non-empty.
+ * v2 ReplayInner (and its JumpControls) can consume it.
+ *
+ * `Flag.supportingSeqs` are `${sessionId}:${seq}` keys that must resolve in
+ * `index.bySeq`, so they are rebuilt by looking each supporting globalIdx up in
+ * the index and reading the session off the event we find. This used to build
+ * them as `${row.session_id}:${seq}`, which silently produced unresolvable
+ * keys like ":4880" for every flag whose evidence spans more than one session —
+ * `session_id` is '' in exactly that case — so "jump to next flag" did nothing
+ * on the submissions where it matters most.
+ *
+ * Unresolvable seqs are dropped rather than passed through as broken keys: a
+ * flag with no landable evidence should be skipped by the jump controls, not
+ * jump to nowhere.
  */
-function toFlag(row: FlagRow): Flag {
-  const sessionId = row.session_id ?? '';
-  const supportingSeqs = (row.supporting_seqs ?? []).map((seq) => `${sessionId}:${seq}`);
+export function toFlag(row: FlagRow, bySeq: ReadonlyMap<number, IndexedEvent>): Flag {
+  const supportingSeqs: string[] = [];
+  for (const globalIdx of row.supporting_seqs ?? []) {
+    const event = bySeq.get(globalIdx);
+    if (event !== undefined) supportingSeqs.push(`${event.sessionId}:${event.seq}`);
+  }
   return {
     id: row.id,
     heuristic: row.heuristic_id,
-    title: row.heuristic_id,
+    // Fall back to the id for flags stored before the server persisted prose.
+    title: row.title !== undefined && row.title !== '' ? row.title : row.heuristic_id,
     severity: row.severity,
     confidence: row.confidence,
     supportingSeqs,
-    description: '',
+    description: row.description ?? '',
     ...(row.detail !== null && typeof row.detail === 'object'
       ? { detail: row.detail as Record<string, unknown> }
       : {}),
@@ -61,12 +77,28 @@ export function Replay() {
   // Sessions known to the submission, in summary order.
   const sessionIds = useMemo(() => summaryQuery.data?.session_ids ?? [], [summaryQuery.data]);
 
-  // Resolve the active session from the URL, falling back to the first.
+  // globalIdx → event, for resolving anything that references an event by the
+  // server's session-agnostic numbering (flag supporting seqs, ?event=).
+  const bySeq = useMemo(() => buildGlobalSeqLookup(indexQuery.data ?? null), [indexQuery.data]);
+
+  // Resolve the active session from the URL.
+  //
+  // Order matters: an explicit ?session= wins, but a bare ?event= (which is how
+  // the flag drawer deep-links, since a supporting seq names an event without
+  // naming a session) resolves to whichever session actually contains that
+  // event. Falling straight through to sessionIds[0] would silently open the
+  // wrong session for any evidence outside the first one.
   const urlSession = searchParams.get('session');
+  const urlEvent = searchParams.get('event');
   const sessionId = useMemo(() => {
     if (urlSession !== null && sessionIds.includes(urlSession)) return urlSession;
+    if (urlEvent !== null) {
+      const globalIdx = parseInt(urlEvent, 10);
+      const target = isNaN(globalIdx) ? undefined : bySeq.get(globalIdx);
+      if (target !== undefined) return target.sessionId;
+    }
     return sessionIds[0] ?? null;
-  }, [urlSession, sessionIds]);
+  }, [urlSession, urlEvent, sessionIds, bySeq]);
 
   const sourceFilename = summaryQuery.data?.source_filename ?? '';
 
@@ -121,7 +153,7 @@ export function Replay() {
         <ReplayInner
           sessionId={sessionId}
           index={index}
-          flags={(flagsQuery.data ?? []).map(toFlag)}
+          flags={(flagsQuery.data ?? []).map((row) => toFlag(row, bySeq))}
           sourceFilename={sourceFilename}
           showHeader={false}
         />

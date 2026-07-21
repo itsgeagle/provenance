@@ -98,7 +98,12 @@ print "Monotonic wall clock".
 `session_ids` and discards the index. Return a richer shape alongside it:
 
 ```ts
-sessions: { session_id: string; started_at: string; event_count: number }[]
+sessions: {
+  session_id: string;
+  started_at: string;
+  event_count: number;
+}
+[];
 ```
 
 `started_at` from `bundle.sessions[i].firstEvent.wall`, `event_count` from
@@ -135,15 +140,20 @@ New `views/overview/flag-view.ts`:
 
 ```ts
 export type SupportingRef = {
-  id: string;                   // React key + data-testid
-  globalIdx: number;            // always known — enough to navigate
-  event: IndexedEvent | null;   // null while the index loads / if absent
+  id: string; // React key + data-testid
+  globalIdx: number; // always known — enough to navigate
+  event: IndexedEvent | null; // null while the index loads / if absent
 };
 
 export type FlagView = {
-  id, heuristic, title, description, severity, confidence,
-  detail?: Record<string, unknown>,
-  supporting: SupportingRef[],
+  id;
+  heuristic;
+  title;
+  description;
+  severity;
+  confidence;
+  detail?: Record<string, unknown>;
+  supporting: SupportingRef[];
 };
 ```
 
