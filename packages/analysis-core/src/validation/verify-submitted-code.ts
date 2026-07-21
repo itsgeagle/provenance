@@ -11,10 +11,18 @@
  *   chain broken        → skip  (Check 3 already fails this)
  *   no usable events    → skip
  *   status 'missing'    → skip  (nothing submitted to compare)
- *   hashOk === false    → fail  (bundle bytes don't match their own manifest hash)
+ *   bytes present but
+ *     hashOk === false  → fail  (bundle bytes don't match their own manifest hash)
  *
  * No reconstruction: we compare recorded hashes only, so reconstruction taint
  * is irrelevant here.
+ *
+ * RE-RUNNABLE against a stored, source-stripped bundle. The tamper sub-check is
+ * gated on bytes actually being present; the match comparison needs only the
+ * signed manifest's sha256 and the recorded event hashes, both of which survive
+ * source stripping. (Before 2026-07 absent bytes were indistinguishable from
+ * wrong bytes, so any re-run reported every stored bundle as tampered — hence
+ * the old "never re-run check 8" rule.)
  *
  * NOTE: 1.0 bundles (no submission_files) → check is skipped entirely.
  * 1.1 bundles with at least one matching file can reach overall 'pass'.
@@ -92,7 +100,19 @@ export function submittedFileVerdicts(
       });
       continue;
     }
-    if (!f.hashOk) {
+    // Tamper sub-check. Only assert tampering when we actually HAVE bytes that
+    // disagree with the manifest. A stored bundle is provenance-only — student
+    // source is stripped after ingest — so `bytes` is absent and `hashOk` is
+    // trivially false there (parse-bundle.ts:157 folds "absent" and "wrong"
+    // into one flag). Treating that as tampering reported every stored bundle
+    // as tampered on any re-run, which is why check 8 was previously
+    // un-re-runnable.
+    //
+    // With bytes absent we fall through to the hash comparison below, which
+    // needs only `f.sha256` (from the signed manifest — check 1 verifies that
+    // signature) and the recorded event hashes. Both survive stripping, so the
+    // match verdict is fully computable against a stored bundle.
+    if (f.bytes !== undefined && !f.hashOk) {
       verdicts.push({
         path,
         status: 'present',

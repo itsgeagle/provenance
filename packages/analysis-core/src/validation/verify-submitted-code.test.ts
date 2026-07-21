@@ -61,6 +61,12 @@ type SubmissionFileInput = {
   status: 'present' | 'missing';
   sha256: string | null;
   hashOk: boolean;
+  /**
+   * Raw submitted bytes. Omit to model a STORED bundle, whose student source is
+   * stripped after ingest — that is the only real-world way `hashOk` is false
+   * without tampering. Supply bytes to model an actually-tampered bundle.
+   */
+  bytes?: Uint8Array;
 };
 
 function makeBundle(opts: {
@@ -101,6 +107,7 @@ function makeBundle(opts: {
       status: f.status,
       sha256: f.sha256,
       hashOk: f.hashOk,
+      ...(f.bytes !== undefined ? { bytes: f.bytes } : {}),
     });
   }
 
@@ -154,6 +161,9 @@ function makeBundle(opts: {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/** Bytes that deliberately do not hash to their manifest sha256. */
+const TAMPERED_BYTES = new TextEncoder().encode('not the submitted content');
 
 describe('verifySubmittedCode (Check 8)', () => {
   it('passes when submitted hash equals the last recorded on-disk hash', () => {
@@ -225,7 +235,10 @@ describe('verifySubmittedCode (Check 8)', () => {
 
   it('fails when present bytes failed the bundle self-check (hashOk false)', () => {
     const bundle = makeBundle({
-      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'H', hashOk: false }],
+      submissionFiles: [
+        // Real tampering: bytes ARE present, they just don't hash to the manifest.
+        { path: 'a.py', status: 'present', sha256: 'H', hashOk: false, bytes: TAMPERED_BYTES },
+      ],
       events: [docSave('a.py', 'H')],
     });
     expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('fail');
@@ -233,10 +246,34 @@ describe('verifySubmittedCode (Check 8)', () => {
 
   it('fails on hashOk=false even when the chain is also broken (tamper is unconditional)', () => {
     const bundle = makeBundle({
-      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'H', hashOk: false }],
+      submissionFiles: [
+        { path: 'a.py', status: 'present', sha256: 'H', hashOk: false, bytes: TAMPERED_BYTES },
+      ],
       events: [docSave('a.py', 'H')],
     });
     expect(verifySubmittedCode(bundle, { chainIntact: false }).status).toBe('fail');
+  });
+
+  // A STORED bundle is provenance-only: source is stripped after ingest, so
+  // `bytes` is absent and `hashOk` is trivially false. That must not be read as
+  // tampering, or every re-run of check 8 against stored data reports the whole
+  // corpus as tampered. See .notes/reconstruction-triage.md.
+  it('does NOT report tampering for a stored bundle whose source was stripped', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'H', hashOk: false }],
+      events: [docSave('a.py', 'H')],
+    });
+    // Falls through to the hash comparison, which needs only the signed
+    // manifest sha and the recorded event hashes — both survive stripping.
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('pass');
+  });
+
+  it('still fails a stripped bundle when the recorded hash genuinely differs', () => {
+    const bundle = makeBundle({
+      submissionFiles: [{ path: 'a.py', status: 'present', sha256: 'X', hashOk: false }],
+      events: [docSave('a.py', 'H')],
+    });
+    expect(verifySubmittedCode(bundle, { chainIntact: true }).status).toBe('fail');
   });
 
   it('is skipped entirely on a 1.0 bundle (no submission files)', () => {
