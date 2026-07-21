@@ -480,7 +480,14 @@ export function ReplayInner({
 
       {/* File tabs row */}
       <div className="px-4 pt-3 pb-1 border-b bg-background shrink-0">
-        <FileTabs files={files} activeFile={resolvedFile} onFileChange={setActiveFile} />
+        <FileTabs
+          files={files}
+          activeFile={resolvedFile}
+          onFileChange={setActiveFile}
+          index={index}
+          currentGlobalIdx={state.currentGlobalIdx}
+          currentSessionId={state.sessionId}
+        />
       </div>
 
       {/* Main area: Monaco (70%) + EventSidebar (30%) */}
