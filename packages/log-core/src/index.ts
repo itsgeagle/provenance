@@ -49,6 +49,7 @@ export type {
   DocChangeDelta,
   SessionStartPayload,
   SessionHeartbeatPayload,
+  SessionResumedPayload,
   SessionEndPayload,
   DocOpenPayload,
   DocChangePayload,
