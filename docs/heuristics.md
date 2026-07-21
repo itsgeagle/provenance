@@ -39,6 +39,14 @@ These detect AI-assistance patterns inside a single submission.
 
 **Shared iterator.** The three paste-content heuristics (`large_paste`, `paste_is_solution`, `paste_matches_known_source`) iterate paste-shaped events through one helper, [`candidate-pastes.ts`](../packages/analyzer/src/heuristics/candidate-pastes.ts). The helper unifies native `paste` events and recorder-v1.2 `doc.change` events with `source: "paste_likely" | "paste_confirmed"`, yielding one `CandidatePaste` per inserted blob. When a new paste source is introduced (drag-and-drop file insertion, snippet expansion, etc.) only this file needs updating.
 
+**Internal-move downgrade.** `large_paste` and `paste_is_solution` consult [`internal-move.ts`](../packages/analysis-core/src/heuristics/internal-move.ts) before emitting. When a paste's content matches a region of the student's own prior content whose provenance is _typed_ (or preexisting starter code), the flag is retitled "Code moved within/from …", dropped to `info` severity — which scores 0 under the default severity weights, so it leaves the ranked queue — and carries a `detail.internalMove` block naming the source path and event. The flag is never suppressed: the record and its audit trail remain, so a grader can jump to `sourceGlobalIdx` and see where the code was.
+
+This exists because copying a block within a file, cutting and re-pasting it while reorganising, and moving a helper into another file are all ordinary student behaviour that previously fired at high severity. Flags that fire on normal work train graders to dismiss the flag class wholesale, which costs the true positives too.
+
+The provenance requirement is load-bearing, not a refinement. Relocating code that itself arrived by paste or external change does **not** qualify, so a paste cannot be laundered by moving it between files. Matching is near-exact (`minMatchRatio: 0.95`) on lines with indentation stripped, so reindent-on-paste still matches while "vaguely similar" does not. Cut-then-paste is covered by a deletion ledger built from snapshots taken during the same replay pass. Everything is fail-closed: an over-cap paste with no inline content, a tainted reconstruction, or a match whose source region is not predominantly the student's own all leave the flag at full severity. Set `internalMove.enabled: false` to restore the prior behaviour exactly.
+
+`paste_matches_known_source` is deliberately **not** downgraded — a corpus hash match is a hard signal that does not soften based on where the bytes were sitting a minute earlier.
+
 ## Environment heuristics (Phase 17)
 
 Informational signals about the student's setup. By themselves these are context, not integrity claims.
