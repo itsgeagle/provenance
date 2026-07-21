@@ -7,7 +7,7 @@ import { largePasteHeuristic } from './large-paste.js';
 import { buildIndex } from '../index/build-index.js';
 import { loadBundle } from '../loader/parse-bundle.js';
 import { buildTestBundle } from '../test-support/build-test-bundle.js';
-import { DEFAULT_HEURISTIC_CONFIG } from './config.js';
+import { DEFAULT_HEURISTIC_CONFIG, mergeConfig } from './config.js';
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -630,5 +630,104 @@ describe('large_paste — paste-shaped doc.change (recorder v1.2)', () => {
     });
     const flags = largePasteHeuristic.run(index, bundle, cfg);
     expect(flags).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Internal-move downgrade
+// ---------------------------------------------------------------------------
+
+describe('large_paste — internal move downgrade', () => {
+  // 5 non-blank lines, comfortably over minChars=200.
+  const BLOCK = [
+    'def helper(values):',
+    '    total = 0  # padding to clear the 200 character threshold ------',
+    '    for v in values:  # padding to clear the threshold -------------',
+    '        total += v  # padding to clear the threshold ---------------',
+    '    return total  # padding to clear the threshold -----------------',
+    '',
+  ].join('\n');
+
+  function typedInsert(path: string, text: string, line: number) {
+    return {
+      kind: 'doc.change' as const,
+      data: {
+        path,
+        source: 'typed',
+        deltas: [
+          {
+            range: { start: { line, character: 0 }, end: { line, character: 0 } },
+            text,
+          },
+        ],
+      },
+    };
+  }
+
+  function pasteOf(path: string, text: string, line: number) {
+    return {
+      kind: 'paste' as const,
+      data: {
+        path,
+        content: text,
+        length: text.length,
+        sha256: 'inline',
+        range: { start: { line, character: 0 }, end: { line, character: 0 } },
+      },
+    };
+  }
+
+  const moveSession = {
+    sessions: [
+      {
+        events: [
+          { kind: 'doc.open' as const, data: { path: '/t/hw.py', content: '' } },
+          typedInsert('/t/hw.py', BLOCK, 0),
+          pasteOf('/t/hw.py', BLOCK, 5),
+        ],
+      },
+    ],
+  };
+
+  it("downgrades a relocation of the student's own typed code to info", async () => {
+    const { index, bundle } = await buildAndIndex(moveSession);
+    const flags = largePasteHeuristic.run(index, bundle, cfg);
+
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('info');
+    expect(flags[0]!.heuristic).toBe('large_paste');
+    expect(flags[0]!.title).toContain('Code moved within');
+    const detail = flags[0]!.detail as { internalMove?: { via?: string; sourcePath?: string } };
+    expect(detail.internalMove?.via).toBe('copy');
+    expect(detail.internalMove?.sourcePath).toBe('/t/hw.py');
+  });
+
+  it('keeps full severity when internalMove is disabled', async () => {
+    const { index, bundle } = await buildAndIndex(moveSession);
+    const disabled = mergeConfig({ internalMove: { ...cfg.internalMove, enabled: false } });
+    const flags = largePasteHeuristic.run(index, bundle, disabled);
+
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).not.toBe('info');
+    expect(flags[0]!.title).toContain('Large paste');
+    expect(flags[0]!.detail).not.toHaveProperty('internalMove');
+  });
+
+  it('leaves a genuinely external paste at full severity', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            { kind: 'doc.open' as const, data: { path: '/t/hw.py', content: '' } },
+            pasteOf('/t/hw.py', BLOCK, 0),
+          ],
+        },
+      ],
+    });
+    const flags = largePasteHeuristic.run(index, bundle, cfg);
+
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).not.toBe('info');
+    expect(flags[0]!.title).toContain('Large paste');
   });
 });

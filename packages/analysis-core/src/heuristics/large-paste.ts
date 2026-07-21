@@ -32,6 +32,7 @@ import type { Bundle } from '../loader/types.js';
 import type { Flag, Heuristic, Severity } from './types.js';
 import type { HeuristicConfig } from './config.js';
 import { iterateCandidatePastes } from './candidate-pastes.js';
+import { classifyInternalMoves } from './internal-move.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -82,6 +83,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
   const { minChars, minLines, highSeverityChars, highSeverityLines } = config.largePaste;
 
   const anomalyWindows = buildAnomalyWindows(index);
+  const moves = classifyInternalMoves(index, config);
 
   const flags: Flag[] = [];
   let flagIndex = 0;
@@ -102,7 +104,7 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
     if (!meetsCharThreshold && !meetsLineThreshold) continue;
 
     // Severity: escalate if either high-severity threshold is met.
-    const severity: Severity =
+    const baseSeverity: Severity =
       length >= highSeverityChars || lines >= highSeverityLines ? 'high' : 'medium';
 
     // Confidence: reduced if inside a paste.anomaly window.
@@ -115,20 +117,47 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
     const sourceDescriptor =
       c.origin === 'paste' ? 'A paste' : 'A paste-shaped bulk edit (doc.change/paste_likely)';
 
+    // An internal move is the student relocating their own previously-typed
+    // code. Keep the record — evidence is never destroyed — but drop it to
+    // 'info', which scores 0 under the default severity weights and so leaves
+    // the ranked queue. `heuristic` deliberately stays 'large_paste' so per-flag
+    // weights, severity roll-ups, and cross-flag counting keep working.
+    const move = moves.get(c.ordinal);
+    const isMove = move !== undefined && move.classification === 'internal_move';
+    const movedAcrossFiles = isMove && move.sourcePath !== undefined && move.sourcePath !== c.path;
+
     flags.push({
       id,
       heuristic: 'large_paste',
-      title: `Large paste in ${c.path}`,
-      severity,
+      title: isMove
+        ? movedAcrossFiles
+          ? `Code moved from ${move.sourcePath} into ${c.path}`
+          : `Code moved within ${c.path}`
+        : `Large paste in ${c.path}`,
+      severity: isMove ? 'info' : baseSeverity,
       confidence,
       supportingSeqs: [c.seqKey],
-      description: `${sourceDescriptor} of ${length} characters${lineInfo} was detected in ${c.path}.`,
+      description: isMove
+        ? `${length} characters${lineInfo} were relocated into ${c.path} from the student's own ` +
+          `previously-typed code in ${move.sourcePath}. Not treated as an external paste.`
+        : `${sourceDescriptor} of ${length} characters${lineInfo} was detected in ${c.path}.`,
       detail: {
         path: c.path,
         charCount: length,
         lineCount: lines > 0 ? lines : null,
         inAnomalyWindow: isInAnomalyWindow(c.t, anomalyTs),
         origin: c.origin,
+        ...(isMove
+          ? {
+              internalMove: {
+                sourcePath: move.sourcePath,
+                sourceGlobalIdx: move.sourceGlobalIdx,
+                matchRatio: move.matchRatio,
+                typedRatio: move.typedRatio,
+                via: move.via,
+              },
+            }
+          : {}),
       },
     });
   }
