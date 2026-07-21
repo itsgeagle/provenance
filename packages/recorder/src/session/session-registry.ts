@@ -45,6 +45,7 @@ import { recoverPreviousSession } from '../startup/chain-recovery.js';
 import { computeExtensionHash } from '../commands/extension-hash.js';
 import { DiskFullHandler } from '../failure/disk-full-handler.js';
 import { makeAssignmentRelativePath } from './assignment-relative-path.js';
+import { resolveOwnerRoot } from './session-router.js';
 import type { LargeInsertCounter } from '../wiring/doc-wiring.js';
 
 // ---------------------------------------------------------------------------
@@ -516,4 +517,54 @@ export async function startSession(deps: StartSessionDeps): Promise<ActiveSessio
     getPendingCheckpoint: () => pendingCheckpoint,
     dispose,
   };
+}
+
+// ---------------------------------------------------------------------------
+// SessionRegistry
+// ---------------------------------------------------------------------------
+
+/** Owns every currently-active ActiveSession, keyed by assignmentRoot. */
+export class SessionRegistry {
+  private readonly sessions = new Map<string, ActiveSession>();
+
+  add(session: ActiveSession): void {
+    this.sessions.set(session.assignmentRoot, session);
+  }
+
+  get(root: string): ActiveSession | undefined {
+    return this.sessions.get(root);
+  }
+
+  all(): readonly ActiveSession[] {
+    return [...this.sessions.values()];
+  }
+
+  resolveForPath(fsPath: string): ActiveSession | undefined {
+    const root = resolveOwnerRoot(fsPath, [...this.sessions.keys()]);
+    return root === null ? undefined : this.sessions.get(root);
+  }
+
+  async pruneToRoots(currentRoots: readonly string[]): Promise<void> {
+    const toRemove: string[] = [];
+    for (const root of this.sessions.keys()) {
+      if (resolveOwnerRoot(root, currentRoots) === null) {
+        toRemove.push(root);
+      }
+    }
+    for (const root of toRemove) {
+      const session = this.sessions.get(root);
+      this.sessions.delete(root);
+      if (session !== undefined) {
+        await session.dispose();
+      }
+    }
+  }
+
+  async disposeAll(): Promise<void> {
+    const sessions = [...this.sessions.values()];
+    this.sessions.clear();
+    for (const session of sessions) {
+      await session.dispose();
+    }
+  }
 }

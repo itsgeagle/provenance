@@ -1,7 +1,17 @@
 /**
  * VS Code extension entry point.
- * activate() is a thin wrapper that constructs production dependencies and
- * calls activateImpl(), which contains the real logic and is testable in isolation.
+ *
+ * activate() discovers every verified `.provenance-manifest` nested under the
+ * open workspace folder(s) via discoverManifests(), starts one session per
+ * discovered root via startSession(), and tracks them all in a module-level
+ * SessionRegistry. deactivate() disposes the whole registry. rescan() reacts to
+ * vscode.workspace.onDidChangeWorkspaceFolders to prune sessions whose root left
+ * the workspace and start sessions for newly discovered roots.
+ *
+ * activateImpl()/activeSession below are Task 4's single-workspaceFolder
+ * extraction, kept only so activation.integration.test.ts's pre-existing
+ * single-session coverage keeps working — activate()/deactivate() (the real
+ * VS Code entrypoints) no longer call activateImpl() or use activeSession.
  *
  * PRD §4.1: Activate only when a `.provenance-manifest` (or `provenance-manifest`) is present and signature-valid.
  * PRD §5.1: Emit session.start with full context; emit session.end on deactivate.
@@ -14,11 +24,13 @@ import * as path from 'node:path';
 import { SystemClock } from '@provenance/log-core';
 import { loadAndVerifyManifest } from './activation/manifest-loader.js';
 import type { ActivationError } from './activation/manifest-loader.js';
+import { discoverManifests } from './activation/manifest-discovery.js';
 import { createRecordingStatusBar } from './activation/status-bar.js';
 import { sealBundle } from './commands/seal.js';
 import { computeExtensionHash } from './commands/extension-hash.js';
-import { startSession } from './session/session-registry.js';
+import { startSession, SessionRegistry } from './session/session-registry.js';
 import type { ActiveSession, HeartbeatVscodeDeps } from './session/session-registry.js';
+import { resolveOwnerRoot } from './session/session-router.js';
 import type { Manifest } from '@provenance/log-core';
 
 // ---------------------------------------------------------------------------
@@ -238,28 +250,20 @@ export async function activateImpl(deps: ActivateDeps): Promise<ActiveSession | 
 // VS Code extension hooks
 // ---------------------------------------------------------------------------
 
+const registry = new SessionRegistry();
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  // Find the first workspace folder.
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
     return;
   }
-  const workspaceFolder = workspaceFolders[0];
-  if (workspaceFolder === undefined) {
-    return;
-  }
 
-  // The recorder's own Extension object.
   const ownExtension = vscode.extensions.getExtension('itsgeagle.provenance-recorder');
   if (ownExtension === undefined) {
-    // Fallback: build a minimal extension-like object from context.
-    // This happens in the Extension Host sandbox during development.
     console.error(
       '[provenance] WARNING: could not locate own extension via getExtension; using context fallback.',
     );
   }
-
-  // Use a sentinel extension object if getExtension returned undefined.
   const extension: vscode.Extension<unknown> =
     ownExtension ??
     ({
@@ -273,39 +277,151 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       extensionKind: vscode.ExtensionKind.Workspace,
     } as vscode.Extension<unknown>);
 
+  const extensionDistPath = path.join(context.extensionPath, 'dist');
+
   try {
-    const session = await activateImpl({
-      workspaceFolder,
-      extension,
-      vscodeVersion: vscode.version,
-      platform: `${process.platform}-${process.arch}`,
-      clock: new SystemClock(),
-      disposables: context.subscriptions,
-      // Derive extensionDistPath from the resolved extensionPath (context.extensionPath
-      // is the same as extension.extensionPath, but is always available from context).
-      extensionDistPath: path.join(context.extensionPath, 'dist'),
+    const { found, skipped } = await discoverManifests({
+      workspaceFolders,
+      findFiles: (include, exclude) =>
+        Promise.resolve(vscode.workspace.findFiles(include, exclude)),
     });
-    // activateImpl sets activeSession internally, so we don't need to do it here.
-    // But we verify it was set correctly (for code clarity).
-    if (session !== null && activeSession === null) {
-      console.error(
-        '[provenance] WARNING: activateImpl returned a session but activeSession is null',
-      );
+
+    for (const skip of skipped) {
+      console.error(`[provenance] activation skipped for ${skip.root}: ${skip.error.kind}`);
     }
+
+    if (found.length === 0) {
+      // No verified manifest anywhere — register the inactive stub once, using the
+      // first skip reason if any, else a synthetic no_manifest_file (mirrors the
+      // pre-nested-discovery single-root "nothing found" case).
+      const reason: ActivationError = skipped[0]?.error ?? { kind: 'no_manifest_file' };
+      registerInactiveStub(context.subscriptions, reason);
+      return;
+    }
+
+    if (found.length > 0) {
+      createRecordingStatusBar(context.subscriptions);
+    }
+
+    for (const { root, manifest } of found) {
+      const session = await startSession({
+        assignmentRoot: root,
+        manifest,
+        extension,
+        vscodeVersion: vscode.version,
+        platform: `${process.platform}-${process.arch}`,
+        clock: new SystemClock(),
+        extensionDistPath,
+        isOwnedByThisRoot: (fsPath: string) =>
+          resolveOwnerRoot(
+            fsPath,
+            found.map((f) => f.root),
+          ) === root,
+      });
+      context.subscriptions.push(...session.ownDisposables);
+      session.ownDisposables.length = 0;
+      registry.add(session);
+    }
+
+    registerSealCommand(context, extensionDistPath);
+
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        void rescan(context, extensionDistPath, extension);
+      }),
+    );
   } catch (e) {
     console.error('[provenance] unexpected error during activation:', e);
   }
 }
 
-export async function deactivate(): Promise<void> {
-  // VS Code awaits a Thenable<void> returned from deactivate().
-  // session.dispose() emits session.end, flushes the writer, drains the pending
-  // checkpoint, and disposes the metaWriter (its ownDisposables were already handed
-  // to context.subscriptions in activateImpl and disposed by VS Code before now).
-  if (activeSession === null) {
-    return;
+async function rescan(
+  context: vscode.ExtensionContext,
+  extensionDistPath: string,
+  extension: vscode.Extension<unknown>,
+): Promise<void> {
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  const currentRoots = workspaceFolders.map((f) => f.uri.fsPath);
+
+  // Stop sessions whose root left the workspace.
+  await registry.pruneToRoots(currentRoots);
+
+  // Start sessions for any newly-discovered root not already active.
+  const { found } = await discoverManifests({
+    workspaceFolders,
+    findFiles: (include, exclude) => Promise.resolve(vscode.workspace.findFiles(include, exclude)),
+  });
+  const allRoots = found.map((f) => f.root);
+
+  for (const { root, manifest } of found) {
+    if (registry.get(root) !== undefined) continue;
+    const session = await startSession({
+      assignmentRoot: root,
+      manifest,
+      extension,
+      vscodeVersion: vscode.version,
+      platform: `${process.platform}-${process.arch}`,
+      clock: new SystemClock(),
+      extensionDistPath,
+      isOwnedByThisRoot: (fsPath: string) => resolveOwnerRoot(fsPath, allRoots) === root,
+    });
+    context.subscriptions.push(...session.ownDisposables);
+    session.ownDisposables.length = 0;
+    registry.add(session);
   }
-  const session = activeSession;
-  activeSession = null;
-  await session.dispose();
+}
+
+/**
+ * Registers the "Prepare Submission Bundle" command against the whole registry.
+ * Stub for this task: unconditionally picks the first session. Task 11 replaces
+ * the selection with a real QuickPick when multiple sessions are active.
+ */
+function registerSealCommand(context: vscode.ExtensionContext, extensionDistPath: string): void {
+  const sealCmd = vscode.commands.registerCommand(
+    'provenance.prepareSubmissionBundle',
+    async () => {
+      const sessions = registry.all();
+      if (sessions.length === 0) {
+        void vscode.window.showWarningMessage('No session data to seal.');
+        return;
+      }
+      const chosen = sessions[0]!; // Task 11 replaces this with a QuickPick when sessions.length > 1.
+      await chosen.writer.flush();
+
+      const result = await sealBundle({
+        // seal.ts's SealDeps still takes `workspaceFolder` (renamed to `assignmentRoot` in
+        // Task 8, not yet run) — it only ever reads `.uri.fsPath` off this, so a minimal
+        // cast produces identical behavior without pre-empting that rename.
+        workspaceFolder: { uri: { fsPath: chosen.assignmentRoot } } as vscode.WorkspaceFolder,
+        provenanceDir: chosen.provenanceDir,
+        assignmentId: chosen.manifest.assignment_id,
+        semester: chosen.manifest.semester,
+        filesUnderReview: chosen.manifest.files_under_review,
+        sessionPrivkey: chosen.sessionKeypair.privateKey,
+        sessionPubkeyHex: chosen.sessionKeypair.publicKeyHex,
+        computeExtensionHash: () => computeExtensionHash(extensionDistPath),
+        now: () => new Date(),
+      });
+
+      if (result.kind === 'ok') {
+        void vscode.window.showInformationMessage(
+          `Provenance bundle saved to ${result.bundlePath}`,
+        );
+        if (result.warnings.chainBroken || result.warnings.unreadableSession) {
+          void vscode.window.showWarningMessage(
+            'Provenance bundle produced. Integrity issues were detected in the recording and will be reviewed by course staff.',
+          );
+        }
+      } else if (result.kind === 'no_sessions') {
+        void vscode.window.showWarningMessage('No session data to seal.');
+      } else if (result.kind === 'write_error') {
+        void vscode.window.showErrorMessage(`Bundle write error: ${result.message}`);
+      }
+    },
+  );
+  context.subscriptions.push(sealCmd);
+}
+
+export async function deactivate(): Promise<void> {
+  await registry.disposeAll();
 }

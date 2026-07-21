@@ -6,7 +6,8 @@ import * as ed from '@noble/ed25519';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { FixedClock, parseEntries, validateChain, canonicalize } from '@provenance/log-core';
 import type { Manifest } from '@provenance/log-core';
-import { startSession } from './session-registry.js';
+import { startSession, SessionRegistry } from './session-registry.js';
+import type { ActiveSession } from './session-registry.js';
 
 function makeExtension(): import('vscode').Extension<unknown> {
   return {
@@ -140,5 +141,76 @@ describe('startSession', () => {
     expect(contentsA).not.toContain('"hog"');
     expect(contentsB).toContain('"hog"');
     expect(contentsB).not.toContain('"cats"');
+  });
+});
+
+describe('SessionRegistry', () => {
+  it('resolveForPath routes to the nearest-ancestor session', async () => {
+    const registry = new SessionRegistry();
+    const fakeSession = (root: string): ActiveSession =>
+      ({ assignmentRoot: root, dispose: async () => {} }) as unknown as ActiveSession;
+
+    const cats = path.join('/ws', '61a', 'cats');
+    const hog = path.join('/ws', '61a', 'hog');
+    registry.add(fakeSession(cats));
+    registry.add(fakeSession(hog));
+
+    expect(registry.resolveForPath(path.join(cats, 'x.py'))?.assignmentRoot).toBe(cats);
+    expect(registry.resolveForPath(path.join(hog, 'y.py'))?.assignmentRoot).toBe(hog);
+    expect(registry.resolveForPath(path.join('/ws', '61a', 'notes.md'))).toBeUndefined();
+  });
+
+  it('all() returns every added session; get() looks up by exact root', () => {
+    const registry = new SessionRegistry();
+    const fakeSession = (root: string): ActiveSession =>
+      ({ assignmentRoot: root, dispose: async () => {} }) as unknown as ActiveSession;
+    const a = fakeSession('/ws/a');
+    const b = fakeSession('/ws/b');
+    registry.add(a);
+    registry.add(b);
+
+    expect(registry.all()).toEqual([a, b]);
+    expect(registry.get('/ws/a')).toBe(a);
+    expect(registry.get('/ws/missing')).toBeUndefined();
+  });
+
+  it('disposeAll() disposes every session and empties the registry', async () => {
+    const registry = new SessionRegistry();
+    let disposedCount = 0;
+    const fakeSession = (root: string): ActiveSession =>
+      ({
+        assignmentRoot: root,
+        dispose: async () => {
+          disposedCount++;
+        },
+      }) as unknown as ActiveSession;
+    registry.add(fakeSession('/ws/a'));
+    registry.add(fakeSession('/ws/b'));
+
+    await registry.disposeAll();
+
+    expect(disposedCount).toBe(2);
+    expect(registry.all()).toEqual([]);
+  });
+
+  it('pruneToRoots disposes sessions no longer under any current root', async () => {
+    const registry = new SessionRegistry();
+    const disposed: string[] = [];
+    const fakeSession = (root: string): ActiveSession =>
+      ({
+        assignmentRoot: root,
+        dispose: async () => {
+          disposed.push(root);
+        },
+      }) as unknown as ActiveSession;
+    const kept = path.join('/ws', 'keep');
+    const removed = path.join('/ws', 'removed');
+    registry.add(fakeSession(kept));
+    registry.add(fakeSession(removed));
+
+    await registry.pruneToRoots([path.join('/ws', 'keep')]);
+
+    expect(disposed).toEqual([removed]);
+    expect(registry.all().map((s) => s.assignmentRoot)).toEqual([kept]);
   });
 });
