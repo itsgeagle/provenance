@@ -81,14 +81,6 @@ import { sha256Hex } from '@provenance/log-core';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeFakeWorkspaceFolder(path = '/workspace') {
-  return {
-    uri: { fsPath: path },
-    name: 'test',
-    index: 0,
-  };
-}
-
 function makeRegistry(filesUnderReview: string[]) {
   return new ExpectedContentRegistry(filesUnderReview);
 }
@@ -108,7 +100,7 @@ describe('startFsWatcher', () => {
     const registry = makeRegistry(['hw.py', 'utils.py']);
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py', 'utils.py'],
       registry,
       emit: vi.fn(),
@@ -125,7 +117,7 @@ describe('startFsWatcher', () => {
     const registry = makeRegistry(['hw.py']);
 
     const disposable = startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit: vi.fn(),
@@ -149,7 +141,7 @@ describe('startFsWatcher', () => {
     const now = 1000;
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -180,7 +172,7 @@ describe('startFsWatcher', () => {
     const now = 10000;
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -226,7 +218,7 @@ describe('startFsWatcher', () => {
     const now = 10000;
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit: vi.fn(),
@@ -257,7 +249,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -284,7 +276,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -318,7 +310,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -353,7 +345,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -385,7 +377,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -428,7 +420,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -455,7 +447,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -484,7 +476,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -523,7 +515,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -559,7 +551,7 @@ describe('startFsWatcher', () => {
     const readFile = vi.fn().mockResolvedValue(replacement);
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,
@@ -602,7 +594,7 @@ describe('startFsWatcher', () => {
     const emit = vi.fn();
 
     startFsWatcher({
-      workspaceFolder: makeFakeWorkspaceFolder() as never,
+      assignmentRoot: '/workspace',
       filesUnderReview: ['hw.py'],
       registry,
       emit,

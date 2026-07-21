@@ -367,7 +367,7 @@ export async function startSession(deps: StartSessionDeps): Promise<ActiveSessio
   // Step 11b: Start FileSystemWatcher for external changes (PRD §4.5 — "file edited
   // while VS Code unfocused" path). Must come after docWiring so getLastDocChangeAt works.
   const fsWatcher = startFsWatcher({
-    workspaceFolder: { uri: { fsPath: assignmentRoot } } as vscode.WorkspaceFolder,
+    assignmentRoot,
     filesUnderReview: manifest.files_under_review,
     registry: expectedContentRegistry,
     emit: (data) => sessionHost.emit('fs.external_change', data),

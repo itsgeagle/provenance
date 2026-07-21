@@ -46,7 +46,7 @@ import { buildExternalChangeContent } from '../events/external-change-content.js
 export type FsExternalChangeData = FsExternalChangePayload;
 
 export type FsWatcherDeps = {
-  workspaceFolder: vscode.WorkspaceFolder;
+  assignmentRoot: string;
   filesUnderReview: readonly string[];
   registry: ExpectedContentRegistry;
   emit: (data: FsExternalChangeData) => void;
@@ -70,7 +70,7 @@ export type FsWatcherDeps = {
  */
 export function startFsWatcher(deps: FsWatcherDeps): vscode.Disposable {
   const {
-    workspaceFolder,
+    assignmentRoot,
     filesUnderReview,
     registry,
     emit,
@@ -84,7 +84,7 @@ export function startFsWatcher(deps: FsWatcherDeps): vscode.Disposable {
   const watchers: vscode.Disposable[] = [];
 
   for (const relativePath of filesUnderReview) {
-    const pattern = new vscode.RelativePattern(workspaceFolder, relativePath);
+    const pattern = new vscode.RelativePattern(assignmentRoot, relativePath);
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
     const handleChange = (_uri: vscode.Uri) => {
