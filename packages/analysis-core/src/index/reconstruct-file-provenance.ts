@@ -451,9 +451,18 @@ export function reconstructFileWithProvenance(
         const newContent = typeof p?.['new_content'] === 'string' ? p['new_content'] : null;
         kindByGlobalIdx.set(e.globalIdx, 'external_change');
 
-        if (operation === 'delete' || newContent === null) {
+        if (operation === 'delete') {
+          // The file genuinely is gone; empty is correct.
           buf.cells = [''];
           buf.provCells = [[]];
+          break;
+        }
+        if (newContent === null) {
+          // A real external write whose content we cannot see (>4 KB, so no
+          // inline new_content). Keep the last known content and provenance
+          // rather than zeroing: '' is never the true content, and the base
+          // replay in reconstruct-file.ts applies the same policy (the two are
+          // pinned in lockstep by reconstruct-line-index.fuzz.test.ts).
           break;
         }
 

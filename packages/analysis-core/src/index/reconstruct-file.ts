@@ -425,20 +425,21 @@ export function reconstructFile(
         break;
 
       case 'doc.change':
-        if (!tainted) {
-          applyDocChangeBuf(buf, e.payload);
-        }
+        // Deltas keep applying even while tainted. Content is documented as
+        // best-effort and `tainted` is what tells callers not to trust it;
+        // dropping every later edit made the result *definitely* wrong instead
+        // of *possibly* stale, and destroyed the rest of the session.
+        applyDocChangeBuf(buf, e.payload);
         break;
 
       case 'paste': {
-        if (!tainted) {
-          const applied = applyPasteBuf(buf, e.payload);
-          if (!applied) {
-            // Large paste (> 4 KB, no inline content) — taint.
-            tainted = true;
-            taintReasons.push({ globalIdx: e.globalIdx, reason: 'large_paste' });
-            buf.cells = [''];
-          }
+        const applied = applyPasteBuf(buf, e.payload);
+        if (!applied) {
+          // Large paste (> 4 KB, no inline content): we can't know what landed,
+          // so mark the reconstruction unreliable — but keep the surrounding
+          // content rather than discarding it.
+          tainted = true;
+          taintReasons.push({ globalIdx: e.globalIdx, reason: 'large_paste' });
         }
         break;
       }
@@ -467,9 +468,20 @@ export function reconstructFile(
         // taintReasons stays populated regardless so consumers that want a
         // "this file had an external edit at globalIdx N" signal still see it.
         taintReasons.push({ globalIdx: e.globalIdx, reason: 'fs_external_change' });
-        if (operation === 'delete' || newContent === null) {
+        if (operation === 'delete') {
+          // The file genuinely is gone; empty is the correct content.
           tainted = true;
           buf.cells = [''];
+        } else if (newContent === null) {
+          // A real external write we cannot see the content of (>4 KB, so no
+          // inline new_content). Mark it unreliable, but KEEP the last known
+          // content: '' is never the true content, whereas stale content is
+          // frequently still correct — and callers gate on `tainted`.
+          //
+          // Measured: across a 156-bundle corpus, 8 submissions reproduce their
+          // SIGNED manifest sha256 exactly under this policy and reconstructed
+          // to empty under the old zeroing policy.
+          tainted = true;
         } else {
           buf.cells = splitCells(newContent);
         }

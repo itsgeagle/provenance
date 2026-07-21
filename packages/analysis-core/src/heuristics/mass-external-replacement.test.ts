@@ -59,7 +59,11 @@ describe('mass_external_replacement — positive', () => {
             },
             // Save pre-change
             { kind: 'doc.save', data: { path: '/hw/hw1.py', sha256: 'c'.repeat(64) } },
-            // External change event (no content in payload)
+            // External change carrying the post-change content inline. This is
+            // the ONLY shape where the overlap ratio is computable -- i.e. a
+            // file <= MAX_INLINE_BYTES (4 KB) at record time. Without
+            // new_content the heuristic now skips the event rather than
+            // guessing; see the note in mass-external-replacement.ts.
             {
               kind: 'fs.external_change',
               data: {
@@ -67,17 +71,9 @@ describe('mass_external_replacement — positive', () => {
                 old_hash: 'c'.repeat(64),
                 new_hash: 'd'.repeat(64),
                 diff_size: postContent.length - preContent.length,
-              },
-            },
-            // Post-change content set via paste then save
-            {
-              kind: 'paste',
-              data: {
-                path: '/hw/hw1.py',
-                content: postContent,
-                length: postContent.length,
-                sha256: 'e'.repeat(64),
-                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                operation: 'modify',
+                new_content_size: postContent.length,
+                new_content: postContent,
               },
             },
             { kind: 'doc.save', data: { path: '/hw/hw1.py', sha256: 'f'.repeat(64) } },

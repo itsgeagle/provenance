@@ -271,7 +271,7 @@ describe('reconstructFileWithProvenance — paste', () => {
 // ---------------------------------------------------------------------------
 
 describe('reconstructFileWithProvenance — fs.external_change', () => {
-  it('clears content + provenance and tags the event in kindByGlobalIdx', async () => {
+  it('preserves content + provenance on a contentless modify, tagging the event', async () => {
     const { zipBuffer } = await buildTestBundle({
       sessions: [
         {
@@ -306,8 +306,13 @@ describe('reconstructFileWithProvenance — fs.external_change', () => {
     const index = buildIndex(bundle);
     const state = reconstructFileWithProvenance(index, '/src/x.py');
 
-    expect(state.content).toBe('');
-    expect(state.provenance.length).toBe(0);
+    // POLICY (changed 2026-07): an external write we cannot see (>4 KB, so no
+    // inline new_content) no longer zeroes content or provenance. '' is never
+    // the true content, whereas the last known content frequently still is, and
+    // callers gate on `tainted` / the kindByGlobalIdx sentinel. Kept in lockstep
+    // with reconstruct-file.ts (reconstruct-line-index.fuzz.test.ts pins this).
+    expect(state.content).toBe('original');
+    expect(state.provenance.length).toBe('original'.length);
 
     const ext = (index.byKind.get('fs.external_change') ?? [])[0]!;
     expect(state.kindByGlobalIdx.get(ext.globalIdx)).toBe('external_change');

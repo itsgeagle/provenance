@@ -386,8 +386,14 @@ describe('reconstructFile — taint: fs.external_change', () => {
     expect(recon.tainted).toBe(true);
     expect(recon.taintReasons).toHaveLength(1);
     expect(recon.taintReasons[0]?.reason).toBe('fs_external_change');
-    // Content is reset to '' on taint; subsequent changes are not applied.
-    expect(recon.content).toBe('');
+    // POLICY (changed 2026-07): taint no longer zeroes content or discards the
+    // rest of the stream. We cannot see what the external write did, so the
+    // result is unreliable -- `tainted` says so -- but the surrounding content
+    // and every later edit are kept. '' is never the true content; stale
+    // content frequently still is. Evidence: 8 submissions in a 156-bundle
+    // corpus reproduce their SIGNED manifest sha256 under this policy and
+    // reconstructed to empty under the old one.
+    expect(recon.content).toBe('after_externaloriginal');
   });
 
   it('still records doc.save hashes when tainted', async () => {
@@ -564,7 +570,7 @@ describe('reconstructFile — fs.external_change with new_content (recorder v1.3
     expect(recon.taintReasons[0]?.reason).toBe('fs_external_change');
   });
 
-  it('falls back to taint-empty when new_content is absent (pre-v1.3 bundle)', async () => {
+  it('taints but preserves content when new_content is absent (>4 KB file)', async () => {
     const { zipBuffer } = await buildTestBundle({
       sessions: [
         {
@@ -590,6 +596,48 @@ describe('reconstructFile — fs.external_change with new_content (recorder v1.3
                 new_hash: 'bbb',
                 diff_size: 10,
                 // No new_content — pre-v1.3 bundle.
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    // Unreliable, but not discarded -- see the policy note above.
+    expect(recon.content).toBe('original');
+  });
+
+  it('DOES zero content on operation:delete (the file really is gone)', async () => {
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'original',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'aaa',
+                new_hash: '',
+                diff_size: 8,
+                operation: 'delete',
               },
             },
           ],
@@ -891,7 +939,8 @@ describe('reconstructFile — taint: large paste', () => {
     expect(recon.tainted).toBe(true);
     expect(recon.taintReasons).toHaveLength(1);
     expect(recon.taintReasons[0]?.reason).toBe('large_paste');
-    expect(recon.content).toBe('');
+    // The pasted text is unknown, but the surrounding content is not -- keep it.
+    expect(recon.content).toBe('before');
   });
 
   it('applies inline paste (content field present) without taint', async () => {

@@ -133,6 +133,22 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
     const filePath = getFilePath(e.payload);
     if (filePath === undefined) continue;
 
+    // D1: the recorder reporting the editor's own save -- never a replacement.
+    if (index.selfInflictedExternalChanges?.has(e.globalIdx)) continue;
+
+    // No inline post-change content (>4 KB file, so the recorder only stored
+    // head/tail) means the overlap ratio is not computable and this heuristic
+    // MUST NOT guess. It previously appeared to work here only as a side effect
+    // of reconstruction zeroing its content on such events, which made overlap
+    // trivially 0 and produced a HIGH "mass replacement" flag for EVERY
+    // unseeable external write -- 14 of them on a single clean submission.
+    //
+    // `external_edits` still reports that an external write occurred, so the
+    // event stays visible; we just stop asserting what it did without evidence.
+    // Raising MAX_INLINE_BYTES in the recorders is what restores detection here.
+    const payload = e.payload as Record<string, unknown> | null;
+    if (typeof payload?.['new_content'] !== 'string') continue;
+
     // Pre-change content: reconstruct up to (but not including) this event.
     const preContent = getContentAt(filePath, e.globalIdx);
 
