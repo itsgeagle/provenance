@@ -14,6 +14,7 @@
 
 - **Analyzer-only.** No changes to `packages/log-core`, `packages/analysis-core`, `packages/shared`, `packages/server`, or `packages/recorder`. If a task appears to need one, stop and ask.
 - **No new dependencies.** Every library used already exists in `packages/analyzer/package.json`.
+- **`@testing-library/user-event` is NOT available** and must not be added. Use `fireEvent` from `@testing-library/react`. Consequence: Radix dropdown *contents* (kind/file/session filter menus) cannot be opened in tests, because Radix opens on pointer events `fireEvent.click` does not emit. Assert on rendered output instead of menu internals — e.g. verify cross-session coverage via the per-row `session-chip-<globalIdx>` elements rather than by opening the session filter.
 - **TypeScript strict mode.** No `any` except at FFI boundaries with an explaining comment. `unknown` over `any` for untyped input.
 - **No silent constraint softening.** If an existing test fails, do not weaken the assertion. Either the implementation is wrong, or the test encodes behavior this plan intentionally changes — in which case rewrite the test to encode the *new* behavior explicitly and say so in the commit message.
 - **Tests are deterministic.** No `Date.now()` or `Math.random()` in assertions.
@@ -75,8 +76,7 @@ Independent of the engine work. Land and review this before starting Phase 2.
 Add to `packages/analyzer/src/views/timeline/EventList.test.tsx`:
 
 ```tsx
-it('calls onJumpToReplay with the event when the replay button is clicked', async () => {
-  const user = userEvent.setup();
+it('calls onJumpToReplay with the event when the replay button is clicked', () => {
   const onJumpToReplay = vi.fn();
   const event = makeEvent({ globalIdx: 3, seq: 3, kind: 'doc.change' });
 
@@ -92,7 +92,7 @@ it('calls onJumpToReplay with the event when the replay button is clicked', asyn
     </MemoryRouter>,
   );
 
-  await user.click(screen.getByTestId('jump-to-replay-3'));
+  fireEvent.click(screen.getByTestId('replay-btn-3'));
 
   expect(onJumpToReplay).toHaveBeenCalledTimes(1);
   expect(onJumpToReplay).toHaveBeenCalledWith(event);
@@ -114,7 +114,7 @@ it('does not render the replay button when onJumpToReplay is omitted', () => {
 });
 ```
 
-Ensure the file imports `userEvent` (`import userEvent from '@testing-library/user-event'`) and `MemoryRouter` — check the existing imports first and only add what is missing.
+Use `fireEvent` — `@testing-library/user-event` is not a dependency. The replay button's existing testid is `replay-btn-<globalIdx>`; keep it rather than renaming production code.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -216,7 +216,6 @@ Create `packages/analyzer/src/views/timeline/TimelineInner.test.tsx`:
 ```tsx
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { TimelineInner } from './TimelineInner.js';
 import { buildIndex } from '@provenance/analysis-core/index/build-index.js';
@@ -238,8 +237,7 @@ describe('TimelineInner', () => {
     expect(screen.getByTestId('event-count-label')).toHaveTextContent('5 events');
   });
 
-  it('invokes onJumpToReplay with the clicked event', async () => {
-    const user = userEvent.setup();
+  it('invokes onJumpToReplay with the clicked event', () => {
     const onJumpToReplay = vi.fn();
     const index = /* same index */;
     render(
@@ -247,7 +245,7 @@ describe('TimelineInner', () => {
         <TimelineInner index={index} onJumpToReplay={onJumpToReplay} />
       </MemoryRouter>,
     );
-    await user.click(screen.getByTestId('jump-to-replay-0'));
+    fireEvent.click(screen.getByTestId('replay-btn-0'));
     expect(onJumpToReplay).toHaveBeenCalledWith(index.ordered[0]);
   });
 
