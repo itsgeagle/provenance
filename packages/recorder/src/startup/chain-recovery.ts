@@ -5,13 +5,30 @@
  * PRD §4.8: on corrupted log → quarantine, new session, emit recovered_from_corruption.
  * PRD §4.6: on startup, validate existing chain.
  *
- * Decision — multiple .slog files / tie-breaking:
- *   When multiple .slog files exist in provenanceDir, we take the alphabetically last
- *   one. Session UUIDs (via node:crypto.randomUUID) sort in approximate creation order
- *   because they embed a timestamp-influenced prefix in practice, but more importantly,
- *   any consistent tie-breaking rule is sufficient: we just need to pick one. Alphabetical
- *   last is simple, deterministic, and easy to test. (mtime-based ordering would require
- *   stat() calls and introduces TOCTOU risk; we prefer the simpler path for Phase 9.)
+ * Decision — multiple .slog files / choosing the previous session:
+ *   When multiple .slog files exist in provenanceDir we take the one whose
+ *   `session.start` carries the latest wall clock — i.e. the genuinely most
+ *   recent session.
+ *
+ *   This used to take the alphabetically last filename, on the reasoning that
+ *   "session UUIDs sort in approximate creation order because they embed a
+ *   timestamp-influenced prefix in practice." That is not true: these are
+ *   UUIDv4 from node:crypto.randomUUID — 122 random bits, no timestamp. Worse,
+ *   the filename UUID is a *different* random UUID from the session's own
+ *   session_id (see `session-${randomUUID()}.slog` in session-registry.ts), so
+ *   filename order carries no information about session order at all.
+ *
+ *   The observed effect on a real 10-session bundle: six consecutive sessions
+ *   all reported the same `prev_session_id`, because one file happened to sort
+ *   last and kept winning — including for sessions whose actual predecessor was
+ *   a different dangling session. That makes prev_session_id actively
+ *   misleading in the analyzer's session graph.
+ *
+ *   Cost: this reads each .slog once to extract its session.start wall (only
+ *   the first line is parsed). provenanceDir holds one file per session for a
+ *   single assignment, so the count stays modest. mtime-based ordering would
+ *   avoid the reads but needs stat() plumbed through the deps and is falsifiable
+ *   by a touch; the recorded wall is the value we actually care about.
  *
  * Decision — prev_session_id linkage:
  *   We only set prev_session_id on the dangling case (crash, no session.end).
@@ -56,6 +73,69 @@ export type RecoveryDeps = {
 };
 
 // ---------------------------------------------------------------------------
+// Choosing the previous session
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the `session.start` wall clock (as ms since epoch) from a .slog's
+ * first line. Returns null when the file doesn't start with a parseable
+ * `session.start` — such a file is not a usable ordering candidate, and the
+ * existing corrupt-handling path deals with it if it ends up being chosen.
+ */
+function parseSessionStartWall(text: string): number | null {
+  const newlineIdx = text.indexOf('\n');
+  const firstLine = newlineIdx === -1 ? text : text.slice(0, newlineIdx);
+  if (firstLine.trim().length === 0) return null;
+
+  let entry: { kind?: unknown; wall?: unknown };
+  try {
+    entry = JSON.parse(firstLine) as { kind?: unknown; wall?: unknown };
+  } catch {
+    return null;
+  }
+
+  if (entry.kind !== 'session.start' || typeof entry.wall !== 'string') return null;
+
+  const wall = Date.parse(entry.wall);
+  return Number.isNaN(wall) ? null : wall;
+}
+
+/**
+ * Pick the .slog whose session.start wall is latest, returning it along with
+ * the text already read (so the caller doesn't re-read it).
+ *
+ * Returns null when no file yields a parseable session.start — the caller then
+ * falls back to the alphabetically last file so the corrupt/quarantine path
+ * still runs.
+ *
+ * Reads are sequential, not Promise.all: only one file's text is held at a
+ * time besides the current best.
+ */
+async function chooseMostRecentSlog(
+  slogFiles: string[],
+  provenanceDir: string,
+  readSlogFile: RecoveryDeps['readSlogFile'],
+): Promise<{ filename: string; text: string } | null> {
+  let best: { filename: string; text: string; wall: number } | null = null;
+
+  for (const filename of slogFiles) {
+    const read = await readSlogFile(`${provenanceDir}/${filename}`);
+    if (!read.ok) continue;
+
+    const wall = parseSessionStartWall(read.text);
+    if (wall === null) continue;
+
+    // Ties (two sessions starting in the same millisecond) fall back to
+    // filename order, so the choice stays deterministic.
+    if (best === null || wall > best.wall || (wall === best.wall && filename > best.filename)) {
+      best = { filename, text: read.text, wall };
+    }
+  }
+
+  return best === null ? null : { filename: best.filename, text: best.text };
+}
+
+// ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
 
@@ -78,15 +158,21 @@ export async function recoverPreviousSession(deps: RecoveryDeps): Promise<Recove
     return { kind: 'clean_start' };
   }
 
-  // Alphabetically last — see module-level comment for rationale.
-  const chosen = slogFiles[slogFiles.length - 1];
+  // Most recent by session.start wall — see module-level comment for rationale.
+  const selected = await chooseMostRecentSlog(slogFiles, provenanceDir, readSlogFile);
+
+  // No file yielded a parseable session.start: fall back to the alphabetically
+  // last one so the corrupt/quarantine path below still runs on something.
+  const chosen = selected?.filename ?? slogFiles[slogFiles.length - 1];
   if (chosen === undefined) {
     // Should never happen given length > 0, but satisfies noUncheckedIndexedAccess.
     return { kind: 'clean_start' };
   }
 
   const slogPath = `${provenanceDir}/${chosen}`;
-  const readResult = await readSlogFile(slogPath);
+  // Reuse the text from selection when we have it; only re-read on the fallback.
+  const readResult: Awaited<ReturnType<RecoveryDeps['readSlogFile']>> =
+    selected !== null ? { ok: true, text: selected.text } : await readSlogFile(slogPath);
 
   if (!readResult.ok) {
     // Can't read the file at all — treat as corrupt.

@@ -8,6 +8,8 @@
  * 4. Parse error (bad JSON) → quarantined + previous_session_corrupt.
  * 5. Chain validation failure → quarantined + previous_session_corrupt.
  * 6. Read error (e.g., permission denied) → quarantined + previous_session_corrupt.
+ * 7. Multiple .slog files → the one with the latest session.start wall wins,
+ *    regardless of filename order (filenames are UUIDv4 and carry no ordering).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -22,11 +24,14 @@ import type { RecoveryDeps } from './chain-recovery.js';
 
 const FAKE_SESSION_ID = '00000000-0000-0000-0000-000000000001';
 
-function makeStartEnvelope(sessionId: string = FAKE_SESSION_ID): Envelope<'session.start'> {
+function makeStartEnvelope(
+  sessionId: string = FAKE_SESSION_ID,
+  wall = '2026-01-01T00:00:00.000Z',
+): Envelope<'session.start'> {
   return {
     seq: 0,
     t: 0,
-    wall: '2026-01-01T00:00:00.000Z',
+    wall,
     kind: 'session.start',
     data: {
       format_version: '1.0',
@@ -52,8 +57,8 @@ function makeEndEnvelope(seq: number): Envelope<'session.end'> {
   };
 }
 
-function buildCompleteSlog(sessionId: string = FAKE_SESSION_ID): string {
-  const startEnv = makeStartEnvelope(sessionId);
+function buildCompleteSlog(sessionId: string = FAKE_SESSION_ID, startWall?: string): string {
+  const startEnv = makeStartEnvelope(sessionId, startWall);
   const startEntry = chainEntry(GENESIS_PREV_HASH, startEnv, sha256Hex);
 
   const endEnv = makeEndEnvelope(1);
@@ -62,8 +67,8 @@ function buildCompleteSlog(sessionId: string = FAKE_SESSION_ID): string {
   return serializeEntry(startEntry) + serializeEntry(endEntry);
 }
 
-function buildDanglingSlog(sessionId: string = FAKE_SESSION_ID): string {
-  const startEnv = makeStartEnvelope(sessionId);
+function buildDanglingSlog(sessionId: string = FAKE_SESSION_ID, startWall?: string): string {
+  const startEnv = makeStartEnvelope(sessionId, startWall);
   const startEntry = chainEntry(GENESIS_PREV_HASH, startEnv, sha256Hex);
   return serializeEntry(startEntry);
 }
@@ -182,21 +187,67 @@ describe('recoverPreviousSession', () => {
     expect(renamedCalled).toBe(true);
   });
 
-  it('picks the alphabetically last .slog when multiple exist', async () => {
-    // session-zzz should be picked over session-aaa.
-    const slogComplete = buildCompleteSlog('complete-session-id');
-    const slogDangling = buildDanglingSlog('dangling-session-id');
+  it('picks the .slog with the latest session.start wall, not the alphabetically last', async () => {
+    // session-aaa started later than session-zzz. Filenames are UUIDv4-derived
+    // and carry no ordering information, so alphabetical order must lose.
+    const slogRecent = buildDanglingSlog('recent-session-id', '2026-01-01T05:00:00.000Z');
+    const slogOlder = buildCompleteSlog('older-session-id', '2026-01-01T00:00:00.000Z');
 
     const deps = makeDeps({
-      'session-aaa.slog': slogComplete,
-      'session-zzz.slog': slogDangling, // alphabetically last
+      'session-aaa.slog': slogRecent,
+      'session-zzz.slog': slogOlder, // alphabetically last, but older
     });
 
     const result = await recoverPreviousSession(deps);
-    // Should pick session-zzz (dangling) since it's alphabetically last.
     expect(result.kind).toBe('previous_session_dangling');
     if (result.kind !== 'previous_session_dangling') return;
-    expect(result.prevSessionId).toBe('dangling-session-id');
+    expect(result.prevSessionId).toBe('recent-session-id');
+    expect(result.danglingPath).toContain('session-aaa.slog');
+  });
+
+  it('picks the most recent session across more than two .slog files', async () => {
+    // Regression for the observed real-world failure: several sessions in one
+    // provenanceDir all reported the same prev_session_id because one filename
+    // kept sorting last. The middle session here is the newest.
+    const deps = makeDeps({
+      'session-ddd.slog': buildCompleteSlog('oldest', '2026-01-01T00:00:00.000Z'),
+      'session-bbb.slog': buildDanglingSlog('newest', '2026-01-01T09:00:00.000Z'),
+      'session-ccc.slog': buildCompleteSlog('middle', '2026-01-01T04:00:00.000Z'),
+    });
+
+    const result = await recoverPreviousSession(deps);
+    expect(result.kind).toBe('previous_session_dangling');
+    if (result.kind !== 'previous_session_dangling') return;
+    expect(result.prevSessionId).toBe('newest');
+  });
+
+  it('falls back to the alphabetically last .slog when none has a parseable session.start', async () => {
+    // Both unusable → the fallback still runs the quarantine path.
+    const deps = makeDeps({
+      'session-aaa.slog': 'NOT VALID JSON\n',
+      'session-zzz.slog': 'ALSO NOT VALID\n',
+    });
+
+    let renamedFrom = '';
+    deps.rename = async (from) => {
+      renamedFrom = from;
+    };
+
+    const result = await recoverPreviousSession(deps);
+    expect(result.kind).toBe('previous_session_corrupt');
+    expect(renamedFrom).toContain('session-zzz.slog');
+  });
+
+  it('ignores an unreadable .slog when a readable, older one exists', async () => {
+    const deps = makeDeps({
+      'session-aaa.slog': buildCompleteSlog('readable', '2026-01-01T00:00:00.000Z'),
+      'session-zzz.slog': 'NOT VALID JSON\n',
+    });
+
+    const result = await recoverPreviousSession(deps);
+    expect(result.kind).toBe('previous_session_complete');
+    if (result.kind !== 'previous_session_complete') return;
+    expect(result.prevSessionId).toBe('readable');
   });
 
   it('quarantine path includes ISO timestamp', async () => {
