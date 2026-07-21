@@ -98,9 +98,10 @@ export type DocWiringDeps = {
   /** Optional explanation tagger (Phase 8 will hook formatters/git into it). */
   explanationTagger?: ExplanationTagger;
   /**
-   * Ownership filter: returns true if the given absolute fsPath belongs to THIS
-   * session's assignment root. Accepted but currently ignored — a later task
-   * wires the filtering behavior; today doc-wiring records regardless.
+   * Ownership filter (spec Design §3): returns true if the given absolute fsPath
+   * belongs to THIS session's assignment root (per nearest-ancestor resolution —
+   * see session/session-router.ts). Defaults to "always owned" so single-session
+   * callers/tests that don't care about multi-root routing need not supply it.
    */
   isOwnedByThisRoot?: (fsPath: string) => boolean;
 };
@@ -145,6 +146,8 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
     readFileSync,
     explanationTagger,
   } = deps;
+
+  const isOwnedByThisRoot = deps.isOwnedByThisRoot ?? (() => true);
 
   // Track the most recent doc.change time per relative path (for fs-watcher tolerance).
   const lastDocChangeAt = new Map<string, number>();
@@ -213,6 +216,7 @@ export function startDocWiring(deps: DocWiringDeps): DocWiringHandle {
     const rel = workspace.asRelativePath(uri as import('vscode').Uri);
     if (rel === uri.fsPath) return false;
     if (isProvenanceArtifact(uri.fsPath, rel)) return false;
+    if (!isOwnedByThisRoot(uri.fsPath)) return false;
     return true;
   }
 

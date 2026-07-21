@@ -1524,4 +1524,67 @@ describe('startDocWiring', () => {
       expect(payload.path).toBe('src/hw.py');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // isOwnedByThisRoot filter: multi-session ownership routing (Task 6)
+  // -------------------------------------------------------------------------
+
+  describe('isOwnedByThisRoot filter', () => {
+    it('drops doc.open for a file this session does not own', () => {
+      setMockWindowState({ focused: true });
+      const registry = new ExpectedContentRegistry([]);
+      const emitters = makeEmitters();
+      startDocWiring({
+        workspace: testWorkspace,
+        ...emitters,
+        filesUnderReview: [],
+        expectedContent: registry,
+        ...makeDefaultPasteDeps(),
+        isOwnedByThisRoot: () => false,
+      });
+
+      const doc = fakeDoc({ path: '61a/hog/y.py' });
+      openSub.handler!(doc);
+
+      expect(emitters.emitDocOpen).not.toHaveBeenCalled();
+    });
+
+    it('emits doc.open for a file this session owns', () => {
+      setMockWindowState({ focused: true });
+      const registry = new ExpectedContentRegistry([]);
+      const emitters = makeEmitters();
+      startDocWiring({
+        workspace: testWorkspace,
+        ...emitters,
+        filesUnderReview: [],
+        expectedContent: registry,
+        ...makeDefaultPasteDeps(),
+        isOwnedByThisRoot: () => true,
+      });
+
+      const doc = fakeDoc({ path: '61a/cats/x.py' });
+      openSub.handler!(doc);
+
+      expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
+    });
+
+    it('defaults to owning everything when isOwnedByThisRoot is omitted (regression)', () => {
+      setMockWindowState({ focused: true });
+      const registry = new ExpectedContentRegistry([]);
+      const emitters = makeEmitters();
+      startDocWiring({
+        workspace: testWorkspace,
+        ...emitters,
+        filesUnderReview: [],
+        expectedContent: registry,
+        ...makeDefaultPasteDeps(),
+        // isOwnedByThisRoot intentionally omitted
+      });
+
+      const doc = fakeDoc({ path: 'hw03/hw.py' });
+      openSub.handler!(doc);
+
+      expect(emitters.emitDocOpen).toHaveBeenCalledOnce();
+    });
+  });
 });
