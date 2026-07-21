@@ -52,6 +52,19 @@ export type SessionEndPayload = {
   reason: string;
 };
 
+/**
+ * Emitted by the heartbeat tick when the wall-clock gap since the previous
+ * tick is >= 2x the expected heartbeat interval — i.e. the machine almost
+ * certainly slept (or the extension host was otherwise suspended) rather
+ * than the log having been tampered with. Emitted immediately before the
+ * `session.heartbeat` entry that observes the gap, so its `seq` lands
+ * strictly between the two bounding heartbeat seqs.
+ */
+export type SessionResumedPayload = {
+  gap_ms: number;
+  expected_interval_ms: number;
+};
+
 export type DocOpenPayload = {
   path: string;
   sha256: string;
@@ -221,6 +234,7 @@ export type RecorderRecoveredFromCorruptionPayload = {
 export type EventKindMap = {
   'session.start': SessionStartPayload;
   'session.heartbeat': SessionHeartbeatPayload;
+  'session.resumed': SessionResumedPayload;
   'session.end': SessionEndPayload;
   'doc.open': DocOpenPayload;
   'doc.change': DocChangePayload;

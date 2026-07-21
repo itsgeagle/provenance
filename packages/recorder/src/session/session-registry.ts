@@ -291,7 +291,11 @@ export async function startSession(deps: StartSessionDeps): Promise<ActiveSessio
   const heartbeat = startHeartbeat({
     ...hbDeps,
     getNow: () => clock.now(),
+    // Wall-clock source for suspend/resume detection (PRD §4.2 addendum). Deliberately
+    // Date.now(), not clock.now() — see heartbeat.ts for why this must be wall-clock.
+    getWallMs: () => Date.now(),
     emit: (data) => sessionHost.emit('session.heartbeat', data),
+    emitResumed: (data) => sessionHost.emit('session.resumed', data),
   });
   ownDisposables.push(heartbeat);
 
