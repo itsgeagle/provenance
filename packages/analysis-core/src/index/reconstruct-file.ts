@@ -558,6 +558,117 @@ function matchesNearestPrecedingSave(
   return false;
 }
 
+/**
+ * D1c — disk content that the student's own edits account for.
+ *
+ * D1 and D1b are both anchored on `doc.save.sha256`. That field is produced by
+ * the same asynchronous disk read the whole defect stems from, so it is itself
+ * routinely stale (D1a in `.notes/external-change-false-positives.md`). When it
+ * is, neither save-anchored rule can match however the window is tuned, and the
+ * bogus event survives into the UI.
+ *
+ * This rule drops the save entirely. It replays the file from the student's own
+ * editor events and asks whether `new_hash` is the content that replay produces.
+ * If it is, the bytes on disk are exactly what the student typed, so nothing
+ * outside the editor wrote that file — whatever the recorder's model believed at
+ * the time.
+ *
+ * Measured on a term-1 submission: D1+D1b suppressed 167 of 189 events; this
+ * rule takes it to 188, and every one of the 21 it adds was independently
+ * confirmed to be a state the buffer passed through.
+ *
+ * Two deliberate choices, both load-bearing:
+ *
+ *   - **Only the CURRENT replay state counts** (the caller asked for lag 0, and
+ *     the field data supports it: all 24 additions matched the state at that
+ *     exact point). A window of recent states would also forgive a tool that
+ *     rewound the file to something the student typed a few edits ago. Matching
+ *     only the current state means the forgiven content is, at that instant,
+ *     indistinguishable from the buffer — there is nothing to see.
+ *
+ *   - **`fs.external_change` never reseeds this replay.** The question being
+ *     asked is "do the student's own events account for these bytes", so the
+ *     replay must contain nothing but those events. This also means a genuine
+ *     external write leaves the replay diverged from disk — which is safe in the
+ *     right direction: divergence makes an exact sha256 match LESS likely, never
+ *     more, so an unexplained event can never manufacture later suppressions.
+ *     (Giving up on the file after the first non-match instead was measured to
+ *     cost 14 of 24 suppressions on the same submission, because one transient
+ *     mid-save truncation poisoned everything after it.)
+ *
+ * Over-cap pastes are not recovered here (`applyPasteBuf` simply fails and the
+ * replay drifts). Recovery needs the blob bookkeeping `reconstructFile` does,
+ * and drift is self-limiting for the same reason as above.
+ */
+export function findEditDerivedExternalChanges(
+  fileEvents: ReadonlyArray<IndexedEvent>,
+): Set<number> {
+  const result = new Set<number>();
+  // Most files never see an external change; skip the replay entirely for them.
+  if (!fileEvents.some((e) => e.kind === 'fs.external_change')) return result;
+
+  const buf: ContentBuf = { cells: [''] };
+
+  for (const e of fileEvents) {
+    switch (e.kind) {
+      case 'doc.open': {
+        const p = e.payload as Record<string, unknown> | null;
+        if (typeof p?.['content'] === 'string') buf.cells = splitCells(p['content']);
+        break;
+      }
+
+      case 'doc.change':
+        applyDocChangeBuf(buf, e.payload);
+        break;
+
+      case 'paste':
+        applyPasteBuf(buf, e.payload);
+        break;
+
+      case 'fs.external_change': {
+        const p = e.payload as Record<string, unknown> | null;
+        // A create or delete is never this bug — same guard as isSelfInflictedSave.
+        const operation = typeof p?.['operation'] === 'string' ? p['operation'] : 'modify';
+        if (operation !== 'modify') break;
+        const newHash = p?.['new_hash'];
+        if (typeof newHash !== 'string') break;
+        if (newHash === sha256Hex(buf.cells.join(''))) result.add(e.globalIdx);
+        break;
+      }
+
+      default:
+        // Not content-bearing.
+        break;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Whether the `fs.external_change` at `fileEvents[i]` is one of the recorder's
+ * own saves and must not be applied or reported.
+ *
+ * The single entry point for both replays, so they cannot drift apart (pinned by
+ * `reconstruct-line-index.fuzz.test.ts`) and so both agree with the set the
+ * heuristics read off the index.
+ *
+ * `buildIndex` has already evaluated all three rules, so the precomputed set is
+ * authoritative when present — this is also the only way D1c is available here,
+ * since it needs a whole-file replay that would be quadratic to redo per event.
+ * Indexes assembled by hand (tests) or by `buildIndexFromEventRows` may omit the
+ * field; those fall back to the two rules that are cheap to evaluate locally.
+ */
+export function isSuppressedExternalChange(
+  index: EventIndex,
+  fileEvents: ReadonlyArray<IndexedEvent>,
+  i: number,
+): boolean {
+  const precomputed = index.selfInflictedExternalChanges;
+  if (precomputed !== undefined) return precomputed.has(fileEvents[i]!.globalIdx);
+  return isSelfInflictedSave(fileEvents, i);
+}
+
 // ---------------------------------------------------------------------------
 // reconstructFile
 // ---------------------------------------------------------------------------
@@ -708,7 +819,7 @@ export function reconstructFile(
         // taint, do not reseed, do not record a taint reason. Surfaced via
         // suppressedExternalChanges so the UI can still show what was
         // reclassified.
-        if (isSelfInflictedSave(fileEvents, i)) {
+        if (isSuppressedExternalChange(index, fileEvents, i)) {
           suppressedExternalChanges.push(e.globalIdx);
           break;
         }

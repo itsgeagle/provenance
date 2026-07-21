@@ -1744,3 +1744,209 @@ describe('reconstructFile — doc.open content seeding (recorder v1.1)', () => {
     expect(recordedHash).toBe(saveHash);
   });
 });
+
+// ---------------------------------------------------------------------------
+// D1c: disk content that the student's own edits produce.
+//
+// D1 and D1b both anchor on `doc.save.sha256` — a field the recorder derives
+// from the same racy disk read the rules exist to compensate for. When that
+// hash is itself stale, no save-anchored rule can match, however the window is
+// tuned, and the bogus event survives.
+//
+// D1c drops the save entirely and compares against reconstruction: if the
+// "external" content is byte-identical to what replaying the student's own
+// editor events produces, nothing outside the editor wrote that file.
+//
+// Measured on a term-1 submission: D1+D1b suppressed 167 of 189; adding D1c
+// suppressed 188 of 189.
+// ---------------------------------------------------------------------------
+
+describe('reconstructFile — self-inflicted fs.external_change, edit-derived (D1c)', () => {
+  it('does not taint when new_hash is the content the edits themselves produce', async () => {
+    // No doc.save anywhere in the stream, so neither D1 nor D1b can fire. The
+    // only thing identifying this event is that disk held exactly what the
+    // student had typed.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:01.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'stale-model-hash',
+                new_hash: sha256Hex('hello'),
+                diff_size: 1,
+                operation: 'modify',
+              },
+            },
+            {
+              kind: 'doc.change',
+              wall: '2026-01-01T00:05:02.000Z',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
+                    text: ' world',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(false);
+    expect(recon.taintReasons).toHaveLength(0);
+    expect(recon.content).toBe('hello world');
+    expect(recon.suppressedExternalChanges).toHaveLength(1);
+  });
+
+  it('STILL taints when new_hash is content the edits never produced', async () => {
+    // Anti-regression: the rule forgives only bytes the student's own events
+    // account for. Foreign content must survive.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:01.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: sha256Hex('hello'),
+                new_hash: sha256Hex('something a tool wrote'),
+                diff_size: 4000,
+                operation: 'modify',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    expect(recon.tainted).toBe(true);
+    expect(recon.suppressedExternalChanges).toHaveLength(0);
+  });
+
+  it('keeps matching after an unexplained event rather than giving up on the file', async () => {
+    // Policy: a non-matching event does NOT stop D1c for the rest of the file.
+    // A single transient disk state (e.g. the recorder catching a save
+    // mid-truncate) would otherwise poison every later comparison. Measured on
+    // a term-1 submission: giving up costs 14 of 24 suppressions.
+    //
+    // Safe because the test is a hash equality against content derived solely
+    // from the student's own events — divergence makes a match LESS likely, not
+    // more, so this cannot manufacture a suppression.
+    const { zipBuffer } = await buildTestBundle({
+      sessions: [
+        {
+          events: [
+            {
+              kind: 'doc.change',
+              wall: '2026-01-01T00:05:00.000Z',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                    text: 'hello',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              // Unexplained: disk momentarily held something else entirely.
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:01.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: sha256Hex('hello'),
+                new_hash: sha256Hex(''),
+                diff_size: 5,
+                operation: 'modify',
+              },
+            },
+            {
+              kind: 'doc.change',
+              wall: '2026-01-01T00:05:02.000Z',
+              data: {
+                path: '/src/app.py',
+                deltas: [
+                  {
+                    range: { start: { line: 0, character: 5 }, end: { line: 0, character: 5 } },
+                    text: ' world',
+                  },
+                ],
+                source: 'typed',
+              },
+            },
+            {
+              // Back to the ordinary race — still recognised.
+              kind: 'fs.external_change',
+              wall: '2026-01-01T00:05:03.000Z',
+              data: {
+                path: '/src/app.py',
+                old_hash: 'stale-model-hash',
+                new_hash: sha256Hex('hello world'),
+                diff_size: 1,
+                operation: 'modify',
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const bundle = await loadBundleFrom(zipBuffer);
+    const index = buildIndex(bundle);
+    const recon = reconstructFile(index, '/src/app.py');
+
+    // The first survives (real, or at least unexplained); the second does not.
+    expect(recon.suppressedExternalChanges).toEqual([
+      index.byFile.get('/src/app.py')!.filter((e) => e.kind === 'fs.external_change')[1]!.globalIdx,
+    ]);
+    expect(recon.tainted).toBe(true);
+  });
+});

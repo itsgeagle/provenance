@@ -11,7 +11,7 @@
 import type { EventKind } from '@provenance/log-core';
 import type { Bundle } from '../loader/types.js';
 import type { EventIndex, IndexedEvent } from './event-index.js';
-import { isSelfInflictedSave } from './reconstruct-file.js';
+import { isSelfInflictedSave, findEditDerivedExternalChanges } from './reconstruct-file.js';
 
 // ---------------------------------------------------------------------------
 // File-path extraction
@@ -286,9 +286,15 @@ export function buildIndex(bundle: Bundle): EventIndex {
   // reconstruction and all heuristics share one verdict.
   const selfInflictedExternalChanges = new Set<number>();
   for (const events of byFile.values()) {
+    // D1c needs one replay of the file, so it is computed per file rather than
+    // per event. D1/D1b stay per event — they are local scans.
+    const editDerived = findEditDerivedExternalChanges(events);
     for (let i = 0; i < events.length; i++) {
-      if (events[i]!.kind !== 'fs.external_change') continue;
-      if (isSelfInflictedSave(events, i)) selfInflictedExternalChanges.add(events[i]!.globalIdx);
+      const e = events[i]!;
+      if (e.kind !== 'fs.external_change') continue;
+      if (editDerived.has(e.globalIdx) || isSelfInflictedSave(events, i)) {
+        selfInflictedExternalChanges.add(e.globalIdx);
+      }
     }
   }
 

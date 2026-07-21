@@ -35,7 +35,7 @@ import { diffLines } from 'diff';
 import type { DocChangeDelta, Range } from '@provenance/log-core';
 import { sha256Hex } from '@provenance/log-core';
 import {
-  isSelfInflictedSave,
+  isSuppressedExternalChange,
   collectOverCapPasteHashes,
   rememberBlob,
   resolveOverCapPaste,
@@ -521,12 +521,12 @@ export function reconstructFileWithProvenance(
         // otherwise-rewritten file keep their original author attribution
         // (typed / paste / preexisting), and the gutter paints only the
         // lines the external tool actually touched.
-        // D1: the recorder reporting the editor's own save. Not a real event.
-        // Kept out of kindByGlobalIdx entirely so the replay gutter does not
-        // paint phantom "external tool wrote this" regions. Shares the single
-        // discriminator in reconstruct-file.ts -- the two replays must agree
-        // (pinned by reconstruct-line-index.fuzz.test.ts).
-        if (isSelfInflictedSave(fileEvents, i)) break;
+        // D1/D1b/D1c: the recorder reporting the editor's own save. Not a real
+        // event. Kept out of kindByGlobalIdx entirely so the replay gutter does
+        // not paint phantom "external tool wrote this" regions. Shares the
+        // single discriminator in reconstruct-file.ts -- the two replays must
+        // agree (pinned by reconstruct-line-index.fuzz.test.ts).
+        if (isSuppressedExternalChange(index, fileEvents, i)) break;
 
         const p = e.payload as Record<string, unknown> | null;
         const operation =
