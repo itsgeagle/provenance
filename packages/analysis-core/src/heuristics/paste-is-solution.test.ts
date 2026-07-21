@@ -7,7 +7,7 @@ import { pasteIsSolutionHeuristic } from './paste-is-solution.js';
 import { buildIndex } from '../index/build-index.js';
 import { loadBundle } from '../loader/parse-bundle.js';
 import { buildTestBundle } from '../test-support/build-test-bundle.js';
-import { DEFAULT_HEURISTIC_CONFIG } from './config.js';
+import { DEFAULT_HEURISTIC_CONFIG, mergeConfig } from './config.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -325,5 +325,115 @@ describe('paste_is_solution — paste-shaped doc.change (recorder v1.2)', () => 
     expect(flags[0]!.detail!['overlapRatio']).toBeGreaterThanOrEqual(
       cfg.pasteIsSolution.lineOverlap,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Internal-move downgrade
+// ---------------------------------------------------------------------------
+
+describe('paste_is_solution — internal move downgrade', () => {
+  const SOLUTION = [
+    'def solve(data):',
+    '    result = []',
+    '    for row in data:',
+    '        result.append(row * 2)',
+    '    return result',
+    '',
+  ].join('\n');
+
+  /** Type the solution, cut it out, paste it back — pure reorganisation. */
+  const cutAndPasteBack = {
+    sessions: [
+      {
+        events: [
+          { kind: 'doc.open' as const, data: { path: '/t/hw.py', content: '' } },
+          {
+            kind: 'doc.change' as const,
+            data: {
+              path: '/t/hw.py',
+              source: 'typed',
+              deltas: [
+                {
+                  range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+                  text: SOLUTION,
+                },
+              ],
+            },
+          },
+          {
+            kind: 'doc.change' as const,
+            data: {
+              path: '/t/hw.py',
+              source: 'typed',
+              deltas: [
+                {
+                  range: { start: { line: 0, character: 0 }, end: { line: 5, character: 0 } },
+                  text: '',
+                },
+              ],
+            },
+          },
+          {
+            kind: 'paste' as const,
+            data: {
+              path: '/t/hw.py',
+              content: SOLUTION,
+              length: SOLUTION.length,
+              sha256: 'inline',
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  it('downgrades to info when the student typed the solution then moved it', async () => {
+    const { index, bundle } = await buildAndIndex(cutAndPasteBack);
+    const flags = pasteIsSolutionHeuristic.run(index, bundle, cfg);
+
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('info');
+    expect(flags[0]!.heuristic).toBe('paste_is_solution');
+    expect(flags[0]!.title).toContain('Code moved');
+    const detail = flags[0]!.detail as { internalMove?: { via?: string } };
+    expect(detail.internalMove?.via).toBe('cut');
+  });
+
+  it('keeps high severity when internalMove is disabled', async () => {
+    const { index, bundle } = await buildAndIndex(cutAndPasteBack);
+    const disabled = mergeConfig({ internalMove: { ...cfg.internalMove, enabled: false } });
+    const flags = pasteIsSolutionHeuristic.run(index, bundle, disabled);
+
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('high');
+    expect(flags[0]!.title).toContain('Paste matches solution');
+  });
+
+  it('keeps high severity for a solution pasted in from outside', async () => {
+    const { index, bundle } = await buildAndIndex({
+      sessions: [
+        {
+          events: [
+            { kind: 'doc.open' as const, data: { path: '/t/hw.py', content: '' } },
+            {
+              kind: 'paste' as const,
+              data: {
+                path: '/t/hw.py',
+                content: SOLUTION,
+                length: SOLUTION.length,
+                sha256: 'inline',
+                range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const flags = pasteIsSolutionHeuristic.run(index, bundle, cfg);
+
+    expect(flags).toHaveLength(1);
+    expect(flags[0]!.severity).toBe('high');
   });
 });

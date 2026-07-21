@@ -33,6 +33,7 @@ import type { Flag, Heuristic } from './types.js';
 import type { HeuristicConfig } from './config.js';
 import { reconstructFileWithProvenance } from '../index/reconstruct-file-provenance.js';
 import { iterateCandidatePastes } from './candidate-pastes.js';
+import { classifyInternalMoves } from './internal-move.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,6 +76,7 @@ function flagId(seqKey: string, idx: number): string {
 
 function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[] {
   const threshold = config.pasteIsSolution.lineOverlap;
+  const moves = classifyInternalMoves(index, config);
 
   // Cache the final state per file path to avoid re-running reconstruction.
   const finalStateCache = new Map<string, string>();
@@ -111,16 +113,30 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
     const sourceDescriptor =
       c.origin === 'paste' ? 'A paste' : 'A paste-shaped bulk edit (doc.change/paste_likely)';
 
+    // A student who types the whole solution and then reorganises it would
+    // otherwise trip this at high severity — the most damning flag in the
+    // catalogue — for doing nothing wrong. Downgrade, but keep the record.
+    const move = moves.get(c.ordinal);
+    const isMove = move !== undefined && move.classification === 'internal_move';
+    const movedAcrossFiles = isMove && move.sourcePath !== undefined && move.sourcePath !== c.path;
+
     flags.push({
       id,
       heuristic: 'paste_is_solution',
-      title: `Paste matches solution in ${c.path}`,
-      severity: 'high',
+      title: isMove
+        ? movedAcrossFiles
+          ? `Code moved from ${move.sourcePath} into ${c.path}`
+          : `Code moved within ${c.path}`
+        : `Paste matches solution in ${c.path}`,
+      severity: isMove ? 'info' : 'high',
       confidence: 0.85,
       supportingSeqs: [c.seqKey],
-      description:
-        `${sourceDescriptor} in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
-        `file's final content, suggesting the insertion may be the complete solution.`,
+      description: isMove
+        ? `An insertion in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
+          `file's final content, but it is a relocation of the student's own previously-typed ` +
+          `code in ${move.sourcePath}. Not treated as an external paste.`
+        : `${sourceDescriptor} in ${c.path} shares ${Math.round(ratio * 100)}% of its lines with the ` +
+          `file's final content, suggesting the insertion may be the complete solution.`,
       detail: {
         filePath: c.path,
         pasteLines,
@@ -128,6 +144,17 @@ function run(index: EventIndex, _bundle: Bundle, config: HeuristicConfig): Flag[
         overlapRatio: ratio,
         threshold,
         origin: c.origin,
+        ...(isMove
+          ? {
+              internalMove: {
+                sourcePath: move.sourcePath,
+                sourceGlobalIdx: move.sourceGlobalIdx,
+                matchRatio: move.matchRatio,
+                typedRatio: move.typedRatio,
+                via: move.via,
+              },
+            }
+          : {}),
       },
     });
   }
