@@ -286,3 +286,90 @@
   transform-origin: 0 0;
   will-change: transform;
 }
+
+/* ── node detail panel ────────────────────────────────────────────────── */
+.arch-detail {
+  border: 1px solid var(--arch-rule);
+  border-radius: 10px;
+  background: var(--arch-panel);
+  padding: 14px 16px;
+}
+.arch-detail:focus {
+  outline: none;
+}
+.arch-detail-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.arch-detail-eyebrow {
+  font:
+    600 9.5px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--arch-ink3);
+}
+.arch-detail h3 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+.arch-detail p {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--arch-ink2);
+  margin: 0 0 10px;
+}
+.arch-muted {
+  color: var(--arch-ink3);
+  font-style: italic;
+}
+.arch-invariant {
+  border-left: 3px solid var(--arch-brand);
+  background: color-mix(in oklab, var(--arch-brand) 8%, transparent);
+  border-radius: 0 7px 7px 0;
+  padding: 9px 12px;
+  margin: 0 0 10px;
+}
+.arch-invariant span {
+  display: block;
+  font:
+    700 9px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--arch-brand);
+  margin-bottom: 5px;
+}
+.arch-invariant p {
+  margin: 0;
+  color: var(--arch-ink);
+}
+.arch-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.arch-links a {
+  display: inline-block;
+  font:
+    500 11.5px/1.5 ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--arch-brand);
+  text-decoration: none;
+  border: 1px solid color-mix(in oklab, var(--arch-brand) 35%, transparent);
+  border-radius: 5px;
+  padding: 2px 8px;
+}
+.arch-links a:hover {
+  background: color-mix(in oklab, var(--arch-brand) 12%, transparent);
+}
