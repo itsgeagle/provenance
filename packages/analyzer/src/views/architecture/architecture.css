@@ -373,3 +373,41 @@
 .arch-links a:hover {
   background: color-mix(in oklab, var(--arch-brand) 12%, transparent);
 }
+
+/* ── diagram frame ────────────────────────────────────────────────────── */
+.arch-frame {
+  margin: 0 0 26px;
+  border: 1px solid var(--arch-rule);
+  border-radius: 11px;
+  background: var(--arch-bg2);
+  overflow: hidden;
+}
+.arch-frame-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--arch-rule);
+  background: var(--arch-panel);
+}
+.arch-frame-title {
+  flex: 1;
+  font:
+    600 9.5px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--arch-ink2);
+}
+.arch-frame-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+@media (min-width: 1180px) {
+  .arch-frame-body:has(.arch-detail) {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
