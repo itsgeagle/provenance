@@ -45,14 +45,15 @@ digraph readpath {
   }
 
   r_cohort -> pgq [color="#e8559c"]
-  r_over   -> pgq [color="#e8559c"]
+  r_over   -> pgq [label="flags + stats\nfrom precomputed rows" color="#e8559c"]
   pgq -> pg
   pg -> pgq [label="rows" color="#4b90f7" dir=back]
 
+  r_over   -> lsi [label="AND re-parses for\nthe session list" color="#e8559c" style=dashed]
   r_time   -> lsi [color="#e8559c"]
   r_replay -> lsi [color="#e8559c"]
-  r_src    -> lsi [color="#e8559c"]
   r_recomp -> lsi [color="#e8559c"]
+  r_src    -> fetch [label="own loadBundle + buildIndex —\nbypasses the LRU-cached index" color="#e8559c" style=dashed]
 
   lsi -> cache
   cache -> ret   [label="hit" color="#3fbf62"]
@@ -61,7 +62,7 @@ digraph readpath {
   blob -> parse [color="#4b90f7"]
   parse -> idx
   idx -> ret
-  idx -> recon [label="source tab only" style=dashed color="#3fbf62"]
+  idx -> recon [label="/files/:path/content\n(reconstructFile)" style=dashed color="#3fbf62"]
   recon -> ret [style=dashed color="#3fbf62"]
 
   note [label="There is no events table.\nThe .slog files inside the stored blob ARE the\nevent stream. Dropping the table removed what had\nbeen the dominant, never-purged storage cost —\nand the LRU cache is what makes re-parsing viable."

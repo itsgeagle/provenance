@@ -28,13 +28,13 @@ digraph provgate {
     fontsize=9.5 fontcolor="#8b95a8" color="#333b4a" penwidth=1.5 style=rounded
     bgcolor="#101319" labeljust="l"
     node [fillcolor="#191c22" color="#8b95a8" fontsize=9.5]
-    gslogin [label="log in\none session reused for the whole pass"]
-    gsauth  [label="429 or auth\nfailure?" shape=diamond fillcolor="#12161f" color="#ff6b6b"
+    gslogin [label="log in\nper class (own credentials,\nclosed in a finally)"]
+    gsauth  [label="login / export\nrequest failed?" shape=diamond fillcolor="#12161f" color="#ff6b6b"
              fontsize=9 height=0.8 width=1.4]
-    gsback  [label="back off\nnever hammer" fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
+    gsback  [label="raise GradescopeError\n→ isolate this class,\nmove to the next (no retry)" fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
     gslist  [label="list assignments"]
-    gsdl    [label="download bulk export\nexport/without_evaluations"]
-    gsprep  [label="did it return a\n\"preparing\" redirect?" shape=diamond fillcolor="#12161f"
+    gsdl    [label="create export → poll\ngenerated_files/{id}.json until\ncompleted → stream presigned URL"]
+    gsprep  [label="generated file\nstatus == completed?" shape=diamond fillcolor="#12161f"
              color="#8b95a8" fontsize=9 height=0.85 width=1.9]
   }
 
@@ -47,7 +47,7 @@ digraph provgate {
             fillcolor="#12161f" fontsize=9 height=0.95 width=2.3]
     bad    [label="clear error — never assume the\ntop-level folder name"
             fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
-    enum   [label="read metadata READ-ONLY\nenumerate submission folder keys"]
+    enum   [label="enumerate submission keys from\ntop-level FOLDER NAMES\n(metadata read only as opaque bytes)"]
     prune  [label="prune_export(zip_bytes, already_forwarded)\nkeep submission_metadata.yml BYTE-FOR-BYTE;\ninclude only folders not in the watermark;\ndrop .DS_Store and __MACOSX/" penwidth=1.8]
     never  [label="never regenerate, re-serialize or hand-edit\nthe YAML — a round-trip risks silently dropping\na field Provenance reads"
             shape=note fillcolor="#241a0c" color="#F97316" fontsize=9]
@@ -87,8 +87,8 @@ digraph provgate {
   gsauth -> gslist [label="no" color="#8b95a8"]
   gslist -> gsdl
   gsdl -> gsprep
-  gsprep -> gsdl [label="yes — poll the redirect,\nthe body is not synchronous" color="#8b95a8" style=dashed constraint=false]
-  gsprep -> valid [label="no — got the zip" color="#17bfae"]
+  gsprep -> gsdl [label="no — keep polling\nthe status endpoint" color="#8b95a8" style=dashed constraint=false]
+  gsprep -> valid [label="yes — download the export" color="#17bfae"]
   valid -> bad [label="no" color="#ff6b6b" style=dashed]
   valid -> enum [label="yes" color="#17bfae"]
   enum -> prune

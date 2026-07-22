@@ -46,7 +46,7 @@ digraph staff {
   }
 
   subgraph cluster_drill {
-    label="  /sub/:submissionId — five views of one submission  " fontsize=9.5
+    label="  /sub/:submissionId — six tabs (the 6th, Export, is a v3.1 stub)  " fontsize=9.5
     fontcolor="#e8559c" color="#4a1b35" penwidth=1.5 style=rounded
     bgcolor="#150a10" labeljust="l"
     node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9]

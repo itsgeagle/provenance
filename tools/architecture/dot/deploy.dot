@@ -45,7 +45,7 @@ digraph deploy {
   }
 
   subgraph cluster_cron {
-    label="  SCHEDULED JOBS — every one has an explicit shutdown path  "
+    label="  pg-boss JOBS — every one has an explicit shutdown path  "
     fontsize=9.5 fontcolor="#3fbf62" color="#153c25" penwidth=1.5 style=rounded
     bgcolor="#0a130d" labeljust="l"
     node [fillcolor="#0d2416" color="#3fbf62" fontsize=9]
@@ -54,7 +54,7 @@ digraph deploy {
     j3 [label="reap-stale-uploads"]
     j4 [label="purge-expired-exports"]
     j5 [label="storage-quota-check\nalerts before the 1 TB wall is hit"]
-    j6 [label="recompute / recompute-cross-flags"]
+    j6 [label="recompute / recompute-cross-flags\ndemand-driven (tuning / ingest_finalize),\nNOT cron-scheduled"]
   }
 
   subgraph cluster_alert {
@@ -88,7 +88,7 @@ digraph deploy {
   wrkc -> j1 [lhead=cluster_cron color="#3fbf62"]
   j5 -> disc [color="#e8559c"]
   j5 -> smtp [color="#e8559c"]
-  wrkc -> hchk [label="periodic ping" color="#e8559c" style=dashed]
+  dumpc -> hchk [label="ping after each\nnightly pg_dump (/fail on error)" color="#e8559c" style=dashed]
   j1 -> blobs [label="delete expired blobs" color="#F97316" constraint=false]
   deploy -> apic [style=dashed color="#F97316"]
 }
