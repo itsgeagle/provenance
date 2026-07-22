@@ -24,11 +24,13 @@
 ## File Structure
 
 **Created — tooling (dev-time only):**
+
 - `tools/architecture/dot/*.dot` — 13 diagram sources, moved out of the gitignored `irb/architecture/dot/`.
 - `tools/architecture/build-diagrams.py` — renders `.dot` → theme-agnostic SVG into the analyzer.
 - `tools/architecture/README.md` — how to regenerate, and the graphviz prerequisite.
 
 **Created — analyzer:**
+
 - `src/views/architecture/diagrams/*.svg` — 13 generated, committed assets.
 - `src/views/architecture/architecture.css` — scoped tokens + SVG semantic classes.
 - `src/views/architecture/ArchitectureTheme.tsx` — scoped theme state + toggle.
@@ -43,6 +45,7 @@
 - `src/views/architecture/content/nodes.coverage.test.ts` — the completeness invariant.
 
 **Modified:**
+
 - `src/App.tsx` — add one lazy public route.
 - `CLAUDE.md` (repo root) — a standing requirement that the architecture page is updated alongside behaviour changes.
 
@@ -51,12 +54,14 @@
 ### Task 1: Move diagram sources into the repo and make the build emit theme-agnostic SVG
 
 **Files:**
+
 - Create: `tools/architecture/dot/` (13 files moved from `irb/architecture/dot/`)
 - Create: `tools/architecture/build-diagrams.py`
 - Create: `tools/architecture/README.md`
 - Test: `tools/architecture/test_build_diagrams.py`
 
 **Interfaces:**
+
 - Produces: 13 SVGs at `packages/analyzer/src/views/architecture/diagrams/<name>.svg`, each with `class` attributes drawn from the token vocabulary below and **no** hardcoded colour attributes on themed elements.
 - The token vocabulary later consumed by `architecture.css`:
   `f-rec f-fmt f-tra f-srv f-ana f-uix f-hum f-road f-bad f-panel f-canvas`
@@ -264,7 +269,7 @@ grep -c 'fill="#' ../../packages/analyzer/src/views/architecture/diagrams/master
 
 Create `tools/architecture/README.md`:
 
-```markdown
+````markdown
 # Architecture diagram sources
 
 The 13 diagrams on the analyzer's `/architecture` page are generated from the
@@ -279,6 +284,7 @@ invoke it.
 ```sh
 python3 tools/architecture/build_diagrams.py
 ```
+````
 
 Output lands in `packages/analyzer/src/views/architecture/diagrams/`.
 
@@ -297,25 +303,28 @@ is a hard build error. Add it to both the map and the stylesheet.
 Node metadata is keyed `"<diagram>:<node name>"` — the node name is the
 identifier in the `.dot` file. After adding a node, add its entry to
 `content/nodes.ts` or the coverage test will fail.
-```
+
+````
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add tools/architecture packages/analyzer/src/views/architecture/diagrams
 git commit --no-gpg-sign -m "feat(analyzer): compile architecture diagrams to theme-agnostic SVG"
-```
+````
 
 ---
 
 ### Task 2: Scoped theme shell
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/architecture/architecture.css`
 - Create: `packages/analyzer/src/views/architecture/ArchitectureTheme.tsx`
 - Test: `packages/analyzer/src/views/architecture/ArchitectureTheme.test.tsx`
 
 **Interfaces:**
+
 - Produces: `<ArchitectureTheme>{children}</ArchitectureTheme>` — renders a `div[data-arch-theme="light"|"dark"]`; `useArchTheme(): { theme, setTheme, resolved }` where `theme: 'light'|'dark'|'system'` and `resolved: 'light'|'dark'`. Persists to `localStorage['prov-arch-theme']`.
 
 - [ ] **Step 1: Write the failing test**
@@ -492,77 +501,190 @@ Both palettes plus the SVG token classes from Task 1. Dark values are the existi
 ```css
 .arch-root {
   --arch-brand: #ea580c;
-  --arch-rec: #c2410c; --arch-fmt: #6d28d9; --arch-tra: #0f766e;
-  --arch-srv: #1d4ed8; --arch-ana: #15803d; --arch-uix: #be185d;
-  --arch-hum: #475569; --arch-road: #a16207; --arch-bad: #b91c1c;
-  --arch-bg: #ffffff; --arch-bg2: #f8fafc; --arch-panel: #ffffff;
-  --arch-ink: #0f172a; --arch-ink2: #475569; --arch-ink3: #64748b;
-  --arch-rule: #e2e8f0; --arch-tint: 8%;
+  --arch-rec: #c2410c;
+  --arch-fmt: #6d28d9;
+  --arch-tra: #0f766e;
+  --arch-srv: #1d4ed8;
+  --arch-ana: #15803d;
+  --arch-uix: #be185d;
+  --arch-hum: #475569;
+  --arch-road: #a16207;
+  --arch-bad: #b91c1c;
+  --arch-bg: #ffffff;
+  --arch-bg2: #f8fafc;
+  --arch-panel: #ffffff;
+  --arch-ink: #0f172a;
+  --arch-ink2: #475569;
+  --arch-ink3: #64748b;
+  --arch-rule: #e2e8f0;
+  --arch-tint: 8%;
   background: var(--arch-bg);
   color: var(--arch-ink);
 }
 .arch-root[data-arch-theme='dark'] {
   --arch-brand: #f97316;
-  --arch-rec: #f97316; --arch-fmt: #9d7bf5; --arch-tra: #17bfae;
-  --arch-srv: #4b90f7; --arch-ana: #3fbf62; --arch-uix: #e8559c;
-  --arch-hum: #8b95a8; --arch-road: #c9a227; --arch-bad: #ff6b6b;
-  --arch-bg: #0b0d12; --arch-bg2: #0f1219; --arch-panel: #141824;
-  --arch-ink: #e8ecf4; --arch-ink2: #98a2b6; --arch-ink3: #5d677d;
-  --arch-rule: #242b3b; --arch-tint: 14%;
+  --arch-rec: #f97316;
+  --arch-fmt: #9d7bf5;
+  --arch-tra: #17bfae;
+  --arch-srv: #4b90f7;
+  --arch-ana: #3fbf62;
+  --arch-uix: #e8559c;
+  --arch-hum: #8b95a8;
+  --arch-road: #c9a227;
+  --arch-bad: #ff6b6b;
+  --arch-bg: #0b0d12;
+  --arch-bg2: #0f1219;
+  --arch-panel: #141824;
+  --arch-ink: #e8ecf4;
+  --arch-ink2: #98a2b6;
+  --arch-ink3: #5d677d;
+  --arch-rule: #242b3b;
+  --arch-tint: 14%;
 }
 
 /* SVG semantic classes — the vocabulary emitted by build_diagrams.py */
-.arch-root svg .f-rec   { fill: color-mix(in oklab, var(--arch-rec)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-fmt   { fill: color-mix(in oklab, var(--arch-fmt)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-tra   { fill: color-mix(in oklab, var(--arch-tra)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-srv   { fill: color-mix(in oklab, var(--arch-srv)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-ana   { fill: color-mix(in oklab, var(--arch-ana)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-uix   { fill: color-mix(in oklab, var(--arch-uix)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-hum   { fill: color-mix(in oklab, var(--arch-hum)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-road  { fill: color-mix(in oklab, var(--arch-road) var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-bad   { fill: color-mix(in oklab, var(--arch-bad)  var(--arch-tint), var(--arch-panel)); }
-.arch-root svg .f-panel { fill: var(--arch-panel); }
-.arch-root svg .f-canvas{ fill: var(--arch-bg); }
+.arch-root svg .f-rec {
+  fill: color-mix(in oklab, var(--arch-rec) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-fmt {
+  fill: color-mix(in oklab, var(--arch-fmt) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-tra {
+  fill: color-mix(in oklab, var(--arch-tra) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-srv {
+  fill: color-mix(in oklab, var(--arch-srv) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-ana {
+  fill: color-mix(in oklab, var(--arch-ana) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-uix {
+  fill: color-mix(in oklab, var(--arch-uix) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-hum {
+  fill: color-mix(in oklab, var(--arch-hum) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-road {
+  fill: color-mix(in oklab, var(--arch-road) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-bad {
+  fill: color-mix(in oklab, var(--arch-bad) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-panel {
+  fill: var(--arch-panel);
+}
+.arch-root svg .f-canvas {
+  fill: var(--arch-bg);
+}
 
-.arch-root svg .s-rec  { stroke: var(--arch-rec); }
-.arch-root svg .s-fmt  { stroke: var(--arch-fmt); }
-.arch-root svg .s-tra  { stroke: var(--arch-tra); }
-.arch-root svg .s-srv  { stroke: var(--arch-srv); }
-.arch-root svg .s-ana  { stroke: var(--arch-ana); }
-.arch-root svg .s-uix  { stroke: var(--arch-uix); }
-.arch-root svg .s-hum  { stroke: var(--arch-hum); }
-.arch-root svg .s-road { stroke: var(--arch-road); }
-.arch-root svg .s-bad  { stroke: var(--arch-bad); }
-.arch-root svg .s-rule { stroke: var(--arch-rule); }
+.arch-root svg .s-rec {
+  stroke: var(--arch-rec);
+}
+.arch-root svg .s-fmt {
+  stroke: var(--arch-fmt);
+}
+.arch-root svg .s-tra {
+  stroke: var(--arch-tra);
+}
+.arch-root svg .s-srv {
+  stroke: var(--arch-srv);
+}
+.arch-root svg .s-ana {
+  stroke: var(--arch-ana);
+}
+.arch-root svg .s-uix {
+  stroke: var(--arch-uix);
+}
+.arch-root svg .s-hum {
+  stroke: var(--arch-hum);
+}
+.arch-root svg .s-road {
+  stroke: var(--arch-road);
+}
+.arch-root svg .s-bad {
+  stroke: var(--arch-bad);
+}
+.arch-root svg .s-rule {
+  stroke: var(--arch-rule);
+}
 
-.arch-root svg .t-ink  { fill: var(--arch-ink); }
-.arch-root svg .t-ink2 { fill: var(--arch-ink2); }
-.arch-root svg .t-ink3 { fill: var(--arch-ink3); }
-.arch-root svg .t-rec  { fill: var(--arch-rec); }
-.arch-root svg .t-fmt  { fill: var(--arch-fmt); }
-.arch-root svg .t-tra  { fill: var(--arch-tra); }
-.arch-root svg .t-srv  { fill: var(--arch-srv); }
-.arch-root svg .t-ana  { fill: var(--arch-ana); }
-.arch-root svg .t-uix  { fill: var(--arch-uix); }
-.arch-root svg .t-hum  { fill: var(--arch-hum); }
-.arch-root svg .t-road { fill: var(--arch-road); }
-.arch-root svg .t-bad  { fill: var(--arch-bad); }
+.arch-root svg .t-ink {
+  fill: var(--arch-ink);
+}
+.arch-root svg .t-ink2 {
+  fill: var(--arch-ink2);
+}
+.arch-root svg .t-ink3 {
+  fill: var(--arch-ink3);
+}
+.arch-root svg .t-rec {
+  fill: var(--arch-rec);
+}
+.arch-root svg .t-fmt {
+  fill: var(--arch-fmt);
+}
+.arch-root svg .t-tra {
+  fill: var(--arch-tra);
+}
+.arch-root svg .t-srv {
+  fill: var(--arch-srv);
+}
+.arch-root svg .t-ana {
+  fill: var(--arch-ana);
+}
+.arch-root svg .t-uix {
+  fill: var(--arch-uix);
+}
+.arch-root svg .t-hum {
+  fill: var(--arch-hum);
+}
+.arch-root svg .t-road {
+  fill: var(--arch-road);
+}
+.arch-root svg .t-bad {
+  fill: var(--arch-bad);
+}
 
 /* interactive node affordance */
-.arch-root svg g.node { cursor: pointer; }
-.arch-root svg g.node:hover  [class*='s-'] { stroke-width: 2.4; }
-.arch-root svg g.node:focus-visible { outline: 2px solid var(--arch-brand); outline-offset: 2px; }
-.arch-root svg g.node[data-selected='true'] [class*='s-'] { stroke-width: 3; }
+.arch-root svg g.node {
+  cursor: pointer;
+}
+.arch-root svg g.node:hover [class*='s-'] {
+  stroke-width: 2.4;
+}
+.arch-root svg g.node:focus-visible {
+  outline: 2px solid var(--arch-brand);
+  outline-offset: 2px;
+}
+.arch-root svg g.node[data-selected='true'] [class*='s-'] {
+  stroke-width: 3;
+}
 
 .arch-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 9px; border-radius: 5px;
-  border: 1px solid var(--arch-rule); background: var(--arch-bg2);
-  color: var(--arch-ink2); font: 600 10px/1 ui-monospace, Menlo, monospace;
-  letter-spacing: .09em; text-transform: uppercase; cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--arch-rule);
+  background: var(--arch-bg2);
+  color: var(--arch-ink2);
+  font:
+    600 10px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  cursor: pointer;
 }
-.arch-btn:hover { color: var(--arch-ink); }
-.arch-btn[aria-pressed='true'] { background: var(--arch-brand); border-color: var(--arch-brand); color: #fff; }
+.arch-btn:hover {
+  color: var(--arch-ink);
+}
+.arch-btn[aria-pressed='true'] {
+  background: var(--arch-brand);
+  border-color: var(--arch-brand);
+  color: #fff;
+}
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -584,11 +706,13 @@ git commit --no-gpg-sign -m "feat(analyzer): scoped light/dark theme for the arc
 ### Task 3: Content model and the coverage invariant
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/architecture/content/types.ts`
 - Create: `packages/analyzer/src/views/architecture/content/nodes.ts`
 - Test: `packages/analyzer/src/views/architecture/content/nodes.coverage.test.ts`
 
 **Interfaces:**
+
 - Produces: `type ArchNode = { title: string; body: string; invariant?: string; links?: ArchLink[] }`, `type ArchLink = { label: string; href: string }`, `const NODES: Record<string, ArchNode>`, `const NO_DETAIL: ReadonlySet<string>`, `nodeKey(diagram, name): string`.
 
 - [ ] **Step 1: Write `types.ts`**
@@ -683,8 +807,7 @@ const GH = 'https://github.com/ProvenanceTools/provenance/blob/main';
 export const NODES: Record<string, ArchNode> = {
   'master:chain': {
     title: 'Hash chain',
-    body:
-      'Every log entry is linked to its predecessor by a SHA-256 hash taken over the previous entry’s hash concatenated with the JCS-canonical form of this entry. Editing any entry after the fact breaks every link after it, and the break is locatable to an exact sequence number.\n\nThere is exactly one chaining function per language implementation, and every code path that produces a log entry goes through it. Two chaining paths would mean two behaviours, and therefore a seam to exploit.',
+    body: 'Every log entry is linked to its predecessor by a SHA-256 hash taken over the previous entry’s hash concatenated with the JCS-canonical form of this entry. Editing any entry after the fact breaks every link after it, and the break is locatable to an exact sequence number.\n\nThere is exactly one chaining function per language implementation, and every code path that produces a log entry goes through it. Two chaining paths would mean two behaviours, and therefore a seam to exploit.',
     invariant:
       'Exactly one chaining function. Every log-producing path goes through it — in all four repositories.',
     links: [
@@ -694,43 +817,50 @@ export const NODES: Record<string, ArchNode> = {
   },
   'master:dedup': {
     title: 'Content-hash dedup',
-    body:
-      'Before any heavy processing, ingest rejects a bundle whose (semester_id, blob_sha256) pair it has already seen. Because this check is cheap and happens first, re-sending an unchanged bundle costs almost nothing.\n\nThat property is what lets provgate treat its watermark as an optimisation rather than a correctness mechanism — if the watermark is wrong, dedup still prevents duplicate submissions.',
+    body: 'Before any heavy processing, ingest rejects a bundle whose (semester_id, blob_sha256) pair it has already seen. Because this check is cheap and happens first, re-sending an unchanged bundle costs almost nothing.\n\nThat property is what lets provgate treat its watermark as an optimisation rather than a correctness mechanism — if the watermark is wrong, dedup still prevents duplicate submissions.',
     invariant: 'Dedup runs before any heavy processing, never after.',
     links: [{ label: 'dedup.ts', href: `${GH}/packages/server/src/services/ingest/dedup.ts` }],
   },
   'master:strip': {
     title: 'Source stripping',
-    body:
-      'After every in-memory computation that needs the student’s code — statistics, all eight validation checks, and the full heuristic pass — the server deletes the source files from the bundle and stores only the signed manifest and the logs.\n\nThis is the single largest cost lever in the system, and it is why storage on a 1 TB quota is viable at cohort scale.',
+    body: 'After every in-memory computation that needs the student’s code — statistics, all eight validation checks, and the full heuristic pass — the server deletes the source files from the bundle and stores only the signed manifest and the logs.\n\nThis is the single largest cost lever in the system, and it is why storage on a 1 TB quota is viable at cohort scale.',
     invariant:
       'Stripping happens after all computation, and never touches manifest.json or manifest.sig — the stored bundle must stay signature- and chain-verifiable.',
     links: [
-      { label: 'strip-bundle.ts', href: `${GH}/packages/server/src/services/ingest/strip-bundle.ts` },
+      {
+        label: 'strip-bundle.ts',
+        href: `${GH}/packages/server/src/services/ingest/strip-bundle.ts`,
+      },
     ],
   },
   'recorder:expected': {
     title: 'Expected-content registry',
-    body:
-      'The recorder maintains a model of what it believes every tracked file contains, updated after each edit it observes. External-change detection compares the on-disk hash against that model.\n\nThe direction matters and is easy to reverse: the model is the source of truth, the disk is what you check against it. Reversing it produces a recorder that flags every ordinary save and misses every real evasion.',
-    invariant: 'The expected-content model is the source of truth; the on-disk hash is compared to it.',
+    body: 'The recorder maintains a model of what it believes every tracked file contains, updated after each edit it observes. External-change detection compares the on-disk hash against that model.\n\nThe direction matters and is easy to reverse: the model is the source of truth, the disk is what you check against it. Reversing it produces a recorder that flags every ordinary save and misses every real evasion.',
+    invariant:
+      'The expected-content model is the source of truth; the on-disk hash is compared to it.',
     links: [
-      { label: 'expected-content.ts', href: `${GH}/packages/recorder/src/state/expected-content.ts` },
+      {
+        label: 'expected-content.ts',
+        href: `${GH}/packages/recorder/src/state/expected-content.ts`,
+      },
       { label: 'Recorder PRD §4.5', href: `${GH}/docs/prd.md` },
     ],
   },
   'provgate:adv': {
     title: 'Advance the watermark',
-    body:
-      'The per-assignment watermark moves only after the Provenance ingest job reaches a terminal succeeded or partial state. On failure, or on any error mid-poll, it is left untouched so the next run retries.',
+    body: 'The per-assignment watermark moves only after the Provenance ingest job reaches a terminal succeeded or partial state. On failure, or on any error mid-poll, it is left untouched so the next run retries.',
     invariant:
       'The watermark is an optimisation; content-hash dedup is correctness. When in doubt, forward.',
-    links: [{ label: 'engine.py', href: 'https://github.com/ProvenanceTools/provenance-gradescope-gateway/blob/main/src/provgate/sync/engine.py' }],
+    links: [
+      {
+        label: 'engine.py',
+        href: 'https://github.com/ProvenanceTools/provenance-gradescope-gateway/blob/main/src/provgate/sync/engine.py',
+      },
+    ],
   },
   'staff:hd': {
     title: 'Hosted-domain claim check',
-    body:
-      'Authentication succeeds only when the Google ID token’s hd claim matches AUTH_ALLOWED_HOSTED_DOMAINS. It is the primary access control on the analyzer — the single check keeping non-institutional Google accounts out.',
+    body: 'Authentication succeeds only when the Google ID token’s hd claim matches AUTH_ALLOWED_HOSTED_DOMAINS. It is the primary access control on the analyzer — the single check keeping non-institutional Google accounts out.',
     invariant: 'Do not loosen the hd check.',
     links: [{ label: 'auth', href: `${GH}/packages/server/src/auth` }],
   },
@@ -742,10 +872,7 @@ export const NODES: Record<string, ArchNode> = {
  * explicitly — rather than defaulting to "no detail" — is what makes the
  * coverage test meaningful.
  */
-export const NO_DETAIL: ReadonlySet<string> = new Set<string>([
-  'master:stu',
-  'chain:edots',
-]);
+export const NO_DETAIL: ReadonlySet<string> = new Set<string>(['master:stu', 'chain:edots']);
 ```
 
 - [ ] **Step 5: Run the test and let it enumerate the gap**
@@ -765,10 +892,12 @@ git commit --no-gpg-sign -m "feat(analyzer): architecture node content model wit
 ### Task 4: Pan/zoom canvas with node selection
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/architecture/DiagramCanvas.tsx`
 - Test: `packages/analyzer/src/views/architecture/DiagramCanvas.test.tsx`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks except the CSS classes.
 - Produces: `<DiagramCanvas svg={string} diagramId={string} selected={string|null} onSelect={(name: string | null) => void} />`.
 
@@ -909,8 +1038,10 @@ export function DiagramCanvas({ svg, diagramId, selected, onSelect }: Props) {
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const map: Record<string, [number, number]> = {
-      ArrowRight: [-STEP, 0], ArrowLeft: [STEP, 0],
-      ArrowDown: [0, -STEP],  ArrowUp: [0, STEP],
+      ArrowRight: [-STEP, 0],
+      ArrowLeft: [STEP, 0],
+      ArrowDown: [0, -STEP],
+      ArrowUp: [0, STEP],
     };
     const d = map[e.key];
     if (d) {
@@ -918,9 +1049,18 @@ export function DiagramCanvas({ svg, diagramId, selected, onSelect }: Props) {
       setT((p) => ({ ...p, x: p.x + d[0], y: p.y + d[1] }));
       return;
     }
-    if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomBy(1.2); }
-    if (e.key === '-') { e.preventDefault(); zoomBy(1 / 1.2); }
-    if (e.key === '0') { e.preventDefault(); setT({ x: 0, y: 0, k: 1 }); }
+    if (e.key === '+' || e.key === '=') {
+      e.preventDefault();
+      zoomBy(1.2);
+    }
+    if (e.key === '-') {
+      e.preventDefault();
+      zoomBy(1 / 1.2);
+    }
+    if (e.key === '0') {
+      e.preventDefault();
+      setT({ x: 0, y: 0, k: 1 });
+    }
     if (e.key === 'Escape') onSelect(null);
   };
 
@@ -930,10 +1070,20 @@ export function DiagramCanvas({ svg, diagramId, selected, onSelect }: Props) {
         <button type="button" className="arch-btn" aria-label="Zoom in" onClick={() => zoomBy(1.2)}>
           <Plus size={13} aria-hidden />
         </button>
-        <button type="button" className="arch-btn" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.2)}>
+        <button
+          type="button"
+          className="arch-btn"
+          aria-label="Zoom out"
+          onClick={() => zoomBy(1 / 1.2)}
+        >
           <Minus size={13} aria-hidden />
         </button>
-        <button type="button" className="arch-btn" aria-label="Reset view" onClick={() => setT({ x: 0, y: 0, k: 1 })}>
+        <button
+          type="button"
+          className="arch-btn"
+          aria-label="Reset view"
+          onClick={() => setT({ x: 0, y: 0, k: 1 })}
+        >
           <RotateCcw size={13} aria-hidden />
         </button>
         <span className="arch-zoom">{Math.round(t.k * 100)}%</span>
@@ -966,18 +1116,47 @@ export function DiagramCanvas({ svg, diagramId, selected, onSelect }: Props) {
 Append to `architecture.css`:
 
 ```css
-.arch-canvas { position: relative; }
-.arch-tools { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 6px; align-items: center; }
-.arch-zoom { font: 600 10px/1 ui-monospace, Menlo, monospace; color: var(--arch-ink3); min-width: 38px; text-align: right; }
+.arch-canvas {
+  position: relative;
+}
+.arch-tools {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.arch-zoom {
+  font:
+    600 10px/1 ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--arch-ink3);
+  min-width: 38px;
+  text-align: right;
+}
 .arch-viewport {
-  overflow: hidden; cursor: grab; touch-action: none;
-  min-height: 320px; max-height: min(80vh, 1200px);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  min-height: 320px;
+  max-height: min(80vh, 1200px);
   background-image: radial-gradient(circle at 1px 1px, var(--arch-rule) 1px, transparent 0);
   background-size: 22px 22px;
 }
-.arch-viewport:active { cursor: grabbing; }
-.arch-viewport:focus-visible { outline: 2px solid var(--arch-brand); outline-offset: -2px; }
-.arch-stage { transform-origin: 0 0; will-change: transform; }
+.arch-viewport:active {
+  cursor: grabbing;
+}
+.arch-viewport:focus-visible {
+  outline: 2px solid var(--arch-brand);
+  outline-offset: -2px;
+}
+.arch-stage {
+  transform-origin: 0 0;
+  will-change: transform;
+}
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -999,10 +1178,12 @@ git commit --no-gpg-sign -m "feat(analyzer): pan/zoom diagram canvas with node s
 ### Task 5: Node detail panel
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/architecture/NodeDetailPanel.tsx`
 - Test: `packages/analyzer/src/views/architecture/NodeDetailPanel.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `NODES`, `nodeKey` from Task 3.
 - Produces: `<NodeDetailPanel diagramId={string} node={string|null} onClose={() => void} />`.
 
@@ -1126,19 +1307,91 @@ export function NodeDetailPanel({ diagramId, node, onClose }: Props) {
 Append to `architecture.css`:
 
 ```css
-.arch-detail { border: 1px solid var(--arch-rule); border-radius: 10px; background: var(--arch-panel); padding: 14px 16px; }
-.arch-detail:focus { outline: none; }
-.arch-detail-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.arch-detail-eyebrow { font: 600 9.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .17em; text-transform: uppercase; color: var(--arch-ink3); }
-.arch-detail h3 { font-size: 17px; font-weight: 700; margin: 0 0 8px; letter-spacing: -.01em; }
-.arch-detail p { font-size: 13.5px; line-height: 1.6; color: var(--arch-ink2); margin: 0 0 10px; }
-.arch-muted { color: var(--arch-ink3); font-style: italic; }
-.arch-invariant { border-left: 3px solid var(--arch-brand); background: color-mix(in oklab, var(--arch-brand) 8%, transparent); border-radius: 0 7px 7px 0; padding: 9px 12px; margin: 0 0 10px; }
-.arch-invariant span { display: block; font: 700 9px/1 ui-monospace, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--arch-brand); margin-bottom: 5px; }
-.arch-invariant p { margin: 0; color: var(--arch-ink); }
-.arch-links { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.arch-links a { display: inline-block; font: 500 11.5px/1.5 ui-monospace, Menlo, monospace; color: var(--arch-brand); text-decoration: none; border: 1px solid color-mix(in oklab, var(--arch-brand) 35%, transparent); border-radius: 5px; padding: 2px 8px; }
-.arch-links a:hover { background: color-mix(in oklab, var(--arch-brand) 12%, transparent); }
+.arch-detail {
+  border: 1px solid var(--arch-rule);
+  border-radius: 10px;
+  background: var(--arch-panel);
+  padding: 14px 16px;
+}
+.arch-detail:focus {
+  outline: none;
+}
+.arch-detail-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.arch-detail-eyebrow {
+  font:
+    600 9.5px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--arch-ink3);
+}
+.arch-detail h3 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+.arch-detail p {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--arch-ink2);
+  margin: 0 0 10px;
+}
+.arch-muted {
+  color: var(--arch-ink3);
+  font-style: italic;
+}
+.arch-invariant {
+  border-left: 3px solid var(--arch-brand);
+  background: color-mix(in oklab, var(--arch-brand) 8%, transparent);
+  border-radius: 0 7px 7px 0;
+  padding: 9px 12px;
+  margin: 0 0 10px;
+}
+.arch-invariant span {
+  display: block;
+  font:
+    700 9px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--arch-brand);
+  margin-bottom: 5px;
+}
+.arch-invariant p {
+  margin: 0;
+  color: var(--arch-ink);
+}
+.arch-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.arch-links a {
+  display: inline-block;
+  font:
+    500 11.5px/1.5 ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--arch-brand);
+  text-decoration: none;
+  border: 1px solid color-mix(in oklab, var(--arch-brand) 35%, transparent);
+  border-radius: 5px;
+  padding: 2px 8px;
+}
+.arch-links a:hover {
+  background: color-mix(in oklab, var(--arch-brand) 12%, transparent);
+}
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1160,10 +1413,12 @@ git commit --no-gpg-sign -m "feat(analyzer): architecture node detail panel"
 ### Task 6: Diagram frame with fullscreen
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/architecture/DiagramFrame.tsx`
 - Test: `packages/analyzer/src/views/architecture/DiagramFrame.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `DiagramCanvas` (Task 4), `NodeDetailPanel` (Task 5).
 - Produces: `<DiagramFrame id={string} title={string} svg={string} />` — owns the selected-node state and the fullscreen dialog.
 
@@ -1225,7 +1480,12 @@ export function DiagramFrame({ id, title, svg }: Props) {
     <figure className="arch-frame">
       <figcaption className="arch-frame-bar">
         <span className="arch-frame-title">{title}</span>
-        <button type="button" className="arch-btn" aria-label="Full screen" onClick={() => setFull(true)}>
+        <button
+          type="button"
+          className="arch-btn"
+          aria-label="Full screen"
+          onClick={() => setFull(true)}
+        >
           <Maximize2 size={13} aria-hidden />
         </button>
       </figcaption>
@@ -1252,11 +1512,42 @@ export function DiagramFrame({ id, title, svg }: Props) {
 Append to `architecture.css`:
 
 ```css
-.arch-frame { margin: 0 0 26px; border: 1px solid var(--arch-rule); border-radius: 11px; background: var(--arch-bg2); overflow: hidden; }
-.arch-frame-bar { display: flex; align-items: center; gap: 12px; padding: 9px 13px; border-bottom: 1px solid var(--arch-rule); background: var(--arch-panel); }
-.arch-frame-title { flex: 1; font: 600 9.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .17em; text-transform: uppercase; color: var(--arch-ink2); }
-.arch-frame-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px; }
-@media (min-width: 1180px) { .arch-frame-body:has(.arch-detail) { grid-template-columns: minmax(0, 1fr) 340px; } }
+.arch-frame {
+  margin: 0 0 26px;
+  border: 1px solid var(--arch-rule);
+  border-radius: 11px;
+  background: var(--arch-bg2);
+  overflow: hidden;
+}
+.arch-frame-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--arch-rule);
+  background: var(--arch-panel);
+}
+.arch-frame-title {
+  flex: 1;
+  font:
+    600 9.5px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--arch-ink2);
+}
+.arch-frame-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+@media (min-width: 1180px) {
+  .arch-frame-body:has(.arch-detail) {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1278,6 +1569,7 @@ git commit --no-gpg-sign -m "feat(analyzer): architecture diagram frame with ful
 ### Task 7: Sections content and the route
 
 **Files:**
+
 - Create: `packages/analyzer/src/views/architecture/content/sections.ts`
 - Create: `packages/analyzer/src/views/architecture/Notation.tsx`
 - Create: `packages/analyzer/src/views/architecture/ArchitectureView.tsx`
@@ -1285,6 +1577,7 @@ git commit --no-gpg-sign -m "feat(analyzer): architecture diagram frame with ful
 - Test: `packages/analyzer/src/views/architecture/ArchitectureView.test.tsx`
 
 **Interfaces:**
+
 - Consumes: `DiagramFrame` (Task 6), `ArchitectureTheme` (Task 2).
 - Produces: default-exported `ArchitectureView`; `SECTIONS: ArchSection[]` where `ArchSection = { id: string; num: string; title: string; framing: string; diagram: string; svg: string }` (`svg` is the raw markup, imported via `?raw`).
 - Uses from `src/components/ui/dialog.tsx` (verified to exist): `Dialog`, `DialogContent`, `DialogTitle`.
@@ -1319,67 +1612,119 @@ export type ArchSection = {
 
 export const SECTIONS: ArchSection[] = [
   {
-    id: 'ecosystem', num: '01', title: 'Repository & contract graph', diagram: 'ecosystem', svg: ecosystem,
+    id: 'ecosystem',
+    num: '01',
+    title: 'Repository & contract graph',
+    diagram: 'ecosystem',
+    svg: ecosystem,
     framing:
       'Four repositories. One owns the log format; the other three consume or reimplement it and are forbidden from changing it unilaterally. Conformance vectors are the enforcement mechanism — a sibling implementation must reproduce log-core’s test vectors byte for byte.',
   },
   {
-    id: 'master', num: '02', title: 'End-to-end map', diagram: 'master', svg: master,
+    id: 'master',
+    num: '02',
+    title: 'End-to-end map',
+    diagram: 'master',
+    svg: master,
     framing:
       'The whole system as five swimlanes: the student’s offline machine, transport, the server, the analysis engine, and the staff reviewing the result. Every branch that exists in the code is drawn — including the paths where nothing is recorded, nothing is ingested, and nothing is done.',
   },
   {
-    id: 'state', num: '03', title: 'Recorder state machine', diagram: 'state', svg: state,
+    id: 'state',
+    num: '03',
+    title: 'Recorder state machine',
+    diagram: 'state',
+    svg: state,
     framing:
       'Three abnormal states had to be modelled explicitly, because each is otherwise indistinguishable from evasion.',
   },
   {
-    id: 'recorder', num: '04', title: 'Recorder dataflow', diagram: 'recorder', svg: recorder,
+    id: 'recorder',
+    num: '04',
+    title: 'Recorder dataflow',
+    diagram: 'recorder',
+    svg: recorder,
     framing:
       'Host events in, hash-chained entries out. The top band is the only layer that differs between VS Code, IntelliJ and Neovim; everything below is shared logic reimplemented in three languages against the same vectors.',
   },
   {
-    id: 'chain', num: '05', title: 'Format contract & cryptography', diagram: 'chain', svg: chain,
+    id: 'chain',
+    num: '05',
+    title: 'Format contract & cryptography',
+    diagram: 'chain',
+    svg: chain,
     framing:
       'Three keys with three distinct jobs, a chain linking every entry to its predecessor, and a verification path that still works years later against a bundle whose source files have been deleted.',
   },
   {
-    id: 'ingest', num: '06', title: 'Ingest pipeline', diagram: 'ingest', svg: ingest,
+    id: 'ingest',
+    num: '06',
+    title: 'Ingest pipeline',
+    diagram: 'ingest',
+    svg: ingest,
     framing:
       'Four ordered stages with every rejection and failure path drawn. The pipeline is idempotent: a retry must produce byte-identical flags and stats, and tests assert it.',
   },
   {
-    id: 'readpath', num: '07', title: 'Read path', diagram: 'readpath', svg: readpath,
+    id: 'readpath',
+    num: '07',
+    title: 'Read path',
+    diagram: 'readpath',
+    svg: readpath,
     framing:
       'Cheap requests are answered from precomputed Postgres rows; anything needing the event stream re-parses the stored bundle, because there is no events table.',
   },
   {
-    id: 'er', num: '08', title: 'Data model', diagram: 'er', svg: er,
+    id: 'er',
+    num: '08',
+    title: 'Data model',
+    diagram: 'er',
+    svg: er,
     framing:
       'Twenty-one tables via Drizzle. The defining property is what is absent: no events table, and no student source in the stored blobs.',
   },
   {
-    id: 'analysis', num: '09', title: 'Analysis engine', diagram: 'analysis', svg: analysis,
+    id: 'analysis',
+    num: '09',
+    title: 'Analysis engine',
+    diagram: 'analysis',
+    svg: analysis,
     framing:
       'A bundle goes in; a deterministic ranked flag list comes out. The same graph executes on the server during ingest and in the browser on the /local route.',
   },
   {
-    id: 'staff', num: '10', title: 'Course-staff journey', diagram: 'staff', svg: staff,
+    id: 'staff',
+    num: '10',
+    title: 'Course-staff journey',
+    diagram: 'staff',
+    svg: staff,
     framing:
       'Staff work a ranked queue, not raw logs. The premise is 700 submissions and one afternoon, so the system’s job is to put the twelve that deserve a human at the top and justify each one.',
   },
   {
-    id: 'provgate', num: '11', title: 'provgate — the Gradescope gateway', diagram: 'provgate', svg: provgate,
+    id: 'provgate',
+    num: '11',
+    title: 'provgate — the Gradescope gateway',
+    diagram: 'provgate',
+    svg: provgate,
     framing:
       'A standalone Python service that keeps Provenance in sync with Gradescope on a schedule. It holds no Provenance code, database or storage — it authenticates like any third-party client.',
   },
   {
-    id: 'deploy', num: '12', title: 'Deployment', diagram: 'deploy', svg: deploy,
+    id: 'deploy',
+    num: '12',
+    title: 'Deployment',
+    diagram: 'deploy',
+    svg: deploy,
     framing:
       'Running on the EECS Instructional apphost. There is no CI/CD — GitHub’s hosted runners cannot reach the host, so every step is run by hand against a documented runbook.',
   },
   {
-    id: 'roadmap', num: '13', title: 'Roadmap', diagram: 'roadmap', svg: roadmap,
+    id: 'roadmap',
+    num: '13',
+    title: 'Roadmap',
+    diagram: 'roadmap',
+    svg: roadmap,
     framing:
       'Everything above is shipped and live. Below is not built — each item is drawn attached to the existing seam it would extend.',
   },
@@ -1395,9 +1740,13 @@ import { describe, it, expect, vi } from 'vitest';
 import ArchitectureView from './ArchitectureView.js';
 
 vi.stubGlobal('matchMedia', (q: string) => ({
-  matches: false, media: q,
-  addEventListener: vi.fn(), removeEventListener: vi.fn(),
-  addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+  matches: false,
+  media: q,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  dispatchEvent: vi.fn(),
 }));
 
 describe('ArchitectureView', () => {
@@ -1446,10 +1795,10 @@ Expected: FAIL — cannot resolve `./ArchitectureView.js`
 
 1. **Shape — what it is.** Six rows, each an inline `<svg width="34" height="18">`
    drawing the graphviz shape in `stroke="var(--arch-hum)" fill="var(--arch-panel)"`:
-   rounded rect (*process*), diamond (*decision*), cylinder (*datastore*), note /
-   folded-corner rect (*artifact*), chevron-right (*queue*), hexagon (*external*).
+   rounded rect (_process_), diamond (_decision_), cylinder (_datastore_), note /
+   folded-corner rect (_artifact_), chevron-right (_queue_), hexagon (_external_).
 2. **Colour — which concern.** Seven rows, each a `<span className="arch-sw"
-   style={{ background: 'var(--arch-rec)' }} />` — and likewise `--arch-fmt`,
+style={{ background: 'var(--arch-rec)' }} />` — and likewise `--arch-fmt`,
    `--arch-tra`, `--arch-srv`, `--arch-ana`, `--arch-uix`, `--arch-hum` — labelled
    Producers / Format contract / Transport / Server / Analysis / Presentation &amp;
    keys / Humans &amp; externals.
@@ -1480,13 +1829,37 @@ export default function ArchitectureView() {
                   <rect x="96" y="50" width="64" height="78" />
                 </clipPath>
               </defs>
-              <rect x="50" y="74" width="96" height="104" rx="34" fill="none"
-                    stroke="var(--arch-ink)" strokeWidth="18" />
-              <rect x="110" y="74" width="96" height="104" rx="34" fill="none"
-                    stroke="var(--arch-brand)" strokeWidth="18" />
+              <rect
+                x="50"
+                y="74"
+                width="96"
+                height="104"
+                rx="34"
+                fill="none"
+                stroke="var(--arch-ink)"
+                strokeWidth="18"
+              />
+              <rect
+                x="110"
+                y="74"
+                width="96"
+                height="104"
+                rx="34"
+                fill="none"
+                stroke="var(--arch-brand)"
+                strokeWidth="18"
+              />
               <g clipPath="url(#archmark)">
-                <rect x="50" y="74" width="96" height="104" rx="34" fill="none"
-                      stroke="var(--arch-ink)" strokeWidth="18" />
+                <rect
+                  x="50"
+                  y="74"
+                  width="96"
+                  height="104"
+                  rx="34"
+                  fill="none"
+                  stroke="var(--arch-ink)"
+                  strokeWidth="18"
+                />
               </g>
             </svg>
             <h1>Provenance</h1>
@@ -1509,8 +1882,8 @@ export default function ArchitectureView() {
             <p className="arch-deck">
               Provenance answers “how did this code come to exist?” rather than “does this code look
               copied?” — recording the process of authorship into a hash-chained, cryptographically
-              signed log while a student works, then giving course staff a way to review thousands of
-              those logs at scale.
+              signed log while a student works, then giving course staff a way to review thousands
+              of those logs at scale.
             </p>
           </header>
 
@@ -1536,38 +1909,159 @@ export default function ArchitectureView() {
 Append the layout rules to `architecture.css`:
 
 ```css
-.arch-shell { display: grid; grid-template-columns: 242px minmax(0, 1fr); min-height: 100vh; }
-.arch-toc { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 24px 16px 60px;
-  border-right: 1px solid var(--arch-rule); background: var(--arch-bg2); }
-.arch-brandmark { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
-.arch-brandmark h1 { margin: 0; font: 700 13.5px/1.2 ui-monospace, Menlo, monospace;
-  letter-spacing: .15em; text-transform: uppercase; }
-.arch-toc nav a { display: block; padding: 5px 9px; border-left: 2px solid transparent;
-  font-size: 12px; line-height: 1.4; color: var(--arch-ink2); text-decoration: none; }
-.arch-toc nav a:hover { color: var(--arch-ink); background: var(--arch-panel); }
-.arch-toc nav a b { font: 600 9.5px/1 ui-monospace, Menlo, monospace; color: var(--arch-ink3); margin-right: 8px; }
-.arch-toc > .arch-btn { margin-top: 22px; }
-.arch-main { padding: 0 40px 140px; min-width: 0; }
-.arch-mast { padding: 58px 0 34px; border-bottom: 1px solid var(--arch-rule); margin-bottom: 8px; }
-.arch-kick { font: 600 10.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .26em;
-  text-transform: uppercase; color: var(--arch-brand); margin: 0 0 18px; }
-.arch-mast h2 { font-size: clamp(34px, 5vw, 56px); font-weight: 750; letter-spacing: -.035em; margin: 0 0 16px; }
-.arch-deck { font-size: 18px; line-height: 1.55; color: var(--arch-ink2); max-width: 70ch; margin: 0; }
-.arch-section { padding: 52px 0 0; scroll-margin-top: 8px; }
-.arch-section-hd { display: flex; align-items: baseline; gap: 13px; margin-bottom: 12px; }
-.arch-num { flex: none; font: 700 10.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .1em;
-  color: var(--arch-brand); padding: 5px 8px; border-radius: 5px;
+.arch-shell {
+  display: grid;
+  grid-template-columns: 242px minmax(0, 1fr);
+  min-height: 100vh;
+}
+.arch-toc {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 24px 16px 60px;
+  border-right: 1px solid var(--arch-rule);
+  background: var(--arch-bg2);
+}
+.arch-brandmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.arch-brandmark h1 {
+  margin: 0;
+  font:
+    700 13.5px/1.2 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.arch-toc nav a {
+  display: block;
+  padding: 5px 9px;
+  border-left: 2px solid transparent;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--arch-ink2);
+  text-decoration: none;
+}
+.arch-toc nav a:hover {
+  color: var(--arch-ink);
+  background: var(--arch-panel);
+}
+.arch-toc nav a b {
+  font:
+    600 9.5px/1 ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--arch-ink3);
+  margin-right: 8px;
+}
+.arch-toc > .arch-btn {
+  margin-top: 22px;
+}
+.arch-main {
+  padding: 0 40px 140px;
+  min-width: 0;
+}
+.arch-mast {
+  padding: 58px 0 34px;
+  border-bottom: 1px solid var(--arch-rule);
+  margin-bottom: 8px;
+}
+.arch-kick {
+  font:
+    600 10.5px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--arch-brand);
+  margin: 0 0 18px;
+}
+.arch-mast h2 {
+  font-size: clamp(34px, 5vw, 56px);
+  font-weight: 750;
+  letter-spacing: -0.035em;
+  margin: 0 0 16px;
+}
+.arch-deck {
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--arch-ink2);
+  max-width: 70ch;
+  margin: 0;
+}
+.arch-section {
+  padding: 52px 0 0;
+  scroll-margin-top: 8px;
+}
+.arch-section-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 13px;
+  margin-bottom: 12px;
+}
+.arch-num {
+  flex: none;
+  font:
+    700 10.5px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.1em;
+  color: var(--arch-brand);
+  padding: 5px 8px;
+  border-radius: 5px;
   border: 1px solid color-mix(in oklab, var(--arch-brand) 45%, transparent);
-  background: color-mix(in oklab, var(--arch-brand) 9%, transparent); }
-.arch-section-hd h3 { margin: 0; font-size: 25px; font-weight: 700; letter-spacing: -.022em; }
-.arch-framing { font-size: 15.5px; line-height: 1.6; color: var(--arch-ink2); max-width: 78ch; margin: 0 0 20px; }
-.arch-key { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 11px; margin: 0 0 20px; }
-.arch-kb { border: 1px solid var(--arch-rule); border-radius: 9px; padding: 12px 14px; background: var(--arch-panel); }
-.arch-sw { width: 14px; height: 14px; border-radius: 3px; flex: none; display: inline-block; }
+  background: color-mix(in oklab, var(--arch-brand) 9%, transparent);
+}
+.arch-section-hd h3 {
+  margin: 0;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+}
+.arch-framing {
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--arch-ink2);
+  max-width: 78ch;
+  margin: 0 0 20px;
+}
+.arch-key {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 11px;
+  margin: 0 0 20px;
+}
+.arch-kb {
+  border: 1px solid var(--arch-rule);
+  border-radius: 9px;
+  padding: 12px 14px;
+  background: var(--arch-panel);
+}
+.arch-sw {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: none;
+  display: inline-block;
+}
 @media (max-width: 960px) {
-  .arch-shell { grid-template-columns: 1fr; }
-  .arch-toc { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--arch-rule); }
-  .arch-main { padding: 0 18px 90px; }
+  .arch-shell {
+    grid-template-columns: 1fr;
+  }
+  .arch-toc {
+    position: static;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--arch-rule);
+  }
+  .arch-main {
+    padding: 0 18px 90px;
+  }
 }
 ```
 
@@ -1582,8 +2076,10 @@ const ArchitectureView = lazy(() => import('./views/architecture/ArchitectureVie
 And immediately before the `path="/"` landing route:
 
 ```tsx
-{/* ── public architecture documentation ──────────────────────────── */}
-<Route path="/architecture" element={<ArchitectureView />} />
+{
+  /* ── public architecture documentation ──────────────────────────── */
+}
+<Route path="/architecture" element={<ArchitectureView />} />;
 ```
 
 - [ ] **Step 6: Run tests to verify they pass**
@@ -1614,6 +2110,7 @@ git commit --no-gpg-sign -m "feat(analyzer): public interactive /architecture ro
 ### Task 8: Accessibility and cross-theme verification
 
 **Files:**
+
 - Test: `packages/analyzer/src/views/architecture/architecture.a11y.test.tsx`
 
 - [ ] **Step 1: Write the test**
@@ -1626,28 +2123,44 @@ import { describe, it, expect, vi } from 'vitest';
 import ArchitectureView from './ArchitectureView.js';
 
 vi.stubGlobal('matchMedia', (q: string) => ({
-  matches: false, media: q,
-  addEventListener: vi.fn(), removeEventListener: vi.fn(),
-  addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+  matches: false,
+  media: q,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  dispatchEvent: vi.fn(),
 }));
 
 describe('architecture accessibility', () => {
   it('gives every diagram viewport an accessible name', () => {
-    render(<MemoryRouter><ArchitectureView /></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <ArchitectureView />
+      </MemoryRouter>,
+    );
     const apps = screen.getAllByRole('application');
     expect(apps).toHaveLength(13);
     apps.forEach((a) => expect(a).toHaveAccessibleName());
   });
 
   it('makes diagram nodes reachable as buttons', () => {
-    const { container } = render(<MemoryRouter><ArchitectureView /></MemoryRouter>);
+    const { container } = render(
+      <MemoryRouter>
+        <ArchitectureView />
+      </MemoryRouter>,
+    );
     const nodes = container.querySelectorAll('g.node[role="button"][tabindex="0"]');
     expect(nodes.length).toBeGreaterThan(50);
     nodes.forEach((n) => expect(n.getAttribute('aria-label')).toBeTruthy());
   });
 
   it('moves focus to the detail panel when a node is selected', async () => {
-    const { container } = render(<MemoryRouter><ArchitectureView /></MemoryRouter>);
+    const { container } = render(
+      <MemoryRouter>
+        <ArchitectureView />
+      </MemoryRouter>,
+    );
     const node = container.querySelector('g.node') as SVGGElement;
     await userEvent.click(node);
     expect(document.activeElement).toHaveAttribute('aria-label', 'Node details');
@@ -1668,6 +2181,7 @@ npm run dev --workspace=packages/analyzer
 ```
 
 Confirm by eye, in **both** themes:
+
 1. No diagram renders with invisible text (a missed colour mapping shows as black-on-black or white-on-white).
 2. Node hover and selection are visible in both.
 3. The page is reachable while **signed out** — open a private window.
@@ -1689,6 +2203,7 @@ is worse than none, because it is trusted. This task writes the obligation into
 `CLAUDE.md`, which every agent reads before working in this repo.
 
 **Files:**
+
 - Modify: `CLAUDE.md` (repo root)
 
 - [ ] **Step 1: Add the maintenance rule**
@@ -1705,7 +2220,7 @@ before `## Architecture rules`:
   - add, remove, or rename an **event type**, validation check, or heuristic;
   - change the **ingest pipeline** stage order, dedup, stripping, or the read path;
   - change the **recorder**'s activation, signal capture, state machine, or failure
-    handling — in *any* of the three recorders;
+    handling — in _any_ of the three recorders;
   - change the **format contract**, key handling, checkpoint cadence, or bundle shape;
   - add or remove a **Postgres table**, or change what is persisted vs. re-parsed;
   - add, remove, or re-scope an **analyzer route**;
