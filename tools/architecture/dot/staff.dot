@@ -66,8 +66,8 @@ digraph staff {
     node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
     judge [label="is the flag class\nfiring on ordinary work?" shape=diamond fillcolor="#12161f"
            fontsize=9 height=0.95 width=2.2]
-    tune  [label="/tuning — 24 thresholds"]
-    recomp[label="enqueue cohort recompute\nre-runs heuristics against the re-parsed bundles;\nvalidation results are NOT re-run" fontsize=9]
+    tune  [label="/tuning — 25 flag weights\n(0.0–2.0) + on/off, not thresholds"]
+    recomp[label="enqueue cohort recompute\nre-parses each bundle, RE-RUNS validation,\nthen re-runs heuristics against it" fontsize=9]
   }
 
   subgraph cluster_out {

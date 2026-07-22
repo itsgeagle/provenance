@@ -29,7 +29,7 @@ digraph chain {
     amf   [label=".provenance-manifest\nassignment_id · semester · issued_at\nfiles_under_review · sig" shape=note]
     averify [label="verify\nsignature" shape=diamond fillcolor="#1c1712" fontsize=9
              height=0.75 width=1.35]
-    bind  [label="BIND\nsession pubkey is signed together\nwith the manifest signature"
+    bind  [label="BIND (two mechanisms)\n(1) manifest sig copied into session.start,\ncovered by the hash chain\n(2) session privkey AEAD-wrapped under a key\nHKDF-derived from that same manifest sig"
            fillcolor="#1e1830" color="#9d7bf5"]
   }
 
@@ -70,7 +70,7 @@ digraph chain {
 
     vchain [label="walk the chain\nrecompute every link"]
     vsig   [label="verify manifest.sig"]
-    vbind  [label="verify session binding\nanti-replay"]
+    vbind  [label="verify session binding\nall sessions share one manifest_sig\n(session-to-session only — the stored\nbundle carries no course-key sig to check)"]
     verdict[label="any link,\nsignature or binding\nbroken?" shape=diamond fillcolor="#12161f"
             fontsize=9 height=0.9 width=1.7]
     ok     [label="valid\nchain intact" fillcolor="#0d2416" color="#3fbf62"]
@@ -84,7 +84,7 @@ digraph chain {
   averify-> bind    [label="valid" color="#F97316"]
   skey   -> bind    [color="#e8559c"]
 
-  bind -> e0   [label="entry 0 carries\nthe bound pubkey" color="#9d7bf5"]
+  bind -> e0   [label="entry 0 carries manifest_sig\n+ the session pubkey" color="#9d7bf5"]
   gen  -> e0   [label="prev_hash" color="#5d677d" style=dashed]
   e0 -> e1 [label="prev_hash =\nhash(entry 0)" color="#9d7bf5"]
   e1 -> e2 [color="#9d7bf5"]
