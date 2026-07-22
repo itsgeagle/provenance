@@ -214,6 +214,23 @@ function Canvas() {
       }
       return;
     }
+    // A cluster is a labelled box grouping nodes (e.g. "gradescope/"). Clicking
+    // one drills into just that box and its contents.
+    const cluster = el.closest?.('g.cluster');
+    if (cluster) {
+      const vp = viewportRef.current!.getBoundingClientRect();
+      const r = cluster.getBoundingClientRect();
+      const box = {
+        x: (r.left - vp.left - view.tx) / view.k,
+        y: (r.top - vp.top - view.ty) / view.k,
+        w: r.width / view.k,
+        h: r.height / view.k,
+      };
+      const diagram = cluster.closest('.arch-plate')?.getAttribute('data-diagram');
+      if (diagram) setActive(diagram);
+      flyTo(fitBox(box, 0.16));
+      return;
+    }
     const plate = el.closest?.('.arch-plate');
     if (plate) {
       focusPlate(plate.getAttribute('data-diagram')!);

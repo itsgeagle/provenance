@@ -163,9 +163,10 @@
 }
 .arch-world.flying {
   transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
-  /* Promote only for the half-second animated fly, where smoothness matters
-     more than the momentary softness; it settles back to crisp vectors after. */
-  will-change: transform;
+  /* Deliberately no will-change/layer promotion, even here. Promoting would
+     rasterise the SVGs once and scale the bitmap through the fly, then snap
+     back to crisp vectors at the end, which reads as the text popping into
+     focus. Re-rasterising each frame keeps the text sharp the whole way. */
 }
 
 /* ---- a plate ------------------------------------------------------------- */
