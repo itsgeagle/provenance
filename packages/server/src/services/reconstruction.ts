@@ -120,7 +120,8 @@ export function _resetReconstructionCacheForTest(): void {
  * Steps:
  *  1. Check LRU cache. Cache hit → return immediately.
  *  2. Check `per_file_stats` for the file path. Missing row → throw FILE_NOT_FOUND.
- *  3. Build EventIndex from DB events via `reconstructBundleFromDb`.
+ *  3. Build EventIndex by re-parsing the stored bundle blob via
+ *     `reconstructBundleFromDb` (there is no `events` table).
  *  4. Call v2's `reconstructFileWithProvenance(index, filePath, atSeq)`.
  *  5. Convert Uint32Array → number[].
  *  6. Populate cache. Return.

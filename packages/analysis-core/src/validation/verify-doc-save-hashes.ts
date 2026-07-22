@@ -280,7 +280,7 @@ function checkSession(
             reason: 'indeterminate',
             detail:
               `Save at seq ${event.seq} (${data.path}): reconstruction not possible — ` +
-              `file was opened with unknown content or contained a large paste (>4 KB inline limit). ` +
+              `file was opened with unknown content or contained a large paste (over the recorder's inline cap, 64 KB in v1.1.2+). ` +
               `Relying on doc.save sha256 alone.`,
           });
           // Can't recover content from sha256 — stay indeterminate.
@@ -344,7 +344,7 @@ export function verifyDocSaveHashes(bundle: Bundle): ValidationCheck {
       status: 'pass',
       detail:
         `${allIndeterminates.length} save(s) could not be reconstructed (file opened with unknown ` +
-        `content or paste exceeded 4 KB inline limit); relying on doc.save sha256 alone for those.`,
+        `content or paste exceeded the recorder's inline cap, 64 KB in v1.1.2+); relying on doc.save sha256 alone for those.`,
     };
   }
 

@@ -28,7 +28,7 @@ import type { AssignmentSummary } from '@provenance/shared/api-schemas';
 
 // ---------------------------------------------------------------------------
 // Well-known heuristic IDs shown in the flag checkboxes
-// (full 24-id set from the Phase 13a backfill)
+// (full 25-id set from the Phase 13a backfill)
 // ---------------------------------------------------------------------------
 
 const COMMON_FLAG_IDS = [

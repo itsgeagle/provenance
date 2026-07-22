@@ -6,9 +6,9 @@
  * Tabs:
  * - Overview  (shipped Phase 23) — summary card + validation + flags + files
  * - Timeline  (shipped Phase 23) — event list with kind/file filters
- * - Replay    (stub Phase 23, full Phase 25) — Monaco replay + scrubbing
- * - Validation (stub Phase 23, full Phase 24) — full validation panel
- * - Export    (stub Phase 23, full Phase 24) — export panel
+ * - Replay    (shipped Phase 25) — Monaco replay + scrubbing
+ * - Validation (shipped Phase 24) — full validation panel
+ * - Export    (stub — v3.1) — export panel
  *
  * The shell mounts ApiSubmissionDataProviderContext so all tab children can
  * call useSubmissionData() without knowing they're in the API-backed path.

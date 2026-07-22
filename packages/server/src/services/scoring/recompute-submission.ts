@@ -9,9 +9,9 @@
  * ## Bundle reconstruction strategy (Strategy A — see V31)
  *
  * v2's runHeuristics(index, bundle, validationReport, config) receives both an
- * EventIndex and a Bundle. After auditing all 17 heuristics in the registry:
+ * EventIndex and a Bundle. After auditing all 18 heuristics in the registry:
  *
- *   - 16 heuristics: only use `index` (EventIndex). No direct `bundle.*` access
+ *   - 17 heuristics: only use `index` (EventIndex). No direct `bundle.*` access
  *     in their `run()` functions.
  *   - 1 heuristic: `extension_hash_mismatch` reads `bundle.manifest.extension_hash`.
  *

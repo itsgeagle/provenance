@@ -54,7 +54,7 @@ const CHECK_META: Partial<Record<ValidationCheckId, CheckMeta>> = {
     severity: 'high',
     confidence: 1.0,
     fallbackDescription:
-      'One or more sessions failed the manifest-to-session binding check. The bundle may mix sessions from different recorder builds.',
+      'One or more sessions failed the manifest-to-session binding check. The bundle mixes sessions with mismatched manifest signatures (different assignment manifests).',
   },
   chain_integrity: {
     heuristic: 'chain_broken',
