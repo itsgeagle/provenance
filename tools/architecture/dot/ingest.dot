@@ -1,0 +1,114 @@
+digraph ingest {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.30 ranksep=0.48 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.08" height=0.34]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  subgraph cluster_in {
+    label="  ENTRY  " fontsize=9.5 fontcolor="#17bfae" color="#123c38"
+    penwidth=1.5 style=rounded bgcolor="#0a1413" labeljust="l"
+    node [fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+    e_http [label="HTTP upload\nstreamed to disk, never buffered;\nresumable in chunks when ≥ 1 GiB"]
+    e_cli  [label="ingest:local\nstreaming read from the server's\nown disk — memory bounded to one bundle"]
+    e_gate [label="provgate\nhourly delta"]
+  }
+
+  subgraph cluster_stage {
+    label="  STAGE 1 · PARSE  " fontsize=9.5 fontcolor="#4b90f7" color="#16294a"
+    penwidth=1.5 style=rounded bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    meta   [label="read submission_metadata.yml"]
+    hasmeta[label="is this actually a\nGradescope export?" shape=diamond fillcolor="#12161f"
+            fontsize=9 height=0.85 width=1.8]
+    fanout [label="fan out — one job per submission\npg-boss, bounded concurrency, cancellable"
+            shape=cds margin="0.26,0.10"]
+    pbun   [label="parse bundle\nmanifest + every .slog"]
+    pfail  [label="invalid_manifest / unparseable\nrecorded on the job, not fatal\nto the rest of the export"
+            fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
+  }
+
+  subgraph cluster_dd {
+    label="  DEDUP — before any heavy work  " fontsize=9.5 fontcolor="#4b90f7"
+    color="#16294a" penwidth=1.5 style=rounded bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    dd  [label="(semester_id, blob_sha256)\nalready present?" shape=diamond fillcolor="#12161f"
+         fontsize=9 height=0.9 width=2.0]
+    ddskip [label="skip\nre-sending an unchanged bundle is cheap\n— this is what lets provgate treat its\nwatermark as an optimisation"
+            fillcolor="#15171d" color="#5d677d" fontcolor="#98a2b6" style="filled,rounded,dashed" fontsize=9]
+  }
+
+  subgraph cluster_match {
+    label="  STAGE 2 · MATCH  " fontsize=9.5 fontcolor="#4b90f7" color="#16294a"
+    penwidth=1.5 style=rounded bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    roster [label="upsert roster from export metadata"]
+    match  [label="does this bundle map\nto a roster entry?" shape=diamond fillcolor="#12161f"
+            fontsize=9 height=0.9 width=1.9]
+    unm    [label="unmatched queue\nsurfaced in its own triage view —\nnever silently dropped"
+            fillcolor="#241a0c" color="#F97316" fontsize=9]
+  }
+
+  subgraph cluster_h {
+    label="  STAGE 3 · ANALYSE — against the in-memory bundle, which still has source  "
+    fontsize=9.5 fontcolor="#3fbf62" color="#153c25" penwidth=1.5 style=rounded
+    bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+    stats [label="per-file statistics"]
+    val   [label="8 validation checks\nincluding check 8, which needs\nthe submitted bytes"]
+    heur  [label="18 heuristics + integrity flags\nlifted from failed checks"]
+  }
+
+  subgraph cluster_tx {
+    label="  PER-SUBMISSION TRANSACTION  " fontsize=9.5 fontcolor="#4b90f7"
+    color="#16294a" penwidth=1.5 style=rounded bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    upa   [label="upsert assignment\nON CONFLICT DO NOTHING RETURNING id,\nfalling back to SELECT — avoids a write\nlock on the conflicting row"]
+    ver   [label="allocate version_index\nraw FOR UPDATE over the cohort's rows so two\nworkers cannot claim the same index"]
+    mv    [label="move blob\nstaging key → final key, inside the\ntransaction"]
+    strip [label="STRIP student source\nthe stored blob becomes provenance-only"
+           fillcolor="#241a0c" color="#F97316" penwidth=2.0]
+    ins   [label="insert submission, per_file_stats,\nvalidation_results, flags"]
+    fail  [label="rollback\nblob orphan left for the retention\nsweep — non-fatal by design"
+           fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
+  }
+
+  subgraph cluster_x {
+    label="  STAGE 4 · CROSS  " fontsize=9.5 fontcolor="#3fbf62" color="#153c25"
+    penwidth=1.5 style=rounded bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+    xf [label="cohort-wide correlation\nshared paste · editing-pattern clone"]
+    xp [label="cross_flags + participants"]
+  }
+
+  done [label="cohort is ready\na retry of this whole pipeline produces\nbyte-identical flags and stats — tests assert it"
+        fillcolor="#0d2416" color="#3fbf62" penwidth=2.0]
+
+  e_http -> meta
+  e_cli  -> meta
+  e_gate -> meta
+  meta -> hasmeta
+  hasmeta -> pfail [label="no — clear error" color="#ff6b6b" style=dashed]
+  hasmeta -> fanout [label="yes" color="#4b90f7"]
+  fanout -> pbun
+  pbun -> pfail [label="malformed" color="#ff6b6b" style=dashed]
+  pbun -> dd    [label="parsed" color="#4b90f7"]
+  dd -> ddskip [label="yes" color="#5d677d" style=dashed]
+  dd -> roster [label="no" color="#4b90f7"]
+  roster -> match
+  match -> unm [label="no" color="#F97316" style=dashed]
+  match -> stats [label="yes" color="#4b90f7"]
+  stats -> val
+  val -> heur
+  heur -> upa [label="all computation done" color="#4b90f7"]
+  upa -> ver
+  ver -> mv
+  mv -> fail [label="blob write fails" color="#ff6b6b" style=dashed]
+  mv -> strip
+  strip -> ins
+  ins -> xf [label="commit" color="#3fbf62"]
+  xf -> xp
+  xp -> done
+}

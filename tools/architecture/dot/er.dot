@@ -1,0 +1,93 @@
+digraph er {
+  bgcolor="transparent" rankdir=LR splines=spline compound=true
+  nodesep=0.22 ranksep=0.85 fontname="Helvetica"
+  node [shape=box style="filled" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.16,0.07" height=0.30]
+  edge [fontname="Helvetica" fontsize=8 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.55 penwidth=1.1 arrowhead=crow arrowtail=none dir=forward]
+
+  subgraph cluster_id {
+    label="  IDENTITY & ACCESS  " fontsize=9.5 fontcolor="#8b95a8" color="#333b4a"
+    penwidth=1.5 style=rounded bgcolor="#101319" labeljust="l"
+    node [fillcolor="#191c22" color="#8b95a8"]
+    users     [label="users"]
+    sessions  [label="sessions"]
+    api_tokens[label="api_tokens"]
+    memberships[label="memberships"]
+    pending   [label="pending_invitations"]
+  }
+
+  subgraph cluster_org {
+    label="  ORGANISATION  " fontsize=9.5 fontcolor="#4b90f7" color="#16294a"
+    penwidth=1.5 style=rounded bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7"]
+    courses   [label="courses"]
+    semesters [label="semesters"]
+    assignments[label="assignments"]
+    roster    [label="roster_entries"]
+  }
+
+  subgraph cluster_sub {
+    label="  SUBMISSIONS  " fontsize=9.5 fontcolor="#3fbf62" color="#153c25"
+    penwidth=1.5 style=rounded bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62"]
+    submissions[label="submissions\nblob_sha256 · version_index" penwidth=1.9]
+    stats     [label="per_file_stats"]
+    valres    [label="validation_results"]
+    flags     [label="flags"]
+  }
+
+  subgraph cluster_x {
+    label="  CROSS-SUBMISSION  " fontsize=9.5 fontcolor="#e8559c" color="#4a1b35"
+    penwidth=1.5 style=rounded bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c"]
+    xflags    [label="cross_flags"]
+    xparts    [label="cross_flag_participants"]
+  }
+
+  subgraph cluster_ing {
+    label="  INGEST  " fontsize=9.5 fontcolor="#17bfae" color="#123c38"
+    penwidth=1.5 style=rounded bgcolor="#0a1413" labeljust="l"
+    node [fillcolor="#0e2422" color="#17bfae"]
+    ijobs     [label="ingest_jobs"]
+    ifiles    [label="ingest_files"]
+    rjobs     [label="recompute_jobs"]
+  }
+
+  subgraph cluster_ops {
+    label="  OPERATIONS  " fontsize=9.5 fontcolor="#c9a227" color="#5c4a12"
+    penwidth=1.5 style=rounded bgcolor="#14120a" labeljust="l"
+    node [fillcolor="#241f0c" color="#c9a227"]
+    hcfg      [label="heuristic_configs"]
+    audit     [label="audit_log"]
+    rate      [label="rate_limit_buckets"]
+  }
+
+  blobstore [label="Blob store\nthe stored bundle — the ONLY place the\nevent stream lives. No events table exists."
+             shape=cylinder fillcolor="#241a0c" color="#F97316" fontsize=9.5 penwidth=1.9]
+
+  users -> sessions
+  users -> api_tokens
+  users -> memberships
+  courses -> semesters
+  semesters -> memberships
+  semesters -> assignments
+  semesters -> roster
+  semesters -> pending
+  semesters -> hcfg
+  semesters -> ijobs
+  assignments -> submissions
+  roster -> submissions [label="matched to"]
+  submissions -> stats
+  submissions -> valres  [label="1:1"]
+  submissions -> flags
+  submissions -> xparts
+  xflags -> xparts
+  semesters -> xflags
+  ijobs -> ifiles
+  ijobs -> submissions [label="created by" style=dashed]
+  semesters -> rjobs
+  users -> audit
+  submissions -> blobstore [label="blob_key →" color="#F97316" arrowhead=normal]
+}

@@ -1,0 +1,110 @@
+digraph chain {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.30 ranksep=0.60 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.09"]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  /* ── keys ── */
+  subgraph cluster_keys {
+    label="  KEY MATERIAL  "
+    fontsize=9.5 fontcolor="#e8559c" color="#4a1b35" penwidth=1.5 style=rounded
+    bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
+
+    ckpriv [label="course PRIVATE key\nheld offline by staff —\nnever on a server or in git"]
+    ckpub  [label="course PUBLIC key\ncompiled into every\nrecorder build"]
+    skey   [label="session keypair\ngenerated fresh at session.start"]
+  }
+
+  /* ── activation ── */
+  subgraph cluster_act {
+    label="  ACTIVATION  "
+    fontsize=9.5 fontcolor="#F97316" color="#4a3316" penwidth=1.5 style=rounded
+    bgcolor="#12100c" labeljust="l"
+    node [fillcolor="#241a0c" color="#F97316" fontsize=9.5]
+
+    amf   [label=".provenance-manifest\nassignment_id · semester · issued_at\nfiles_under_review · sig" shape=note]
+    averify [label="verify\nsignature" shape=diamond fillcolor="#1c1712" fontsize=9
+             height=0.75 width=1.35]
+    bind  [label="BIND\nsession pubkey is signed together\nwith the manifest signature"
+           fillcolor="#1e1830" color="#9d7bf5"]
+  }
+
+  /* ── the chain ── */
+  subgraph cluster_chain {
+    label="  THE HASH CHAIN — one function, every log-producing path goes through it  "
+    fontsize=9.5 fontcolor="#9d7bf5" color="#2e2450" penwidth=1.5 style=rounded
+    bgcolor="#0e0b18" labeljust="l"
+    node [fillcolor="#1e1830" color="#9d7bf5" fontsize=9.5]
+
+    gen  [label="GENESIS_PREV_HASH\nseq 0 only" fillcolor="#15171d" color="#5d677d" fontcolor="#98a2b6"]
+    e0   [label="entry 0\nsession.start" shape=note]
+    e1   [label="entry 1\ndoc.open" shape=note]
+    e2   [label="entry 2\ndoc.change" shape=note]
+    edots[label="…" fillcolor="#0e0b18" color="#2e2450" fontcolor="#8b95a8" width=0.35]
+    e99  [label="entry 99\ndoc.save" shape=note]
+    e100 [label="entry 100\nCHECKPOINT" shape=note penwidth=2.0]
+  }
+
+  /* ── seal ── */
+  subgraph cluster_seal {
+    label="  SEAL  "
+    fontsize=9.5 fontcolor="#17bfae" color="#123c38" penwidth=1.5 style=rounded
+    bgcolor="#0a1413" labeljust="l"
+    node [fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+
+    bman [label="manifest.json\nextension_hash + per-session\nslog_sha256 / meta_sha256" shape=note]
+    bsig [label="manifest.sig\ned25519 over JCS(manifest)" shape=note]
+    zip  [label="bundle .zip" shape=note penwidth=2.0]
+  }
+
+  /* ── verification, later ── */
+  subgraph cluster_ver {
+    label="  VERIFICATION — server or browser, years later  "
+    fontsize=9.5 fontcolor="#3fbf62" color="#153c25" penwidth=1.5 style=rounded
+    bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+
+    vchain [label="walk the chain\nrecompute every link"]
+    vsig   [label="verify manifest.sig"]
+    vbind  [label="verify session binding\nanti-replay"]
+    verdict[label="any link,\nsignature or binding\nbroken?" shape=diamond fillcolor="#12161f"
+            fontsize=9 height=0.9 width=1.7]
+    ok     [label="valid\nchain intact" fillcolor="#0d2416" color="#3fbf62"]
+    bad    [label="HIGH-severity flag\nwith the exact failing seq"
+            fillcolor="#2a1216" color="#ff6b6b"]
+  }
+
+  ckpriv -> amf     [label="signs, offline" color="#e8559c"]
+  amf    -> averify
+  ckpub  -> averify [label="checks against" color="#e8559c"]
+  averify-> bind    [label="valid" color="#F97316"]
+  skey   -> bind    [color="#e8559c"]
+
+  bind -> e0   [label="entry 0 carries\nthe bound pubkey" color="#9d7bf5"]
+  gen  -> e0   [label="prev_hash" color="#5d677d" style=dashed]
+  e0 -> e1 [label="prev_hash =\nhash(entry 0)" color="#9d7bf5"]
+  e1 -> e2 [color="#9d7bf5"]
+  e2 -> edots [color="#9d7bf5"]
+  edots -> e99 [color="#9d7bf5"]
+  e99 -> e100 [color="#9d7bf5"]
+  skey -> e100 [label="signs the checkpoint —\nbounds the blast radius\nof any tampering" color="#e8559c" style=dashed]
+
+  e100 -> bman [label="on seal" color="#17bfae"]
+  bman -> bsig
+  skey -> bsig [label="signs" color="#e8559c" style=dashed]
+  bman -> zip
+  bsig -> zip
+
+  zip -> vchain [label="ingest, or a drag-and-drop\ninto /local" color="#3fbf62"]
+  vchain -> verdict
+  vsig -> verdict
+  vbind -> verdict
+  zip -> vsig
+  zip -> vbind
+  verdict -> ok  [label="no" color="#3fbf62"]
+  verdict -> bad [label="yes" color="#ff6b6b"]
+}

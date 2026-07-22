@@ -1,0 +1,166 @@
+<svg width="1432pt" height="349pt"
+ viewBox="0.00 0.00 1432.00 349.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 345.1)">
+<title>state</title>
+
+<g id="node1" class="node">
+<title>start</title>
+<ellipse stroke-width="1.4" cx="6.12" cy="-168.07" rx="6.12" ry="6.12" class="a-hum s-hum"/>
+</g>
+
+<g id="node2" class="node">
+<title>dormant</title>
+<path stroke-width="1.4" d="M208.41,-192.15C208.41,-192.15 122.49,-192.15 122.49,-192.15 116.49,-192.15 110.49,-186.15 110.49,-180.15 110.49,-180.15 110.49,-156 110.49,-156 110.49,-150 116.49,-144 122.49,-144 122.49,-144 208.41,-144 208.41,-144 214.41,-144 220.41,-150 220.41,-156 220.41,-156 220.41,-180.15 220.41,-180.15 220.41,-186.15 214.41,-192.15 208.41,-192.15" class="f-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="165.45" y="-174.97" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink2">DORMANT</text>
+<text xml:space="preserve" text-anchor="middle" x="165.45" y="-163.72" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink2">extension loaded,</text>
+<text xml:space="preserve" text-anchor="middle" x="165.45" y="-152.47" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink2">nothing recorded</text>
+</g>
+
+<g id="edge1" class="edge">
+<title>start&#45;&gt;dormant</title>
+<path fill="none" stroke-width="1.2" d="M12.72,-168.07C27.12,-168.07 66.79,-168.07 101.95,-168.07" class="s-edge"/>
+<polygon stroke-width="1.2" points="101.52,-170.35 108.02,-168.08 101.52,-165.8 101.52,-170.35" class="a-edge s-edge"/>
+<text xml:space="preserve" text-anchor="middle" x="61.37" y="-169" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">editor starts</text>
+</g>
+
+<g id="node3" class="node">
+<title>verify</title>
+<path stroke-width="1.4" d="M441.18,-200.29C441.18,-200.29 355.55,-171.86 355.55,-171.86 349.85,-169.97 349.85,-166.18 355.55,-164.29 355.55,-164.29 441.18,-135.86 441.18,-135.86 446.87,-133.97 458.26,-133.97 463.95,-135.86 463.95,-135.86 549.58,-164.29 549.58,-164.29 555.27,-166.18 555.27,-169.97 549.58,-171.86 549.58,-171.86 463.95,-200.29 463.95,-200.29 458.26,-202.18 446.87,-202.18 441.18,-200.29" class="f-rec s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="452.56" y="-174.15" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">manifest</text>
+<text xml:space="preserve" text-anchor="middle" x="452.56" y="-164.4" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">verifies against the</text>
+<text xml:space="preserve" text-anchor="middle" x="452.56" y="-154.65" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">embedded course key?</text>
+</g>
+
+<g id="edge2" class="edge">
+<title>dormant&#45;&gt;verify</title>
+<path fill="none" stroke-width="1.2" d="M221.09,-168.07C253.09,-168.07 294.79,-168.07 333.91,-168.07" class="s-edge"/>
+<polygon stroke-width="1.2" points="333.9,-170.35 340.4,-168.08 333.9,-165.8 333.9,-170.35" class="a-edge s-edge"/>
+<text xml:space="preserve" text-anchor="middle" x="282.29" y="-169" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">workspace opened</text>
+</g>
+
+<g id="edge3" class="edge">
+<title>verify&#45;&gt;dormant</title>
+<path fill="none" stroke-width="1.2" stroke-dasharray="5,2" d="M390.7,-151.97C350.05,-143.34 295.43,-135.83 247.41,-143.07 241.27,-144 234.96,-145.3 228.7,-146.83" class="s-hum"/>
+<polygon stroke-width="1.2" points="228.29,-144.58 222.56,-148.41 229.43,-148.99 228.29,-144.58" class="a-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="282.29" y="-153" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">no — stay silent,</text>
+<text xml:space="preserve" text-anchor="middle" x="282.29" y="-144" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">record nothing</text>
+</g>
+
+<g id="node4" class="node">
+<title>recording</title>
+<path stroke-width="2" d="M795.39,-192.15C795.39,-192.15 701.22,-192.15 701.22,-192.15 695.22,-192.15 689.22,-186.15 689.22,-180.15 689.22,-180.15 689.22,-156 689.22,-156 689.22,-150 695.22,-144 701.22,-144 701.22,-144 795.39,-144 795.39,-144 801.39,-144 807.39,-150 807.39,-156 807.39,-156 807.39,-180.15 807.39,-180.15 807.39,-186.15 801.39,-192.15 795.39,-192.15" class="f-rec s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="748.3" y="-174.97" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">RECORDING</text>
+<text xml:space="preserve" text-anchor="middle" x="748.3" y="-163.72" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">session keypair live</text>
+<text xml:space="preserve" text-anchor="middle" x="748.3" y="-152.47" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">events appending</text>
+</g>
+
+<g id="edge4" class="edge">
+<title>verify&#45;&gt;recording</title>
+<path fill="none" stroke-width="1.2" d="M562.94,-168.07C602.35,-168.07 645.63,-168.07 680.34,-168.07" class="s-rec"/>
+<polygon stroke-width="1.2" points="680.2,-170.35 686.7,-168.08 680.2,-165.8 680.2,-170.35" class="a-rec s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="625.09" y="-169" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">yes — session.start</text>
+</g>
+
+<g id="node5" class="node">
+<title>degraded</title>
+<path stroke-width="1.4" d="M1125.43,-340.15C1125.43,-340.15 996.01,-340.15 996.01,-340.15 990.01,-340.15 984.01,-334.15 984.01,-328.15 984.01,-328.15 984.01,-304 984.01,-304 984.01,-298 990.01,-292 996.01,-292 996.01,-292 1125.43,-292 1125.43,-292 1131.43,-292 1137.43,-298 1137.43,-304 1137.43,-304 1137.43,-328.15 1137.43,-328.15 1137.43,-334.15 1131.43,-340.15 1125.43,-340.15" class="f-bad s-bad"/>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-322.97" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">DEGRADED</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-311.72" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">disk full — student notified,</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-300.47" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">appends suspended</text>
+</g>
+
+<g id="edge7" class="edge">
+<title>recording&#45;&gt;degraded</title>
+<path fill="none" stroke-width="1.2" d="M758.57,-192.92C770.96,-222.32 795.94,-270.16 834.39,-293.07 876.28,-318.04 930.48,-324.22 975.22,-323.95" class="s-bad"/>
+<polygon stroke-width="1.2" points="975.17,-326.22 981.64,-323.85 975.11,-321.67 975.17,-326.22" class="a-bad s-bad"/>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-333.02" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">write fails:</text>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-324.02" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">ENOSPC</text>
+</g>
+
+<g id="node6" class="node">
+<title>suspended</title>
+<path stroke-width="1.4" stroke-dasharray="5,2" d="M1136.31,-253.15C1136.31,-253.15 985.14,-253.15 985.14,-253.15 979.14,-253.15 973.14,-247.15 973.14,-241.15 973.14,-241.15 973.14,-217 973.14,-217 973.14,-211 979.14,-205 985.14,-205 985.14,-205 1136.31,-205 1136.31,-205 1142.31,-205 1148.31,-211 1148.31,-217 1148.31,-217 1148.31,-241.15 1148.31,-241.15 1148.31,-247.15 1142.31,-253.15 1136.31,-253.15" class="f-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-235.97" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink2">SUSPENDED</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-224.72" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink2">OS sleep — the host process is</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-213.47" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink2">parked, not deactivated</text>
+</g>
+
+<g id="edge5" class="edge">
+<title>recording&#45;&gt;suspended</title>
+<path fill="none" stroke-width="1.2" stroke-dasharray="5,2" d="M807.97,-188.84C816.76,-191.52 825.76,-194.04 834.39,-196.07 876.6,-206.03 924.01,-213.52 964.41,-218.82" class="s-hum"/>
+<polygon stroke-width="1.2" points="964.12,-221.07 970.86,-219.65 964.7,-216.56 964.12,-221.07" class="a-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-217.03" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">machine sleeps</text>
+</g>
+
+<g id="node7" class="node">
+<title>crashed</title>
+<path stroke-width="1.4" stroke-dasharray="5,2" d="M1114.93,-173.15C1114.93,-173.15 1006.51,-173.15 1006.51,-173.15 1000.51,-173.15 994.51,-167.15 994.51,-161.15 994.51,-161.15 994.51,-137 994.51,-137 994.51,-131 1000.51,-125 1006.51,-125 1006.51,-125 1114.93,-125 1114.93,-125 1120.93,-125 1126.93,-131 1126.93,-137 1126.93,-137 1126.93,-161.15 1126.93,-161.15 1126.93,-167.15 1120.93,-173.15 1114.93,-173.15" class="f-bad s-bad"/>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-155.97" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">TERMINATED</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-144.72" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">crash, kill, or quit —</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-133.47" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">no session.end written</text>
+</g>
+
+<g id="edge9" class="edge">
+<title>recording&#45;&gt;crashed</title>
+<path fill="none" stroke-width="1.2" stroke-dasharray="5,2" d="M788.92,-143.22C802.77,-135.87 818.77,-128.8 834.39,-125.07 884.11,-113.23 941.39,-119.58 985.76,-128.72" class="s-bad"/>
+<polygon stroke-width="1.2" points="985.29,-130.94 992.12,-130.08 986.23,-126.5 985.29,-130.94" class="a-bad s-bad"/>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-126" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">process dies</text>
+</g>
+
+<g id="node9" class="node">
+<title>sealed</title>
+<path stroke-width="2" d="M1114.18,-95.15C1114.18,-95.15 1007.26,-95.15 1007.26,-95.15 1001.26,-95.15 995.26,-89.15 995.26,-83.15 995.26,-83.15 995.26,-59 995.26,-59 995.26,-53 1001.26,-47 1007.26,-47 1007.26,-47 1114.18,-47 1114.18,-47 1120.18,-47 1126.18,-53 1126.18,-59 1126.18,-59 1126.18,-83.15 1126.18,-83.15 1126.18,-89.15 1120.18,-95.15 1114.18,-95.15" class="f-tra s-tra"/>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-77.97" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">SEALED</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-66.72" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">bundle written; the log</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-55.47" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">is now immutable</text>
+</g>
+
+<g id="edge12" class="edge">
+<title>recording&#45;&gt;sealed</title>
+<path fill="none" stroke-width="1.2" d="M770.05,-143.33C785.82,-126.38 809.06,-105.05 834.39,-94.07 882.21,-73.36 940.92,-67.93 986.42,-67.51" class="s-tra"/>
+<polygon stroke-width="1.2" points="986.16,-69.78 992.65,-67.49 986.14,-65.23 986.16,-69.78" class="a-tra s-tra"/>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-104" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">student runs</text>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-95" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">Prepare Submission Bundle</text>
+</g>
+
+<g id="edge8" class="edge">
+<title>degraded&#45;&gt;recording</title>
+<path fill="none" stroke-width="1.2" d="M1004.07,-291.4C985.76,-283.59 965.2,-275.16 946.14,-268.07 897.22,-249.9 880.71,-256.09 834.39,-232.07 816.44,-222.77 798.3,-209.73 783.4,-197.85" class="s-ana"/>
+<polygon stroke-width="1.2" points="785.12,-196.32 778.64,-193.99 782.25,-199.85 785.12,-196.32" class="a-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-278" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">space freed —</text>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-269" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">recorder.recovered</text>
+</g>
+
+<g id="edge6" class="edge">
+<title>suspended&#45;&gt;recording</title>
+<path fill="none" stroke-width="1.2" stroke-dasharray="5,2" d="M1000.99,-204.45C991.38,-199.54 981.76,-194.03 973.14,-188.07 959.43,-178.61 961.59,-168.3 946.14,-162.07 905.29,-145.6 855.7,-147.23 816.52,-152.91" class="s-hum"/>
+<polygon stroke-width="1.2" points="816.19,-150.66 810.11,-153.9 816.89,-155.16 816.19,-150.66" class="a-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-181" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">wake — the heartbeat gap has</text>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-172" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">no intervening events, so it</text>
+<text xml:space="preserve" text-anchor="middle" x="890.26" y="-163" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">is NOT flagged</text>
+</g>
+
+<g id="node8" class="node">
+<title>recover</title>
+<path stroke-width="1.4" d="M1411.98,-48.15C1411.98,-48.15 1266.06,-48.15 1266.06,-48.15 1260.06,-48.15 1254.06,-42.15 1254.06,-36.15 1254.06,-36.15 1254.06,-12 1254.06,-12 1254.06,-6 1260.06,0 1266.06,0 1266.06,0 1411.98,0 1411.98,0 1417.98,0 1423.98,-6 1423.98,-12 1423.98,-12 1423.98,-36.15 1423.98,-36.15 1423.98,-42.15 1417.98,-48.15 1411.98,-48.15" class="f-fmt s-fmt"/>
+<text xml:space="preserve" text-anchor="middle" x="1339.02" y="-30.97" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">RECOVERING</text>
+<text xml:space="preserve" text-anchor="middle" x="1339.02" y="-19.72" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">read the log tail, find the last</text>
+<text xml:space="preserve" text-anchor="middle" x="1339.02" y="-8.47" font-family="Helvetica,sans-Serif" font-size="10.50" class="t-ink">valid chain link, resume from it</text>
+</g>
+
+<g id="edge10" class="edge">
+<title>crashed&#45;&gt;recover</title>
+<path fill="none" stroke-width="1.2" d="M1116.7,-124.34C1127.19,-119.61 1138.09,-114.69 1148.31,-110.07 1191.1,-90.74 1239.28,-68.89 1276.38,-52.06" class="s-fmt"/>
+<polygon stroke-width="1.2" points="1277.02,-54.27 1282,-49.51 1275.14,-50.13 1277.02,-54.27" class="a-fmt s-fmt"/>
+<text xml:space="preserve" text-anchor="middle" x="1201.18" y="-96.95" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">editor restarts</text>
+</g>
+
+<g id="edge11" class="edge">
+<title>recover&#45;&gt;recording</title>
+<path fill="none" stroke-width="1.2" d="M1253.66,-12.45C1179.27,-4.4 1068.23,2.22 973.14,-14.07 908.68,-25.12 887.82,-25.36 834.39,-63.07 806.94,-82.45 783.58,-113 768.32,-136.16" class="s-fmt"/>
+<polygon stroke-width="1.2" points="766.44,-134.87 764.83,-141.57 770.27,-137.34 766.44,-134.87" class="a-fmt s-fmt"/>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-24" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">session.resumed,</text>
+<text xml:space="preserve" text-anchor="middle" x="1060.72" y="-15" font-family="Helvetica,sans-Serif" font-size="8.50" class="t-hum">prev_session_id linked</text>
+</g>
+</g>
+</svg>

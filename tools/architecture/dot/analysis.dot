@@ -1,0 +1,113 @@
+digraph analysis {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.26 ranksep=0.50 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.08" height=0.34]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  zip [label="bundle .zip" shape=note fillcolor="#0e2422" color="#17bfae" penwidth=1.8]
+
+  subgraph cluster_load {
+    label="  LOADER  " fontsize=9.5 fontcolor="#3fbf62" color="#153c25"
+    penwidth=1.5 style=rounded bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+    unzip [label="unzip · parse manifest · parse every .slog"]
+    index [label="EventIndex\nordered access, per-session and per-file views"]
+    recon [label="file reconstruction\nreplay edits; tag each line typed / pasted /\nexternal / starter code"]
+  }
+
+  subgraph cluster_val {
+    label="  VALIDATION — 8 checks, run once at ingest  " fontsize=9.5
+    fontcolor="#9d7bf5" color="#2e2450" penwidth=1.5 style=rounded
+    bgcolor="#0e0b18" labeljust="l"
+    node [fillcolor="#1e1830" color="#9d7bf5" fontsize=9]
+    v1 [label="verify-chain"]
+    v2 [label="verify-manifest-sig"]
+    v3 [label="verify-session-binding"]
+    v4 [label="verify-seq"]
+    v5 [label="verify-monotonic-t"]
+    v6 [label="verify-monotonic-wall"]
+    v7 [label="verify-doc-save-hashes\ninformational — no flag"
+        fillcolor="#15171d" color="#5d677d" fontcolor="#98a2b6"]
+    v8 [label="verify-submitted-code\ntamper sub-check gated on\nbytes being present"]
+  }
+
+  report [label="validation report" shape=note fillcolor="#1e1830" color="#9d7bf5"]
+
+  subgraph cluster_heur {
+    label="  HEURISTIC REGISTRY — a fixed list, iterated in order  " fontsize=9.5
+    fontcolor="#3fbf62" color="#153c25" penwidth=1.5 style=rounded
+    bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9]
+
+    cand [label="candidate-pastes\nunifies native paste events with\ndoc.change deltas marked paste_likely —\none place to teach about a new paste source"
+          fillcolor="#0d1c33" color="#4b90f7" fontsize=9]
+
+    hp [label="PROCESS ×10\nlarge_paste · paste_is_solution\npaste_matches_known_source · external_edits · inter_session_external_change\nmass_external_replacement · low_typing_high_output\ntime_to_first_save_anomaly · idle_then_complete\nno_intermediate_errors"]
+    he [label="ENVIRONMENT ×4\nai_extension_active\nshell_integration_disabled\nextension_set_changed_mid_assignment\nterminal_active_during_external_change"]
+    hi [label="INTEGRITY ×4\nclock_jumps · gap_in_heartbeats\nmultiple_sessions_overlap\nextension_hash_mismatch"]
+  }
+
+  imove [label="internal-move check\nis this paste a copy of the student's OWN\nearlier content, whose provenance is typed?"
+         shape=diamond fillcolor="#1c1712" color="#F97316" fontsize=9 height=1.1 width=2.5]
+
+  down  [label="RETITLED, dropped to info\nscores 0 under default weights, so it leaves the\nranked queue — but is NEVER suppressed. The record\nand its jump-to-source link both remain."
+         fillcolor="#241a0c" color="#F97316" fontsize=9]
+
+  keep  [label="full severity" fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+
+  integ [label="integrity-flags adapter\nlifts each FAILED check into the same flag list"
+         fillcolor="#1e1830" color="#9d7bf5" fontsize=9.5]
+
+  sort  [label="SORT\nseverity ↓, then confidence ↓,\nthen supporting seq ↑ — a stable tie-break that\nmakes output deterministic and snapshot-testable"
+         fillcolor="#0d2416" color="#3fbf62" penwidth=1.8]
+
+  out   [label="ranked flag list" shape=note fillcolor="#0d2416" color="#3fbf62" penwidth=1.8]
+
+  subgraph cluster_cross {
+    label="  CROSS-SUBMISSION — needs more than one bundle  " fontsize=9.5
+    fontcolor="#e8559c" color="#4a1b35" penwidth=1.5 style=rounded
+    bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9]
+    c1 [label="paste_shared_across_students\nsha256 exact → high · fuzzy line match → medium"]
+    c2 [label="editing_pattern_clone\nanomalously similar timing and file-switch order"]
+    cx [label="cross_flags + participants" shape=note]
+  }
+
+  cfg [label="HeuristicConfig\n24 tunable thresholds; per-semester overrides\nlayered over the shipped defaults"
+       fillcolor="#0d1c33" color="#4b90f7" fontsize=9]
+
+  zip -> unzip
+  unzip -> index
+  index -> recon
+  index -> v1 [lhead=cluster_val color="#9d7bf5"]
+  v1 -> report [ltail=cluster_val color="#9d7bf5"]
+  report -> integ
+
+  index -> cand [color="#3fbf62"]
+  recon -> hp [label="overlap with\nfinal content" color="#3fbf62" style=dashed]
+  cand -> hp
+  index -> he
+  index -> hi
+  cfg -> hp [label="thresholds" color="#4b90f7" style=dashed]
+  cfg -> he [color="#4b90f7" style=dashed]
+  cfg -> hi [color="#4b90f7" style=dashed]
+
+  hp -> imove [label="large_paste and\npaste_is_solution only" color="#F97316"]
+  imove -> down [label="yes" color="#F97316"]
+  imove -> keep [label="no — or the source region itself\narrived by paste / external change,\nso it cannot be laundered" color="#3fbf62"]
+
+  down -> sort
+  keep -> sort
+  he -> sort
+  hi -> sort
+  integ -> sort
+  sort -> out
+
+  out -> c1 [label="only when several bundles\nare loaded together" color="#e8559c" style=dashed]
+  c1 -> cx
+  c2 -> cx
+  out -> c2 [style=invis]
+}

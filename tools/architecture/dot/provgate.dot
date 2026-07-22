@@ -1,0 +1,107 @@
+digraph provgate {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.28 ranksep=0.50 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.08" height=0.34]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  cron [label="external scheduler\nprovgate sync --all · one shot"
+        fillcolor="#191c22" color="#8b95a8" fontsize=9.5]
+
+  subgraph cluster_store {
+    label="  store/ — the only place SQL is written  " fontsize=9.5 fontcolor="#4b90f7"
+    color="#16294a" penwidth=1.5 style=rounded bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    sqlite [label="SQLite\nclasses · secrets · watermarks · runs"
+            shape=cylinder height=0.6]
+    fern   [label="Fernet encrypt / decrypt\nexactly one seam; plaintext exists only\ntransiently, in memory, during a pass"
+            fillcolor="#2a0f1e" color="#e8559c" fontsize=9]
+  }
+
+  loop [label="for each registered class\neach one is a try/except island with its own\nruns row — one outage never aborts the others"
+        fillcolor="#0e2422" color="#17bfae" penwidth=1.8]
+
+  subgraph cluster_gs {
+    label="  gradescope/ — all undocumented-API fragility is quarantined here  "
+    fontsize=9.5 fontcolor="#8b95a8" color="#333b4a" penwidth=1.5 style=rounded
+    bgcolor="#101319" labeljust="l"
+    node [fillcolor="#191c22" color="#8b95a8" fontsize=9.5]
+    gslogin [label="log in\none session reused for the whole pass"]
+    gsauth  [label="429 or auth\nfailure?" shape=diamond fillcolor="#12161f" color="#ff6b6b"
+             fontsize=9 height=0.8 width=1.4]
+    gsback  [label="back off\nnever hammer" fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
+    gslist  [label="list assignments"]
+    gsdl    [label="download bulk export\nexport/without_evaluations"]
+    gsprep  [label="did it return a\n\"preparing\" redirect?" shape=diamond fillcolor="#12161f"
+             color="#8b95a8" fontsize=9 height=0.85 width=1.9]
+  }
+
+  subgraph cluster_sync {
+    label="  sync/ — orchestration; prune is a pure function over in-memory bytes  "
+    fontsize=9.5 fontcolor="#17bfae" color="#123c38" penwidth=1.5 style=rounded
+    bgcolor="#0a1413" labeljust="l"
+    node [fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+    valid  [label="does the archive really contain\nsubmission_metadata.yml?" shape=diamond
+            fillcolor="#12161f" fontsize=9 height=0.95 width=2.3]
+    bad    [label="clear error — never assume the\ntop-level folder name"
+            fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
+    enum   [label="read metadata READ-ONLY\nenumerate submission folder keys"]
+    prune  [label="prune_export(zip_bytes, already_forwarded)\nkeep submission_metadata.yml BYTE-FOR-BYTE;\ninclude only folders not in the watermark;\ndrop .DS_Store and __MACOSX/" penwidth=1.8]
+    never  [label="never regenerate, re-serialize or hand-edit\nthe YAML — a round-trip risks silently dropping\na field Provenance reads"
+            shape=note fillcolor="#241a0c" color="#F97316" fontsize=9]
+  }
+
+  subgraph cluster_prov {
+    label="  provenance/ — the only module that knows Provenance's HTTP shape  "
+    fontsize=9.5 fontcolor="#4b90f7" color="#16294a" penwidth=1.5 style=rounded
+    bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    post [label="POST /semesters/{id}/ingest:gradescope\nmultipart, field \"archive\", Bearer write token.\nNo assignment id is sent — Provenance derives it"]
+    poll [label="GET /ingest/jobs/{jobId}\npoll until terminal"]
+    term [label="terminal\nstatus?" shape=diamond fillcolor="#12161f" fontsize=9
+          height=0.8 width=1.3]
+  }
+
+  adv  [label="ADVANCE the watermark\nonly now, after succeeded or partial"
+        fillcolor="#0d2416" color="#3fbf62" penwidth=1.8]
+  hold [label="LEAVE the watermark untouched\nso the next run retries. A crash mid-poll must\nnever lose submissions."
+        fillcolor="#2a1216" color="#ff6b6b" penwidth=1.8]
+
+  dedupnote [label="Provenance dedups by content hash before any heavy work.\nThe watermark is therefore an OPTIMISATION, never the correctness\nmechanism — when in doubt, forward. A resubmission gets a new\nGradescope key and must be sent; if the watermark gated that,\na changed submission could be silently lost."
+             shape=note fillcolor="#241a0c" color="#F97316" fontsize=9]
+
+  runs [label="write a runs row\nclass label, counts, job ids, outcomes —\nnever a password, token or cookie"
+        fillcolor="#0d1c33" color="#4b90f7" fontsize=9]
+  notify [label="notify/ — render (pure) then POST\nfires only after the pass is already reported,\nand swallows every exception"
+          fillcolor="#191c22" color="#8b95a8" style="filled,rounded,dashed" fontsize=9]
+
+  cron -> loop
+  sqlite -> fern
+  fern -> loop [label="decrypt this class's\ncredentials" color="#e8559c"]
+  loop -> gslogin
+  gslogin -> gsauth
+  gsauth -> gsback [label="yes" color="#ff6b6b" style=dashed]
+  gsback -> loop [label="next class" color="#ff6b6b" style=dashed constraint=false]
+  gsauth -> gslist [label="no" color="#8b95a8"]
+  gslist -> gsdl
+  gsdl -> gsprep
+  gsprep -> gsdl [label="yes — poll the redirect,\nthe body is not synchronous" color="#8b95a8" style=dashed constraint=false]
+  gsprep -> valid [label="no — got the zip" color="#17bfae"]
+  valid -> bad [label="no" color="#ff6b6b" style=dashed]
+  valid -> enum [label="yes" color="#17bfae"]
+  enum -> prune
+  sqlite -> prune [label="already_forwarded set" color="#4b90f7" style=dashed]
+  prune -> never [style=dashed color="#F97316"]
+  prune -> post [label="only the delta" color="#4b90f7"]
+  post -> poll
+  poll -> term
+  term -> adv  [label="succeeded / partial" color="#3fbf62"]
+  term -> hold [label="failed, or any error" color="#ff6b6b"]
+  adv -> sqlite [color="#4b90f7" constraint=false]
+  adv -> dedupnote [style=dashed color="#F97316"]
+  adv -> runs
+  hold -> runs
+  runs -> notify [style=dashed]
+}

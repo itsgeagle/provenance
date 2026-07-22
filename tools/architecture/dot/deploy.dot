@@ -1,0 +1,94 @@
+digraph deploy {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.30 ranksep=0.52 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.08" height=0.34]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  browser [label="Course staff browser" fillcolor="#22201a" color="#8b95a8"]
+  gwclient[label="provgate\nrunning wherever staff schedule it"
+           fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+
+  subgraph cluster_edge {
+    label="  EECS EDGE  " fontsize=9.5 fontcolor="#8b95a8" color="#333b4a"
+    penwidth=1.5 style=rounded bgcolor="#101319" labeljust="l"
+    node [fillcolor="#191c22" color="#8b95a8" fontsize=9.5]
+    dns  [label="provenance.eecs.berkeley.edu"]
+    prox [label="apphost reverse proxy\nterminates TLS"]
+  }
+
+  subgraph cluster_host {
+    label="  instapphost.eecs.berkeley.edu — rootless Docker, provenance service account  "
+    fontsize=9.5 fontcolor="#4b90f7" color="#16294a" penwidth=1.5 style=rounded
+    bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+
+    sock [label="/srv/appsockets/provenance/main/app.sock\nunix socket — no port is ever exposed"
+          shape=note fillcolor="#191c22" color="#8b95a8" fontsize=9]
+
+    apic [label="app container — mode=api\nHono · OAuth · OpenAPI + Redoc · Prometheus" penwidth=1.7]
+    wrkc [label="app container — mode=worker\npg-boss subscriber, bounded concurrency" penwidth=1.7]
+    pgc  [label="postgres container" shape=cylinder height=0.6]
+    dumpc[label="pgdump sidecar\nscheduled pg_dump into the backup directory" fontsize=9]
+  }
+
+  subgraph cluster_nfs {
+    label="  /home/submit/provenance — NFS, 1 TB HARD QUOTA, no headroom  "
+    fontsize=9.5 fontcolor="#F97316" color="#4a3316" penwidth=1.5 style=rounded
+    bgcolor="#12100c" labeljust="l"
+    node [fillcolor="#241a0c" color="#F97316" fontsize=9.5]
+    blobs [label="blob store — filesystem backend\nbehind the same S3-compatible interface\nMinIO provides in development"
+           shape=cylinder height=0.75]
+    backs [label="backups/" shape=cylinder height=0.5]
+  }
+
+  subgraph cluster_cron {
+    label="  SCHEDULED JOBS — every one has an explicit shutdown path  "
+    fontsize=9.5 fontcolor="#3fbf62" color="#153c25" penwidth=1.5 style=rounded
+    bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9]
+    j1 [label="retention-sweep\ndeletes BLOBS only — rows persist forever"]
+    j2 [label="purge-expired-sessions"]
+    j3 [label="reap-stale-uploads"]
+    j4 [label="purge-expired-exports"]
+    j5 [label="storage-quota-check\nalerts before the 1 TB wall is hit"]
+    j6 [label="recompute / recompute-cross-flags"]
+  }
+
+  subgraph cluster_alert {
+    label="  ALERTING  " fontsize=9.5 fontcolor="#e8559c" color="#4a1b35"
+    penwidth=1.5 style=rounded bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
+    disc [label="Discord webhook"]
+    smtp [label="SMTP alerts"]
+    hchk [label="healthchecks.io\ndead-man's switch — catches a SILENT failure,\nwhich no alert-on-error ever will" penwidth=1.7]
+  }
+
+  goog [label="Google OAuth\nhd claim must match berkeley.edu"
+        shape=hexagon fillcolor="#191c22" color="#8b95a8" fontsize=9.5]
+
+  deploy [label="deploy is manual, by hand, over SSH\nGitHub's hosted runners cannot reach instapphost,\nso there is no CI/CD for this environment"
+          shape=note fillcolor="#241a0c" color="#F97316" fontsize=9]
+
+  browser -> dns
+  gwclient -> dns [label="API token" color="#17bfae"]
+  dns -> prox
+  prox -> sock
+  sock -> apic
+  apic -> goog [label="verify ID token" color="#8b95a8" style=dashed]
+  apic -> pgc
+  wrkc -> pgc
+  apic -> wrkc [label="enqueue via pg-boss\n(the queue lives in Postgres)" color="#4b90f7" style=dashed]
+  apic -> blobs
+  wrkc -> blobs
+  pgc -> dumpc
+  dumpc -> backs
+  wrkc -> j1 [lhead=cluster_cron color="#3fbf62"]
+  j5 -> disc [color="#e8559c"]
+  j5 -> smtp [color="#e8559c"]
+  wrkc -> hchk [label="periodic ping" color="#e8559c" style=dashed]
+  j1 -> blobs [label="delete expired blobs" color="#F97316" constraint=false]
+  deploy -> apic [style=dashed color="#F97316"]
+}

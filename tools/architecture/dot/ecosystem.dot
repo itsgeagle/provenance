@@ -1,0 +1,93 @@
+digraph ecosystem {
+  bgcolor="transparent" rankdir=LR splines=spline compound=true
+  nodesep=0.30 ranksep=0.90 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.16,0.09"]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  subgraph cluster_r1 {
+    label="  REPO 2 · provjet — Kotlin / Gradle  " fontsize=9.5 fontcolor="#F97316"
+    color="#4a3316" penwidth=1.5 style=rounded bgcolor="#12100c" labeljust="l"
+    node [fillcolor="#241a0c" color="#F97316" fontsize=9.5]
+    jcore [label="core/\npure Kotlin port of the format"]
+    jrec  [label="recorder/\nIntelliJ Platform wiring"]
+  }
+
+  subgraph cluster_r2 {
+    label="  REPO 3 · provnvim — Lua  " fontsize=9.5 fontcolor="#F97316"
+    color="#4a3316" penwidth=1.5 style=rounded bgcolor="#12100c" labeljust="l"
+    node [fillcolor="#241a0c" color="#F97316" fontsize=9.5]
+    ncore [label="core/\npure Lua port of the format"]
+    nvend [label="vendor/\ned25519 + XChaCha20-Poly1305,\nvendored under a licence-notice gate"]
+    nrec  [label="recorder/\nNeovim API wiring"]
+  }
+
+  subgraph cluster_mono {
+    label="  REPO 1 · provenance — the monorepo, npm workspace of six packages  "
+    fontsize=9.5 fontcolor="#9d7bf5" color="#2e2450" penwidth=1.6 style=rounded
+    bgcolor="#0e0b18" labeljust="l"
+
+    logcore [label="log-core\nevent types · JCS · hash chain · validator\nndjson · bundle + manifest · ed25519\n\nZERO dependencies on vscode, node:*, fs, path or the DOM\n— enforced by an ESLint no-restricted-imports rule"
+             fillcolor="#1e1830" color="#9d7bf5" penwidth=2.2]
+
+    vsrec  [label="recorder\nVS Code extension"
+            fillcolor="#241a0c" color="#F97316" fontsize=9.5]
+
+    shared [label="shared\nZod schemas — the HTTP API contract,\nimported by BOTH ends so they cannot drift"
+            fillcolor="#1e1830" color="#9d7bf5" fontsize=9.5]
+
+    acore  [label="analysis-core\nloader · 8 checks · EventIndex · heuristics\n\nISOMORPHIC — same restricted-import rule, so the\nidentical code runs in Node and in the browser"
+            fillcolor="#0d2416" color="#3fbf62" penwidth=2.0]
+
+    server [label="server\nHono · Drizzle · pg-boss · S3"
+            fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+
+    analyzer[label="analyzer\nReact / Vite SPA"
+            fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
+
+    vectors[label="conformance vectors\nexported from log-core's test vectors"
+            shape=note fillcolor="#1e1830" color="#9d7bf5" fontsize=9]
+
+    allow  [label="known-good-extension-hashes.json\nrefreshed by npm run update-hashes after\nevery recorder release, in any language"
+            shape=note fillcolor="#1e1830" color="#9d7bf5" fontsize=9]
+  }
+
+  subgraph cluster_r3 {
+    label="  REPO 4 · provgate — Python / uv  " fontsize=9.5 fontcolor="#17bfae"
+    color="#123c38" penwidth=1.5 style=rounded bgcolor="#0a1413" labeljust="l"
+    node [fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+    gsync [label="sync/ · store/ · notify/"]
+    gapi  [label="provenance/\nHTTP client — three public behaviours only"]
+    gweb  [label="web/\nreserved: a second frontend reusing\nstore and sync unchanged"
+           style="filled,rounded,dashed" fillcolor="#14120a" color="#c9a227" fontsize=9]
+  }
+
+  logcore -> vsrec   [label="implements"]
+  logcore -> shared  [style=invis]
+  logcore -> acore   [label="depends on" color="#9d7bf5"]
+  acore   -> server  [color="#3fbf62"]
+  acore   -> analyzer[color="#3fbf62"]
+  shared  -> server  [label="same schemas" color="#9d7bf5"]
+  shared  -> analyzer[label="same schemas" color="#9d7bf5"]
+  logcore -> vectors [color="#9d7bf5"]
+
+  vectors -> jcore [label="MUST reproduce\nbyte for byte" color="#9d7bf5"]
+  vectors -> ncore [label="MUST reproduce\nbyte for byte" color="#9d7bf5"]
+  jcore -> jrec
+  ncore -> nrec
+  nvend -> ncore [label="vendored" color="#c9a227"]
+
+  jrec -> allow [label="adds its build hash" color="#F97316" style=dashed]
+  nrec -> allow [label="adds its tree hash" color="#F97316" style=dashed]
+  vsrec -> allow [label="adds its VSIX hash" color="#F97316" style=dashed]
+
+  server -> gapi [label="public HTTP API only —\nprovgate holds no Provenance code,\ndatabase or storage" color="#17bfae" dir=back]
+  gsync -> gapi
+  gsync -> gweb [style=dashed color="#c9a227"]
+
+  rule [label="A format change is a cross-repo, signature-affecting,\ntest-vector-pinned decision owned by the monorepo.\nIt is never made unilaterally in a sibling repo to make\nan implementation easier."
+        shape=note fillcolor="#241a0c" color="#F97316" fontsize=9]
+  vectors -> rule [style=dashed color="#F97316"]
+}

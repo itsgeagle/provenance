@@ -1,0 +1,54 @@
+digraph state {
+  bgcolor="transparent" rankdir=LR splines=spline
+  nodesep=0.42 ranksep=0.75 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10.5
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.4
+        margin="0.18,0.10"]
+  edge [fontname="Helvetica" fontsize=8.5 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.65 penwidth=1.2]
+
+  start [label="" shape=circle width=0.17 style=filled fillcolor="#8b95a8" color="#8b95a8"]
+
+  dormant [label="DORMANT\nextension loaded,\nnothing recorded"
+           fillcolor="#15171d" color="#5d677d" fontcolor="#98a2b6"]
+
+  verify  [label="manifest\nverifies against the\nembedded course key?"
+           shape=diamond fillcolor="#1c1712" color="#F97316" fontsize=9 height=1.0 width=2.0]
+
+  recording [label="RECORDING\nsession keypair live\nevents appending"
+             fillcolor="#241a0c" color="#F97316" penwidth=2.0]
+
+  degraded [label="DEGRADED\ndisk full — student notified,\nappends suspended"
+            fillcolor="#2a1216" color="#ff6b6b"]
+
+  suspended [label="SUSPENDED\nOS sleep — the host process is\nparked, not deactivated"
+             fillcolor="#15171d" color="#5d677d" fontcolor="#98a2b6" style="filled,rounded,dashed"]
+
+  crashed [label="TERMINATED\ncrash, kill, or quit —\nno session.end written"
+           fillcolor="#2a1216" color="#ff6b6b" style="filled,rounded,dashed"]
+
+  recover [label="RECOVERING\nread the log tail, find the last\nvalid chain link, resume from it"
+           fillcolor="#1e1830" color="#9d7bf5"]
+
+  sealed  [label="SEALED\nbundle written; the log\nis now immutable"
+           fillcolor="#0e2422" color="#17bfae" penwidth=2.0]
+
+  start     -> dormant  [label="editor starts"]
+  dormant   -> verify   [label="workspace opened"]
+  verify    -> dormant  [label="no — stay silent,\nrecord nothing" color="#5d677d" style=dashed]
+  verify    -> recording[label="yes — session.start" color="#F97316"]
+
+  recording -> suspended[label="machine sleeps" color="#5d677d" style=dashed]
+  suspended -> recording[label="wake — the heartbeat gap has\nno intervening events, so it\nis NOT flagged" color="#5d677d" style=dashed]
+
+  recording -> degraded [label="write fails:\nENOSPC" color="#ff6b6b"]
+  degraded  -> recording[label="space freed —\nrecorder.recovered" color="#3fbf62"]
+
+  recording -> crashed  [label="process dies" color="#ff6b6b" style=dashed]
+  crashed   -> recover  [label="editor restarts" color="#9d7bf5"]
+  recover   -> recording[label="session.resumed,\nprev_session_id linked" color="#9d7bf5"]
+
+  recording -> sealed   [label="student runs\nPrepare Submission Bundle" color="#17bfae"]
+
+  { rank=same; suspended; degraded }
+}

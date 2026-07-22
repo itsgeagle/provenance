@@ -1,0 +1,70 @@
+digraph readpath {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.30 ranksep=0.62 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.09"]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  subgraph cluster_req {
+    label="  WHAT THE STAFF MEMBER CLICKED  " fontsize=9.5 fontcolor="#e8559c"
+    color="#4a1b35" penwidth=1.5 style=rounded bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
+    r_cohort [label="cohort list"]
+    r_over   [label="overview tab"]
+    r_time   [label="timeline tab"]
+    r_replay [label="replay tab"]
+    r_src    [label="source tab"]
+    r_recomp [label="recompute after tuning"]
+  }
+
+  subgraph cluster_cheap {
+    label="  SERVED FROM POSTGRES — precomputed at ingest  " fontsize=9.5
+    fontcolor="#4b90f7" color="#16294a" penwidth=1.5 style=rounded
+    bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    pgq [label="SELECT\nsubmissions · flags · per_file_stats\nvalidation_results · cross_flags"]
+    pg  [label="Postgres" shape=cylinder height=0.55]
+  }
+
+  subgraph cluster_deep {
+    label="  NEEDS THE EVENT STREAM  " fontsize=9.5 fontcolor="#3fbf62"
+    color="#153c25" penwidth=1.5 style=rounded bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+    lsi   [label="loadSubmissionIndex(submissionId)"]
+    cache [label="in the\nLRU cache?" shape=diamond fillcolor="#12161f" color="#4b90f7"
+           fontsize=9 height=0.8 width=1.4]
+    fetch [label="fetch blob" fillcolor="#0d1c33" color="#4b90f7"]
+    blob  [label="Blob store\nthe stored bundle —\nprovenance-only, no source"
+           shape=cylinder fillcolor="#0d1c33" color="#4b90f7" height=0.7]
+    parse [label="unzip + parse every .slog"]
+    idx   [label="EventIndex\nordered access, per-session views"]
+    recon [label="reconstructFileWithProvenance\nreplays edits to rebuild file content,\ntagging every line typed / pasted / external"]
+    ret   [label="{ bundle, index }" shape=note]
+  }
+
+  r_cohort -> pgq [color="#e8559c"]
+  r_over   -> pgq [color="#e8559c"]
+  pgq -> pg
+  pg -> pgq [label="rows" color="#4b90f7" dir=back]
+
+  r_time   -> lsi [color="#e8559c"]
+  r_replay -> lsi [color="#e8559c"]
+  r_src    -> lsi [color="#e8559c"]
+  r_recomp -> lsi [color="#e8559c"]
+
+  lsi -> cache
+  cache -> ret   [label="hit" color="#3fbf62"]
+  cache -> fetch [label="miss" color="#4b90f7"]
+  fetch -> blob
+  blob -> parse [color="#4b90f7"]
+  parse -> idx
+  idx -> ret
+  idx -> recon [label="source tab only" style=dashed color="#3fbf62"]
+  recon -> ret [style=dashed color="#3fbf62"]
+
+  note [label="There is no events table.\nThe .slog files inside the stored blob ARE the\nevent stream. Dropping the table removed what had\nbeen the dominant, never-purged storage cost —\nand the LRU cache is what makes re-parsing viable."
+        shape=note fillcolor="#241a0c" color="#F97316" fontcolor="#e8ecf4" fontsize=9.5]
+  ret -> note [style=invis]
+}

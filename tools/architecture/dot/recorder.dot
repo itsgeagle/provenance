@@ -1,0 +1,110 @@
+digraph recorder {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.28 ranksep=0.52 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.08" height=0.34]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.1]
+
+  /* ── host event sources ── */
+  subgraph cluster_host {
+    label="  HOST EVENT SOURCES — the only layer that differs between VS Code, IntelliJ and Neovim  "
+    fontsize=9.5 fontcolor="#F97316" color="#4a3316" penwidth=1.5 style=rounded
+    bgcolor="#12100c" labeljust="l"
+    node [fillcolor="#241a0c" color="#F97316" fontsize=9.5]
+
+    h_doc  [label="document change\nonDidChangeTextDocument · DocumentListener · on_lines"]
+    h_cmd  [label="paste command\ncommand intercept · $Paste action · vim.paste()"]
+    h_clip [label="clipboard read\nclipboard API · CopyPasteManager · + / * registers"]
+    h_fs   [label="filesystem watcher\nFileSystemWatcher · BulkFileListener · FileChangedShell"]
+    h_term [label="terminal\nshell integration, when available"]
+    h_git  [label="git\nbuilt-in API · Git4Idea · external — may be absent"]
+    h_win  [label="window\nfocus · selection · extension activation"]
+  }
+
+  /* ── detection ── */
+  subgraph cluster_det {
+    label="  DETECTION & CLASSIFICATION  "
+    fontsize=9.5 fontcolor="#e8559c" color="#4a1b35" penwidth=1.5 style=rounded
+    bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
+
+    reconcile [label="paste reconciler\njoins all three signals into\nexactly one paste per event"]
+    anomaly   [label="signals\nagree?" shape=diamond fillcolor="#1c1218" fontsize=9
+               height=0.75 width=1.25]
+    expected  [label="expected-content registry\nwhat the recorder believes\neach file contains"
+               fillcolor="#241a0c" color="#F97316"]
+    cmp       [label="on-disk hash ==\nexpected hash?" shape=diamond fillcolor="#1c1712"
+               color="#F97316" fontsize=9 height=0.85 width=1.7]
+    explain   [label="explained by a\nformatter or git event?" shape=diamond fillcolor="#1c1712"
+               color="#F97316" fontsize=9 height=0.85 width=1.8]
+  }
+
+  /* ── pure transforms ── */
+  subgraph cluster_tx {
+    label="  PURE TRANSFORMS  "
+    fontsize=9.5 fontcolor="#3fbf62" color="#153c25" penwidth=1.5 style=rounded
+    bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+
+    tx [label="event → log entry\nunit-tested with no editor present\nrelative paths · inline content caps (4 KB)\nmonotonic t · fixed-width wall clock"]
+  }
+
+  /* ── core ── */
+  subgraph cluster_core {
+    label="  CORE — the format contract  "
+    fontsize=9.5 fontcolor="#9d7bf5" color="#2e2450" penwidth=1.5 style=rounded
+    bgcolor="#0e0b18" labeljust="l"
+    node [fillcolor="#1e1830" color="#9d7bf5" fontsize=9.5]
+
+    env  [label="envelope\nseq · t · wall · kind · data"]
+    jcs  [label="JCS canonicalize\nRFC 8785"]
+    hash [label="hash = sha256(prev_hash ‖ canonical)"]
+    buf  [label="buffer policy\nthe firehose must not block the editor"]
+  }
+
+  /* ── io ── */
+  subgraph cluster_io {
+    label="  DURABILITY  "
+    fontsize=9.5 fontcolor="#4b90f7" color="#16294a" penwidth=1.5 style=rounded
+    bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+
+    atomic [label="atomic write\ntemp file → rename"]
+    disk   [label="*.slog\non disk" shape=note]
+    full   [label="disk\nfull?" shape=diamond fillcolor="#12161f" fontsize=9 height=0.7 width=1.1]
+    degr   [label="recorder.degraded\nstop appending, tell the student\n— never partial-write"
+            fillcolor="#2a1216" color="#ff6b6b" fontsize=9.5]
+  }
+
+  /* edges: sources → detection */
+  h_doc  -> reconcile [label="insertion\nshape + timing"]
+  h_cmd  -> reconcile [label="a paste\nhappened"]
+  h_clip -> reconcile [label="what was\non the clipboard"]
+  reconcile -> anomaly
+  anomaly -> tx [label="yes → one paste event" color="#3fbf62"]
+  anomaly -> tx [label="no → paste.anomaly" color="#ff6b6b" style=dashed]
+
+  h_fs -> cmp
+  expected -> cmp [label="source of truth" color="#F97316"]
+  cmp -> tx [label="match → ordinary save" color="#5d677d" style=dashed]
+  cmp -> explain [label="differ" color="#F97316"]
+  explain -> tx [label="yes → attributed" color="#5d677d" style=dashed]
+  explain -> tx [label="no → fs.external_change" color="#ff6b6b"]
+
+  h_doc  -> expected [label="update model\nafter every edit" color="#F97316" style=dashed constraint=false]
+  h_term -> tx
+  h_git  -> tx
+  h_win  -> tx
+
+  tx -> env
+  env -> jcs
+  jcs -> hash
+  hash -> buf [label="hash only —\nnever sign here" color="#9d7bf5"]
+  buf -> atomic
+  atomic -> full
+  full -> disk [label="no" color="#4b90f7"]
+  full -> degr [label="yes" color="#ff6b6b"]
+  disk -> hash [label="prev_hash for the next entry" color="#9d7bf5" style=dashed constraint=false]
+}

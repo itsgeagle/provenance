@@ -5,3 +5,5 @@ dist-perf/
 .notes/
 .vscode-test/
 package-lock.json
+__pycache__/
+.pytest_cache/

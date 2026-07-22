@@ -19,3 +19,7 @@ packages/server/scripts/fixtures/
 
 # IRB / research-ethics documents (consent forms, protocols, recruitment, interviews)
 irb/
+
+# Python bytecode / test caches (tools/)
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,112 @@
+digraph staff {
+  bgcolor="transparent" rankdir=TB splines=spline compound=true
+  nodesep=0.28 ranksep=0.50 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.15,0.08" height=0.34]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  staff [label="Course staff" fillcolor="#22201a" color="#8b95a8"]
+
+  subgraph cluster_auth {
+    label="  ACCESS CONTROL  " fontsize=9.5 fontcolor="#8b95a8" color="#333b4a"
+    penwidth=1.5 style=rounded bgcolor="#101319" labeljust="l"
+    node [fillcolor="#191c22" color="#8b95a8" fontsize=9.5]
+    login [label="/login — Google OAuth"]
+    hd    [label="ID token hd claim ∈\nAUTH_ALLOWED_HOSTED_DOMAINS?" shape=diamond
+           fillcolor="#12161f" color="#4b90f7" fontsize=9 height=1.0 width=2.4]
+    deny  [label="rejected\nthis single check is the primary thing\nkeeping non-Berkeley accounts out"
+           fillcolor="#2a1216" color="#ff6b6b" fontsize=9]
+    sess  [label="cookie session" fillcolor="#0d1c33" color="#4b90f7"]
+    tok   [label="/me/tokens — API tokens\nread- or write-scoped; provgate holds a write one"
+           fillcolor="#0d1c33" color="#4b90f7" fontsize=9]
+    role  [label="membership role\nfor this semester" fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+  }
+
+  subgraph cluster_get {
+    label="  GETTING DATA IN  " fontsize=9.5 fontcolor="#17bfae" color="#123c38"
+    penwidth=1.5 style=rounded bgcolor="#0a1413" labeljust="l"
+    node [fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+    ing   [label="/s/:course/:semester/ingest\ndrop a Gradescope export"]
+    job   [label="/ingest/jobs/:jobId\npoll to a terminal state"]
+    unm   [label="/unmatched\nbundles that matched no roster entry"]
+    ros   [label="/roster"]
+  }
+
+  subgraph cluster_triage {
+    label="  TRIAGE  " fontsize=9.5 fontcolor="#e8559c" color="#4a1b35"
+    penwidth=1.5 style=rounded bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
+    cohort [label="cohort list\nvirtualized · filter and sort by flag,\nseverity and score" penwidth=1.8]
+    q      [label="does this one\nwarrant a human?" shape=diamond fillcolor="#1c1218"
+            fontsize=9 height=0.9 width=1.9]
+    none   [label="no action\nmost of the cohort ends here" fillcolor="#15171d" color="#5d677d"
+            fontcolor="#98a2b6" style="filled,rounded,dashed" fontsize=9.5]
+  }
+
+  subgraph cluster_drill {
+    label="  /sub/:submissionId — five views of one submission  " fontsize=9.5
+    fontcolor="#e8559c" color="#4a1b35" penwidth=1.5 style=rounded
+    bgcolor="#150a10" labeljust="l"
+    node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9]
+    t1 [label="overview\nranked flags + headline stats"]
+    t2 [label="timeline\nevery event on a scrubable axis"]
+    t3 [label="replay\nwatch the file being written; external changes\nare framed in place, then the view returns\nto the caret"]
+    t4 [label="validation\nthe 8 checks, with the failing seq"]
+    t5 [label="source\nreconstructed content with per-line provenance"]
+  }
+
+  jump [label="every flag carries a supporting seq —\nclick it and land on the moment it happened"
+        shape=note fillcolor="#241a0c" color="#F97316" fontsize=9]
+
+  subgraph cluster_loop {
+    label="  THE TUNING LOOP  " fontsize=9.5 fontcolor="#3fbf62" color="#153c25"
+    penwidth=1.5 style=rounded bgcolor="#0a130d" labeljust="l"
+    node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
+    judge [label="is the flag class\nfiring on ordinary work?" shape=diamond fillcolor="#12161f"
+           fontsize=9 height=0.95 width=2.2]
+    tune  [label="/tuning — 24 thresholds"]
+    recomp[label="enqueue cohort recompute\nre-runs heuristics against the re-parsed bundles;\nvalidation results are NOT re-run" fontsize=9]
+  }
+
+  subgraph cluster_out {
+    label="  OUTCOMES  " fontsize=9.5 fontcolor="#4b90f7" color="#16294a"
+    penwidth=1.5 style=rounded bgcolor="#0a0f18" labeljust="l"
+    node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+    xflags [label="/cross-flags\nstudents grouped by a shared paste"]
+    exp    [label="evidence export\nfor an academic-conduct case"]
+    audit  [label="audit_log\nappend-only record of privileged actions"
+            shape=cylinder height=0.55]
+  }
+
+  staff -> login
+  login -> hd
+  hd -> deny [label="no" color="#ff6b6b"]
+  hd -> sess [label="yes" color="#3fbf62"]
+  sess -> role
+  tok -> role [label="or a token, for scripts\nand provgate" color="#4b90f7" style=dashed]
+  role -> ing
+  ing -> job
+  job -> unm [label="skipped / no manifest" color="#F97316" style=dashed]
+  job -> cohort [label="succeeded" color="#e8559c"]
+  ros -> cohort [style=invis]
+
+  cohort -> q
+  q -> none [label="no" color="#5d677d" style=dashed]
+  q -> t1   [label="yes" color="#e8559c" lhead=cluster_drill]
+  t1 -> t2 [style=invis]
+  t2 -> t3 [style=invis]
+  t1 -> jump [color="#F97316" style=dashed]
+
+  t1 -> judge
+  judge -> tune [label="yes — the threshold\nis wrong, not the student" color="#3fbf62"]
+  tune -> recomp
+  recomp -> cohort [label="re-ranked" color="#3fbf62" constraint=false]
+  judge -> exp [label="no — the signal is real" color="#4b90f7"]
+
+  t5 -> exp [style=invis]
+  cohort -> xflags [label="cohort-wide view" color="#4b90f7" constraint=false]
+  exp -> audit
+  xflags -> exp [style=invis]
+}

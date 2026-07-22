@@ -1,0 +1,51 @@
+digraph roadmap {
+  bgcolor="transparent" rankdir=LR splines=spline compound=true
+  nodesep=0.28 ranksep=0.85 fontname="Helvetica"
+  node [shape=box style="filled,rounded" fontname="Helvetica" fontsize=10
+        fontcolor="#e8ecf4" fillcolor="#161b26" color="#3a4457" penwidth=1.3
+        margin="0.16,0.09"]
+  edge [fontname="Helvetica" fontsize=8.2 fontcolor="#8b95a8"
+        color="#4a5568" arrowsize=0.6 penwidth=1.15]
+
+  subgraph cluster_now {
+    label="  SHIPPED — the seams each roadmap item attaches to  " fontsize=9.5
+    fontcolor="#3fbf62" color="#153c25" penwidth=1.6 style=rounded
+    bgcolor="#0a130d" labeljust="l"
+
+    vectors [label="conformance vectors\n+ log-core format contract"
+             fillcolor="#1e1830" color="#9d7bf5" fontsize=9.5]
+    gsmod   [label="provgate/gradescope/\nthe one module that knows an\nexternal system exists"
+             fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+    frontend[label="provgate/cli/\ncore already sits behind a\nfrontend-agnostic boundary"
+             fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
+    tenancy [label="courses → semesters → memberships\nthe hierarchy already models\nmore than one institution"
+             fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
+  }
+
+  subgraph cluster_next {
+    label="  ROADMAP — not built  " fontsize=9.5 fontcolor="#c9a227"
+    color="#5c4a12" penwidth=1.6 style="rounded,dashed" bgcolor="#14120a" labeljust="l"
+    node [fillcolor="#241f0c" color="#c9a227" style="filled,rounded,dashed" fontsize=9.5]
+
+    jupyter [label="JupyterLab recorder\nthe highest-value fourth host. Notebooks are where a\nlot of introductory coursework actually happens, and\nexecution history is a provenance signal no text\neditor can offer — but cell-level rather than\nfile-level editing is the first thing that would\ngenuinely stress the event model." penwidth=1.9]
+
+    emacs   [label="Emacs recorder\na fourth port of the same contract; the path is\nwell defined now that three exist"]
+
+    okpy    [label="okpy integration\na second ingest source alongside Gradescope"]
+
+    pweb    [label="provgate web GUI\nclass registration and run history as\nthe natural first screens"]
+
+    multi   [label="multi-institution tenancy\nrunning Provenance for more than one\ndepartment, or more than one school"]
+  }
+
+  excluded [label="EXCLUDED ON PRINCIPLE, not on effort\n\n· LLM review of student code — any LLM feature reasons over\n  process evidence (events, flags, timeline), never over the code\n· code-similarity classifiers\n· network telemetry from the recorder\n· keystroke-level OS hooks\n· obfuscating the recorder — students will read it, and the\n  design assumes the protocol is public"
+            shape=note fillcolor="#2a1216" color="#ff6b6b" fontsize=9.5]
+
+  vectors  -> jupyter [label="port core/, re-derive the wiring,\npass the vectors" color="#c9a227" style=dashed]
+  vectors  -> emacs   [label="same path" color="#c9a227" style=dashed]
+  gsmod    -> okpy    [label="a sibling client, not a rewrite" color="#c9a227" style=dashed]
+  frontend -> pweb    [label="reuses store + sync unchanged" color="#c9a227" style=dashed]
+  tenancy  -> multi   [label="a short step from here" color="#c9a227" style=dashed]
+
+  multi -> excluded [style=invis]
+}
