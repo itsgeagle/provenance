@@ -23,6 +23,29 @@ The product specs live in `docs/`. The recorder spec is `docs/prd.md`; the analy
 - **No silent constraint softening.** If a test is failing and the obvious fix is to weaken the assertion, stop and explain. Tests encode requirements; loosening them is a product decision, not a coding decision.
 - **Read before writing.** Before editing any file, read it. Before editing any module, read its tests.
 - **Small diffs.** If a change touches more than ~200 lines across more than ~5 files, it's probably two changes. Split it.
+- **Keep the architecture page current.** `/architecture` (source:
+  `packages/analyzer/src/views/architecture/`, diagrams: `tools/architecture/dot/`)
+  is the system's map of record. It is **not** optional documentation — a change
+  that makes it wrong is an incomplete change. Update it in the **same PR** as
+  the behaviour change whenever you:
+  - add, remove, or rename an **event type**, validation check, or heuristic;
+  - change the **ingest pipeline** stage order, dedup, stripping, or the read path;
+  - change the **recorder**'s activation, signal capture, state machine, or failure
+    handling — in _any_ of the three recorders;
+  - change the **format contract**, key handling, checkpoint cadence, or bundle shape;
+  - add or remove a **Postgres table**, or change what is persisted vs. re-parsed;
+  - add, remove, or re-scope an **analyzer route**;
+  - change **provgate**'s sync flow, or the deployment topology.
+
+  How: edit the relevant `tools/architecture/dot/*.dot`, run
+  `python3 tools/architecture/build_diagrams.py` (needs Graphviz — dev-time only),
+  then update `content/nodes.ts` and `content/sections.ts`. The
+  `nodes.coverage.test.ts` suite fails if a diagram gains a node with no detail,
+  or keeps metadata for a node that no longer exists — so a stale page is a
+  **failing test**, not a silent regression.
+
+  If a change genuinely does not affect the page, say so explicitly in your summary
+  rather than staying silent about it.
 
 ## Architecture rules
 
@@ -99,6 +122,9 @@ Workspace-wide (run from repo root):
 - `npm run lint` — ESLint (only the `src/` trees of the five packages) + Prettier check.
 - `npm run package:recorder` — build the dev-key VSIX for local install.
 - `npm run update-hashes` — refresh the analyzer's known-good extension-hash allowlist (see README for required flags).
+- `python3 tools/architecture/build_diagrams.py` — regenerate the `/architecture`
+  diagrams after editing `tools/architecture/dot/*.dot`. Requires Graphviz
+  (`brew install graphviz`); dev-time only, never needed by `npm run build` or CI.
 
 Per-workspace (run from root with `--workspace=packages/<name>`):
 
@@ -141,6 +167,7 @@ provenance/
 │   ├── analyzer/        # React/Vite SPA (v3), UI on top of analysis-core
 │   └── server/          # Node + Hono API server (v3)
 ├── tools/               # dev scripts: course-keypair generation, manifest signing
+│   └── architecture/    # Graphviz sources for the /architecture page (dev-time)
 ├── scripts/             # repo-level scripts (e.g. update-extension-hash-allowlist.mjs)
 ├── test-workspace/      # sample student workspace for dev + integration tests
 ├── package.json         # npm workspace root
