@@ -114,6 +114,7 @@ const AdminUserDetailView = lazy(() =>
 const AdminAuditView = lazy(() =>
   import('./views/admin/AdminAuditView.js').then((m) => ({ default: m.AdminAuditView })),
 );
+const ArchitectureView = lazy(() => import('./views/architecture/ArchitectureView.js'));
 
 // ---------------------------------------------------------------------------
 // Lazy chunks: /local routes (v2 standalone, staff-gated)
@@ -447,6 +448,9 @@ export function App() {
         <Route path="/timeline" element={<Navigate to="/local/timeline" replace />} />
         <Route path="/compare" element={<Navigate to="/local/compare" replace />} />
         <Route path="/replay/:sessionId" element={<LegacyReplayRedirect />} />
+
+        {/* ── public architecture documentation ──────────────────────────── */}
+        <Route path="/architecture" element={<ArchitectureView />} />
 
         {/* ── public landing page ──────────────────────────────────────────── */}
         <Route path="/" element={<LandingView />} />
