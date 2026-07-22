@@ -2,7 +2,9 @@
  * File reconstruction service — Phase 18 (PRD §11.1).
  *
  * Server-side wrapper around v2's `reconstructFileWithProvenance`. Adds:
- *  - DB event loading via `reconstructBundleFromDb` (same as Phase 13b/14).
+ *  - Bundle + EventIndex loading via `reconstructBundleFromDb`, which re-parses
+ *    the stored bundle blob through `loadSubmissionIndex` (same as Phase 13b/14;
+ *    there is no `events` table — the name is legacy).
  *  - LRU cache keyed by `${submissionId}:${filePath}:${atSeq ?? 'last'}`.
  *  - `tainted` flag from `per_file_stats.reconstruction_tainted`.
  *

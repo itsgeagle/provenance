@@ -1,9 +1,11 @@
 /**
  * attachUnmatchedFile — Phase 15 admin-attach service.
  *
- * Re-runs phases 5–9 (createSubmission + materialize + stats + validation +
- * heuristics) for a file that was previously left in status='unmatched'. This
- * is the server-side implementation of the unmatched tray PATCH endpoint.
+ * Re-runs the per-submission tail of ingest (createSubmission + stats +
+ * validation + heuristics) for a file that was previously left in
+ * status='unmatched'. There is no event-materialization step — events are not
+ * persisted; the stored bundle blob is the event stream. This is the
+ * server-side implementation of the unmatched tray PATCH endpoint.
  *
  * ## Concurrent-attach protection
  *

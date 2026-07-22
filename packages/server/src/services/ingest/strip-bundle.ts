@@ -17,8 +17,12 @@
  * IMPORTANT: the signed `manifest.json` / `manifest.sig` are copied verbatim and
  * never modified — the manifest still lists the (now-absent) submission_files
  * with their hashes, so the bundle remains fully signature- and chain-verifiable
- * (validation checks 1–7). Only check 8 (submitted_code_match) can no longer be
- * re-run against the stored bundle, and it never is (it runs once at ingest).
+ * (validation checks 1–7). Check 8 (submitted_code_match) is also re-runnable
+ * against the stripped bundle as of 2026-07 — its tamper sub-check is gated on
+ * submitted bytes actually being present, and the match comparison needs only
+ * the signed manifest sha256 plus the recorded event hashes, both of which
+ * survive stripping (see verify-submitted-code.ts) — but in practice it still
+ * only runs once at ingest; read paths serve the stored validation_results row.
  *
  * Output is deterministic (stable entry order + fixed timestamps) so the stored
  * blob's sha256 is reproducible.

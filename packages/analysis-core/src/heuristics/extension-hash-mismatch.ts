@@ -4,10 +4,14 @@
  * PRD §7.4 integrity: "The recorder's bundle manifest hash does not match any
  * known-good extension build."
  *
- * The recorder embeds a SHA-256 hash of its own built `.vsix` in
- * `bundle.manifest.extension_hash` at seal time. This allowlist lets the
+ * The recorder embeds a SHA-256 hash of its own installed file tree (e.g. the
+ * VS Code recorder's `dist/`, walked and hashed by `commands/extension-hash.ts`)
+ * in `bundle.manifest.extension_hash` at seal time. This allowlist lets the
  * analyzer verify that the submitted bundle was produced by an unmodified
- * recorder — a tampered recorder could suppress AI-tool usage signals.
+ * recorder — a tampered recorder could suppress AI-tool usage signals. Hashing
+ * a file tree rather than a packaged artifact (`.vsix`) lets a single allowlist
+ * cover the VS Code, JetBrains, and Neovim recorders, each with its own build
+ * output shape.
  *
  * Config: `config.extensionHashMismatch.knownGoodHashes` (defaults to the
  * committed `config/known-good-extension-hashes.json`). Course staff must

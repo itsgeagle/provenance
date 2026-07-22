@@ -19,8 +19,10 @@ restricted), pick a semester, and work a cohort:
 - **Per-submission drill-in** — overview, a searchable **timeline** of editing events, a
   Monaco-based **replay** with transport controls and paste/external-change gutter
   decorations, and the bundle **validation** report.
-- **Heuristics tuning** — a 24-slider UI to adjust thresholds, dry-run the diff, and
-  recompute.
+- **Heuristics tuning** — a 25-flag UI to adjust each flag's **weight** (0.0–2.0) and
+  toggle it on/off, dry-run the diff, and recompute. (These are scoring weights, not
+  the heuristics' own detection thresholds, which live in
+  `analysis-core/heuristics/config.ts`.)
 - **Cross-flags** — a semester-wide view of shared-paste and editing-pattern-clone findings
   across students.
 

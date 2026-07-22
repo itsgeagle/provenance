@@ -9,9 +9,11 @@
  * is gone: recompute/cross see the exact same manifest the original ingest did.
  *
  * The ValidationReport is still reconstructed from the persisted
- * `validation_results` row — validation is computed once at ingest and never
- * re-run (check 8, submitted_code_match, in particular cannot be re-run against
- * a source-stripped bundle).
+ * `validation_results` row — validation is computed once at ingest and read
+ * paths always serve that stored row rather than recomputing it. (Check 8,
+ * submitted_code_match, is in fact re-runnable against a source-stripped
+ * bundle as of 2026-07 — see verify-submitted-code.ts — but that doesn't change
+ * this: nothing here re-runs validation.)
  *
  * Used by:
  *   - reconstruction.ts (file replay)
