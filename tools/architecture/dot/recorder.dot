@@ -16,7 +16,7 @@ digraph recorder {
 
     h_doc  [label="document change\nonDidChangeTextDocument · DocumentListener · on_lines"]
     h_cmd  [label="paste command\ncommand intercept · $Paste action · vim.paste()"]
-    h_clip [label="clipboard read\nclipboard API · CopyPasteManager · + / * registers"]
+    h_clip [label="clipboard read — JetBrains & Neovim only\nCopyPasteManager · + / * registers\nVS Code never reads the clipboard;\nits signal 3 is the count reconciler"]
     h_fs   [label="filesystem watcher\nFileSystemWatcher · BulkFileListener · FileChangedShell"]
     h_term [label="terminal\nshell integration, when available"]
     h_git  [label="git\nbuilt-in API · Git4Idea · external — may be absent"]
@@ -30,9 +30,9 @@ digraph recorder {
     bgcolor="#150a10" labeljust="l"
     node [fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
 
-    reconcile [label="paste reconciler\njoins all three signals into\nexactly one paste per event"]
-    anomaly   [label="signals\nagree?" shape=diamond fillcolor="#1c1218" fontsize=9
-               height=0.75 width=1.25]
+    reconcile [label="per-event join (doc-wiring)\nsignal 1 insert shape + signal 2 command intercept\n→ exactly one paste per change"]
+    anomaly   [label="paste reconciler — every 5 s\nintercepted vs large-insert\ncounts differ by > 1?" shape=diamond
+               fillcolor="#1c1218" fontsize=8.5 height=1.05 width=2.5]
     expected  [label="expected-content registry\nwhat the recorder believes\neach file contains"
                fillcolor="#241a0c" color="#F97316"]
     cmp       [label="on-disk hash ==\nexpected hash?" shape=diamond fillcolor="#1c1712"
@@ -48,7 +48,7 @@ digraph recorder {
     bgcolor="#0a130d" labeljust="l"
     node [fillcolor="#0d2416" color="#3fbf62" fontsize=9.5]
 
-    tx [label="event → log entry\nunit-tested with no editor present\nrelative paths · inline content caps (4 KB)\nmonotonic t · fixed-width wall clock"]
+    tx [label="event → log entry\nunit-tested with no editor present\nrelative paths · one inline content cap (64 KB)\nmonotonic t · fixed-width wall clock"]
   }
 
   /* ── core ── */
@@ -71,9 +71,9 @@ digraph recorder {
     bgcolor="#0a0f18" labeljust="l"
     node [fillcolor="#0d1c33" color="#4b90f7" fontsize=9.5]
 
-    atomic [label="atomic write\ntemp file → rename"]
-    disk   [label="*.slog\non disk" shape=note]
-    full   [label="disk\nfull?" shape=diamond fillcolor="#12161f" fontsize=9 height=0.7 width=1.1]
+    atomic [label="atomic replace — WHOLE files only\n*.slog.meta · manifest.json · manifest.sig\ntemp → fsync → rename"]
+    disk   [label="*.slog\nappend-only, one handle open 'a'\nnever rewritten" shape=note]
+    full   [label="write\nfailed?" shape=diamond fillcolor="#12161f" fontsize=9 height=0.75 width=1.2]
     degr   [label="recorder.degraded\nstop appending, tell the student\n— never partial-write"
             fillcolor="#2a1216" color="#ff6b6b" fontsize=9.5]
   }
@@ -81,10 +81,10 @@ digraph recorder {
   /* edges: sources → detection */
   h_doc  -> reconcile [label="insertion\nshape + timing"]
   h_cmd  -> reconcile [label="a paste\nhappened"]
-  h_clip -> reconcile [label="what was\non the clipboard"]
-  reconcile -> anomaly
-  anomaly -> tx [label="yes → one paste event" color="#3fbf62"]
-  anomaly -> tx [label="no → paste.anomaly" color="#ff6b6b" style=dashed]
+  h_clip -> reconcile [label="clipboard text —\nother hosts only" style=dashed]
+  reconcile -> tx [label="one paste event — or doc.change\nsource=paste_likely if it cannot replay" color="#3fbf62"]
+  reconcile -> anomaly [label="counters,\nnot events" color="#5d677d" style=dashed]
+  anomaly -> tx [label="yes → paste.anomaly" color="#ff6b6b" style=dashed]
 
   h_fs -> cmp
   expected -> cmp [label="source of truth" color="#F97316"]
@@ -102,9 +102,11 @@ digraph recorder {
   env -> jcs
   jcs -> hash
   hash -> buf [label="hash only —\nnever sign here" color="#9d7bf5"]
-  buf -> atomic
-  atomic -> full
-  full -> disk [label="no" color="#4b90f7"]
-  full -> degr [label="yes" color="#ff6b6b"]
-  disk -> hash [label="prev_hash for the next entry" color="#9d7bf5" style=dashed constraint=false]
+  hash -> env [label="prev_hash advances in memory —\nthe .slog is never re-read to\ncontinue a chain" color="#9d7bf5" style=dashed constraint=false]
+
+  /* two durability strategies, not one */
+  buf  -> full   [label="flush: append to the\nopen handle" color="#4b90f7"]
+  full -> disk   [label="no" color="#4b90f7"]
+  full -> degr   [label="yes → drop\nthe buffer" color="#ff6b6b"]
+  hash -> atomic [label="every 100:\nsigned checkpoint" color="#9d7bf5" style=dashed]
 }

@@ -67,7 +67,7 @@ digraph master {
     prune [label="prune to delta\nmetadata copied byte-for-byte,\nonly folders filtered"
            fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
 
-    upl   [label="staff upload\nstreamed · resumable ≥1GiB"
+    upl   [label="staff upload\nstreamed · chunked+resumable ≥16 MiB\n(nginx caps a body at ~20 MiB)"
            fillcolor="#0e2422" color="#17bfae" fontsize=9.5]
 
     local [label="/local offline mode\nthe same analysis-core runs in the\nbrowser — no server, nothing uploaded"
@@ -93,7 +93,7 @@ digraph master {
     queue [label="pg-boss\none job per submission"
            shape=cds fillcolor="#0d1c33" color="#4b90f7" margin="0.28,0.10"]
 
-    pipe  [label="ingest pipeline\nparse → match → heuristics → cross"
+    pipe  [label="ingest pipeline\nparse → match → stats · validation · heuristics"
            fillcolor="#0d1c33" color="#4b90f7"]
 
     strip [label="strip student source\nstore provenance-only"
@@ -122,7 +122,7 @@ digraph master {
     heur  [label="18 per-submission heuristics\nprocess · environment · integrity"
            fillcolor="#0d2416" color="#3fbf62"]
 
-    cross [label="2 cross-submission heuristics\nshared paste · pattern clone"
+    cross [label="2 cross-submission heuristics\nshared paste · pattern clone\nNOT a pipeline stage → cross_flags,\nthe semester's set replaced atomically"
            fillcolor="#0d2416" color="#3fbf62"]
 
     flags [label="ranked flags\nseverity ↓ confidence ↓ seq ↑"
@@ -142,17 +142,18 @@ digraph master {
     triage[label="worth a\nhuman?"
            shape=diamond fillcolor="#1c1218" color="#e8559c" fontsize=9 height=0.8 width=1.3]
 
-    drill [label="drill in\noverview · timeline · replay\nvalidation · source"
+    drill [label="drill in — six tabs\noverview · timeline · replay\nvalidation · export · source"
            fillcolor="#2a0f1e" color="#e8559c"]
 
-    tune  [label="tuning UI\n24 thresholds"
+    tune  [label="tuning UI\n25 flag weights (0.0–2.0) + on/off\nnot the heuristics' own thresholds"
            fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
 
     close [label="no action" fillcolor="#15171d" color="#5d677d"
            fontcolor="#8b95a8" style="filled,rounded,dashed"]
 
-    exp   [label="evidence export\nconduct case"
-           fillcolor="#2a0f1e" color="#e8559c" fontsize=9.5]
+    exp   [label="findings export\nmarkdown + PDF w/ replay shots\n/local only — the Export tab is a v3.1 stub"
+           fillcolor="#15171d" color="#5d677d" fontcolor="#8b95a8"
+           style="filled,rounded,dashed" fontsize=9.5]
   }
 
   /* ─────────── EDGES ─────────── */
@@ -181,9 +182,12 @@ digraph master {
   queue -> pipe
   pipe  -> valid [label="in-memory bundle\nstill has source" color="#3fbf62" lhead=cluster_ana]
   valid -> heur
-  heur  -> cross
-  cross -> flags
+  heur  -> flags
   flags -> pg    [label="persist" color="#4b90f7"]
+
+  /* cross-submission analysis is NOT a per-bundle stage: ingest_finalize
+     enqueues ONE semester-scoped job, collapsed by singletonKey. */
+  queue -> cross [label="ingest_finalize enqueues ONE\nsemester-scoped job (singletonKey):\nonce per batch,\nnever per bundle" color="#3fbf62" style=dashed]
   pipe  -> strip [label="after all compute" color="#F97316"]
   strip -> blob  [color="#4b90f7"]
 
@@ -194,8 +198,8 @@ digraph master {
   spa   -> triage
   triage-> close [label="no" color="#5d677d" style=dashed]
   triage-> drill [label="yes" color="#e8559c"]
-  drill -> exp
-  drill -> tune  [label="thresholds\nwrong" style=dashed color="#e8559c"]
+  drill -> exp   [label="Export tab —\nstub, not shipped" style=dashed color="#5d677d"]
+  drill -> tune  [label="weights\nwrong" style=dashed color="#e8559c"]
   tune  -> queue [label="recompute cohort" style=dashed color="#e8559c" constraint=false]
 
   bundle -> local [label="bypass:\nno server at all" color="#3fbf62" style=dashed]
