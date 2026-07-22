@@ -1,308 +1,308 @@
-<svg width="1649pt" height="781pt"
- viewBox="0.00 0.00 1649.00 781.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 777.12)">
+<svg width="1912pt" height="1078pt"
+ viewBox="0.00 0.00 1912.00 1078.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 1056.13)">
 <title>deploy</title>
 <g id="clust1" class="cluster">
-<title>cluster_edge</title>
-<path stroke-width="1.5" d="M1169,-577.85C1169,-577.85 1311,-577.85 1311,-577.85 1317,-577.85 1323,-583.85 1323,-589.85 1323,-589.85 1323,-694.1 1323,-694.1 1323,-700.1 1317,-706.1 1311,-706.1 1311,-706.1 1169,-706.1 1169,-706.1 1163,-706.1 1157,-700.1 1157,-694.1 1157,-694.1 1157,-589.85 1157,-589.85 1157,-583.85 1163,-577.85 1169,-577.85" class="f-hum s-hum"/>
-<text xml:space="preserve" text-anchor="middle" x="1198" y="-693.07" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-hum"> &#160;EECS EDGE &#160;</text>
+
+<path stroke-width="1.5" d="M1309,-775.13C1309,-775.13 1455,-775.13 1455,-775.13 1461,-775.13 1467,-781.13 1467,-787.13 1467,-787.13 1467,-930.82 1467,-930.82 1467,-936.82 1461,-942.82 1455,-942.82 1455,-942.82 1309,-942.82 1309,-942.82 1303,-942.82 1297,-936.82 1297,-930.82 1297,-930.82 1297,-787.13 1297,-787.13 1297,-781.13 1303,-775.13 1309,-775.13" class="f-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1338" y="-929.79" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-hum"> &#160;EECS EDGE &#160;</text>
 </g>
 <g id="clust2" class="cluster">
-<title>cluster_host</title>
-<path stroke-width="1.5" d="M1014,-139.68C1014,-139.68 1349,-139.68 1349,-139.68 1355,-139.68 1361,-145.68 1361,-151.68 1361,-151.68 1361,-545.85 1361,-545.85 1361,-551.85 1355,-557.85 1349,-557.85 1349,-557.85 1014,-557.85 1014,-557.85 1008,-557.85 1002,-551.85 1002,-545.85 1002,-545.85 1002,-151.68 1002,-151.68 1002,-145.68 1008,-139.68 1014,-139.68" class="f-srv s-srv"/>
-<text xml:space="preserve" text-anchor="middle" x="1181.38" y="-544.82" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-srv"> &#160;instapphost.eecs.berkeley.edu — rootless Docker, provenance service account &#160;</text>
+
+<path stroke-width="1.5" d="M1164,-164.91C1164,-164.91 1499,-164.91 1499,-164.91 1505,-164.91 1511,-170.91 1511,-176.91 1511,-176.91 1511,-715 1511,-715 1511,-721 1505,-727 1499,-727 1499,-727 1164,-727 1164,-727 1158,-727 1152,-721 1152,-715 1152,-715 1152,-176.91 1152,-176.91 1152,-170.91 1158,-164.91 1164,-164.91" class="f-srv s-srv"/>
+<text xml:space="preserve" text-anchor="middle" x="1331.38" y="-713.98" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-srv"> &#160;instapphost.eecs.berkeley.edu — rootless Docker, provenance service account &#160;</text>
 </g>
 <g id="clust3" class="cluster">
-<title>cluster_nfs</title>
-<path stroke-width="1.5" d="M1093,-8C1093,-8 1395,-8 1395,-8 1401,-8 1407,-14 1407,-20 1407,-20 1407,-85.81 1407,-85.81 1407,-91.81 1401,-97.81 1395,-97.81 1395,-97.81 1093,-97.81 1093,-97.81 1087,-97.81 1081,-91.81 1081,-85.81 1081,-85.81 1081,-20 1081,-20 1081,-14 1087,-8 1093,-8" class="f-rec s-rec"/>
-<text xml:space="preserve" text-anchor="middle" x="1243.88" y="-84.78" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-rec"> &#160;/home/submit/provenance — NFS, 1 TB HARD QUOTA, no headroom &#160;</text>
+
+<path stroke-width="1.5" d="M1293,-8C1293,-8 1595,-8 1595,-8 1601,-8 1607,-14 1607,-20 1607,-20 1607,-87.79 1607,-87.79 1607,-93.79 1601,-99.79 1595,-99.79 1595,-99.79 1293,-99.79 1293,-99.79 1287,-99.79 1281,-93.79 1281,-87.79 1281,-87.79 1281,-20 1281,-20 1281,-14 1287,-8 1293,-8" class="f-rec s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="1443.88" y="-86.76" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-rec"> &#160;/home/submit/provenance — NFS, 1 TB HARD QUOTA, no headroom &#160;</text>
 </g>
 <g id="clust4" class="cluster">
-<title>cluster_cron</title>
-<path stroke-width="1.5" d="M20,-134.81C20,-134.81 982,-134.81 982,-134.81 988,-134.81 994,-140.81 994,-146.81 994,-146.81 994,-197.33 994,-197.33 994,-203.33 988,-209.33 982,-209.33 982,-209.33 20,-209.33 20,-209.33 14,-209.33 8,-203.33 8,-197.33 8,-197.33 8,-146.81 8,-146.81 8,-140.81 14,-134.81 20,-134.81" class="f-ana s-ana"/>
-<text xml:space="preserve" text-anchor="middle" x="145" y="-196.3" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ana"> &#160;pg&#45;boss JOBS — every one has an explicit shutdown path &#160;</text>
+
+<path stroke-width="1.5" d="M20,-160.04C20,-160.04 1113,-160.04 1113,-160.04 1119,-160.04 1125,-166.04 1125,-172.04 1125,-172.04 1125,-224 1125,-224 1125,-230 1119,-236 1113,-236 1113,-236 20,-236 20,-236 14,-236 8,-230 8,-224 8,-224 8,-172.04 8,-172.04 8,-166.04 14,-160.04 20,-160.04" class="f-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="145" y="-222.97" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ana"> &#160;pg&#45;boss JOBS — every one has an explicit shutdown path &#160;</text>
 </g>
 <g id="clust5" class="cluster">
-<title>cluster_alert</title>
-<path stroke-width="1.5" d="M592,-15.64C592,-15.64 1018,-15.64 1018,-15.64 1024,-15.64 1030,-21.64 1030,-27.64 1030,-27.64 1030,-78.16 1030,-78.16 1030,-84.16 1024,-90.16 1018,-90.16 1018,-90.16 592,-90.16 592,-90.16 586,-90.16 580,-84.16 580,-78.16 580,-78.16 580,-27.64 580,-27.64 580,-21.64 586,-15.64 592,-15.64" class="f-uix s-uix"/>
-<text xml:space="preserve" text-anchor="middle" x="617.25" y="-77.14" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-uix"> &#160;ALERTING &#160;</text>
+
+<path stroke-width="1.5" d="M694,-15.91C694,-15.91 1176,-15.91 1176,-15.91 1182,-15.91 1188,-21.91 1188,-27.91 1188,-27.91 1188,-79.87 1188,-79.87 1188,-85.87 1182,-91.87 1176,-91.87 1176,-91.87 694,-91.87 694,-91.87 688,-91.87 682,-85.87 682,-79.87 682,-79.87 682,-27.91 682,-27.91 682,-21.91 688,-15.91 694,-15.91" class="f-uix s-uix"/>
+<text xml:space="preserve" text-anchor="middle" x="719.25" y="-78.85" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-uix"> &#160;ALERTING &#160;</text>
 </g>
 
 <g id="node1" class="node">
 <title>browser</title>
-<path stroke-width="1.3" d="M1208.39,-769.85C1208.39,-769.85 1111.61,-769.85 1111.61,-769.85 1107.53,-769.85 1103.45,-765.77 1103.45,-761.69 1103.45,-761.69 1103.45,-753.53 1103.45,-753.53 1103.45,-749.45 1107.53,-745.37 1111.61,-745.37 1111.61,-745.37 1208.39,-745.37 1208.39,-745.37 1212.47,-745.37 1216.55,-749.45 1216.55,-753.53 1216.55,-753.53 1216.55,-761.69 1216.55,-761.69 1216.55,-765.77 1212.47,-769.85 1208.39,-769.85" class="f-hum s-hum"/>
-<text xml:space="preserve" text-anchor="middle" x="1160" y="-753.73" font-family="Helvetica,sans-Serif" font-size="10.00" class="t-ink">Course staff browser</text>
+<path stroke-width="1.3" d="M1339.55,-1030.54C1339.55,-1030.54 1238.45,-1030.54 1238.45,-1030.54 1234.37,-1030.54 1230.29,-1026.46 1230.29,-1022.38 1230.29,-1022.38 1230.29,-1014.22 1230.29,-1014.22 1230.29,-1010.14 1234.37,-1006.06 1238.45,-1006.06 1238.45,-1006.06 1339.55,-1006.06 1339.55,-1006.06 1343.63,-1006.06 1347.71,-1010.14 1347.71,-1014.22 1347.71,-1014.22 1347.71,-1022.38 1347.71,-1022.38 1347.71,-1026.46 1343.63,-1030.54 1339.55,-1030.54" class="f-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1289" y="-1014.42" font-family="Helvetica,sans-Serif" font-size="10.00" class="t-ink">Course staff browser</text>
 </g>
 
 <g id="node3" class="node">
 <title>dns</title>
-<path stroke-width="1.3" d="M1306.39,-680.35C1306.39,-680.35 1173.61,-680.35 1173.61,-680.35 1169.53,-680.35 1165.45,-676.27 1165.45,-672.19 1165.45,-672.19 1165.45,-664.03 1165.45,-664.03 1165.45,-659.95 1169.53,-655.87 1173.61,-655.87 1173.61,-655.87 1306.39,-655.87 1306.39,-655.87 1310.47,-655.87 1314.55,-659.95 1314.55,-664.03 1314.55,-664.03 1314.55,-672.19 1314.55,-672.19 1314.55,-676.27 1310.47,-680.35 1306.39,-680.35" class="f-hum s-hum"/>
-<text xml:space="preserve" text-anchor="middle" x="1240" y="-663.96" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">provenance.eecs.berkeley.edu</text>
+<path stroke-width="1.3" d="M1450.55,-917.07C1450.55,-917.07 1313.45,-917.07 1313.45,-917.07 1309.37,-917.07 1305.29,-912.99 1305.29,-908.91 1305.29,-908.91 1305.29,-900.75 1305.29,-900.75 1305.29,-896.67 1309.37,-892.59 1313.45,-892.59 1313.45,-892.59 1450.55,-892.59 1450.55,-892.59 1454.63,-892.59 1458.71,-896.67 1458.71,-900.75 1458.71,-900.75 1458.71,-908.91 1458.71,-908.91 1458.71,-912.99 1454.63,-917.07 1450.55,-917.07" class="f-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1382" y="-900.68" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">provenance.eecs.berkeley.edu</text>
 </g>
 
 <g id="edge1" class="edge">
-<title>browser&#45;&gt;dns</title>
-<path fill="none" stroke-width="1.15" d="M1170.79,-744.81C1184.58,-729.72 1208.57,-703.49 1224.37,-686.21" class="s-edge"/>
-<polygon stroke-width="1.15" points="1225.71,-687.85 1228.21,-682.01 1222.61,-685.02 1225.71,-687.85" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1298.6,-1005.79C1314.96,-986.18 1348.33,-946.19 1367.52,-923.18" class="s-edge"/>
+<polygon stroke-width="1.15" points="1368.96,-924.73 1371.2,-918.78 1365.74,-922.04 1368.96,-924.73" class="a-edge s-edge"/>
 </g>
 
 <g id="node2" class="node">
 <title>gwclient</title>
-<path stroke-width="1.3" d="M1391.34,-773.12C1391.34,-773.12 1248.66,-773.12 1248.66,-773.12 1243.5,-773.12 1238.33,-767.95 1238.33,-762.78 1238.33,-762.78 1238.33,-752.44 1238.33,-752.44 1238.33,-747.27 1243.5,-742.1 1248.66,-742.1 1248.66,-742.1 1391.34,-742.1 1391.34,-742.1 1396.5,-742.1 1401.67,-747.27 1401.67,-752.44 1401.67,-752.44 1401.67,-762.78 1401.67,-762.78 1401.67,-767.95 1396.5,-773.12 1391.34,-773.12" class="f-tra s-tra"/>
-<text xml:space="preserve" text-anchor="middle" x="1320" y="-758.33" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">provgate</text>
-<text xml:space="preserve" text-anchor="middle" x="1320" y="-748.58" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">running wherever staff schedule it</text>
+<path stroke-width="1.3" d="M1548.02,-1034.53C1548.02,-1034.53 1401.98,-1034.53 1401.98,-1034.53 1396.58,-1034.53 1391.16,-1029.12 1391.16,-1023.71 1391.16,-1023.71 1391.16,-1012.89 1391.16,-1012.89 1391.16,-1007.48 1396.58,-1002.07 1401.98,-1002.07 1401.98,-1002.07 1548.02,-1002.07 1548.02,-1002.07 1553.42,-1002.07 1558.84,-1007.48 1558.84,-1012.89 1558.84,-1012.89 1558.84,-1023.71 1558.84,-1023.71 1558.84,-1029.12 1553.42,-1034.53 1548.02,-1034.53" class="f-tra s-tra"/>
+<text xml:space="preserve" text-anchor="middle" x="1475" y="-1019.02" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">provgate</text>
+<text xml:space="preserve" text-anchor="middle" x="1475" y="-1009.27" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">running wherever staff schedule it</text>
 </g>
 
 <g id="edge2" class="edge">
-<title>gwclient&#45;&gt;dns</title>
-<path fill="none" stroke-width="1.15" d="M1306.43,-741.77C1292.45,-726.48 1270.69,-702.67 1255.91,-686.51" class="s-tra"/>
-<polygon stroke-width="1.15" points="1257.58,-685.23 1251.98,-682.22 1254.48,-688.06 1257.58,-685.23" class="a-tra s-tra"/>
-<text xml:space="preserve" text-anchor="middle" x="1304.42" y="-715.31" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">API token</text>
+
+<path fill="none" stroke-width="1.15" d="M1462.07,-1001.8C1444.9,-981.22 1414.65,-944.96 1396.65,-923.39" class="s-tra"/>
+<polygon stroke-width="1.15" points="1398.28,-922.06 1392.82,-918.8 1395.05,-924.75 1398.28,-922.06" class="a-tra s-tra"/>
+<text xml:space="preserve" text-anchor="middle" x="1445.75" y="-956.28" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">API token</text>
 </g>
 
 <g id="node4" class="node">
 <title>prox</title>
-<path stroke-width="1.3" d="M1286.96,-616.87C1286.96,-616.87 1193.04,-616.87 1193.04,-616.87 1187.87,-616.87 1182.7,-611.7 1182.7,-606.53 1182.7,-606.53 1182.7,-596.19 1182.7,-596.19 1182.7,-591.02 1187.87,-585.85 1193.04,-585.85 1193.04,-585.85 1286.96,-585.85 1286.96,-585.85 1292.13,-585.85 1297.3,-591.02 1297.3,-596.19 1297.3,-596.19 1297.3,-606.53 1297.3,-606.53 1297.3,-611.7 1292.13,-616.87 1286.96,-616.87" class="f-hum s-hum"/>
-<text xml:space="preserve" text-anchor="middle" x="1240" y="-602.08" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">apphost reverse proxy</text>
-<text xml:space="preserve" text-anchor="middle" x="1240" y="-592.33" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">terminates TLS</text>
+<path stroke-width="1.3" d="M1430.64,-815.59C1430.64,-815.59 1333.36,-815.59 1333.36,-815.59 1327.95,-815.59 1322.54,-810.18 1322.54,-804.77 1322.54,-804.77 1322.54,-793.95 1322.54,-793.95 1322.54,-788.54 1327.95,-783.13 1333.36,-783.13 1333.36,-783.13 1430.64,-783.13 1430.64,-783.13 1436.05,-783.13 1441.46,-788.54 1441.46,-793.95 1441.46,-793.95 1441.46,-804.77 1441.46,-804.77 1441.46,-810.18 1436.05,-815.59 1430.64,-815.59" class="f-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1382" y="-800.08" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">apphost reverse proxy</text>
+<text xml:space="preserve" text-anchor="middle" x="1382" y="-790.33" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">terminates TLS</text>
 </g>
 
 <g id="edge3" class="edge">
-<title>dns&#45;&gt;prox</title>
-<path fill="none" stroke-width="1.15" d="M1240,-655.23C1240,-646.74 1240,-635.04 1240,-624.81" class="s-edge"/>
-<polygon stroke-width="1.15" points="1242.1,-625.09 1240,-619.09 1237.9,-625.09 1242.1,-625.09" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1382,-891.96C1382,-875.39 1382,-844.98 1382,-823.76" class="s-edge"/>
+<polygon stroke-width="1.15" points="1384.1,-823.87 1382,-817.87 1379.9,-823.87 1384.1,-823.87" class="a-edge s-edge"/>
 </g>
 
 <g id="node5" class="node">
 <title>sock</title>
-<polygon stroke-width="1.3" points="1333.38,-532.1 1141.45,-532.1 1141.45,-501.08 1338.55,-501.08 1338.55,-526.93 1333.38,-532.1" class="f-hum s-hum"/>
-<polyline fill="none" stroke-width="1.3" points="1333.38,-532.1 1333.38,-526.93" class="s-hum"/>
-<polyline fill="none" stroke-width="1.3" points="1338.55,-526.93 1333.38,-526.93" class="s-hum"/>
-<text xml:space="preserve" text-anchor="middle" x="1240" y="-517.79" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">/srv/appsockets/provenance/main/app.sock</text>
-<text xml:space="preserve" text-anchor="middle" x="1240" y="-508.04" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">unix socket — no port is ever exposed</text>
+<polygon stroke-width="1.3" points="1477.3,-701.25 1281.29,-701.25 1281.29,-668.79 1482.71,-668.79 1482.71,-695.84 1477.3,-701.25" class="f-hum s-hum"/>
+<polyline fill="none" stroke-width="1.3" points="1477.3,-701.25 1477.3,-695.84" class="s-hum"/>
+<polyline fill="none" stroke-width="1.3" points="1482.71,-695.84 1477.3,-695.84" class="s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1382" y="-686.22" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">/srv/appsockets/provenance/main/app.sock</text>
+<text xml:space="preserve" text-anchor="middle" x="1382" y="-676.47" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">unix socket — no port is ever exposed</text>
 </g>
 
 <g id="edge4" class="edge">
-<title>prox&#45;&gt;sock</title>
-<path fill="none" stroke-width="1.15" d="M1240,-585.56C1240,-572.93 1240,-554.56 1240,-540.11" class="s-edge"/>
-<polygon stroke-width="1.15" points="1242.1,-540.28 1240,-534.28 1237.9,-540.28 1242.1,-540.28" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1382,-782.74C1382,-763.73 1382,-731.46 1382,-709.46" class="s-edge"/>
+<polygon stroke-width="1.15" points="1384.1,-709.61 1382,-703.61 1379.9,-709.61 1384.1,-709.61" class="a-edge s-edge"/>
 </g>
 
 <g id="node6" class="node">
 <title>apic</title>
-<path stroke-width="1.7" d="M1342.46,-457.2C1342.46,-457.2 1137.54,-457.2 1137.54,-457.2 1132.37,-457.2 1127.2,-452.03 1127.2,-446.86 1127.2,-446.86 1127.2,-436.52 1127.2,-436.52 1127.2,-431.35 1132.37,-426.18 1137.54,-426.18 1137.54,-426.18 1342.46,-426.18 1342.46,-426.18 1347.63,-426.18 1352.8,-431.35 1352.8,-436.52 1352.8,-436.52 1352.8,-446.86 1352.8,-446.86 1352.8,-452.03 1347.63,-457.2 1342.46,-457.2" class="f-srv s-srv"/>
-<text xml:space="preserve" text-anchor="middle" x="1240" y="-442.42" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">app container — mode=api</text>
-<text xml:space="preserve" text-anchor="middle" x="1240" y="-432.67" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">Hono · OAuth · OpenAPI + Redoc · Prometheus</text>
+<path stroke-width="1.7" d="M1492.14,-586.92C1492.14,-586.92 1283.86,-586.92 1283.86,-586.92 1278.45,-586.92 1273.04,-581.51 1273.04,-576.1 1273.04,-576.1 1273.04,-565.28 1273.04,-565.28 1273.04,-559.87 1278.45,-554.46 1283.86,-554.46 1283.86,-554.46 1492.14,-554.46 1492.14,-554.46 1497.55,-554.46 1502.96,-559.87 1502.96,-565.28 1502.96,-565.28 1502.96,-576.1 1502.96,-576.1 1502.96,-581.51 1497.55,-586.92 1492.14,-586.92" class="f-srv s-srv"/>
+<text xml:space="preserve" text-anchor="middle" x="1388" y="-571.41" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">app container — mode=api</text>
+<text xml:space="preserve" text-anchor="middle" x="1388" y="-561.66" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">Hono · OAuth · OpenAPI + Redoc · Prometheus</text>
 </g>
 
 <g id="edge5" class="edge">
-<title>sock&#45;&gt;apic</title>
-<path fill="none" stroke-width="1.15" d="M1240,-500.49C1240,-490.39 1240,-476.92 1240,-465.52" class="s-edge"/>
-<polygon stroke-width="1.15" points="1242.1,-465.77 1240,-459.77 1237.9,-465.77 1242.1,-465.77" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1382.83,-668.4C1383.85,-649.39 1385.57,-617.12 1386.75,-595.13" class="s-edge"/>
+<polygon stroke-width="1.15" points="1388.84,-595.38 1387.06,-589.27 1384.64,-595.15 1388.84,-595.38" class="a-edge s-edge"/>
 </g>
 
 <g id="node7" class="node">
 <title>wrkc</title>
-<path stroke-width="1.7" d="M1203.46,-360.37C1203.46,-360.37 1028.54,-360.37 1028.54,-360.37 1023.37,-360.37 1018.2,-355.2 1018.2,-350.03 1018.2,-350.03 1018.2,-339.69 1018.2,-339.69 1018.2,-334.52 1023.37,-329.35 1028.54,-329.35 1028.54,-329.35 1203.46,-329.35 1203.46,-329.35 1208.63,-329.35 1213.8,-334.52 1213.8,-339.69 1213.8,-339.69 1213.8,-350.03 1213.8,-350.03 1213.8,-355.2 1208.63,-360.37 1203.46,-360.37" class="f-srv s-srv"/>
-<text xml:space="preserve" text-anchor="middle" x="1116" y="-345.58" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">app container — mode=worker</text>
-<text xml:space="preserve" text-anchor="middle" x="1116" y="-335.83" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">pg&#45;boss subscriber, bounded concurrency</text>
+<path stroke-width="1.7" d="M1352.14,-450.18C1352.14,-450.18 1173.86,-450.18 1173.86,-450.18 1168.45,-450.18 1163.04,-444.77 1163.04,-439.36 1163.04,-439.36 1163.04,-428.54 1163.04,-428.54 1163.04,-423.13 1168.45,-417.72 1173.86,-417.72 1173.86,-417.72 1352.14,-417.72 1352.14,-417.72 1357.55,-417.72 1362.96,-423.13 1362.96,-428.54 1362.96,-428.54 1362.96,-439.36 1362.96,-439.36 1362.96,-444.77 1357.55,-450.18 1352.14,-450.18" class="f-srv s-srv"/>
+<text xml:space="preserve" text-anchor="middle" x="1263" y="-434.68" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">app container — mode=worker</text>
+<text xml:space="preserve" text-anchor="middle" x="1263" y="-424.93" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">pg&#45;boss subscriber, bounded concurrency</text>
 </g>
 
 <g id="edge9" class="edge">
-<title>apic&#45;&gt;wrkc</title>
-<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1155.3,-425.43C1145.75,-420.83 1136.89,-414.88 1129.75,-407.18 1120.22,-396.92 1116.79,-381.53 1115.74,-368.74" class="s-srv"/>
-<polygon stroke-width="1.15" points="1117.85,-368.8 1115.45,-362.91 1113.65,-369.01 1117.85,-368.8" class="a-srv s-srv"/>
-<text xml:space="preserve" text-anchor="middle" x="1180.38" y="-399.39" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">enqueue via pg&#45;boss</text>
-<text xml:space="preserve" text-anchor="middle" x="1180.38" y="-390.39" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">(the queue lives in Postgres)</text>
+
+<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1347.04,-553.8C1328.99,-545.08 1308.75,-532.69 1294.75,-516.46 1280.34,-499.75 1272.06,-475.77 1267.6,-458.14" class="s-srv"/>
+<polygon stroke-width="1.15" points="1269.74,-458.06 1266.31,-452.71 1265.65,-459.03 1269.74,-458.06" class="a-srv s-srv"/>
+<text xml:space="preserve" text-anchor="middle" x="1345.38" y="-508.67" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">enqueue via pg&#45;boss</text>
+<text xml:space="preserve" text-anchor="middle" x="1345.38" y="-499.67" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">(the queue lives in Postgres)</text>
 </g>
 
 <g id="node8" class="node">
 <title>pgc</title>
-<path stroke-width="1.3" d="M1166.8,-276.6C1166.8,-278.77 1144.48,-280.53 1117,-280.53 1089.52,-280.53 1067.2,-278.77 1067.2,-276.6 1067.2,-276.6 1067.2,-241.26 1067.2,-241.26 1067.2,-239.09 1089.52,-237.33 1117,-237.33 1144.48,-237.33 1166.8,-239.09 1166.8,-241.26 1166.8,-241.26 1166.8,-276.6 1166.8,-276.6" class="f-srv s-srv"/>
-<path fill="none" stroke-width="1.3" d="M1166.8,-276.6C1166.8,-274.43 1144.48,-272.67 1117,-272.67 1089.52,-272.67 1067.2,-274.43 1067.2,-276.6" class="s-srv"/>
-<text xml:space="preserve" text-anchor="middle" x="1117" y="-254.78" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">postgres container</text>
+<path stroke-width="1.3" d="M1317.96,-326.52C1317.96,-328.69 1294.67,-330.45 1266,-330.45 1237.33,-330.45 1214.04,-328.69 1214.04,-326.52 1214.04,-326.52 1214.04,-291.18 1214.04,-291.18 1214.04,-289.01 1237.33,-287.25 1266,-287.25 1294.67,-287.25 1317.96,-289.01 1317.96,-291.18 1317.96,-291.18 1317.96,-326.52 1317.96,-326.52" class="f-srv s-srv"/>
+<path fill="none" stroke-width="1.3" d="M1317.96,-326.52C1317.96,-324.35 1294.67,-322.59 1266,-322.59 1237.33,-322.59 1214.04,-324.35 1214.04,-326.52" class="s-srv"/>
+<text xml:space="preserve" text-anchor="middle" x="1266" y="-304.7" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">postgres container</text>
 </g>
 
 <g id="edge7" class="edge">
-<title>apic&#45;&gt;pgc</title>
-<path fill="none" stroke-width="1.15" d="M1242.25,-425.4C1245.02,-400.82 1246.97,-352.01 1225,-319.53 1212.82,-301.52 1193.31,-288.42 1174.2,-279.17" class="s-edge"/>
-<polygon stroke-width="1.15" points="1175.1,-277.27 1168.78,-276.66 1173.34,-281.09 1175.1,-277.27" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1393.25,-554.06C1396.49,-543.56 1400.33,-529.34 1402,-516.46 1407.15,-476.62 1385,-409.12 1384,-407.45 1365.87,-377.03 1334.66,-351.84 1308.88,-334.67" class="s-edge"/>
+<polygon stroke-width="1.15" points="1310.09,-332.95 1303.92,-331.44 1307.8,-336.47 1310.09,-332.95" class="a-edge s-edge"/>
 </g>
 
 <g id="node10" class="node">
 <title>blobs</title>
-<path stroke-width="1.3" d="M1391.17,-66.96C1391.17,-69.77 1347.17,-72.06 1293,-72.06 1238.83,-72.06 1194.83,-69.77 1194.83,-66.96 1194.83,-66.96 1194.83,-21.1 1194.83,-21.1 1194.83,-18.28 1238.83,-16 1293,-16 1347.17,-16 1391.17,-18.28 1391.17,-21.1 1391.17,-21.1 1391.17,-66.96 1391.17,-66.96" class="f-rec s-rec"/>
-<path fill="none" stroke-width="1.3" d="M1391.17,-66.96C1391.17,-64.15 1347.17,-61.87 1293,-61.87 1238.83,-61.87 1194.83,-64.15 1194.83,-66.96" class="s-rec"/>
-<text xml:space="preserve" text-anchor="middle" x="1293" y="-49.63" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">blob store — filesystem backend</text>
-<text xml:space="preserve" text-anchor="middle" x="1293" y="-39.88" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">behind the same S3&#45;compatible interface</text>
-<text xml:space="preserve" text-anchor="middle" x="1293" y="-30.13" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">MinIO provides in development</text>
+<path stroke-width="1.3" d="M1598.34,-68.76C1598.34,-71.67 1553.36,-74.04 1498,-74.04 1442.64,-74.04 1397.66,-71.67 1397.66,-68.76 1397.66,-68.76 1397.66,-21.28 1397.66,-21.28 1397.66,-18.36 1442.64,-16 1498,-16 1553.36,-16 1598.34,-18.36 1598.34,-21.28 1598.34,-21.28 1598.34,-68.76 1598.34,-68.76" class="f-rec s-rec"/>
+<path fill="none" stroke-width="1.3" d="M1598.34,-68.76C1598.34,-65.85 1553.36,-63.49 1498,-63.49 1442.64,-63.49 1397.66,-65.85 1397.66,-68.76" class="s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="1498" y="-50.62" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">blob store — filesystem backend</text>
+<text xml:space="preserve" text-anchor="middle" x="1498" y="-40.87" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">behind the same S3&#45;compatible interface</text>
+<text xml:space="preserve" text-anchor="middle" x="1498" y="-31.12" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">MinIO provides in development</text>
 </g>
 
 <g id="edge10" class="edge">
-<title>apic&#45;&gt;blobs</title>
-<path fill="none" stroke-width="1.15" d="M1257.64,-425.51C1275.66,-408.22 1301,-378.16 1301,-345.86 1301,-345.86 1301,-345.86 1301,-162.19 1301,-134.53 1298.75,-103.29 1296.64,-80.02" class="s-edge"/>
-<polygon stroke-width="1.15" points="1298.75,-79.97 1296.1,-74.19 1294.56,-80.36 1298.75,-79.97" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1423.02,-553.79C1463.32,-532.81 1524,-491.79 1524,-434.95 1524,-434.95 1524,-434.95 1524,-188.14 1524,-151.53 1515.55,-110.47 1508.28,-81.93" class="s-edge"/>
+<polygon stroke-width="1.15" points="1510.35,-81.55 1506.81,-76.28 1506.29,-82.61 1510.35,-81.55" class="a-edge s-edge"/>
 </g>
 
 <g id="node21" class="node">
 <title>goog</title>
-<path stroke-width="1.3" d="M1630.19,-349.03C1630.19,-349.03 1584.47,-366.01 1584.47,-366.01 1578.84,-368.1 1567.22,-370.18 1561.22,-370.18 1561.22,-370.18 1448.78,-370.18 1448.78,-370.18 1442.78,-370.18 1431.16,-368.1 1425.53,-366.01 1425.53,-366.01 1379.81,-349.03 1379.81,-349.03 1374.19,-346.94 1374.19,-342.77 1379.81,-340.68 1379.81,-340.68 1425.53,-323.71 1425.53,-323.71 1431.16,-321.62 1442.78,-319.53 1448.78,-319.53 1448.78,-319.53 1561.22,-319.53 1561.22,-319.53 1567.22,-319.53 1578.84,-321.62 1584.47,-323.71 1584.47,-323.71 1630.19,-340.68 1630.19,-340.68 1635.81,-342.77 1635.81,-346.94 1630.19,-349.03" class="f-hum s-hum"/>
-<text xml:space="preserve" text-anchor="middle" x="1505" y="-345.58" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">Google OAuth</text>
-<text xml:space="preserve" text-anchor="middle" x="1505" y="-335.83" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">hd claim must match berkeley.edu</text>
+<path stroke-width="1.3" d="M1857.74,-438.2C1857.74,-438.2 1810.2,-456.21 1810.2,-456.21 1804.59,-458.33 1792.98,-460.46 1786.98,-460.46 1786.98,-460.46 1671.02,-460.46 1671.02,-460.46 1665.02,-460.46 1653.41,-458.33 1647.8,-456.21 1647.8,-456.21 1600.26,-438.2 1600.26,-438.2 1594.65,-436.08 1594.65,-431.83 1600.26,-429.7 1600.26,-429.7 1647.8,-411.7 1647.8,-411.7 1653.41,-409.57 1665.02,-407.45 1671.02,-407.45 1671.02,-407.45 1786.98,-407.45 1786.98,-407.45 1792.98,-407.45 1804.59,-409.57 1810.2,-411.7 1810.2,-411.7 1857.74,-429.7 1857.74,-429.7 1863.35,-431.83 1863.35,-436.08 1857.74,-438.2" class="f-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1729" y="-434.68" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">Google OAuth</text>
+<text xml:space="preserve" text-anchor="middle" x="1729" y="-424.93" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">hd claim must match berkeley.edu</text>
 </g>
 
 <g id="edge6" class="edge">
-<title>apic&#45;&gt;goog</title>
-<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1282.87,-425.35C1322.23,-411.26 1381.46,-390.07 1428.86,-373.1" class="s-hum"/>
-<polygon stroke-width="1.15" points="1429.48,-375.11 1434.42,-371.11 1428.07,-371.16 1429.48,-375.11" class="a-hum s-hum"/>
-<text xml:space="preserve" text-anchor="middle" x="1405.95" y="-394.89" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">verify ID token</text>
+
+<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1445.04,-553.68C1477.87,-543.95 1519.68,-530.69 1556,-516.46 1595.41,-501.01 1638.48,-480.73 1671.78,-464.27" class="s-hum"/>
+<polygon stroke-width="1.15" points="1672.31,-466.35 1676.75,-461.8 1670.44,-462.59 1672.31,-466.35" class="a-hum s-hum"/>
+<text xml:space="preserve" text-anchor="middle" x="1620.17" y="-504.17" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">verify ID token</text>
 </g>
 
 <g id="edge8" class="edge">
-<title>wrkc&#45;&gt;pgc</title>
-<path fill="none" stroke-width="1.15" d="M1116.18,-328.85C1116.31,-317.74 1116.5,-302.25 1116.66,-288.77" class="s-edge"/>
-<polygon stroke-width="1.15" points="1118.76,-288.87 1116.73,-282.85 1114.56,-288.82 1118.76,-288.87" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1263.39,-417.11C1263.87,-397.31 1264.7,-363.03 1265.3,-338.56" class="s-edge"/>
+<polygon stroke-width="1.15" points="1267.4,-338.78 1265.44,-332.73 1263.2,-338.68 1267.4,-338.78" class="a-edge s-edge"/>
 </g>
 
 <g id="edge11" class="edge">
-<title>wrkc&#45;&gt;blobs</title>
-<path fill="none" stroke-width="1.15" d="M1132.11,-328.5C1144.98,-315.99 1163.23,-297.65 1178,-280.53 1203.94,-250.46 1212.88,-244.14 1232,-209.33 1255.22,-167.05 1273.07,-114.14 1283.3,-79.97" class="s-edge"/>
-<polygon stroke-width="1.15" points="1285.31,-80.57 1285,-74.22 1281.28,-79.38 1285.31,-80.57" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1275.72,-417.04C1291.33,-397.24 1318.28,-362.16 1339,-330.45 1395.52,-243.93 1452.35,-136.05 1480.26,-81.35" class="s-edge"/>
+<polygon stroke-width="1.15" points="1482.04,-82.48 1482.89,-76.18 1478.29,-80.58 1482.04,-82.48" class="a-edge s-edge"/>
 </g>
 
 <g id="node12" class="node">
 <title>j1</title>
-<path stroke-width="1.3" d="M201.84,-178.7C201.84,-178.7 26.16,-178.7 26.16,-178.7 20.99,-178.7 15.83,-173.53 15.83,-168.36 15.83,-168.36 15.83,-158.02 15.83,-158.02 15.83,-152.85 21,-147.68 26.16,-147.68 26.16,-147.68 201.84,-147.68 201.84,-147.68 207.01,-147.68 212.18,-152.85 212.18,-158.02 212.18,-158.02 212.18,-168.36 212.18,-168.36 212.18,-173.53 207.01,-178.7 201.84,-178.7" class="f-ana s-ana"/>
-<text xml:space="preserve" text-anchor="middle" x="114" y="-164.39" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">retention&#45;sweep</text>
-<text xml:space="preserve" text-anchor="middle" x="114" y="-154.64" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">deletes BLOBS only — rows persist forever</text>
+<path stroke-width="1.3" d="M205.51,-205.37C205.51,-205.37 26.49,-205.37 26.49,-205.37 21.08,-205.37 15.67,-199.96 15.67,-194.55 15.67,-194.55 15.67,-183.73 15.67,-183.73 15.67,-178.32 21.08,-172.91 26.48,-172.91 26.48,-172.91 205.51,-172.91 205.51,-172.91 210.92,-172.91 216.33,-178.32 216.33,-183.73 216.33,-183.73 216.33,-194.55 216.33,-194.55 216.33,-199.96 210.92,-205.37 205.51,-205.37" class="f-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="116" y="-190.34" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">retention&#45;sweep</text>
+<text xml:space="preserve" text-anchor="middle" x="116" y="-180.59" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">deletes BLOBS only — rows persist forever</text>
 </g>
 
 <g id="edge14" class="edge">
-<title>wrkc&#45;&gt;j1</title>
-<path fill="none" stroke-width="1.15" d="M1017.58,-336.89C852.76,-323.5 511.36,-288.4 230.46,-211.39" class="s-ana"/>
-<polygon stroke-width="1.15" points="231.02,-209.36 224.68,-209.79 229.9,-213.41 231.02,-209.36" class="a-ana s-ana"/>
+
+<path fill="none" stroke-width="1.15" d="M1162.38,-419.41C978.56,-393.41 576.85,-330.74 245.33,-238.06" class="s-ana"/>
+<polygon stroke-width="1.15" points="246.02,-236.07 239.68,-236.47 244.89,-240.11 246.02,-236.07" class="a-ana s-ana"/>
 </g>
 
 <g id="node9" class="node">
 <title>dumpc</title>
-<path stroke-width="1.3" d="M1210.46,-178.7C1210.46,-178.7 1023.54,-178.7 1023.54,-178.7 1018.37,-178.7 1013.2,-173.53 1013.2,-168.36 1013.2,-168.36 1013.2,-158.02 1013.2,-158.02 1013.2,-152.85 1018.37,-147.68 1023.54,-147.68 1023.54,-147.68 1210.46,-147.68 1210.46,-147.68 1215.63,-147.68 1220.8,-152.85 1220.8,-158.02 1220.8,-158.02 1220.8,-168.36 1220.8,-168.36 1220.8,-173.53 1215.63,-178.7 1210.46,-178.7" class="f-srv s-srv"/>
-<text xml:space="preserve" text-anchor="middle" x="1117" y="-164.39" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">pgdump sidecar</text>
-<text xml:space="preserve" text-anchor="middle" x="1117" y="-154.64" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">scheduled pg_dump into the backup directory</text>
+<path stroke-width="1.3" d="M1361.14,-205.37C1361.14,-205.37 1170.86,-205.37 1170.86,-205.37 1165.45,-205.37 1160.04,-199.96 1160.04,-194.55 1160.04,-194.55 1160.04,-183.73 1160.04,-183.73 1160.04,-178.32 1165.45,-172.91 1170.86,-172.91 1170.86,-172.91 1361.14,-172.91 1361.14,-172.91 1366.55,-172.91 1371.96,-178.32 1371.96,-183.73 1371.96,-183.73 1371.96,-194.55 1371.96,-194.55 1371.96,-199.96 1366.55,-205.37 1361.14,-205.37" class="f-srv s-srv"/>
+<text xml:space="preserve" text-anchor="middle" x="1266" y="-190.34" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">pgdump sidecar</text>
+<text xml:space="preserve" text-anchor="middle" x="1266" y="-180.59" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">scheduled pg_dump into the backup directory</text>
 </g>
 
 <g id="edge12" class="edge">
-<title>pgc&#45;&gt;dumpc</title>
-<path fill="none" stroke-width="1.15" d="M1117,-237.13C1117,-222.15 1117,-201.98 1117,-186.64" class="s-edge"/>
-<polygon stroke-width="1.15" points="1119.1,-186.85 1117,-180.85 1114.9,-186.85 1119.1,-186.85" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1266,-286.81C1266,-266.17 1266,-234.77 1266,-213.4" class="s-edge"/>
+<polygon stroke-width="1.15" points="1268.1,-213.48 1266,-207.48 1263.9,-213.48 1268.1,-213.48" class="a-edge s-edge"/>
 </g>
 
 <g id="node11" class="node">
 <title>backs</title>
-<path stroke-width="1.3" d="M1164.55,-58.76C1164.55,-60.56 1151.31,-62.03 1135,-62.03 1118.69,-62.03 1105.45,-60.56 1105.45,-58.76 1105.45,-58.76 1105.45,-29.3 1105.45,-29.3 1105.45,-27.5 1118.69,-26.03 1135,-26.03 1151.31,-26.03 1164.55,-27.5 1164.55,-29.3 1164.55,-29.3 1164.55,-58.76 1164.55,-58.76" class="f-rec s-rec"/>
-<path fill="none" stroke-width="1.3" d="M1164.55,-58.76C1164.55,-56.95 1151.31,-55.48 1135,-55.48 1118.69,-55.48 1105.45,-56.95 1105.45,-58.76" class="s-rec"/>
-<text xml:space="preserve" text-anchor="middle" x="1135" y="-39.88" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">backups/</text>
+<path stroke-width="1.3" d="M1353.71,-59.75C1353.71,-61.55 1339.5,-63.02 1322,-63.02 1304.5,-63.02 1290.29,-61.55 1290.29,-59.75 1290.29,-59.75 1290.29,-30.29 1290.29,-30.29 1290.29,-28.49 1304.5,-27.02 1322,-27.02 1339.5,-27.02 1353.71,-28.49 1353.71,-30.29 1353.71,-30.29 1353.71,-59.75 1353.71,-59.75" class="f-rec s-rec"/>
+<path fill="none" stroke-width="1.3" d="M1353.71,-59.75C1353.71,-57.94 1339.5,-56.47 1322,-56.47 1304.5,-56.47 1290.29,-57.94 1290.29,-59.75" class="s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="1322" y="-40.87" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">backups/</text>
 </g>
 
 <g id="edge13" class="edge">
-<title>dumpc&#45;&gt;backs</title>
-<path fill="none" stroke-width="1.15" d="M1119.28,-147.35C1122.27,-127.88 1127.57,-93.42 1131.18,-69.92" class="s-edge"/>
-<polygon stroke-width="1.15" points="1133.23,-70.38 1132.07,-64.13 1129.08,-69.74 1133.23,-70.38" class="a-edge s-edge"/>
+
+<path fill="none" stroke-width="1.15" d="M1274.92,-172.72C1281.33,-161.21 1289.9,-144.96 1296,-130.04 1303.97,-110.55 1310.9,-87.68 1315.59,-70.73" class="s-edge"/>
+<polygon stroke-width="1.15" points="1317.59,-71.41 1317.13,-65.07 1313.53,-70.31 1317.59,-71.41" class="a-edge s-edge"/>
 </g>
 
 <g id="node20" class="node">
 <title>hchk</title>
-<path stroke-width="1.7" d="M1009.67,-64.41C1009.67,-64.41 810.33,-64.41 810.33,-64.41 804.33,-64.41 798.33,-58.41 798.33,-52.41 798.33,-52.41 798.33,-35.64 798.33,-35.64 798.33,-29.64 804.33,-23.64 810.33,-23.64 810.33,-23.64 1009.67,-23.64 1009.67,-23.64 1015.67,-23.64 1021.67,-29.64 1021.67,-35.64 1021.67,-35.64 1021.67,-52.41 1021.67,-52.41 1021.67,-58.41 1015.67,-64.41 1009.67,-64.41" class="f-uix s-uix"/>
-<text xml:space="preserve" text-anchor="middle" x="910" y="-49.63" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">healthchecks.io</text>
-<text xml:space="preserve" text-anchor="middle" x="910" y="-39.88" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">dead&#45;man&#39;s switch — catches a SILENT failure,</text>
-<text xml:space="preserve" text-anchor="middle" x="910" y="-30.13" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">which no alert&#45;on&#45;error ever will</text>
+<path stroke-width="1.7" d="M1167.84,-66.12C1167.84,-66.12 964.16,-66.12 964.16,-66.12 958.16,-66.12 952.16,-60.12 952.16,-54.12 952.16,-54.12 952.16,-35.91 952.16,-35.91 952.16,-29.91 958.16,-23.91 964.16,-23.91 964.16,-23.91 1167.84,-23.91 1167.84,-23.91 1173.84,-23.91 1179.84,-29.91 1179.84,-35.91 1179.84,-35.91 1179.84,-54.12 1179.84,-54.12 1179.84,-60.12 1173.84,-66.12 1167.84,-66.12" class="f-uix s-uix"/>
+<text xml:space="preserve" text-anchor="middle" x="1066" y="-50.62" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">healthchecks.io</text>
+<text xml:space="preserve" text-anchor="middle" x="1066" y="-40.87" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">dead&#45;man&#39;s switch — catches a SILENT failure,</text>
+<text xml:space="preserve" text-anchor="middle" x="1066" y="-31.12" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">which no alert&#45;on&#45;error ever will</text>
 </g>
 
 <g id="edge17" class="edge">
-<title>dumpc&#45;&gt;hchk</title>
-<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1057.52,-147.1C1038.87,-142.72 1018.16,-138.2 999,-134.81 979.32,-131.32 922.99,-138.78 909.75,-123.81 897.65,-110.13 898.24,-89.28 901.58,-72.47" class="s-uix"/>
-<polygon stroke-width="1.15" points="903.59,-73.08 902.88,-66.77 899.5,-72.15 903.59,-73.08" class="a-uix s-uix"/>
-<text xml:space="preserve" text-anchor="middle" x="964.88" y="-116.02" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">ping after each</text>
-<text xml:space="preserve" text-anchor="middle" x="964.88" y="-107.02" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">nightly pg_dump (/fail on error)</text>
+
+<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1194.16,-172.27C1138.38,-159.22 1069.14,-141.13 1060.75,-130.04 1048.87,-114.33 1050.95,-91.88 1055.59,-74.14" class="s-uix"/>
+<polygon stroke-width="1.15" points="1057.56,-74.87 1057.21,-68.53 1053.53,-73.71 1057.56,-74.87" class="a-uix s-uix"/>
+<text xml:space="preserve" text-anchor="middle" x="1115.88" y="-122.25" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">ping after each</text>
+<text xml:space="preserve" text-anchor="middle" x="1115.88" y="-113.25" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">nightly pg_dump (/fail on error)</text>
 </g>
 
 <g id="edge18" class="edge">
-<title>j1&#45;&gt;blobs</title>
-<path fill="none" stroke-width="1.15" d="M164,-147.04C182.37,-142.16 203.46,-137.36 223,-134.81 398.85,-111.82 844.37,-139.75 1021,-123.81 1090.57,-117.53 1109.17,-118.12 1176,-97.81 1194.92,-92.06 1214.77,-83.96 1232.65,-75.82" class="s-rec"/>
-<polygon stroke-width="1.15" points="1233.51,-77.74 1238.08,-73.32 1231.75,-73.93 1233.51,-77.74" class="a-rec s-rec"/>
-<text xml:space="preserve" text-anchor="middle" x="1182.84" y="-111.52" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">delete expired blobs</text>
+
+<path fill="none" stroke-width="1.15" d="M174.22,-172.3C194.28,-167.5 216.98,-162.77 238,-160.04 652.07,-106.25 761.21,-168.3 1177,-130.04 1265.65,-121.88 1289.49,-124.55 1375,-99.79 1394.84,-94.04 1415.68,-85.83 1434.45,-77.55" class="s-rec"/>
+<polygon stroke-width="1.15" points="1435.06,-79.58 1439.68,-75.21 1433.35,-75.75 1435.06,-79.58" class="a-rec s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="1361.8" y="-117.75" font-family="Helvetica,sans-Serif" font-size="8.20" class="t-hum">delete expired blobs</text>
 </g>
 
 <g id="node13" class="node">
 <title>j2</title>
-<path stroke-width="1.3" d="M344.01,-175.43C344.01,-175.43 241.99,-175.43 241.99,-175.43 237.91,-175.43 233.83,-171.35 233.83,-167.27 233.83,-167.27 233.83,-159.11 233.83,-159.11 233.83,-155.03 237.91,-150.95 241.99,-150.95 241.99,-150.95 344.01,-150.95 344.01,-150.95 348.1,-150.95 352.18,-155.03 352.18,-159.11 352.18,-159.11 352.18,-167.27 352.18,-167.27 352.18,-171.35 348.1,-175.43 344.01,-175.43" class="f-ana s-ana"/>
-<text xml:space="preserve" text-anchor="middle" x="293" y="-159.52" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">purge&#45;expired&#45;sessions</text>
+<path stroke-width="1.3" d="M374.17,-201.38C374.17,-201.38 267.83,-201.38 267.83,-201.38 263.75,-201.38 259.67,-197.3 259.67,-193.22 259.67,-193.22 259.67,-185.06 259.67,-185.06 259.67,-180.98 263.75,-176.9 267.83,-176.9 267.83,-176.9 374.17,-176.9 374.17,-176.9 378.25,-176.9 382.33,-180.98 382.33,-185.06 382.33,-185.06 382.33,-193.22 382.33,-193.22 382.33,-197.3 378.25,-201.38 374.17,-201.38" class="f-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="321" y="-185.47" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">purge&#45;expired&#45;sessions</text>
 </g>
 
 <g id="node14" class="node">
 <title>j3</title>
-<path stroke-width="1.3" d="M465.26,-175.43C465.26,-175.43 382.74,-175.43 382.74,-175.43 378.65,-175.43 374.57,-171.35 374.57,-167.27 374.57,-167.27 374.57,-159.11 374.57,-159.11 374.57,-155.03 378.65,-150.95 382.74,-150.95 382.74,-150.95 465.26,-150.95 465.26,-150.95 469.35,-150.95 473.43,-155.03 473.43,-159.11 473.43,-159.11 473.43,-167.27 473.43,-167.27 473.43,-171.35 469.35,-175.43 465.26,-175.43" class="f-ana s-ana"/>
-<text xml:space="preserve" text-anchor="middle" x="424" y="-159.52" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">reap&#45;stale&#45;uploads</text>
+<path stroke-width="1.3" d="M520.43,-201.38C520.43,-201.38 433.58,-201.38 433.58,-201.38 429.5,-201.38 425.42,-197.3 425.42,-193.22 425.42,-193.22 425.42,-185.06 425.42,-185.06 425.42,-180.98 429.5,-176.9 433.58,-176.9 433.58,-176.9 520.43,-176.9 520.43,-176.9 524.5,-176.9 528.59,-180.98 528.59,-185.06 528.59,-185.06 528.59,-193.22 528.59,-193.22 528.59,-197.3 524.5,-201.38 520.43,-201.38" class="f-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="477" y="-185.47" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">reap&#45;stale&#45;uploads</text>
 </g>
 
 <g id="node15" class="node">
 <title>j4</title>
-<path stroke-width="1.3" d="M600.01,-175.43C600.01,-175.43 503.99,-175.43 503.99,-175.43 499.9,-175.43 495.82,-171.35 495.82,-167.27 495.82,-167.27 495.82,-159.11 495.82,-159.11 495.82,-155.03 499.9,-150.95 503.99,-150.95 503.99,-150.95 600.01,-150.95 600.01,-150.95 604.09,-150.95 608.17,-155.03 608.17,-159.11 608.17,-159.11 608.17,-167.27 608.17,-167.27 608.17,-171.35 604.09,-175.43 600.01,-175.43" class="f-ana s-ana"/>
-<text xml:space="preserve" text-anchor="middle" x="552" y="-159.52" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">purge&#45;expired&#45;exports</text>
+<path stroke-width="1.3" d="M680.18,-201.38C680.18,-201.38 579.82,-201.38 579.82,-201.38 575.75,-201.38 571.66,-197.3 571.66,-193.22 571.66,-193.22 571.66,-185.06 571.66,-185.06 571.66,-180.98 575.75,-176.9 579.82,-176.9 579.82,-176.9 680.18,-176.9 680.18,-176.9 684.25,-176.9 688.34,-180.98 688.34,-185.06 688.34,-185.06 688.34,-193.22 688.34,-193.22 688.34,-197.3 684.25,-201.38 680.18,-201.38" class="f-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="630" y="-185.47" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">purge&#45;expired&#45;exports</text>
 </g>
 
 <g id="node16" class="node">
 <title>j5</title>
-<path stroke-width="1.3" d="M767.83,-178.7C767.83,-178.7 640.17,-178.7 640.17,-178.7 635,-178.7 629.83,-173.53 629.83,-168.36 629.83,-168.36 629.83,-158.02 629.83,-158.02 629.83,-152.85 635,-147.68 640.17,-147.68 640.17,-147.68 767.83,-147.68 767.83,-147.68 773,-147.68 778.17,-152.85 778.17,-158.02 778.17,-158.02 778.17,-168.36 778.17,-168.36 778.17,-173.53 773,-178.7 767.83,-178.7" class="f-ana s-ana"/>
-<text xml:space="preserve" text-anchor="middle" x="704" y="-164.39" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">storage&#45;quota&#45;check</text>
-<text xml:space="preserve" text-anchor="middle" x="704" y="-154.64" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">alerts before the 1 TB wall is hit</text>
+<path stroke-width="1.3" d="M873.51,-205.37C873.51,-205.37 742.48,-205.37 742.48,-205.37 737.07,-205.37 731.66,-199.96 731.66,-194.55 731.66,-194.55 731.66,-183.73 731.66,-183.73 731.66,-178.32 737.07,-172.91 742.49,-172.91 742.49,-172.91 873.52,-172.91 873.52,-172.91 878.93,-172.91 884.34,-178.32 884.34,-183.73 884.34,-183.73 884.34,-194.55 884.34,-194.55 884.34,-199.96 878.93,-205.37 873.51,-205.37" class="f-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="808" y="-190.34" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">storage&#45;quota&#45;check</text>
+<text xml:space="preserve" text-anchor="middle" x="808" y="-180.59" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">alerts before the 1 TB wall is hit</text>
 </g>
 
 <g id="node18" class="node">
 <title>disc</title>
-<path stroke-width="1.3" d="M768.64,-56.27C768.64,-56.27 691.36,-56.27 691.36,-56.27 687.28,-56.27 683.2,-52.19 683.2,-48.11 683.2,-48.11 683.2,-39.95 683.2,-39.95 683.2,-35.87 687.28,-31.79 691.36,-31.79 691.36,-31.79 768.64,-31.79 768.64,-31.79 772.72,-31.79 776.8,-35.87 776.8,-39.95 776.8,-39.95 776.8,-48.11 776.8,-48.11 776.8,-52.19 772.72,-56.27 768.64,-56.27" class="f-uix s-uix"/>
-<text xml:space="preserve" text-anchor="middle" x="730" y="-39.88" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">Discord webhook</text>
+<path stroke-width="1.3" d="M900.8,-57.26C900.8,-57.26 819.2,-57.26 819.2,-57.26 815.12,-57.26 811.04,-53.18 811.04,-49.1 811.04,-49.1 811.04,-40.94 811.04,-40.94 811.04,-36.86 815.12,-32.78 819.2,-32.78 819.2,-32.78 900.8,-32.78 900.8,-32.78 904.88,-32.78 908.96,-36.86 908.96,-40.94 908.96,-40.94 908.96,-49.1 908.96,-49.1 908.96,-53.18 904.88,-57.26 900.8,-57.26" class="f-uix s-uix"/>
+<text xml:space="preserve" text-anchor="middle" x="860" y="-40.87" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">Discord webhook</text>
 </g>
 
 <g id="edge15" class="edge">
-<title>j5&#45;&gt;disc</title>
-<path fill="none" stroke-width="1.15" d="M707.29,-147.35C711.99,-126.2 720.6,-87.38 725.77,-64.11" class="s-uix"/>
-<polygon stroke-width="1.15" points="727.81,-64.6 727.06,-58.28 723.71,-63.69 727.81,-64.6" class="a-uix s-uix"/>
+
+<path fill="none" stroke-width="1.15" d="M813.76,-172.39C823.42,-145.99 842.84,-92.92 853.17,-64.68" class="s-uix"/>
+<polygon stroke-width="1.15" points="855.02,-65.74 855.11,-59.38 851.08,-64.29 855.02,-65.74" class="a-uix s-uix"/>
 </g>
 
 <g id="node19" class="node">
 <title>smtp</title>
-<path stroke-width="1.3" d="M653.51,-56.27C653.51,-56.27 596.49,-56.27 596.49,-56.27 592.41,-56.27 588.33,-52.19 588.33,-48.11 588.33,-48.11 588.33,-39.95 588.33,-39.95 588.33,-35.87 592.41,-31.79 596.49,-31.79 596.49,-31.79 653.51,-31.79 653.51,-31.79 657.59,-31.79 661.67,-35.87 661.67,-39.95 661.67,-39.95 661.67,-48.11 661.67,-48.11 661.67,-52.19 657.59,-56.27 653.51,-56.27" class="f-uix s-uix"/>
-<text xml:space="preserve" text-anchor="middle" x="625" y="-39.88" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">SMTP alerts</text>
+<path stroke-width="1.3" d="M759.68,-57.26C759.68,-57.26 698.32,-57.26 698.32,-57.26 694.25,-57.26 690.16,-53.18 690.16,-49.1 690.16,-49.1 690.16,-40.94 690.16,-40.94 690.16,-36.86 694.25,-32.78 698.32,-32.78 698.32,-32.78 759.68,-32.78 759.68,-32.78 763.75,-32.78 767.84,-36.86 767.84,-40.94 767.84,-40.94 767.84,-49.1 767.84,-49.1 767.84,-53.18 763.75,-57.26 759.68,-57.26" class="f-uix s-uix"/>
+<text xml:space="preserve" text-anchor="middle" x="729" y="-40.87" font-family="Helvetica,sans-Serif" font-size="9.50" class="t-ink">SMTP alerts</text>
 </g>
 
 <g id="edge16" class="edge">
-<title>j5&#45;&gt;smtp</title>
-<path fill="none" stroke-width="1.15" d="M693.99,-147.35C679.48,-125.83 652.63,-86.01 637.05,-62.91" class="s-uix"/>
-<polygon stroke-width="1.15" points="638.86,-61.83 633.76,-58.03 635.38,-64.18 638.86,-61.83" class="a-uix s-uix"/>
+
+<path fill="none" stroke-width="1.15" d="M799.24,-172.39C784.5,-145.87 754.82,-92.47 739.17,-64.32" class="s-uix"/>
+<polygon stroke-width="1.15" points="741.11,-63.49 736.36,-59.27 737.44,-65.53 741.11,-63.49" class="a-uix s-uix"/>
 </g>
 
 <g id="node17" class="node">
 <title>j6</title>
-<path stroke-width="1.3" d="M973.92,-183.58C973.92,-183.58 812.08,-183.58 812.08,-183.58 806.08,-183.58 800.08,-177.58 800.08,-171.58 800.08,-171.58 800.08,-154.81 800.08,-154.81 800.08,-148.81 806.08,-142.81 812.08,-142.81 812.08,-142.81 973.92,-142.81 973.92,-142.81 979.92,-142.81 985.92,-148.81 985.92,-154.81 985.92,-154.81 985.92,-171.58 985.92,-171.58 985.92,-177.58 979.92,-183.58 973.92,-183.58" class="f-ana s-ana"/>
-<text xml:space="preserve" text-anchor="middle" x="893" y="-169.27" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">recompute / recompute&#45;cross&#45;flags</text>
-<text xml:space="preserve" text-anchor="middle" x="893" y="-159.52" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">demand&#45;driven (tuning / ingest_finalize),</text>
-<text xml:space="preserve" text-anchor="middle" x="893" y="-149.77" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">NOT cron&#45;scheduled</text>
+<path stroke-width="1.3" d="M1105.09,-210.25C1105.09,-210.25 938.91,-210.25 938.91,-210.25 932.91,-210.25 926.91,-204.25 926.91,-198.25 926.91,-198.25 926.91,-180.04 926.91,-180.04 926.91,-174.04 932.91,-168.04 938.91,-168.04 938.91,-168.04 1105.09,-168.04 1105.09,-168.04 1111.09,-168.04 1117.09,-174.04 1117.09,-180.04 1117.09,-180.04 1117.09,-198.25 1117.09,-198.25 1117.09,-204.25 1111.09,-210.25 1105.09,-210.25" class="f-ana s-ana"/>
+<text xml:space="preserve" text-anchor="middle" x="1022" y="-195.22" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">recompute / recompute&#45;cross&#45;flags</text>
+<text xml:space="preserve" text-anchor="middle" x="1022" y="-185.47" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">demand&#45;driven (tuning / ingest_finalize),</text>
+<text xml:space="preserve" text-anchor="middle" x="1022" y="-175.72" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">NOT cron&#45;scheduled</text>
 </g>
 
 <g id="node22" class="node">
 <title>deploy</title>
-<polygon stroke-width="1.3" points="1590.55,-536.97 1369.45,-536.97 1369.45,-496.2 1596.55,-496.2 1596.55,-530.97 1590.55,-536.97" class="f-rec s-rec"/>
-<polyline fill="none" stroke-width="1.3" points="1590.55,-536.97 1590.55,-530.97" class="s-rec"/>
-<polyline fill="none" stroke-width="1.3" points="1596.55,-530.97 1590.55,-530.97" class="s-rec"/>
-<text xml:space="preserve" text-anchor="middle" x="1483" y="-522.66" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">deploy is manual, by hand, over SSH</text>
-<text xml:space="preserve" text-anchor="middle" x="1483" y="-512.91" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">GitHub&#39;s hosted runners cannot reach instapphost,</text>
-<text xml:space="preserve" text-anchor="middle" x="1483" y="-503.16" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">so there is no CI/CD for this environment</text>
+<polygon stroke-width="1.3" points="1750.71,-706.13 1525.29,-706.13 1525.29,-663.92 1756.71,-663.92 1756.71,-700.13 1750.71,-706.13" class="f-rec s-rec"/>
+<polyline fill="none" stroke-width="1.3" points="1750.71,-706.13 1750.71,-700.13" class="s-rec"/>
+<polyline fill="none" stroke-width="1.3" points="1756.71,-700.13 1750.71,-700.13" class="s-rec"/>
+<text xml:space="preserve" text-anchor="middle" x="1641" y="-691.1" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">deploy is manual, by hand, over SSH</text>
+<text xml:space="preserve" text-anchor="middle" x="1641" y="-681.35" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">GitHub&#39;s hosted runners cannot reach instapphost,</text>
+<text xml:space="preserve" text-anchor="middle" x="1641" y="-671.6" font-family="Helvetica,sans-Serif" font-size="9.00" class="t-ink">so there is no CI/CD for this environment</text>
 </g>
 
 <g id="edge19" class="edge">
-<title>deploy&#45;&gt;apic</title>
-<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1416.28,-495.57C1379.42,-484.52 1334.05,-470.91 1298.57,-460.26" class="s-rec"/>
-<polygon stroke-width="1.15" points="1299.18,-458.25 1292.83,-458.54 1297.97,-462.28 1299.18,-458.25" class="a-rec s-rec"/>
+
+<path fill="none" stroke-width="1.15" stroke-dasharray="5,2" d="M1594.3,-663.29C1547.68,-642.59 1476.61,-611.03 1431.25,-590.89" class="s-rec"/>
+<polygon stroke-width="1.15" points="1432.12,-588.98 1425.78,-588.46 1430.42,-592.82 1432.12,-588.98" class="a-rec s-rec"/>
 </g>
 </g>
 </svg>

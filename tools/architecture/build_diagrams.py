@@ -11,6 +11,7 @@ the server never invoke it.
 
 Usage:  python3 build_diagrams.py
 """
+import json
 import re
 import subprocess
 import sys
@@ -19,6 +20,32 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 DOT = ROOT / "dot"
 OUT = ROOT.parent.parent / "packages/analyzer/src/views/architecture/diagrams"
+
+# Graph-level overrides applied to every diagram at render time, tuned in one
+# place rather than across 13 .dot files:
+#   ranksep/nodesep — generous separation so edge labels sit clear of their
+#                     arrows and neighbouring nodes never touch
+#   sep=+18         — an extra 18pt margin around every node for overlap removal
+#   esep           — keeps edges from grazing node borders
+#   Nmargin        — interior padding so label text is not flush to the box edge
+SPACING = [
+    "-Granksep=1.05",
+    "-Gnodesep=0.6",
+    "-Gsep=+18",
+    "-Gesep=+8",
+    "-Gpad=0.3",
+    "-Nmargin=0.18,0.09",
+]
+
+# Canvas layout: plates are packed into columns in this reading order, matching
+# the poster. The app reads diagrams/layout.json for plate positions.
+PLATE_ORDER = [
+    "master", "ecosystem", "state", "recorder", "chain", "ingest",
+    "readpath", "er", "analysis", "staff", "provgate", "deploy", "roadmap",
+]
+NCOLS = 4
+GUTTER = 220  # canvas units between plates
+TITLEBLOCK = 108  # header height reserved above each diagram
 
 # Every colour the .dot sources may emit, mapped to its semantic token.
 # A colour missing from here is a hard error — that is what keeps the palette
@@ -121,17 +148,85 @@ def themify(svg: str) -> str:
     return _TAG.sub(rewrite, svg)
 
 
+def strip_ids(svg: str, stem: str) -> str:
+    """Remove graphviz's internal <title> elements from clusters, edges, and the
+    graph itself. Left in, they surface as browser tooltips ("cluster_triage",
+    "q->none", "staff") when the reader hovers a diagram. Node titles are KEPT —
+    the app reads them to identify the node a reader clicks."""
+    # edge titles contain the escaped arrow; cluster titles start with cluster_.
+    svg = re.sub(r"<title>[^<]*&#45;&gt;[^<]*</title>", "", svg)
+    svg = re.sub(r"<title>[^<]*-&gt;[^<]*</title>", "", svg)
+    svg = re.sub(r"<title>cluster_[^<]*</title>", "", svg)
+    # The graph title sits directly inside the root graph group; drop only that
+    # one, never a node that happens to share the diagram's name (e.g. the
+    # "staff" or "deploy" node inside staff.svg / deploy.svg).
+    svg = re.sub(
+        r'(<g id="graph0"[^>]*class="graph">\s*)<title>[^<]*</title>',
+        r"\1",
+        svg,
+        count=1,
+    )
+    return svg
+
+
+def _dims(svg: str) -> tuple[float, float]:
+    m = re.search(r'width="(\d+(?:\.\d+)?)pt" height="(\d+(?:\.\d+)?)pt"', svg)
+    return (float(m.group(1)), float(m.group(2))) if m else (0.0, 0.0)
+
+
+def pack(sizes: dict[str, tuple[float, float]]) -> list[dict]:
+    """Masonry-pack the plates into NCOLS columns in PLATE_ORDER, returning each
+    plate's position and size in canvas units. Mirrors the poster arrangement so
+    the interactive canvas reads the same way the printed map does."""
+    plates = [
+        {"name": n, "w": sizes[n][0], "h": sizes[n][1] + TITLEBLOCK}
+        for n in PLATE_ORDER
+        if n in sizes
+    ]
+    heights = [0.0] * NCOLS
+    cols: list[list[dict]] = [[] for _ in range(NCOLS)]
+    for p in plates:
+        i = heights.index(min(heights))
+        cols[i].append(p)
+        heights[i] += p["h"] + GUTTER
+
+    x = 0.0
+    for col in cols:
+        cw = max((p["w"] for p in col), default=0.0)
+        y = 0.0
+        for p in col:
+            p["x"], p["y"] = x, y
+            p["col"] = cw
+            y += p["h"] + GUTTER
+        x += cw + GUTTER
+
+    for p in plates:
+        p["w"] = round(p["w"], 1)
+        p["h"] = round(p["h"], 1)
+        p["x"] = round(p["x"], 1)
+        p["y"] = round(p["y"], 1)
+        p.pop("col", None)
+    return plates
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    sizes: dict[str, tuple[float, float]] = {}
     for src in sorted(DOT.glob("*.dot")):
-        r = subprocess.run(["dot", "-Tsvg", str(src)], capture_output=True, text=True)
+        r = subprocess.run(["dot", "-Tsvg", *SPACING, str(src)], capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit(f"graphviz failed on {src.name}:\n{r.stderr}")
         svg = themify(r.stdout)
+        svg = strip_ids(svg, src.stem)
         svg = re.sub(r"<\?xml.*?\?>|<!DOCTYPE.*?>|<!--.*?-->", "", svg, flags=re.S)
+        sizes[src.stem] = _dims(svg)
         (OUT / f"{src.stem}.svg").write_text(svg.strip())
-        print(f"  {src.stem}")
-    print(f"wrote {len(list(DOT.glob('*.dot')))} diagrams to {OUT}")
+        print(f"  {src.stem:<11} {sizes[src.stem][0]:.0f} x {sizes[src.stem][1]:.0f}")
+
+    layout = pack(sizes)
+    # trailing newline so the committed file stays Prettier-clean after a regen
+    (OUT / "layout.json").write_text(json.dumps(layout, indent=2) + "\n")
+    print(f"wrote {len(sizes)} diagrams + layout.json to {OUT}")
 
 
 if __name__ == "__main__":

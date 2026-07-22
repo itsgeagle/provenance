@@ -1,601 +1,989 @@
-/*
- * Architecture page theme — deliberately SCOPED.
- *
- * Every rule in this file is nested under `.arch-root`, which carries
- * `data-arch-theme="light" | "dark"`. Nothing here leaks to the rest of the
- * analyzer: no `.dark` class, no bare `prefers-color-scheme`, no element
- * selectors outside the wrapper. The app-wide dark mode is a separate,
- * deferred piece of work and this route must not depend on it.
- *
- * The `f-* / a-* / s-* / t-*` classes are the vocabulary emitted by
- * tools/architecture/build_diagrams.py. A colour added to a .dot file must be
- * added to that script's maps AND given a class here, or it will not theme.
- */
+/* ============================================================================
+   Provenance architecture map — "The Plate Room"
+   An infinite drafting canvas. All 13 diagrams are plates on one surface; you
+   pan, zoom, and fly between them. Chrome is set in IBM Plex Mono (an instrument
+   readout); prose is Space Grotesk. Colour bands are semantic and shared with
+   the diagrams; brand orange marks only focus, the seal, and the active node.
+   ========================================================================== */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/ibm-plex-mono-600.woff2') format('woff2');
+}
 
 .arch-root {
-  --arch-brand: #ea580c;
-  --arch-rec: #c2410c;
-  --arch-fmt: #6d28d9;
-  --arch-tra: #0f766e;
-  --arch-srv: #1d4ed8;
-  --arch-ana: #15803d;
-  --arch-uix: #be185d;
-  --arch-hum: #475569;
-  --arch-road: #a16207;
-  --arch-bad: #b91c1c;
-  --arch-bg: #ffffff;
-  --arch-bg2: #f8fafc;
-  --arch-panel: #ffffff;
-  --arch-ink: #0f172a;
-  --arch-ink2: #475569;
-  --arch-ink3: #64748b;
-  --arch-rule: #e2e8f0;
-  /* Connector colour between nodes. Distinct from --arch-rule, which is the
-     deliberately faint border colour for panel chrome: an edge drawn at rule
-     strength is invisible on the canvas. */
-  --arch-edge: #64748b;
-  --arch-tint: 8%;
-  background: var(--arch-bg);
-  color: var(--arch-ink);
+  --mono: 'Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --disp: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+
+  /* brand accent — brand/README.md: #EA580C light, #F97316 dark */
+  --brand: #ea580c;
+
+  /* semantic bands, shared with the diagrams (light values) */
+  --rec: #c2410c;
+  --fmt: #6d28d9;
+  --tra: #0f766e;
+  --srv: #1d4ed8;
+  --ana: #15803d;
+  --uix: #be185d;
+  --hum: #475569;
+  --road: #a16207;
+  --bad: #b91c1c;
+  --edge: #94a3b8;
+
+  /* drafting-vellum surface */
+  --paper: #f4f1ea;
+  --plate: #fbfaf6;
+  --ink: #1a1c22;
+  --ink-2: #55514a;
+  --ink-3: #8a857c;
+  --rule: #ddd7ca;
+  --rule-2: #c8bda6;
+  --grid: #e6e0d2;
+  --hud: rgba(251, 250, 246, 0.86);
+  --tint: 10%;
+
+  position: fixed;
+  inset: 0;
+  font-family: var(--disp);
+  color: var(--ink);
+  background: var(--paper);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
+
 .arch-root[data-arch-theme='dark'] {
-  --arch-brand: #f97316;
-  --arch-rec: #f97316;
-  --arch-fmt: #9d7bf5;
-  --arch-tra: #17bfae;
-  --arch-srv: #4b90f7;
-  --arch-ana: #3fbf62;
-  --arch-uix: #e8559c;
-  --arch-hum: #8b95a8;
-  --arch-road: #c9a227;
-  --arch-bad: #ff6b6b;
-  --arch-bg: #0b0d12;
-  --arch-bg2: #0f1219;
-  --arch-panel: #141824;
-  --arch-ink: #e8ecf4;
-  --arch-ink2: #98a2b6;
-  --arch-ink3: #5d677d;
-  --arch-rule: #242b3b;
-  --arch-edge: #4a5568;
-  --arch-tint: 14%;
+  --brand: #f97316;
+  --rec: #f97316;
+  --fmt: #9d7bf5;
+  --tra: #17bfae;
+  --srv: #4b90f7;
+  --ana: #3fbf62;
+  --uix: #e8559c;
+  --hum: #8b95a8;
+  --road: #c9a227;
+  --bad: #ff6b6b;
+  --edge: #566173;
+
+  --paper: #0a0d13;
+  --plate: #12161f;
+  --ink: #e9edf4;
+  --ink-2: #98a2b6;
+  --ink-3: #5d677d;
+  --rule: #232a38;
+  --rule-2: #333c4e;
+  --grid: #161c27;
+  --hud: rgba(14, 18, 27, 0.82);
+  --tint: 16%;
 }
 
-/* SVG semantic classes — the vocabulary emitted by build_diagrams.py */
-
-/* f-* : node and cluster bodies — accent tinted into the surface colour */
-.arch-root svg .f-rec {
-  fill: color-mix(in oklab, var(--arch-rec) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-fmt {
-  fill: color-mix(in oklab, var(--arch-fmt) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-tra {
-  fill: color-mix(in oklab, var(--arch-tra) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-srv {
-  fill: color-mix(in oklab, var(--arch-srv) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-ana {
-  fill: color-mix(in oklab, var(--arch-ana) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-uix {
-  fill: color-mix(in oklab, var(--arch-uix) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-hum {
-  fill: color-mix(in oklab, var(--arch-hum) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-road {
-  fill: color-mix(in oklab, var(--arch-road) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-bad {
-  fill: color-mix(in oklab, var(--arch-bad) var(--arch-tint), var(--arch-panel));
-}
-.arch-root svg .f-panel {
-  fill: var(--arch-panel);
-}
-.arch-root svg .f-canvas {
-  fill: var(--arch-bg);
-}
-
-/* a-* : arrowheads — SOLID accent, matching the edge they terminate. These
-   must not share the tinted f-* tokens or every arrowhead disappears. */
-.arch-root svg .a-rec {
-  fill: var(--arch-rec);
-}
-.arch-root svg .a-fmt {
-  fill: var(--arch-fmt);
-}
-.arch-root svg .a-tra {
-  fill: var(--arch-tra);
-}
-.arch-root svg .a-srv {
-  fill: var(--arch-srv);
-}
-.arch-root svg .a-ana {
-  fill: var(--arch-ana);
-}
-.arch-root svg .a-uix {
-  fill: var(--arch-uix);
-}
-.arch-root svg .a-hum {
-  fill: var(--arch-hum);
-}
-.arch-root svg .a-road {
-  fill: var(--arch-road);
-}
-.arch-root svg .a-bad {
-  fill: var(--arch-bad);
-}
-.arch-root svg .a-edge {
-  fill: var(--arch-edge);
-}
-
-/* s-* : strokes — node borders and connectors */
-.arch-root svg .s-rec {
-  stroke: var(--arch-rec);
-}
-.arch-root svg .s-fmt {
-  stroke: var(--arch-fmt);
-}
-.arch-root svg .s-tra {
-  stroke: var(--arch-tra);
-}
-.arch-root svg .s-srv {
-  stroke: var(--arch-srv);
-}
-.arch-root svg .s-ana {
-  stroke: var(--arch-ana);
-}
-.arch-root svg .s-uix {
-  stroke: var(--arch-uix);
-}
-.arch-root svg .s-hum {
-  stroke: var(--arch-hum);
-}
-.arch-root svg .s-road {
-  stroke: var(--arch-road);
-}
-.arch-root svg .s-bad {
-  stroke: var(--arch-bad);
-}
-.arch-root svg .s-rule {
-  stroke: var(--arch-rule);
-}
-.arch-root svg .s-edge {
-  stroke: var(--arch-edge);
-}
-
-/* t-* : text */
-.arch-root svg .t-ink {
-  fill: var(--arch-ink);
-}
-.arch-root svg .t-ink2 {
-  fill: var(--arch-ink2);
-}
-.arch-root svg .t-ink3 {
-  fill: var(--arch-ink3);
-}
-.arch-root svg .t-rec {
-  fill: var(--arch-rec);
-}
-.arch-root svg .t-fmt {
-  fill: var(--arch-fmt);
-}
-.arch-root svg .t-tra {
-  fill: var(--arch-tra);
-}
-.arch-root svg .t-srv {
-  fill: var(--arch-srv);
-}
-.arch-root svg .t-ana {
-  fill: var(--arch-ana);
-}
-.arch-root svg .t-uix {
-  fill: var(--arch-uix);
-}
-.arch-root svg .t-hum {
-  fill: var(--arch-hum);
-}
-.arch-root svg .t-road {
-  fill: var(--arch-road);
-}
-.arch-root svg .t-bad {
-  fill: var(--arch-bad);
-}
-
-/* interactive node affordance */
-.arch-root svg g.node {
-  cursor: pointer;
-}
-.arch-root svg g.node:hover [class*='s-'] {
-  stroke-width: 2.4;
-}
-.arch-root svg g.node:focus-visible {
-  outline: 2px solid var(--arch-brand);
-  outline-offset: 2px;
-}
-.arch-root svg g.node[data-selected='true'] [class*='s-'] {
-  stroke-width: 3;
-}
-
-.arch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 9px;
-  border-radius: 5px;
-  border: 1px solid var(--arch-rule);
-  background: var(--arch-bg2);
-  color: var(--arch-ink2);
-  font:
-    600 10px/1 ui-monospace,
-    Menlo,
-    monospace;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-.arch-btn:hover {
-  color: var(--arch-ink);
-}
-.arch-btn[aria-pressed='true'] {
-  background: var(--arch-brand);
-  border-color: var(--arch-brand);
-  color: #fff;
-}
-
-/* ── pan/zoom canvas ──────────────────────────────────────────────────── */
-.arch-canvas {
-  position: relative;
-}
-.arch-tools {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 2;
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.arch-zoom {
-  font:
-    600 10px/1 ui-monospace,
-    Menlo,
-    monospace;
-  color: var(--arch-ink3);
-  min-width: 38px;
-  text-align: right;
-}
+/* ---- the infinite canvas ------------------------------------------------- */
 .arch-viewport {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
-  min-height: 320px;
-  max-height: min(80vh, 1200px);
-  background-image: radial-gradient(circle at 1px 1px, var(--arch-rule) 1px, transparent 0);
-  background-size: 22px 22px;
+  user-select: none;
+  -webkit-user-select: none;
+  /* two-level drafting grid painted on the viewport so it stays put while the
+     world moves: fine dots read as graph paper, coarse lines as the table. */
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+    radial-gradient(var(--grid) 1px, transparent 1.4px);
+  background-size:
+    var(--grid-major, 160px) var(--grid-major, 160px),
+    var(--grid-major, 160px) var(--grid-major, 160px),
+    var(--grid-minor, 32px) var(--grid-minor, 32px);
+  background-position: var(--grid-x, 0) var(--grid-y, 0);
 }
-.arch-viewport:active {
+.arch-viewport.dragging {
   cursor: grabbing;
 }
 .arch-viewport:focus-visible {
-  outline: 2px solid var(--arch-brand);
-  outline-offset: -2px;
+  outline: 2px solid var(--brand);
+  outline-offset: -3px;
 }
-.arch-stage {
+
+.arch-world {
+  position: absolute;
+  top: 0;
+  left: 0;
   transform-origin: 0 0;
+  /* No will-change here on purpose. Promoting the world to a compositor layer
+     rasterises the SVGs once at 1x and bitmap-scales them on zoom, which blurs
+     all the vector text. Without it the browser re-rasterises the vectors at
+     the current scale, so text stays sharp at any zoom. */
+}
+.arch-world.flying {
+  transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* Promote only for the half-second animated fly, where smoothness matters
+     more than the momentary softness; it settles back to crisp vectors after. */
   will-change: transform;
 }
 
-/* ── node detail panel ────────────────────────────────────────────────── */
-.arch-detail {
-  border: 1px solid var(--arch-rule);
-  border-radius: 10px;
-  background: var(--arch-panel);
-  padding: 14px 16px;
+/* ---- a plate ------------------------------------------------------------- */
+.arch-plate {
+  position: absolute;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--plate);
+  transition:
+    box-shadow 0.25s ease,
+    border-color 0.25s ease,
+    opacity 0.35s ease;
 }
-.arch-detail:focus {
-  outline: none;
+.arch-plate.dim {
+  opacity: 0.28;
+}
+
+/* ---- big plate labels (zoomed out) -------------------------------------- */
+.arch-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+.arch-biglabel {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  white-space: nowrap;
+  transition: opacity 0.18s ease;
+}
+.arch-biglabel .no {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--brand);
+}
+.arch-biglabel .ti {
+  font-family: var(--disp);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-shadow: 0 2px 18px var(--paper);
+}
+
+.arch-exit {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--brand);
+}
+.arch-exit:hover {
+  text-decoration: underline;
+}
+.arch-plate.active {
+  border-color: color-mix(in oklab, var(--brand) 55%, var(--rule));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--brand) 40%, transparent),
+    0 24px 60px -30px rgba(0, 0, 0, 0.6);
+}
+
+/* titleblock — the drawing's corner block */
+.arch-titleblock {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+}
+.arch-plate-no {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  flex: none;
+}
+.arch-titleblock-text {
+  min-width: 0;
+}
+.arch-plate-title {
+  font-family: var(--disp);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1.15;
+}
+.arch-plate-cap {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  margin-top: 4px;
+}
+.arch-plate-focus {
+  margin-left: auto;
+  align-self: center;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 5px 9px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.arch-plate:hover .arch-plate-focus {
+  opacity: 1;
+}
+
+.arch-plate-body {
+  padding: 18px 20px 20px;
+}
+.arch-plate-body svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* node affordance inside the injected SVG */
+.arch-plate svg g.node {
+  cursor: pointer;
+}
+.arch-plate svg g.node:hover [class*='s-'],
+.arch-plate svg g.node:hover [class*='a-'] {
+  stroke-width: 2.6;
+}
+.arch-plate svg g.node:focus-visible [class*='s-'] {
+  stroke: var(--brand);
+  stroke-width: 3;
+}
+.arch-plate svg g.node[data-selected='true'] [class*='s-'] {
+  stroke: var(--brand);
+  stroke-width: 3;
+}
+.arch-plate svg g.node[data-selected='true'] [class*='f-'] {
+  fill: color-mix(in oklab, var(--brand) 14%, var(--plate));
+}
+
+/* ---- diagram colour classes (emitted by build_diagrams.py) --------------- */
+.arch-root svg .f-rec {
+  fill: color-mix(in oklab, var(--rec) var(--tint), var(--plate));
+}
+.arch-root svg .f-fmt {
+  fill: color-mix(in oklab, var(--fmt) var(--tint), var(--plate));
+}
+.arch-root svg .f-tra {
+  fill: color-mix(in oklab, var(--tra) var(--tint), var(--plate));
+}
+.arch-root svg .f-srv {
+  fill: color-mix(in oklab, var(--srv) var(--tint), var(--plate));
+}
+.arch-root svg .f-ana {
+  fill: color-mix(in oklab, var(--ana) var(--tint), var(--plate));
+}
+.arch-root svg .f-uix {
+  fill: color-mix(in oklab, var(--uix) var(--tint), var(--plate));
+}
+.arch-root svg .f-hum {
+  fill: color-mix(in oklab, var(--hum) var(--tint), var(--plate));
+}
+.arch-root svg .f-road {
+  fill: color-mix(in oklab, var(--road) var(--tint), var(--plate));
+}
+.arch-root svg .f-bad {
+  fill: color-mix(in oklab, var(--bad) var(--tint), var(--plate));
+}
+.arch-root svg .f-panel {
+  fill: color-mix(in oklab, var(--ink) 4%, var(--plate));
+}
+.arch-root svg .f-canvas {
+  fill: var(--plate);
+}
+
+.arch-root svg .a-rec {
+  fill: var(--rec);
+}
+.arch-root svg .a-fmt {
+  fill: var(--fmt);
+}
+.arch-root svg .a-tra {
+  fill: var(--tra);
+}
+.arch-root svg .a-srv {
+  fill: var(--srv);
+}
+.arch-root svg .a-ana {
+  fill: var(--ana);
+}
+.arch-root svg .a-uix {
+  fill: var(--uix);
+}
+.arch-root svg .a-road {
+  fill: var(--road);
+}
+.arch-root svg .a-bad {
+  fill: var(--bad);
+}
+.arch-root svg .a-hum {
+  fill: var(--hum);
+}
+.arch-root svg .a-edge {
+  fill: var(--edge);
+}
+
+.arch-root svg .s-rec {
+  stroke: var(--rec);
+}
+.arch-root svg .s-fmt {
+  stroke: var(--fmt);
+}
+.arch-root svg .s-tra {
+  stroke: var(--tra);
+}
+.arch-root svg .s-srv {
+  stroke: var(--srv);
+}
+.arch-root svg .s-ana {
+  stroke: var(--ana);
+}
+.arch-root svg .s-uix {
+  stroke: var(--uix);
+}
+.arch-root svg .s-hum {
+  stroke: var(--hum);
+}
+.arch-root svg .s-road {
+  stroke: var(--road);
+}
+.arch-root svg .s-bad {
+  stroke: var(--bad);
+}
+.arch-root svg .s-rule {
+  stroke: var(--rule-2);
+}
+.arch-root svg .s-edge {
+  stroke: var(--edge);
+}
+
+.arch-root svg .t-ink {
+  fill: var(--ink);
+}
+.arch-root svg .t-ink2 {
+  fill: var(--ink-2);
+}
+.arch-root svg .t-ink3 {
+  fill: var(--ink-3);
+}
+.arch-root svg .t-rec {
+  fill: var(--rec);
+}
+.arch-root svg .t-fmt {
+  fill: var(--fmt);
+}
+.arch-root svg .t-tra {
+  fill: var(--tra);
+}
+.arch-root svg .t-srv {
+  fill: var(--srv);
+}
+.arch-root svg .t-ana {
+  fill: var(--ana);
+}
+.arch-root svg .t-uix {
+  fill: var(--uix);
+}
+.arch-root svg .t-hum {
+  fill: var(--hum);
+}
+.arch-root svg .t-road {
+  fill: var(--road);
+}
+.arch-root svg .t-bad {
+  fill: var(--bad);
+}
+
+/* ---- top bar ------------------------------------------------------------- */
+.arch-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  z-index: 20;
+  background: var(--hud);
+  backdrop-filter: blur(9px);
+  border-bottom: 1px solid var(--rule);
+}
+.arch-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+.arch-brand-txt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.1;
+}
+.arch-brand h1 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.arch-brand small {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.arch-topbar-spacer {
+  flex: 1;
+}
+
+.arch-search-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 268px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--ink) 3%, var(--plate));
+  color: var(--ink-3);
+  font-family: var(--disp);
+  font-size: 13px;
+  cursor: text;
+}
+.arch-search-btn:hover {
+  border-color: var(--rule-2);
+}
+.arch-search-btn .kbd {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  color: var(--ink-3);
+}
+
+.arch-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--ink) 3%, var(--plate));
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.arch-iconbtn:hover {
+  color: var(--ink);
+  border-color: var(--rule-2);
+}
+.arch-iconbtn.on {
+  color: var(--brand);
+  border-color: color-mix(in oklab, var(--brand) 50%, transparent);
+}
+
+/* ---- bottom-left seal / HUD --------------------------------------------- */
+.arch-hud {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--hud);
+  backdrop-filter: blur(9px);
+}
+.arch-seal {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--brand) 12%, transparent);
+  cursor: pointer;
+}
+.arch-seal:hover {
+  background: color-mix(in oklab, var(--brand) 20%, transparent);
+}
+.arch-hud-read {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.arch-hud-read b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.arch-hud-read .muted {
+  color: var(--ink-3);
+}
+
+/* ---- bottom-right zoom controls ----------------------------------------- */
+.arch-zoomctl {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--hud);
+  backdrop-filter: blur(9px);
+}
+.arch-zoomctl button {
+  width: 40px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.arch-zoomctl button:last-child {
+  border-bottom: 0;
+}
+.arch-zoomctl button:hover {
+  color: var(--ink);
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+}
+
+/* ---- node detail panel --------------------------------------------------- */
+.arch-detail {
+  position: absolute;
+  top: 68px;
+  right: 14px;
+  bottom: 14px;
+  width: 384px;
+  max-width: calc(100vw - 28px);
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--plate);
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: arch-slide 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@keyframes arch-slide {
+  from {
+    transform: translateX(14px);
+    opacity: 0;
+  }
 }
 .arch-detail-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule);
 }
-.arch-detail-eyebrow {
-  font:
-    600 9.5px/1 ui-monospace,
-    Menlo,
-    monospace;
-  letter-spacing: 0.17em;
-  text-transform: uppercase;
-  color: var(--arch-ink3);
+.arch-detail-addr {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.arch-detail-addr b {
+  color: var(--brand);
+  font-weight: 600;
+}
+.arch-detail-close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.arch-detail-close:hover {
+  color: var(--ink);
+  border-color: var(--rule-2);
+}
+.arch-detail-scroll {
+  overflow-y: auto;
+  padding: 18px;
 }
 .arch-detail h3 {
-  font-size: 17px;
-  font-weight: 700;
-  margin: 0 0 8px;
-  letter-spacing: -0.01em;
+  margin: 0 0 12px;
+  font-family: var(--disp);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--ink);
 }
 .arch-detail p {
-  font-size: 13.5px;
-  line-height: 1.6;
-  color: var(--arch-ink2);
-  margin: 0 0 10px;
+  margin: 0 0 12px;
+  font-family: var(--disp);
+  font-size: 14px;
+  line-height: 1.62;
+  color: var(--ink-2);
 }
 .arch-muted {
-  color: var(--arch-ink3);
+  color: var(--ink-3);
   font-style: italic;
 }
 .arch-invariant {
-  border-left: 3px solid var(--arch-brand);
-  background: color-mix(in oklab, var(--arch-brand) 8%, transparent);
-  border-radius: 0 7px 7px 0;
-  padding: 9px 12px;
-  margin: 0 0 10px;
+  margin: 4px 0 14px;
+  padding: 11px 14px;
+  border-left: 3px solid var(--brand);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in oklab, var(--brand) 9%, transparent);
 }
 .arch-invariant span {
   display: block;
-  font:
-    700 9px/1 ui-monospace,
-    Menlo,
-    monospace;
+  font-family: var(--mono);
+  font-size: 9.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--arch-brand);
-  margin-bottom: 5px;
+  color: var(--brand);
+  margin-bottom: 6px;
 }
 .arch-invariant p {
   margin: 0;
-  color: var(--arch-ink);
+  font-family: var(--disp);
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink);
 }
 .arch-links {
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 16px 0 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
 }
 .arch-links a {
-  display: inline-block;
-  font:
-    500 11.5px/1.5 ui-monospace,
-    Menlo,
-    monospace;
-  color: var(--arch-brand);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--brand);
   text-decoration: none;
-  border: 1px solid color-mix(in oklab, var(--arch-brand) 35%, transparent);
-  border-radius: 5px;
-  padding: 2px 8px;
+  border: 1px solid color-mix(in oklab, var(--brand) 32%, transparent);
+  border-radius: 6px;
+  padding: 4px 9px;
 }
 .arch-links a:hover {
-  background: color-mix(in oklab, var(--arch-brand) 12%, transparent);
+  background: color-mix(in oklab, var(--brand) 12%, transparent);
 }
 
-/* ── diagram frame ────────────────────────────────────────────────────── */
-.arch-frame {
-  margin: 0 0 26px;
-  border: 1px solid var(--arch-rule);
-  border-radius: 11px;
-  background: var(--arch-bg2);
+/* ---- search palette ------------------------------------------------------ */
+.arch-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: color-mix(in oklab, var(--paper) 55%, transparent);
+  backdrop-filter: blur(3px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.arch-palette {
+  width: min(640px, 92vw);
+  max-height: 66vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule-2);
+  border-radius: 14px;
+  background: var(--plate);
+  box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.6);
   overflow: hidden;
 }
-.arch-frame-bar {
+.arch-palette-in {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 13px;
-  border-bottom: 1px solid var(--arch-rule);
-  background: var(--arch-panel);
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--rule);
 }
-.arch-frame-title {
+.arch-palette-in input {
   flex: 1;
-  font:
-    600 9.5px/1 ui-monospace,
-    Menlo,
-    monospace;
-  letter-spacing: 0.17em;
-  text-transform: uppercase;
-  color: var(--arch-ink2);
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--ink);
+  font-family: var(--disp);
+  font-size: 17px;
 }
-.arch-frame-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+.arch-palette-in input::placeholder {
+  color: var(--ink-3);
+}
+.arch-palette-list {
+  overflow-y: auto;
+  padding: 6px;
+}
+.arch-hit {
+  display: flex;
+  align-items: baseline;
   gap: 12px;
-  padding: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
 }
-@media (min-width: 1180px) {
-  .arch-frame-body:has(.arch-detail) {
-    grid-template-columns: minmax(0, 1fr) 340px;
+.arch-hit.sel,
+.arch-hit:hover {
+  background: color-mix(in oklab, var(--brand) 12%, transparent);
+}
+.arch-hit-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+  align-self: center;
+}
+.arch-hit-body {
+  min-width: 0;
+  flex: 1;
+}
+.arch-hit-title {
+  font-family: var(--disp);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.arch-hit-title em {
+  font-style: normal;
+  color: var(--brand);
+}
+.arch-hit-snip {
+  font-family: var(--disp);
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.arch-hit-addr {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-3);
+  flex: none;
+}
+.arch-palette-empty {
+  padding: 28px;
+  text-align: center;
+  color: var(--ink-3);
+  font-family: var(--disp);
+  font-size: 14px;
+}
+.arch-palette-foot {
+  display: flex;
+  gap: 16px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+.arch-palette-foot .k {
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 5px;
+}
+
+/* ---- legend -------------------------------------------------------------- */
+.arch-legend {
+  position: absolute;
+  left: 18px;
+  bottom: 74px;
+  z-index: 20;
+  width: 302px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--hud);
+  backdrop-filter: blur(9px);
+  padding: 14px 16px 15px;
+  animation: arch-slide 0.2s ease;
+}
+.arch-legend h4 {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.arch-legend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 12px;
+}
+.arch-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--disp);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.arch-legend-sw {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+.arch-legend hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 12px 0 10px;
+}
+.arch-legend-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--disp);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+/* ---- intro hint ---------------------------------------------------------- */
+.arch-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  z-index: 15;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  background: var(--hud);
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  padding: 7px 16px;
+  backdrop-filter: blur(9px);
+  pointer-events: none;
+  animation: arch-fade 0.4s ease;
+}
+@keyframes arch-fade {
+  from {
+    opacity: 0;
   }
 }
 
-/* ── page shell & layout ──────────────────────────────────────────────── */
-.arch-shell {
-  display: grid;
-  grid-template-columns: 242px minmax(0, 1fr);
-  min-height: 100vh;
-}
-.arch-toc {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
-  padding: 24px 16px 60px;
-  border-right: 1px solid var(--arch-rule);
-  background: var(--arch-bg2);
-}
-.arch-brandmark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-.arch-brandmark h1 {
-  margin: 0;
-  font:
-    700 13.5px/1.2 ui-monospace,
-    Menlo,
-    monospace;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-}
-.arch-toc nav a {
-  display: block;
-  padding: 5px 9px;
-  border-left: 2px solid transparent;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--arch-ink2);
-  text-decoration: none;
-}
-.arch-toc nav a:hover {
-  color: var(--arch-ink);
-  background: var(--arch-panel);
-}
-.arch-toc nav a b {
-  font:
-    600 9.5px/1 ui-monospace,
-    Menlo,
-    monospace;
-  color: var(--arch-ink3);
-  margin-right: 8px;
-}
-.arch-toc > .arch-btn {
-  margin-top: 22px;
-}
-.arch-main {
-  padding: 0 40px 140px;
-  min-width: 0;
-}
-.arch-mast {
-  padding: 58px 0 34px;
-  border-bottom: 1px solid var(--arch-rule);
-  margin-bottom: 8px;
-}
-.arch-kick {
-  font:
-    600 10.5px/1 ui-monospace,
-    Menlo,
-    monospace;
-  letter-spacing: 0.26em;
-  text-transform: uppercase;
-  color: var(--arch-brand);
-  margin: 0 0 18px;
-}
-.arch-mast h2 {
-  font-size: clamp(34px, 5vw, 56px);
-  font-weight: 750;
-  letter-spacing: -0.035em;
-  margin: 0 0 16px;
-}
-.arch-deck {
-  font-size: 18px;
-  line-height: 1.55;
-  color: var(--arch-ink2);
-  max-width: 70ch;
-  margin: 0;
-}
-.arch-section {
-  padding: 52px 0 0;
-  scroll-margin-top: 8px;
-}
-.arch-section-hd {
-  display: flex;
-  align-items: baseline;
-  gap: 13px;
-  margin-bottom: 12px;
-}
-.arch-num {
-  flex: none;
-  font:
-    700 10.5px/1 ui-monospace,
-    Menlo,
-    monospace;
-  letter-spacing: 0.1em;
-  color: var(--arch-brand);
-  padding: 5px 8px;
-  border-radius: 5px;
-  border: 1px solid color-mix(in oklab, var(--arch-brand) 45%, transparent);
-  background: color-mix(in oklab, var(--arch-brand) 9%, transparent);
-}
-.arch-section-hd h3 {
-  margin: 0;
-  font-size: 25px;
-  font-weight: 700;
-  letter-spacing: -0.022em;
-}
-.arch-framing {
-  font-size: 15.5px;
-  line-height: 1.6;
-  color: var(--arch-ink2);
-  max-width: 78ch;
-  margin: 0 0 20px;
-}
-.arch-key {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
-  gap: 11px;
-  margin: 0 0 20px;
-}
-.arch-kb {
-  border: 1px solid var(--arch-rule);
-  border-radius: 9px;
-  padding: 12px 14px;
-  background: var(--arch-panel);
-}
-/* The plan specified .arch-key/.arch-kb/.arch-sw only; Notation.tsx needs a
-   title row and a key-row layout too, so these two are filled in to match
-   the source template's .kt / .kr rules (page.template.html §00). */
-.arch-kb-title {
-  font:
-    600 9.5px/1 ui-monospace,
-    Menlo,
-    monospace;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--arch-ink3);
-  margin-bottom: 11px;
-}
-.arch-kr {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  font-size: 12.2px;
-  line-height: 1.4;
-  color: var(--arch-ink2);
-}
-.arch-kr:last-child {
-  margin-bottom: 0;
-}
-.arch-kr b {
-  color: var(--arch-ink);
-  font-weight: 600;
-}
-.arch-kr svg {
-  flex: none;
-}
-.arch-sw {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  flex: none;
-  display: inline-block;
-}
-@media (max-width: 960px) {
-  .arch-shell {
-    grid-template-columns: 1fr;
+@media (prefers-reduced-motion: reduce) {
+  .arch-world.flying,
+  .arch-plate,
+  .arch-detail,
+  .arch-legend {
+    transition: none;
+    animation: none;
   }
-  .arch-toc {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--arch-rule);
+}
+
+@media (max-width: 720px) {
+  .arch-search-btn {
+    min-width: 0;
   }
-  .arch-main {
-    padding: 0 18px 90px;
+  .arch-detail {
+    width: auto;
+    left: 14px;
   }
 }
