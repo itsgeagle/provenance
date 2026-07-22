@@ -243,3 +243,46 @@
   border-color: var(--arch-brand);
   color: #fff;
 }
+
+/* ── pan/zoom canvas ──────────────────────────────────────────────────── */
+.arch-canvas {
+  position: relative;
+}
+.arch-tools {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.arch-zoom {
+  font:
+    600 10px/1 ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--arch-ink3);
+  min-width: 38px;
+  text-align: right;
+}
+.arch-viewport {
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  min-height: 320px;
+  max-height: min(80vh, 1200px);
+  background-image: radial-gradient(circle at 1px 1px, var(--arch-rule) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+.arch-viewport:active {
+  cursor: grabbing;
+}
+.arch-viewport:focus-visible {
+  outline: 2px solid var(--arch-brand);
+  outline-offset: -2px;
+}
+.arch-stage {
+  transform-origin: 0 0;
+  will-change: transform;
+}
