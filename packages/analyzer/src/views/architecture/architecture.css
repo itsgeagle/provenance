@@ -1,0 +1,245 @@
+/*
+ * Architecture page theme — deliberately SCOPED.
+ *
+ * Every rule in this file is nested under `.arch-root`, which carries
+ * `data-arch-theme="light" | "dark"`. Nothing here leaks to the rest of the
+ * analyzer: no `.dark` class, no bare `prefers-color-scheme`, no element
+ * selectors outside the wrapper. The app-wide dark mode is a separate,
+ * deferred piece of work and this route must not depend on it.
+ *
+ * The `f-* / a-* / s-* / t-*` classes are the vocabulary emitted by
+ * tools/architecture/build_diagrams.py. A colour added to a .dot file must be
+ * added to that script's maps AND given a class here, or it will not theme.
+ */
+
+.arch-root {
+  --arch-brand: #ea580c;
+  --arch-rec: #c2410c;
+  --arch-fmt: #6d28d9;
+  --arch-tra: #0f766e;
+  --arch-srv: #1d4ed8;
+  --arch-ana: #15803d;
+  --arch-uix: #be185d;
+  --arch-hum: #475569;
+  --arch-road: #a16207;
+  --arch-bad: #b91c1c;
+  --arch-bg: #ffffff;
+  --arch-bg2: #f8fafc;
+  --arch-panel: #ffffff;
+  --arch-ink: #0f172a;
+  --arch-ink2: #475569;
+  --arch-ink3: #64748b;
+  --arch-rule: #e2e8f0;
+  /* Connector colour between nodes. Distinct from --arch-rule, which is the
+     deliberately faint border colour for panel chrome: an edge drawn at rule
+     strength is invisible on the canvas. */
+  --arch-edge: #64748b;
+  --arch-tint: 8%;
+  background: var(--arch-bg);
+  color: var(--arch-ink);
+}
+.arch-root[data-arch-theme='dark'] {
+  --arch-brand: #f97316;
+  --arch-rec: #f97316;
+  --arch-fmt: #9d7bf5;
+  --arch-tra: #17bfae;
+  --arch-srv: #4b90f7;
+  --arch-ana: #3fbf62;
+  --arch-uix: #e8559c;
+  --arch-hum: #8b95a8;
+  --arch-road: #c9a227;
+  --arch-bad: #ff6b6b;
+  --arch-bg: #0b0d12;
+  --arch-bg2: #0f1219;
+  --arch-panel: #141824;
+  --arch-ink: #e8ecf4;
+  --arch-ink2: #98a2b6;
+  --arch-ink3: #5d677d;
+  --arch-rule: #242b3b;
+  --arch-edge: #4a5568;
+  --arch-tint: 14%;
+}
+
+/* SVG semantic classes — the vocabulary emitted by build_diagrams.py */
+
+/* f-* : node and cluster bodies — accent tinted into the surface colour */
+.arch-root svg .f-rec {
+  fill: color-mix(in oklab, var(--arch-rec) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-fmt {
+  fill: color-mix(in oklab, var(--arch-fmt) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-tra {
+  fill: color-mix(in oklab, var(--arch-tra) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-srv {
+  fill: color-mix(in oklab, var(--arch-srv) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-ana {
+  fill: color-mix(in oklab, var(--arch-ana) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-uix {
+  fill: color-mix(in oklab, var(--arch-uix) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-hum {
+  fill: color-mix(in oklab, var(--arch-hum) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-road {
+  fill: color-mix(in oklab, var(--arch-road) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-bad {
+  fill: color-mix(in oklab, var(--arch-bad) var(--arch-tint), var(--arch-panel));
+}
+.arch-root svg .f-panel {
+  fill: var(--arch-panel);
+}
+.arch-root svg .f-canvas {
+  fill: var(--arch-bg);
+}
+
+/* a-* : arrowheads — SOLID accent, matching the edge they terminate. These
+   must not share the tinted f-* tokens or every arrowhead disappears. */
+.arch-root svg .a-rec {
+  fill: var(--arch-rec);
+}
+.arch-root svg .a-fmt {
+  fill: var(--arch-fmt);
+}
+.arch-root svg .a-tra {
+  fill: var(--arch-tra);
+}
+.arch-root svg .a-srv {
+  fill: var(--arch-srv);
+}
+.arch-root svg .a-ana {
+  fill: var(--arch-ana);
+}
+.arch-root svg .a-uix {
+  fill: var(--arch-uix);
+}
+.arch-root svg .a-hum {
+  fill: var(--arch-hum);
+}
+.arch-root svg .a-road {
+  fill: var(--arch-road);
+}
+.arch-root svg .a-bad {
+  fill: var(--arch-bad);
+}
+.arch-root svg .a-edge {
+  fill: var(--arch-edge);
+}
+
+/* s-* : strokes — node borders and connectors */
+.arch-root svg .s-rec {
+  stroke: var(--arch-rec);
+}
+.arch-root svg .s-fmt {
+  stroke: var(--arch-fmt);
+}
+.arch-root svg .s-tra {
+  stroke: var(--arch-tra);
+}
+.arch-root svg .s-srv {
+  stroke: var(--arch-srv);
+}
+.arch-root svg .s-ana {
+  stroke: var(--arch-ana);
+}
+.arch-root svg .s-uix {
+  stroke: var(--arch-uix);
+}
+.arch-root svg .s-hum {
+  stroke: var(--arch-hum);
+}
+.arch-root svg .s-road {
+  stroke: var(--arch-road);
+}
+.arch-root svg .s-bad {
+  stroke: var(--arch-bad);
+}
+.arch-root svg .s-rule {
+  stroke: var(--arch-rule);
+}
+.arch-root svg .s-edge {
+  stroke: var(--arch-edge);
+}
+
+/* t-* : text */
+.arch-root svg .t-ink {
+  fill: var(--arch-ink);
+}
+.arch-root svg .t-ink2 {
+  fill: var(--arch-ink2);
+}
+.arch-root svg .t-ink3 {
+  fill: var(--arch-ink3);
+}
+.arch-root svg .t-rec {
+  fill: var(--arch-rec);
+}
+.arch-root svg .t-fmt {
+  fill: var(--arch-fmt);
+}
+.arch-root svg .t-tra {
+  fill: var(--arch-tra);
+}
+.arch-root svg .t-srv {
+  fill: var(--arch-srv);
+}
+.arch-root svg .t-ana {
+  fill: var(--arch-ana);
+}
+.arch-root svg .t-uix {
+  fill: var(--arch-uix);
+}
+.arch-root svg .t-hum {
+  fill: var(--arch-hum);
+}
+.arch-root svg .t-road {
+  fill: var(--arch-road);
+}
+.arch-root svg .t-bad {
+  fill: var(--arch-bad);
+}
+
+/* interactive node affordance */
+.arch-root svg g.node {
+  cursor: pointer;
+}
+.arch-root svg g.node:hover [class*='s-'] {
+  stroke-width: 2.4;
+}
+.arch-root svg g.node:focus-visible {
+  outline: 2px solid var(--arch-brand);
+  outline-offset: 2px;
+}
+.arch-root svg g.node[data-selected='true'] [class*='s-'] {
+  stroke-width: 3;
+}
+
+.arch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--arch-rule);
+  background: var(--arch-bg2);
+  color: var(--arch-ink2);
+  font:
+    600 10px/1 ui-monospace,
+    Menlo,
+    monospace;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.arch-btn:hover {
+  color: var(--arch-ink);
+}
+.arch-btn[aria-pressed='true'] {
+  background: var(--arch-brand);
+  border-color: var(--arch-brand);
+  color: #fff;
+}
