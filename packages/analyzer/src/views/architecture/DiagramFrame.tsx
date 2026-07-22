@@ -3,12 +3,18 @@ import { Maximize2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '../../components/ui/dialog.js';
 import { DiagramCanvas } from './DiagramCanvas.js';
 import { NodeDetailPanel } from './NodeDetailPanel.js';
+import { useArchTheme } from './ArchitectureTheme.js';
 
 type Props = { id: string; title: string; svg: string };
 
 export function DiagramFrame({ id, title, svg }: Props) {
   const [sel, setSel] = useState<string | null>(null);
   const [full, setFull] = useState(false);
+  // Radix DialogContent portals to document.body, OUTSIDE the page's
+  // [data-arch-theme] wrapper, so the fullscreen view would otherwise fall back
+  // to the light-mode :root defaults. Re-stamp the resolved theme on our own
+  // .arch-root inside the portal so both modes render correctly.
+  const { resolved } = useArchTheme();
 
   return (
     <figure className="arch-frame">
@@ -32,7 +38,7 @@ export function DiagramFrame({ id, title, svg }: Props) {
       <Dialog open={full} onOpenChange={setFull}>
         <DialogContent className="max-w-[96vw] p-0">
           <DialogTitle className="sr-only">{title}</DialogTitle>
-          <div className="arch-root" data-arch-theme-inherit>
+          <div className="arch-root" data-arch-theme={resolved}>
             <DiagramCanvas svg={svg} diagramId={id} selected={sel} onSelect={setSel} />
             <NodeDetailPanel diagramId={id} node={sel} onClose={() => setSel(null)} />
           </div>
