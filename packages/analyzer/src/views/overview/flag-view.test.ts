@@ -13,6 +13,8 @@ import {
   toFlagViewFromRow,
   groupSupportingBySession,
   countSessionsSpanned,
+  pickFlagByHeuristic,
+  type FlagView,
   type SupportingRef,
 } from './flag-view.js';
 import { buildGlobalSeqLookup } from '../../data/global-seq-lookup.js';
@@ -223,5 +225,40 @@ describe('countSessionsSpanned', () => {
 
   it('ignores unresolved refs', () => {
     expect(countSessionsSpanned([ref('a'), ref(null)])).toBe(1);
+  });
+});
+
+describe('pickFlagByHeuristic', () => {
+  const flag = (id: string, heuristic: string, severity: FlagView['severity']): FlagView => ({
+    id,
+    heuristic,
+    title: id,
+    description: '',
+    severity,
+    confidence: 1,
+    supporting: [],
+  });
+
+  it('returns the id of the single flag matching the heuristic', () => {
+    const flags = [flag('a', 'large_paste', 'high'), flag('b', 'external_edits', 'low')];
+    expect(pickFlagByHeuristic(flags, 'external_edits')).toBe('b');
+  });
+
+  it('picks the highest-severity flag when several share the heuristic', () => {
+    const flags = [
+      flag('low', 'dup', 'low'),
+      flag('high', 'dup', 'high'),
+      flag('med', 'dup', 'medium'),
+    ];
+    expect(pickFlagByHeuristic(flags, 'dup')).toBe('high');
+  });
+
+  it('breaks a severity tie by keeping the first in order', () => {
+    const flags = [flag('first', 'dup', 'high'), flag('second', 'dup', 'high')];
+    expect(pickFlagByHeuristic(flags, 'dup')).toBe('first');
+  });
+
+  it('returns null when no flag matches', () => {
+    expect(pickFlagByHeuristic([flag('a', 'large_paste', 'high')], 'nope')).toBeNull();
   });
 });

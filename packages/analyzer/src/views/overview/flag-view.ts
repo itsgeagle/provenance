@@ -135,6 +135,38 @@ export function toFlagViewFromRow(
 }
 
 // ---------------------------------------------------------------------------
+// Picking a flag to auto-open from a dashboard deep-link
+// ---------------------------------------------------------------------------
+
+const SEVERITY_RANK: Record<FlagView['severity'], number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+  info: 0,
+};
+
+/**
+ * Resolve a dashboard `?flag=<heuristic>` deep-link to the id of the flag its
+ * drawer should open.
+ *
+ * The cohort table only carries a flag's `heuristic_id`, so a submission may
+ * hold several flags of that heuristic (e.g. one per file). We open the
+ * highest-severity one; ties keep the first in the flags' existing order
+ * (severity desc, confidence desc), so this lands on the most serious instance.
+ * Returns null when no flag matches — the caller renders no drawer.
+ */
+export function pickFlagByHeuristic(flags: FlagView[], heuristic: string): string | null {
+  let best: FlagView | null = null;
+  for (const flag of flags) {
+    if (flag.heuristic !== heuristic) continue;
+    if (best === null || SEVERITY_RANK[flag.severity] > SEVERITY_RANK[best.severity]) {
+      best = flag;
+    }
+  }
+  return best?.id ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Session grouping
 // ---------------------------------------------------------------------------
 

@@ -11,6 +11,7 @@
  * submission tab share one implementation.
  */
 
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Progress } from '@/components/ui/progress.js';
 import { HeuristicDetailDrawer } from './HeuristicDetailDrawer.js';
@@ -25,14 +26,24 @@ interface FlagDashboardPanelProps {
   sessionOrdinals?: ReadonlyMap<string, number> | undefined;
   /** Fired when any drawer opens; lets a caller lazily load supporting-event data. */
   onDrawerOpen?: (() => void) | undefined;
+  /**
+   * Id of a flag whose drawer should open on mount — used by a dashboard
+   * `?flag=` deep-link. Null/absent opens nothing; the user can still close it,
+   * and clicking any row opens that row as usual.
+   */
+  openFlagId?: string | null | undefined;
 }
 
 type FlagRowProps = {
   flag: FlagView;
-} & Omit<FlagDashboardPanelProps, 'flags'>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+} & Omit<FlagDashboardPanelProps, 'flags' | 'openFlagId'>;
 
 function FlagRow({
   flag,
+  open,
+  onOpenChange,
   onJumpToTimeline,
   onJumpToReplay,
   sessionOrdinals,
@@ -43,6 +54,8 @@ function FlagRow({
   return (
     <HeuristicDetailDrawer
       flag={flag}
+      open={open}
+      onOpenChange={onOpenChange}
       onJumpToTimeline={onJumpToTimeline}
       onJumpToReplay={onJumpToReplay}
       sessionOrdinals={sessionOrdinals}
@@ -86,7 +99,16 @@ export function FlagDashboardPanel({
   onJumpToReplay,
   sessionOrdinals,
   onDrawerOpen,
+  openFlagId,
 }: FlagDashboardPanelProps) {
+  // The drawers are controlled from here so a `?flag=` deep-link can open one
+  // on mount. Seeded from openFlagId; the effect re-opens if the link changes.
+  // Absent openFlagId leaves manual open/close untouched.
+  const [openId, setOpenId] = useState<string | null>(openFlagId ?? null);
+  useEffect(() => {
+    if (openFlagId != null) setOpenId(openFlagId);
+  }, [openFlagId]);
+
   return (
     <Card data-testid="flag-dashboard-panel">
       <CardHeader className="pb-3">
@@ -108,6 +130,8 @@ export function FlagDashboardPanel({
               <FlagRow
                 key={flag.id}
                 flag={flag}
+                open={openId === flag.id}
+                onOpenChange={(next) => setOpenId(next ? flag.id : null)}
                 onJumpToTimeline={onJumpToTimeline}
                 onJumpToReplay={onJumpToReplay}
                 sessionOrdinals={sessionOrdinals}

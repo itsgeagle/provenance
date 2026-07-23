@@ -28,6 +28,7 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { formatDistanceToNow } from 'date-fns';
+import { Link } from 'react-router-dom';
 import type { SubmissionRow } from '@provenance/shared/api-schemas';
 import type { CohortSort } from '../../api/queries.js';
 import { useActiveSemester } from '../../api/use-active-semester.js';
@@ -249,16 +250,33 @@ export function CohortTable({
         cell: (info) => {
           const flags = info.getValue();
           if (flags.length === 0) return <span className="text-xs text-gray-600">—</span>;
+          const submissionId = info.row.original.id;
           return (
             <div className="flex flex-wrap gap-1">
-              {flags.map((f) => (
-                <span
-                  key={f.heuristic_id}
-                  className={`inline-flex items-center rounded px-1 py-0.5 text-xs ${SEV_COLOR[f.severity] ?? SEV_COLOR['info']}`}
-                >
-                  {f.heuristic_id.replace(/_/g, ' ')}
-                </span>
-              ))}
+              {flags.map((f) => {
+                const label = f.heuristic_id.replace(/_/g, ' ');
+                const chipClass = `inline-flex items-center rounded px-1 py-0.5 text-xs ${SEV_COLOR[f.severity] ?? SEV_COLOR['info']}`;
+                // basePath is '' only before slugs resolve (never while mounted,
+                // see the student cell). Fall back to a plain chip over a broken
+                // link.
+                if (!basePath) {
+                  return (
+                    <span key={f.heuristic_id} className={chipClass}>
+                      {label}
+                    </span>
+                  );
+                }
+                return (
+                  <Link
+                    key={f.heuristic_id}
+                    to={`${basePath}/sub/${submissionId}?tab=overview&flag=${f.heuristic_id}`}
+                    className={`${chipClass} transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                    title={`Jump to “${label}” on this submission`}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
             </div>
           );
         },

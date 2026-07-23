@@ -231,6 +231,14 @@ interface HeuristicDetailDrawerProps {
    * the event index, which is only needed once a drawer is actually opened.
    */
   onOpen?: (() => void) | undefined;
+  /**
+   * Optional controlled open state. When omitted the drawer is uncontrolled
+   * (Radix manages open/close from the trigger) — the default for every list
+   * row. The submission Overview passes it so a dashboard deep-link can open a
+   * specific flag's drawer without a click.
+   */
+  open?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
 }
 
 export function HeuristicDetailDrawer({
@@ -240,11 +248,17 @@ export function HeuristicDetailDrawer({
   onJumpToReplay,
   sessionOrdinals,
   onOpen,
+  open,
+  onOpenChange,
 }: HeuristicDetailDrawerProps) {
   return (
     <Dialog
-      onOpenChange={(open) => {
-        if (open) onOpen?.();
+      // Omit `open` entirely when undefined so Radix stays uncontrolled — under
+      // exactOptionalPropertyTypes an explicit `open={undefined}` is a type error.
+      {...(open !== undefined ? { open } : {})}
+      onOpenChange={(next) => {
+        if (next) onOpen?.();
+        onOpenChange?.(next);
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>

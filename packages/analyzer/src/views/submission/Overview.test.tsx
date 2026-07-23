@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import type { UseQueryResult } from '@tanstack/react-query';
@@ -266,12 +266,12 @@ function LocationCapture({ onLocation }: { onLocation: (l: string) => void }) {
   return null;
 }
 
-function renderAtRoute(provider: SubmissionDataProvider) {
+function renderAtRoute(provider: SubmissionDataProvider, search = '') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let lastLocation = '';
   render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/s/cs61a/fa26/sub/test-sub-id']}>
+      <MemoryRouter initialEntries={[`/s/cs61a/fa26/sub/test-sub-id${search}`]}>
         <Routes>
           <Route
             path="/s/:courseSlug/:semesterSlug/sub/:submissionId"
@@ -361,6 +361,68 @@ describe('Overview tab — flag drill-down', () => {
     expect(getLocation()).toContain('tab=replay');
     expect(getLocation()).toContain('event=3');
     expect(getLocation()).not.toContain('session=');
+  });
+});
+
+describe('Overview tab — ?flag= dashboard deep-link', () => {
+  const LOW_DUP: FlagRow = {
+    id: '00000000-0000-4000-8000-0000000000aa',
+    heuristic_id: 'large_paste',
+    severity: 'low',
+    confidence: 0.5,
+    score_contribution: 1,
+    title: 'Small paste in a.py',
+    description: 'low one',
+    detail: null,
+    supporting_seqs: [1],
+    session_id: 'sess-a',
+  };
+  const HIGH_DUP: FlagRow = {
+    id: '00000000-0000-4000-8000-0000000000bb',
+    heuristic_id: 'large_paste',
+    severity: 'high',
+    confidence: 0.9,
+    score_contribution: 4,
+    title: 'Huge paste in b.py',
+    description: 'high one',
+    detail: null,
+    supporting_seqs: [3],
+    session_id: 'sess-b',
+  };
+
+  it('auto-opens the matching flag drawer and loads the event index', () => {
+    indexHook.result = makeQueryResult(twoSessionIndex());
+    renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [CROSS_SESSION_FLAG] }),
+      '?flag=external_edits',
+    );
+
+    const drawer = screen.getByTestId('heuristic-drawer');
+    expect(within(drawer).getByText('External edit in hw1.py')).toBeInTheDocument();
+    // Opening a drawer is exactly when the deferred index load is meant to fire.
+    expect(indexHook.enabledCalls.at(-1)).toBe(true);
+  });
+
+  it('opens the highest-severity flag when several share the heuristic', () => {
+    renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [LOW_DUP, HIGH_DUP] }),
+      '?flag=large_paste',
+    );
+
+    const drawer = screen.getByTestId('heuristic-drawer');
+    expect(within(drawer).getByText('Huge paste in b.py')).toBeInTheDocument();
+    expect(within(drawer).queryByText('Small paste in a.py')).not.toBeInTheDocument();
+  });
+
+  it('opens nothing and does not load the index when the flag param matches no flag', () => {
+    renderAtRoute(
+      makeProvider(makeQueryResult(TWO_SESSION_SUMMARY), { flags: [CROSS_SESSION_FLAG] }),
+      '?flag=does_not_exist',
+    );
+
+    expect(screen.queryByTestId('heuristic-drawer')).not.toBeInTheDocument();
+    expect(screen.getByTestId('submission-overview')).toBeInTheDocument();
+    expect(indexHook.enabledCalls.every((e) => e === false)).toBe(true);
   });
 });
 

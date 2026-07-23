@@ -94,6 +94,34 @@ describe('CohortTable keyboard drill-in (WCAG 2.1.1)', () => {
   });
 });
 
+describe('CohortTable top-flag chips drill-in', () => {
+  it('renders each top-flag chip as a link to that flag on the submission overview', async () => {
+    const row = makeSubmissionRow({
+      id: '10000000-0000-0000-0000-000000000042',
+      top_flags: [{ heuristic_id: 'large_paste', severity: 'high' }],
+    });
+    renderCohortTable({ rows: [row] });
+
+    const chip = await screen.findByRole('link', { name: /large paste/i });
+    expect(chip).toHaveAttribute(
+      'href',
+      `/s/${DEFAULT_COURSE_SLUG}/${DEFAULT_SEMESTER_SLUG}/sub/10000000-0000-0000-0000-000000000042?tab=overview&flag=large_paste`,
+    );
+  });
+
+  it('renders an em dash rather than a link when a row has no top flags', async () => {
+    const row = makeSubmissionRow({
+      id: '10000000-0000-0000-0000-000000000043',
+      top_flags: [],
+    });
+    renderCohortTable({ rows: [row] });
+
+    await screen.findByTestId('cohort-row-10000000-0000-0000-0000-000000000043');
+    // The only link in the row is the student drill-in, not a flag chip.
+    expect(screen.queryByRole('link', { name: /paste|edit|flag/i })).not.toBeInTheDocument();
+  });
+});
+
 describe('CohortTable sortable headers (WCAG 2.1.1 / 4.1.2)', () => {
   it('exposes aria-sort on the currently-sorted column header', () => {
     renderCohortTable({ sort: 'score_desc' });

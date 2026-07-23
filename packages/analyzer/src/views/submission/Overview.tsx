@@ -19,13 +19,17 @@
  * the session along with it.
  */
 
-import { useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useSubmissionData } from '../../data/SubmissionDataProvider.js';
 import { useFullEventIndex } from '../../data/useFullEventIndex.js';
 import { buildGlobalSeqLookup } from '../../data/global-seq-lookup.js';
 import { FlagDashboardPanel } from '../overview/FlagDashboardPanel.js';
-import { toFlagViewFromRow, type SupportingRef } from '../overview/flag-view.js';
+import {
+  toFlagViewFromRow,
+  pickFlagByHeuristic,
+  type SupportingRef,
+} from '../overview/flag-view.js';
 import { SessionsCard } from './SessionsCard.js';
 import { collectActiveExtensions } from '../../extensions/collect-active-extensions.js';
 import { ActiveExtensionsCard } from '../../extensions/ActiveExtensionsCard.js';
@@ -112,6 +116,19 @@ export function Overview() {
     () => (flagsQuery.data ?? []).map((row) => toFlagViewFromRow(row, bySeq)),
     [flagsQuery.data, bySeq],
   );
+
+  // Dashboard deep-link: `?flag=<heuristic>` opens that flag's drawer on
+  // arrival. Resolving to the flag's own id survives the index loading later
+  // (the id comes off the flag row, not the event stream), and opening the
+  // drawer needs the event index — the same load a manual click triggers.
+  const flagParam = searchParams.get('flag');
+  const openFlagId = useMemo(
+    () => (flagParam ? pickFlagByHeuristic(flagViews, flagParam) : null),
+    [flagParam, flagViews],
+  );
+  useEffect(() => {
+    if (openFlagId) setNeedsIndex(true);
+  }, [openFlagId]);
 
   const sessions = useMemo(() => summaryQuery.data?.sessions ?? [], [summaryQuery.data]);
 
@@ -297,6 +314,7 @@ export function Overview() {
             onJumpToReplay={handleJumpToReplay}
             sessionOrdinals={sessionOrdinals}
             onDrawerOpen={handleDrawerOpen}
+            openFlagId={openFlagId}
           />
         </div>
       )}
